@@ -57,7 +57,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] `status`: `online`, `away`, or unknown
   - [ ] last observed timestamp
 - [ ] Store unread and mention counters per buffer, not only per channel.
-- [ ] Keep message retention capped by the user's 1-3 day setting.
+- [x] Keep message retention capped by the user's 1-3 day setting.
 
 ## Initial load flow
 
@@ -331,6 +331,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Testing checklist
 
 - [ ] Backend context tests for buffer ownership and scoping.
+  - [x] retention pruning after inbound persistence
 - [x] Backend channel tests for `UserChannel`.
 - [ ] Backend API tests for bootstrap, history, join, leave, and settings.
   - [x] bootstrap
