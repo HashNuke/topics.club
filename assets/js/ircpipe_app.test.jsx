@@ -2,7 +2,7 @@ import React from "react"
 import {describe, expect, test, vi} from "vitest"
 import {fireEvent, render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import IrcpipeApp, {demoTopics, visibleTimelineMessages} from "./ircpipe_app.jsx"
+import IrcpipeApp, {appendTimelineMessage, demoTopics, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.jsx"
 
 function mockTopicsFetch() {
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
@@ -206,6 +206,15 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(visibleTimelineMessages(messages, false, 3).map((message) => message.id)).toEqual([4, 5, 6])
     expect(visibleTimelineMessages(messages, true, 3).map((message) => message.id)).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
+  test("trims stored timeline messages only when the reader is at the bottom", () => {
+    const messages = Array.from({length: 3}, (_, index) => ({id: index + 1, body: `message ${index + 1}`}))
+    const nextMessage = {id: 4, body: "message 4"}
+
+    expect(appendTimelineMessage(messages, nextMessage, false, 3).map((message) => message.id)).toEqual([2, 3, 4])
+    expect(appendTimelineMessage(messages, nextMessage, true, 3).map((message) => message.id)).toEqual([1, 2, 3, 4])
+    expect(trimMessagesToLimit([...messages, nextMessage], 3).map((message) => message.id)).toEqual([2, 3, 4])
   })
 
   test("loads older channel history when scrolling near the top", async () => {

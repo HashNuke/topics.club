@@ -150,6 +150,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
   const loadingOlderRef = useRef(new Set())
+  const readingBuffersRef = useRef(new Set())
   const activeChannelIdRef = useRef(activeChannelId)
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
@@ -493,7 +494,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (view === "server" && activeServer) {
       setMessagesByServer((current) => ({
         ...current,
-        [activeServer.id]: [...(current[activeServer.id] || serverBufferMessages(activeServer)), message],
+        [activeServer.id]: appendTimelineMessage(
+          current[activeServer.id] || serverBufferMessages(activeServer),
+          message,
+          readingBuffersRef.current.has(activeServer.id)
+        ),
       }))
       return
     }
@@ -502,7 +507,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     setMessagesByChannel((current) => ({
       ...current,
-      [activeChannel.id]: [...(current[activeChannel.id] || []), message],
+      [activeChannel.id]: appendTimelineMessage(current[activeChannel.id] || [], message, readingBuffersRef.current.has(activeChannel.id)),
     }))
   }
 
@@ -558,14 +563,43 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (bufferId.startsWith("server:")) {
       setMessagesByServer((current) => ({
         ...current,
-        [bufferId]: [...(current[bufferId] || []), normalized],
+        [bufferId]: appendTimelineMessage(current[bufferId] || [], normalized, readingBuffersRef.current.has(bufferId)),
       }))
       return
     }
 
     setMessagesByChannel((current) => ({
       ...current,
-      [bufferId]: [...(current[bufferId] || []), normalized],
+      [bufferId]: appendTimelineMessage(current[bufferId] || [], normalized, readingBuffersRef.current.has(bufferId)),
+    }))
+  }
+
+  function updateBufferReadingState(bufferId, readingOlder) {
+    if (!bufferId) return
+
+    if (readingOlder) {
+      readingBuffersRef.current.add(bufferId)
+      return
+    }
+
+    if (!readingBuffersRef.current.has(bufferId)) return
+
+    readingBuffersRef.current.delete(bufferId)
+    pruneBufferMessages(bufferId)
+  }
+
+  function pruneBufferMessages(bufferId) {
+    if (bufferId.startsWith("server:")) {
+      setMessagesByServer((current) => ({
+        ...current,
+        [bufferId]: trimMessagesToLimit(current[bufferId] || []),
+      }))
+      return
+    }
+
+    setMessagesByChannel((current) => ({
+      ...current,
+      [bufferId]: trimMessagesToLimit(current[bufferId] || []),
     }))
   }
 
@@ -773,6 +807,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onRetryMessage={retryMessage}
       onSendMessage={sendMessage}
       onLoadOlderMessages={loadOlderMessages}
+      onReadingStateChange={updateBufferReadingState}
       onShowChat={() => setView("chat")}
       onUpdateDraft={setDraft}
       connectionHealth={connectionHealth}
@@ -1005,6 +1040,7 @@ function AppShell(props) {
               draft={props.draft}
               messages={props.serverMessages}
               onLoadOlderMessages={props.onLoadOlderMessages}
+              onReadingStateChange={props.onReadingStateChange}
               server={props.activeServer}
               onSendMessage={props.onSendMessage}
               onUpdateDraft={props.onUpdateDraft}
@@ -1415,9 +1451,10 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
   }
 }
 
-function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlderMessages, onRetryMessage, onSendMessage, onUpdateDraft}) {
+function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
+    onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(activeChannel?.id, nextReadingOlder),
   })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
   const sendDisabled = isRealtimeChannel(activeChannel) && connectionHealth !== "connected"
@@ -1530,9 +1567,10 @@ function DiscoverPane({topics, onSelectTopic}) {
   )
 }
 
-function ServerBufferPane({draft, messages, onLoadOlderMessages, server, onSendMessage, onUpdateDraft}) {
+function ServerBufferPane({draft, messages, onLoadOlderMessages, onReadingStateChange, server, onSendMessage, onUpdateDraft}) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(server?.id),
+    onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(server?.id, nextReadingOlder),
   })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
 
@@ -2060,6 +2098,16 @@ export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_
   return messages.slice(-limit)
 }
 
+export function trimMessagesToLimit(messages, limit = MESSAGE_RENDER_LIMIT) {
+  if (messages.length <= limit) return messages
+  return messages.slice(-limit)
+}
+
+export function appendTimelineMessage(messages, message, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
+  const nextMessages = [...messages, message]
+  return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
+}
+
 function mergeOlderMessages(olderMessages, currentMessages) {
   const currentIds = new Set(currentMessages.map((message) => message.id))
   return [...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages]
@@ -2109,7 +2157,7 @@ function notificationLabel(state) {
   return "Enable browser notifications for mentions."
 }
 
-function useChatScroll(messages, {onNearTop} = {}) {
+function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) {
   const scrollRef = React.useRef(null)
   const previousScrollHeightRef = React.useRef(0)
   const previousLastMessageIdRef = React.useRef(null)
@@ -2124,8 +2172,11 @@ function useChatScroll(messages, {onNearTop} = {}) {
     const updateReadingState = ({loadOlder = false} = {}) => {
       const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
       const nextReadingOlder = distanceFromBottom > 96
-      readingOlderRef.current = nextReadingOlder
-      setReadingOlder(nextReadingOlder)
+      if (readingOlderRef.current !== nextReadingOlder) {
+        readingOlderRef.current = nextReadingOlder
+        setReadingOlder(nextReadingOlder)
+        onReadingStateChange?.(nextReadingOlder)
+      }
       if (!nextReadingOlder) setNewMessageCount(0)
       if (loadOlder && node.scrollTop <= 80 && node.scrollHeight > node.clientHeight) onNearTop?.()
     }
@@ -2135,7 +2186,7 @@ function useChatScroll(messages, {onNearTop} = {}) {
     node.addEventListener("scroll", handleScroll)
 
     return () => node.removeEventListener("scroll", handleScroll)
-  }, [onNearTop])
+  }, [onNearTop, onReadingStateChange])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -2178,6 +2229,7 @@ function useChatScroll(messages, {onNearTop} = {}) {
     if (node) node.scrollTop = node.scrollHeight
     readingOlderRef.current = false
     setReadingOlder(false)
+    onReadingStateChange?.(false)
     setNewMessageCount(0)
   }
 
