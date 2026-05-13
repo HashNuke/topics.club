@@ -22,6 +22,14 @@ export function chatReducer(state = emptyChatState, action) {
         ...state,
         usersByBuffer: {...state.usersByBuffer, [action.buffer_id]: action.users || []},
       }
+    case "presence:diff":
+      return {
+        ...state,
+        usersByBuffer: {
+          ...state.usersByBuffer,
+          [action.buffer_id]: applyUserDiff(state.usersByBuffer[action.buffer_id] || [], action.diff),
+        },
+      }
     case "server:status":
       return applyServerStatus(state, action)
     case "connection:health":
@@ -101,4 +109,31 @@ function applyServerStatus(state, action) {
       buffer.server_connection_id === action.server_connection_id ? {...buffer, status: action.status} : buffer
     ),
   }
+}
+
+export function applyUserDiff(users, diff) {
+  if (!diff) return users
+
+  if (diff.action === "join" && diff.user?.nick) {
+    if (users.some((user) => user.nick === diff.user.nick)) return users
+    return [...users, diff.user]
+  }
+
+  if ((diff.action === "part" || diff.action === "quit") && diff.nick) {
+    return users.filter((user) => user.nick !== diff.nick)
+  }
+
+  if (diff.action === "nick" && diff.old_nick && diff.new_nick) {
+    return users.map((user) => (user.nick === diff.old_nick ? {...user, nick: diff.new_nick} : user))
+  }
+
+  if (diff.action === "away" && diff.nick && diff.status) {
+    return users.map((user) => (user.nick === diff.nick ? {...user, status: diff.status} : user))
+  }
+
+  if (diff.action === "role" && diff.nick && diff.role) {
+    return users.map((user) => (user.nick === diff.nick ? {...user, role: diff.role} : user))
+  }
+
+  return users
 }

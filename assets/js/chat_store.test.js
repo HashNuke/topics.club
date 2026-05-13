@@ -85,6 +85,31 @@ describe("chat store", () => {
     expect(synced.usersByBuffer["channel:2"]).toEqual([{nick: "akash", role: "user"}])
   })
 
+  test("applies presence diffs through the reducer", () => {
+    const joined = chatReducer(hydrateBootstrap(bootstrap), {
+      type: "presence:diff",
+      buffer_id: "channel:2",
+      diff: {action: "join", user: {nick: "akash", role: "user"}},
+    })
+    const renamed = chatReducer(joined, {
+      type: "presence:diff",
+      buffer_id: "channel:2",
+      diff: {action: "nick", old_nick: "mira", new_nick: "mira_"},
+    })
+    const promoted = chatReducer(renamed, {
+      type: "presence:diff",
+      buffer_id: "channel:2",
+      diff: {action: "role", nick: "akash", role: "voice"},
+    })
+    const parted = chatReducer(promoted, {
+      type: "presence:diff",
+      buffer_id: "channel:2",
+      diff: {action: "part", nick: "mira_"},
+    })
+
+    expect(parted.usersByBuffer["channel:2"]).toEqual([{nick: "akash", role: "voice"}])
+  })
+
   test("tracks connection health and server status", () => {
     const state = chatReducer(emptyChatState, {type: "bootstrap:loaded", bootstrap})
     const reconnecting = chatReducer(state, {type: "connection:health", status: "reconnecting"})

@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/react"
 import {createApiClient} from "./api_client.js"
+import {applyUserDiff} from "./chat_store.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 export const MESSAGE_RENDER_LIMIT = 400
@@ -2192,33 +2193,6 @@ export function appendTimelineMessage(messages, message, readingOlder, limit = M
 function mergeOlderMessages(olderMessages, currentMessages) {
   const currentIds = new Set(currentMessages.map((message) => message.id))
   return [...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages]
-}
-
-function applyUserDiff(users, diff) {
-  if (!diff) return users
-
-  if (diff.action === "join" && diff.user?.nick) {
-    if (users.some((user) => user.nick === diff.user.nick)) return users
-    return [...users, diff.user]
-  }
-
-  if ((diff.action === "part" || diff.action === "quit") && diff.nick) {
-    return users.filter((user) => user.nick !== diff.nick)
-  }
-
-  if (diff.action === "nick" && diff.old_nick && diff.new_nick) {
-    return users.map((user) => (user.nick === diff.old_nick ? {...user, nick: diff.new_nick} : user))
-  }
-
-  if (diff.action === "away" && diff.nick && diff.status) {
-    return users.map((user) => (user.nick === diff.nick ? {...user, status: diff.status} : user))
-  }
-
-  if (diff.action === "role" && diff.nick && diff.role) {
-    return users.map((user) => (user.nick === diff.nick ? {...user, role: diff.role} : user))
-  }
-
-  return users
 }
 
 function normalizeChannel(channel) {
