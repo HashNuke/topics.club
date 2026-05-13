@@ -168,14 +168,14 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Connection health and backend failure feedback
 
 - [ ] React tracks Phoenix socket state with `onOpen`, `onClose`, `onError`, and `connectionState()`.
-- [ ] Show a small top-bar connection status indicator:
-  - [ ] connected
-  - [ ] reconnecting
-  - [ ] offline
-  - [ ] degraded
+- [x] Show a small top-bar connection status indicator:
+  - [x] connected
+  - [x] reconnecting
+  - [x] offline
+  - [x] degraded
 - [ ] Disable message send while the Phoenix socket is disconnected.
 - [ ] Queue drafts locally but do not pretend they were sent.
-- [ ] Surface channel push timeouts as "Still trying" or "Send failed".
+- [x] Surface channel push timeouts as "Still trying" or "Send failed".
 - [ ] Show server-specific IRC connection failures in the server buffer.
 - [ ] Push backend IRC session failures as `server:status` and `buffer:error`.
 - [ ] Add retry actions for:
@@ -183,6 +183,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] reconnect IRC server
   - [ ] retry failed message
 - [ ] Add tests for socket close, channel timeout, and IRC session error states.
+  - [x] realtime join error shows degraded status
+  - [x] channel send error shows failed status
 
 ## User list flow
 

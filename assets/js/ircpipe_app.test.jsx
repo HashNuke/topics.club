@@ -1,6 +1,6 @@
 import React from "react"
 import {describe, expect, test, vi} from "vitest"
-import {render, screen, within} from "@testing-library/react"
+import {render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import IrcpipeApp, {demoTopics} from "./ircpipe_app.jsx"
 
@@ -292,6 +292,29 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(screen.getByRole("button", {name: "Send"}))
 
     expect(await screen.findByText("Send failed")).toBeInTheDocument()
+  })
+
+  test("shows degraded connection health when the realtime join fails", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onJoinError({reason: "unauthorized"})
+
+    await waitFor(() => expect(screen.getByLabelText("Connection degraded")).toBeInTheDocument())
   })
 
   test("shows browser notifications for hidden-tab mention events", async () => {

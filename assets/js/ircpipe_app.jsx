@@ -804,7 +804,7 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
   )
 }
 
-function TopBar({activeChannel, activeServer, notificationState, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications}) {
+function TopBar({activeChannel, activeServer, connectionHealth, notificationState, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications}) {
   const topBarCopy = topBarCopyFor({activeChannel, activeServer, view})
 
   return (
@@ -828,6 +828,7 @@ function TopBar({activeChannel, activeServer, notificationState, view, onOpenMob
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <ConnectionHealthIndicator status={connectionHealth} />
         {view !== "discover" && (
           <button
             className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden"
@@ -854,6 +855,35 @@ function TopBar({activeChannel, activeServer, notificationState, view, onOpenMob
         </Tooltip>
       </div>
     </header>
+  )
+}
+
+function ConnectionHealthIndicator({status}) {
+  const labels = {
+    connected: "connected",
+    degraded: "degraded",
+    disconnected: "offline",
+    reconnecting: "reconnecting",
+  }
+  const label = labels[status] || "offline"
+
+  return (
+    <div
+      className="hidden items-center gap-1.5 rounded-md border border-slate-800 px-2 py-1 text-xs text-slate-400 sm:flex"
+      aria-label={`Connection ${label}`}
+    >
+      <span
+        className={[
+          "size-1.5 rounded-full",
+          status === "connected"
+            ? "bg-emerald-300"
+            : status === "degraded" || status === "reconnecting"
+              ? "bg-amber-300"
+              : "bg-slate-500",
+        ].join(" ")}
+      />
+      <span>{label}</span>
+    </div>
   )
 }
 
