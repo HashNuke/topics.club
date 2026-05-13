@@ -1,0 +1,13 @@
+<div
+  id="ircpipe-root"
+  data-current-user={
+    if @current_scope do
+      Jason.encode!(%{
+        id: @current_scope.user.id,
+        email: @current_scope.user.email,
+        message_retention_days: @current_scope.user.message_retention_days
+      })
+    end
+  }
+>
+</div>

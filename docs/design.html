@@ -1,0 +1,731 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1117;--bg2:#171b24;--bg3:#1e2330;--bg4:#252b3b;
+  --border:#2a3045;--border2:#3a4560;
+  --text:#e8eaf0;--text2:#8b92a8;--text3:#4f566b;
+  --accent:#5b6aff;--accent2:#4455ee;
+  --mention:#ff6b6b;--mention-bg:rgba(255,107,107,0.12);
+  --join:#2dd4bf;--success:#22c55e;
+  --online:#22c55e;--away:#f59e0b;
+  --nick1:#5b6aff;--nick2:#a78bfa;--nick3:#34d399;--nick4:#f472b6;--nick5:#fb923c;
+}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.5;min-height:600px;overflow:hidden}
+#app{display:flex;flex-direction:column;height:600px;border-radius:12px;overflow:hidden;border:1px solid var(--border)}
+
+/* auth */
+#auth-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:0;background:var(--bg)}
+.auth-logo{font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--text);margin-bottom:6px}
+.auth-logo span{color:var(--accent)}
+.auth-sub{color:var(--text2);font-size:12px;margin-bottom:32px;font-family:system-ui,sans-serif}
+.auth-box{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:24px;width:320px;display:flex;flex-direction:column;gap:12px}
+.auth-tabs{display:flex;gap:0;margin-bottom:4px;border-bottom:1px solid var(--border)}
+.auth-tab{flex:1;padding:8px;text-align:center;cursor:pointer;font-size:12px;color:var(--text2);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.15s;font-family:system-ui,sans-serif}
+.auth-tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.auth-input{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 12px;color:var(--text);font-size:13px;font-family:system-ui,sans-serif;width:100%;outline:none}
+.auth-input:focus{border-color:var(--accent)}
+.auth-btn{background:var(--accent);border:none;border-radius:6px;padding:10px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:system-ui,sans-serif;letter-spacing:0.2px}
+.auth-btn:hover{background:var(--accent2)}
+.auth-or{text-align:center;color:var(--text3);font-size:11px;font-family:system-ui}
+
+/* main layout */
+#main{display:flex;height:100%;overflow:hidden}
+
+/* sidebar */
+#sidebar{width:220px;min-width:220px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{padding:12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.sidebar-logo{font-size:15px;font-weight:700;letter-spacing:-0.5px;color:var(--text);flex:1}
+.sidebar-logo span{color:var(--accent)}
+.icon-btn{background:none;border:none;color:var(--text2);cursor:pointer;padding:4px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.icon-btn:hover{background:var(--bg3);color:var(--text)}
+
+.sidebar-scroll{flex:1;overflow-y:auto;padding:8px 0}
+.sidebar-scroll::-webkit-scrollbar{width:3px}
+.sidebar-scroll::-webkit-scrollbar-thumb{background:var(--border2)}
+
+.net-section{margin-bottom:4px}
+.net-header{display:flex;align-items:center;gap:6px;padding:5px 10px;cursor:pointer}
+.net-name{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.8px;flex:1;font-family:system-ui}
+.net-status{width:6px;height:6px;border-radius:50%;background:var(--success)}
+.net-status.away{background:var(--away)}
+.net-status.off{background:var(--text3)}
+.net-toggle{font-size:10px;color:var(--text3)}
+
+.channel-item{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 18px;cursor:pointer;border-radius:0;color:var(--text2);transition:background 0.1s;user-select:none}
+.channel-item:hover{background:var(--bg3);color:var(--text)}
+.channel-item.active{background:var(--bg4);color:var(--text)}
+.channel-item.mention{color:var(--mention)}
+.channel-hash{font-size:13px;color:var(--text3)}
+.channel-name{flex:1;font-size:13px;font-family:system-ui,sans-serif}
+.badge{background:var(--accent);color:#fff;font-size:10px;padding:1px 5px;border-radius:8px;font-family:system-ui;font-weight:600;min-width:16px;text-align:center}
+.badge.mention{background:var(--mention)}
+
+.sidebar-footer{padding:10px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.user-avatar{width:28px;height:28px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;font-family:system-ui;flex-shrink:0}
+.user-info{flex:1;min-width:0}
+.user-nick{font-size:12px;font-weight:500;color:var(--text);font-family:system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-status{font-size:10px;color:var(--success);font-family:system-ui}
+
+/* main pane */
+#main-pane{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+#home-pane{flex:1;overflow-y:auto;padding:32px 28px;background:var(--bg)}
+#home-pane::-webkit-scrollbar{width:3px}
+#home-pane::-webkit-scrollbar-thumb{background:var(--border2)}
+
+/* chat */
+#chat-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.chat-header{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--bg2)}
+.chat-channel-name{font-size:14px;font-weight:600;color:var(--text);font-family:system-ui,sans-serif}
+.chat-topic{font-size:11px;color:var(--text2);font-family:system-ui,sans-serif;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-header-right{display:flex;align-items:center;gap:8px}
+.members-count{font-size:11px;color:var(--text2);font-family:system-ui;display:flex;align-items:center;gap:4px}
+
+.messages{flex:1;overflow-y:auto;padding:12px 0}
+.messages::-webkit-scrollbar{width:3px}
+.messages::-webkit-scrollbar-thumb{background:var(--border2)}
+
+.msg-group{padding:3px 16px;display:flex;gap:10px}
+.msg-group:hover{background:rgba(255,255,255,0.02)}
+.msg-group.mention-line{background:var(--mention-bg);border-left:2px solid var(--mention)}
+.msg-time{font-size:10px;color:var(--text3);min-width:38px;padding-top:2px;font-family:system-ui,sans-serif}
+.msg-body{flex:1;min-width:0}
+.msg-nick{font-weight:600;font-size:12px;display:inline;margin-right:6px}
+.msg-nick.n1{color:var(--nick1)}.msg-nick.n2{color:var(--nick2)}.msg-nick.n3{color:var(--nick3)}.msg-nick.n4{color:var(--nick4)}.msg-nick.n5{color:var(--nick5)}
+.msg-text{color:var(--text);word-break:break-word;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5}
+.msg-action{color:var(--text2);font-style:italic;font-family:system-ui,sans-serif;font-size:13px}
+.msg-system{color:var(--join);font-size:12px;font-family:system-ui,sans-serif;font-style:italic;padding:2px 16px}
+
+.input-area{padding:10px 14px;border-top:1px solid var(--border);background:var(--bg2)}
+.input-wrap{display:flex;align-items:center;gap:8px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:0 10px}
+.input-prefix{color:var(--text3);font-size:13px;padding:9px 0}
+.chat-input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:13px;padding:9px 0;font-family:system-ui,sans-serif}
+.chat-input::placeholder{color:var(--text3)}
+.send-btn{background:none;border:none;color:var(--text3);cursor:pointer;padding:4px;font-size:16px;display:flex;align-items:center}
+.send-btn:hover{color:var(--accent)}
+
+/* home */
+.home-greeting{font-family:system-ui,sans-serif;margin-bottom:28px}
+.home-greeting h1{font-size:22px;font-weight:700;color:var(--text);margin-bottom:6px;letter-spacing:-0.5px}
+.home-greeting p{color:var(--text2);font-size:14px;line-height:1.6}
+.home-greeting span{color:var(--accent);font-weight:600}
+
+.topics-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px}
+.topic-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;transition:border-color 0.15s,background 0.15s}
+.topic-card:hover{border-color:var(--border2);background:var(--bg3)}
+.topic-card-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px}
+.topic-icon{width:32px;height:32px;border-radius:8px;background:rgba(91,106,255,0.15);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:16px;flex-shrink:0}
+.topic-title{font-size:13px;font-weight:600;color:var(--text);font-family:system-ui,sans-serif}
+.topic-net{font-size:11px;color:var(--text3);font-family:system-ui,sans-serif;margin-top:1px}
+.topic-desc{font-size:12px;color:var(--text2);font-family:system-ui,sans-serif;line-height:1.5}
+.topic-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+.topic-channel{font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+.topic-tag{font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(91,106,255,0.15);color:#8b95ff;font-family:system-ui}
+.topic-join-btn{font-size:11px;padding:4px 10px;border-radius:5px;background:var(--accent);color:#fff;border:none;cursor:pointer;font-family:system-ui;font-weight:600}
+.topic-join-btn:hover{background:var(--accent2)}
+
+.home-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-family:system-ui;margin-bottom:10px}
+.quick-connect{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:border-color 0.15s}
+.quick-connect:hover{border-color:var(--border2)}
+.qc-icon{color:var(--accent);font-size:20px}
+.qc-text{flex:1;font-family:system-ui,sans-serif}
+.qc-title{font-size:13px;font-weight:500;color:var(--text)}
+.qc-sub{font-size:11px;color:var(--text2)}
+
+/* modal */
+#modal-overlay{display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center;border-radius:12px}
+#modal-overlay.show{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:12px;width:400px;max-height:520px;overflow-y:auto;padding:20px}
+.modal-title{font-size:15px;font-weight:600;color:var(--text);font-family:system-ui,sans-serif;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.modal-section{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-family:system-ui;margin:14px 0 8px}
+.modal-field{margin-bottom:10px}
+.modal-label{font-size:11px;color:var(--text2);font-family:system-ui,sans-serif;margin-bottom:4px}
+.modal-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:13px;font-family:system-ui,sans-serif;outline:none}
+.modal-input:focus{border-color:var(--accent)}
+.modal-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.modal-row3{display:grid;grid-template-columns:1fr 80px 80px;gap:8px}
+.modal-actions{display:flex;gap:8px;margin-top:16px}
+.modal-btn{flex:1;padding:9px;border-radius:6px;font-size:13px;font-family:system-ui,sans-serif;cursor:pointer;font-weight:500}
+.modal-btn-cancel{background:none;border:1px solid var(--border);color:var(--text2)}
+.modal-btn-cancel:hover{background:var(--bg3)}
+.modal-btn-connect{background:var(--accent);border:none;color:#fff}
+.modal-btn-connect:hover{background:var(--accent2)}
+.modal-net-btn{padding:7px 10px;border-radius:6px;font-size:12px;font-family:system-ui,sans-serif;cursor:pointer;background:var(--bg3);border:1px solid var(--border);color:var(--text2);text-align:left}
+.modal-net-btn:hover{border-color:var(--accent);color:var(--text)}
+.net-presets{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
+.modal-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg3);border-radius:6px;font-size:12px;color:var(--text2);font-family:system-ui}
+.toggle-pill{width:30px;height:16px;border-radius:8px;background:var(--accent);cursor:pointer;position:relative}
+.toggle-pill::after{content:'';position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;top:2px;right:2px;transition:right 0.2s}
+.toggle-pill.off{background:var(--border)}
+.toggle-pill.off::after{right:16px}
+
+/* settings */
+#settings-pane{flex:1;overflow-y:auto;padding:20px;background:var(--bg);font-family:system-ui,sans-serif}
+#settings-pane::-webkit-scrollbar{width:3px}
+#settings-pane::-webkit-scrollbar-thumb{background:var(--border2)}
+.settings-section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px}
+.settings-section-title{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:12px}
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.settings-row:last-child{border-bottom:none}
+.settings-row-label{font-size:13px;color:var(--text)}
+.settings-row-sub{font-size:11px;color:var(--text2);margin-top:2px}
+.retention-slider{width:120px}
+.settings-back{display:flex;align-items:center;gap:6px;color:var(--text2);cursor:pointer;font-size:13px;margin-bottom:16px;padding:6px 8px;border-radius:6px;border:none;background:none}
+.settings-back:hover{background:var(--bg2);color:var(--text)}
+
+/* member list */
+#member-pane{width:160px;min-width:160px;border-left:1px solid var(--border);background:var(--bg2);overflow-y:auto;padding:10px 0}
+#member-pane::-webkit-scrollbar{width:3px}
+.member-section{padding:4px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3)}
+.member-item{display:flex;align-items:center;gap:7px;padding:4px 10px;cursor:pointer}
+.member-item:hover{background:var(--bg3)}
+.member-dot{width:7px;height:7px;border-radius:50%;background:var(--online);flex-shrink:0}
+.member-dot.away{background:var(--away)}
+.member-op{color:#f59e0b;font-size:11px}
+.member-name{font-size:12px;color:var(--text2);font-family:system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.member-name.op{color:var(--text)}
+
+/* notification toast */
+.notif-toast{position:absolute;top:12px;right:12px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;z-index:200;font-family:system-ui,sans-serif;max-width:240px;display:none}
+.notif-toast.show{display:block}
+.notif-toast-title{font-size:12px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px}
+.notif-toast-body{font-size:11px;color:var(--text2);margin-top:3px}
+.notif-dot{width:6px;height:6px;border-radius:50%;background:var(--mention);display:inline-block}
+</style>
+
+<div id="app" style="position:relative">
+<div id="auth-screen">
+  <div class="auth-logo">IRC<span>ord</span></div>
+  <div class="auth-sub" style="font-family:system-ui,sans-serif">open internet relay chat, reimagined</div>
+  <div class="auth-box">
+    <div class="auth-tabs">
+      <div class="auth-tab active" id="tab-sign-in" onclick="switchTab('sign-in')">Sign in</div>
+      <div class="auth-tab" id="tab-sign-up" onclick="switchTab('sign-up')">Create account</div>
+    </div>
+    <div id="sign-in-fields">
+      <input class="auth-input" type="text" placeholder="Username" value="phaedra">
+      <input class="auth-input" type="password" placeholder="Password" value="••••••••">
+    </div>
+    <div id="sign-up-fields" style="display:none">
+      <input class="auth-input" type="text" placeholder="Username">
+      <input class="auth-input" type="email" placeholder="Email">
+      <input class="auth-input" type="password" placeholder="Password">
+    </div>
+    <button class="auth-btn" onclick="enterApp()">Sign in</button>
+    <div class="auth-or">No account needed to explore</div>
+    <button class="auth-btn" style="background:var(--bg3);color:var(--text2);border:1px solid var(--border)" onclick="enterApp()">Browse as guest</button>
+  </div>
+</div>
+
+<div id="main" style="display:none;height:100%">
+  <div id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">IRC<span>ord</span></div>
+      <button class="icon-btn" title="Add connection" onclick="showModal('connect')"><i class="ti ti-plus" aria-hidden="true"></i></button>
+      <button class="icon-btn" title="Settings" onclick="showSettings()"><i class="ti ti-settings" aria-hidden="true"></i></button>
+    </div>
+    <div class="sidebar-scroll">
+      <div style="padding:6px 10px 4px">
+        <div style="display:flex;align-items:center;gap:6px;background:var(--bg3);border-radius:6px;padding:5px 8px;border:1px solid var(--border)">
+          <i class="ti ti-search" style="font-size:13px;color:var(--text3)" aria-hidden="true"></i>
+          <span style="font-size:12px;color:var(--text3);font-family:system-ui">Jump to channel...</span>
+        </div>
+      </div>
+      <div id="channel-list"></div>
+      <div style="padding:8px 10px 4px;margin-top:4px">
+        <div class="quick-connect" onclick="showModal('connect')" style="padding:10px;border-radius:8px">
+          <span class="qc-icon"><i class="ti ti-server" aria-hidden="true"></i></span>
+          <div class="qc-text">
+            <div class="qc-title" style="font-size:12px">Add server</div>
+            <div class="qc-sub">Connect to an IRC network</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="user-avatar">PH</div>
+      <div class="user-info">
+        <div class="user-nick">phaedra</div>
+        <div class="user-status">● connected</div>
+      </div>
+      <button class="icon-btn" title="Home" onclick="showHome()"><i class="ti ti-home" aria-hidden="true"></i></button>
+    </div>
+  </div>
+
+  <div id="main-pane">
+    <div id="home-pane" style="display:none">
+      <div class="home-greeting">
+        <h1>Welcome back, <span>phaedra</span></h1>
+        <p>IRC is a live, open chat protocol with thousands of communities. Pick a topic below to jump right in, or connect to any server you know.</p>
+      </div>
+      <div class="home-section-title">Popular communities</div>
+      <div class="topics-grid" id="topics-grid"></div>
+      <div class="home-section-title" style="margin-top:8px">Connect your own server</div>
+      <div class="quick-connect" onclick="showModal('connect')">
+        <span class="qc-icon"><i class="ti ti-plug" aria-hidden="true"></i></span>
+        <div class="qc-text">
+          <div class="qc-title">Custom IRC server</div>
+          <div class="qc-sub">irc.example.com, with SASL, TLS, custom nick</div>
+        </div>
+        <i class="ti ti-arrow-right" style="color:var(--text3);font-size:16px" aria-hidden="true"></i>
+      </div>
+    </div>
+
+    <div id="chat-pane" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div class="chat-header">
+        <div>
+          <div class="chat-channel-name" id="chat-channel-title">#linux</div>
+          <div class="chat-topic" id="chat-topic-text">General Linux help — please state your distro when asking for help · No warez · Be excellent to each other</div>
+        </div>
+        <div class="chat-header-right">
+          <div class="members-count"><i class="ti ti-users" style="font-size:14px" aria-hidden="true"></i><span id="member-count">382</span></div>
+          <button class="icon-btn" title="Search messages"><i class="ti ti-search" aria-hidden="true"></i></button>
+          <button class="icon-btn" title="Member list" id="toggle-members" onclick="toggleMembers()"><i class="ti ti-layout-sidebar-right" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div style="display:flex;flex:1;overflow:hidden">
+        <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+          <div class="messages" id="message-list"></div>
+          <div class="input-area">
+            <div class="input-wrap">
+              <span class="input-prefix" id="input-prefix">#linux</span>
+              <input class="chat-input" id="chat-input" placeholder="Message #linux" onkeydown="handleInput(event)">
+              <button class="send-btn" onclick="sendMsg()"><i class="ti ti-send" aria-hidden="true"></i></button>
+            </div>
+          </div>
+        </div>
+        <div id="member-pane"></div>
+      </div>
+    </div>
+
+    <div id="settings-pane" style="display:none">
+      <button class="settings-back" onclick="backFromSettings()"><i class="ti ti-arrow-left" style="font-size:14px" aria-hidden="true"></i> Back</button>
+      <div class="settings-section">
+        <div class="settings-section-title">Profile</div>
+        <div class="settings-row">
+          <div><div class="settings-row-label">Default nick</div><div class="settings-row-sub">Used when connecting to new servers</div></div>
+          <input class="modal-input" style="width:120px" value="phaedra">
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-row-label">Real name</div></div>
+          <input class="modal-input" style="width:140px" value="Phaedra K.">
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Message history</div>
+        <div class="settings-row">
+          <div><div class="settings-row-label">Retention period</div><div class="settings-row-sub">Messages older than this are deleted</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" min="1" max="7" value="3" step="1" class="retention-slider" id="retention-slider" oninput="updateRetention(this.value)">
+            <span style="font-size:12px;color:var(--text);font-family:system-ui;min-width:40px" id="retention-label">3 days</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-row-label">Log direct messages</div></div>
+          <div class="toggle-pill" onclick="this.classList.toggle('off')"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Notifications</div>
+        <div class="settings-row">
+          <div><div class="settings-row-label">Browser notifications</div><div class="settings-row-sub">When a tab is in the background</div></div>
+          <div class="toggle-pill" onclick="this.classList.toggle('off')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-row-label">Mentions only</div><div class="settings-row-sub">Only notify when your nick is mentioned</div></div>
+          <div class="toggle-pill off" onclick="this.classList.toggle('off')"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-row-label">Notification sound</div></div>
+          <div class="toggle-pill" onclick="this.classList.toggle('off')"></div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Connections</div>
+        <div id="connections-list"></div>
+        <button onclick="showModal('connect')" style="width:100%;margin-top:10px;padding:8px;background:none;border:1px dashed var(--border);border-radius:6px;color:var(--text2);cursor:pointer;font-size:12px;font-family:system-ui">
+          <i class="ti ti-plus" aria-hidden="true"></i> Add server connection
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-overlay">
+  <div class="modal" id="modal-body"></div>
+</div>
+<div class="notif-toast" id="notif-toast">
+  <div class="notif-toast-title"><span class="notif-dot"></span> Mention in #python</div>
+  <div class="notif-toast-body">torvalds: phaedra, what version are you on?</div>
+</div>
+</div>
+
+<script>
+const CHANNELS = {
+  'libera': {
+    name:'Libera.Chat', status:'connected', nick:'phaedra',
+    channels:[
+      {name:'#linux', topic:'General Linux help · state your distro · Be excellent', members:382, unread:0, mentions:0},
+      {name:'#python', topic:'Python language support — all skill levels welcome', members:217, unread:3, mentions:1},
+      {name:'#rust', topic:'The Rust programming language', members:94, unread:0, mentions:0},
+    ]
+  },
+  'oftc': {
+    name:'OFTC', status:'connected', nick:'phaedra_',
+    channels:[
+      {name:'#debian', topic:'Debian GNU/Linux user support', members:640, unread:7, mentions:0},
+      {name:'#tor', topic:'Tor project discussion — not for illegal use', members:113, unread:0, mentions:0},
+    ]
+  }
+};
+
+const TOPICS = [
+  {title:'Linux',desc:'Distros, sysadmin, kernel talk',icon:'ti-brand-ubuntu',tag:'OS',net:'Libera.Chat',ch:'#linux'},
+  {title:'Python',desc:'Beginner to expert, all welcome',icon:'ti-brand-python',tag:'Dev',net:'Libera.Chat',ch:'#python'},
+  {title:'Open Source',desc:'FOSS philosophy & projects',icon:'ti-world',tag:'Community',net:'Libera.Chat',ch:'#foss'},
+  {title:'Rust',desc:'The Rust programming language',icon:'ti-code',tag:'Dev',net:'Libera.Chat',ch:'#rust'},
+  {title:'Web Dev',desc:'HTML, CSS, JS and frameworks',icon:'ti-browser',tag:'Dev',net:'Libera.Chat',ch:'#web'},
+  {title:'Security',desc:'InfoSec, CTFs, research',icon:'ti-shield-lock',tag:'Sec',net:'Libera.Chat',ch:'#security'},
+];
+
+const MESSAGES = {
+  '#linux':[
+    {nick:'kernel_karen',cls:'n2',time:'11:42',text:'anyone else having issues with the 6.8 kernel and amdgpu?'},
+    {nick:'torvalds',cls:'n1',time:'11:43',text:'works fine on my machine ¯\\_(ツ)_/¯ — but seriously, what\'s the error?'},
+    {nick:'kernel_karen',cls:'n2',time:'11:43',text:'AMDGPU: amdgpu_device_ip_init failed'},
+    {nick:'nixpilled',cls:'n3',time:'11:44',text:'classic. try booting with amdgpu.dc=0 kernel parameter first',type:'action',action:true},
+    {nick:'systemd_hater',cls:'n4',time:'11:45',text:'have you tried Gentoo'},
+    {nick:'kernel_karen',cls:'n2',time:'11:46',text:'I\'m ON Gentoo, that\'s why I\'m compiling kernels at 11pm'},
+    {nick:'*',cls:'',time:'11:46',text:'torvalds changed the topic to: Gentoo users please see #gentoo',system:true},
+    {nick:'phaedra',cls:'n5',time:'11:48',text:'kernel_karen: make sure your kernel config has CONFIG_AMDGPU_DC=y — the default .config sometimes drops it'},
+    {nick:'kernel_karen',cls:'n2',time:'11:49',text:'phaedra: oh my god. that was it. you\'re a legend',mention:true},
+    {nick:'nixpilled',cls:'n3',time:'11:50',text:'phaedra with the save'},
+  ],
+  '#python':[
+    {nick:'newb_dev',cls:'n3',time:'11:30',text:'how do I exit vim'},
+    {nick:'torvalds',cls:'n1',time:'11:30',text:'wrong channel but: :q!'},
+    {nick:'asyncio_alice',cls:'n4',time:'11:31',text:'anyone here use asyncio with aiohttp? I\'m hitting a weird event loop closed error'},
+    {nick:'asyncio_alice',cls:'n4',time:'11:32',text:'it only happens in testing, not in prod — classic'},
+    {nick:'mypy_mike',cls:'n2',time:'11:33',text:'are you using pytest-asyncio? make sure asyncio_mode="auto" in your pyproject'},
+    {nick:'asyncio_alice',cls:'n4',time:'11:34',text:'mypy_mike: YES that fixed it thank you'},
+    {nick:'torvalds',cls:'n1',time:'11:44',text:'phaedra, what version are you on?',mention:true},
+  ],
+  '#rust':[
+    {nick:'crab_lord',cls:'n1',time:'10:55',text:'hot take: the borrow checker is fine after the first 6 months'},
+    {nick:'lifetimes_hurt',cls:'n2',time:'10:56',text:'which 6 months? the first 6 or the 6 after that'},
+    {nick:'ferris',cls:'n3',time:'10:57',text:'eventually it clicks and then you miss it in other languages',type:'action',action:true},
+  ],
+  '#debian':[
+    {nick:'apt_enjoyer',cls:'n2',time:'09:12',text:'bookworm or trixie for a new server setup?'},
+    {nick:'sysop42',cls:'n1',time:'09:13',text:'bookworm if you want stability, trixie if you like debugging at 2am'},
+  ],
+  '#tor':[
+    {nick:'anon_dev',cls:'n3',time:'08:00',text:'new relay bandwidth stats are up — we\'re at 14 Gbit/s sustained'},
+  ],
+};
+
+const MEMBERS = {
+  '#linux':[
+    {nick:'torvalds',op:true,away:false},{nick:'phaedra',op:false,away:false},
+    {nick:'kernel_karen',op:false,away:false},{nick:'nixpilled',op:false,away:false},
+    {nick:'systemd_hater',op:false,away:true},{nick:'grubmaster',op:false,away:true},
+    {nick:'arch_btw',op:false,away:true},{nick:'bsd_refugee',op:false,away:true},
+  ],
+  '#python':[
+    {nick:'asyncio_alice',op:true,away:false},{nick:'mypy_mike',op:false,away:false},
+    {nick:'torvalds',op:false,away:false},{nick:'newb_dev',op:false,away:true},
+  ],
+};
+
+let currentNet=null,currentChan=null,membersVisible=true;
+
+function switchTab(t){
+  document.getElementById('tab-sign-in').className='auth-tab'+(t==='sign-in'?' active':'');
+  document.getElementById('tab-sign-up').className='auth-tab'+(t==='sign-up'?' active':'');
+  document.getElementById('sign-in-fields').style.display=t==='sign-in'?'flex':'none';
+  document.getElementById('sign-up-fields').style.display=t==='sign-up'?'flex':'none';
+  document.getElementById('sign-in-fields').style.flexDirection='column';
+  document.getElementById('sign-in-fields').style.gap='10px';
+  document.getElementById('sign-up-fields').style.flexDirection='column';
+  document.getElementById('sign-up-fields').style.gap='10px';
+}
+
+function enterApp(){
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('main').style.display='flex';
+  renderSidebar();
+  showHome();
+  setTimeout(()=>showNotif(),3000);
+}
+
+function renderSidebar(){
+  const list=document.getElementById('channel-list');
+  list.innerHTML='';
+  for(const [netId,net] of Object.entries(CHANNELS)){
+    const sec=document.createElement('div');
+    sec.className='net-section';
+    const statusClass=net.status==='connected'?'':'off';
+    sec.innerHTML=`<div class="net-header"><div class="net-status ${statusClass}"></div><div class="net-name">${net.name}</div><div class="net-toggle">▾</div></div>`;
+    for(const ch of net.channels){
+      const item=document.createElement('div');
+      item.className='channel-item'+(ch.mentions>0?' mention':'');
+      const badgeHtml=ch.mentions>0?`<span class="badge mention">${ch.mentions}</span>`:ch.unread>0?`<span class="badge">${ch.unread}</span>`:'';
+      item.innerHTML=`<span class="channel-hash">#</span><span class="channel-name">${ch.name.slice(1)}</span>${badgeHtml}`;
+      item.onclick=()=>openChannel(netId,ch.name);
+      item.id=`chan-${netId}-${ch.name}`;
+      sec.appendChild(item);
+    }
+    list.appendChild(sec);
+  }
+  renderConnectionsList();
+}
+
+function openChannel(netId, chanName){
+  currentNet=netId; currentChan=chanName;
+  document.querySelectorAll('.channel-item').forEach(el=>el.classList.remove('active'));
+  const el=document.getElementById(`chan-${netId}-${chanName}`);
+  if(el){el.classList.add('active');el.classList.remove('mention');el.querySelector('.badge')&&el.querySelector('.badge').remove();}
+  const net=CHANNELS[netId];
+  const ch=net.channels.find(c=>c.name===chanName);
+  if(ch){ch.unread=0;ch.mentions=0;}
+  showChat(chanName, ch);
+}
+
+function showChat(chanName, ch){
+  document.getElementById('home-pane').style.display='none';
+  document.getElementById('chat-pane').style.display='flex';
+  document.getElementById('settings-pane').style.display='none';
+  document.getElementById('chat-channel-title').textContent=chanName;
+  document.getElementById('chat-topic-text').textContent=ch?ch.topic:'';
+  document.getElementById('member-count').textContent=ch?ch.members:'';
+  document.getElementById('input-prefix').textContent=chanName;
+  document.getElementById('chat-input').placeholder=`Message ${chanName}`;
+  renderMessages(chanName);
+  renderMembers(chanName);
+}
+
+function renderMessages(chanName){
+  const list=document.getElementById('message-list');
+  const msgs=MESSAGES[chanName]||[];
+  list.innerHTML='';
+  if(msgs.length===0){
+    list.innerHTML=`<div style="padding:24px 16px;color:var(--text3);font-family:system-ui;font-size:13px;text-align:center"><i class="ti ti-message-circle" style="font-size:24px;display:block;margin-bottom:8px" aria-hidden="true"></i>No messages yet. Be the first to say something!</div>`;
+    return;
+  }
+  for(const m of msgs){
+    if(m.system){
+      const d=document.createElement('div');
+      d.className='msg-system';
+      d.innerHTML=`<i class="ti ti-info-circle" style="font-size:12px" aria-hidden="true"></i> ${m.text}`;
+      list.appendChild(d);continue;
+    }
+    const d=document.createElement('div');
+    d.className='msg-group'+(m.mention?' mention-line':'');
+    if(m.action){
+      d.innerHTML=`<div class="msg-time">${m.time}</div><div class="msg-body"><span class="msg-action">* <span class="${m.cls}" style="font-weight:600">${m.nick}</span> ${m.text}</span></div>`;
+    } else {
+      d.innerHTML=`<div class="msg-time">${m.time}</div><div class="msg-body"><span class="msg-nick ${m.cls}">${m.nick}</span><span class="msg-text">${m.text}</span></div>`;
+    }
+    list.appendChild(d);
+  }
+  list.scrollTop=list.scrollHeight;
+}
+
+function renderMembers(chanName){
+  const pane=document.getElementById('member-pane');
+  const members=MEMBERS[chanName]||[];
+  const ops=members.filter(m=>m.op);
+  const users=members.filter(m=>!m.op);
+  let html='';
+  if(ops.length){
+    html+=`<div class="member-section">Ops (${ops.length})</div>`;
+    for(const m of ops) html+=`<div class="member-item"><span class="member-op">@</span><div class="member-dot${m.away?' away':''}"></div><span class="member-name op">${m.nick}</span></div>`;
+  }
+  html+=`<div class="member-section">Users (${users.length})</div>`;
+  for(const m of users) html+=`<div class="member-item"><div class="member-dot${m.away?' away':''}"></div><span class="member-name">${m.nick}</span></div>`;
+  pane.innerHTML=html;
+}
+
+function toggleMembers(){
+  const pane=document.getElementById('member-pane');
+  membersVisible=!membersVisible;
+  pane.style.display=membersVisible?'block':'none';
+}
+
+function showHome(){
+  document.getElementById('home-pane').style.display='block';
+  document.getElementById('chat-pane').style.display='none';
+  document.getElementById('settings-pane').style.display='none';
+  document.querySelectorAll('.channel-item').forEach(el=>el.classList.remove('active'));
+  renderTopics();
+}
+
+function renderTopics(){
+  const grid=document.getElementById('topics-grid');
+  grid.innerHTML='';
+  for(const t of TOPICS){
+    const card=document.createElement('div');
+    card.className='topic-card';
+    card.innerHTML=`
+      <div class="topic-card-top">
+        <div class="topic-icon"><i class="ti ${t.icon}" aria-hidden="true"></i></div>
+        <div><div class="topic-title">${t.title}</div><div class="topic-net">${t.net}</div></div>
+      </div>
+      <div class="topic-desc">${t.desc}</div>
+      <div class="topic-footer">
+        <span class="topic-channel">${t.ch}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="topic-tag">${t.tag}</span>
+          <button class="topic-join-btn" onclick="joinTopic(event,'${t.ch}')">Join</button>
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  }
+}
+
+function joinTopic(e, chan){
+  e.stopPropagation();
+  const netId='libera';
+  const net=CHANNELS[netId];
+  let ch=net.channels.find(c=>c.name===chan);
+  if(!ch){
+    ch={name:chan,topic:`Welcome to ${chan}`,members:0,unread:0,mentions:0};
+    net.channels.push(ch);
+    renderSidebar();
+  }
+  openChannel(netId,chan);
+}
+
+function showSettings(){
+  document.getElementById('home-pane').style.display='none';
+  document.getElementById('chat-pane').style.display='none';
+  document.getElementById('settings-pane').style.display='block';
+}
+
+function backFromSettings(){
+  if(currentChan) showChat(currentChan,CHANNELS[currentNet]?.channels.find(c=>c.name===currentChan));
+  else showHome();
+}
+
+function updateRetention(v){
+  document.getElementById('retention-label').textContent=v+' day'+(v>1?'s':'');
+}
+
+function renderConnectionsList(){
+  const el=document.getElementById('connections-list');
+  if(!el)return;
+  el.innerHTML='';
+  for(const [netId,net] of Object.entries(CHANNELS)){
+    const row=document.createElement('div');
+    row.className='settings-row';
+    row.innerHTML=`<div><div class="settings-row-label">${net.name}</div><div class="settings-row-sub">${net.nick} · ${net.channels.length} channel${net.channels.length!==1?'s':''}</div></div><div style="display:flex;align-items:center;gap:8px"><div class="net-status" style="width:8px;height:8px"></div><button onclick="showModal('edit-${netId}')" style="background:none;border:1px solid var(--border);border-radius:5px;color:var(--text2);padding:3px 8px;cursor:pointer;font-size:11px;font-family:system-ui"><i class="ti ti-edit" aria-hidden="true"></i></button></div>`;
+    el.appendChild(row);
+  }
+}
+
+function showModal(type){
+  const overlay=document.getElementById('modal-overlay');
+  const body=document.getElementById('modal-body');
+  overlay.classList.add('show');
+  if(type==='connect'){
+    body.innerHTML=`
+      <div class="modal-title">Add IRC connection <button onclick="closeModal()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:18px"><i class="ti ti-x" aria-hidden="true"></i></button></div>
+      <div class="modal-section">Quick connect</div>
+      <div class="net-presets">
+        <button class="modal-net-btn" onclick="fillPreset('irc.libera.chat',6697)"><strong style="color:var(--text)">Libera.Chat</strong><br><span style="font-size:11px;color:var(--text3)">irc.libera.chat · 6697</span></button>
+        <button class="modal-net-btn" onclick="fillPreset('irc.oftc.net',6697)"><strong style="color:var(--text)">OFTC</strong><br><span style="font-size:11px;color:var(--text3)">irc.oftc.net · 6697</span></button>
+        <button class="modal-net-btn" onclick="fillPreset('irc.freenode.net',6697)"><strong style="color:var(--text)">IRCnet</strong><br><span style="font-size:11px;color:var(--text3)">irc.ircnet.net · 6697</span></button>
+        <button class="modal-net-btn" onclick="fillPreset('irc.efnet.org',6667)"><strong style="color:var(--text)">EFnet</strong><br><span style="font-size:11px;color:var(--text3)">irc.efnet.org · 6667</span></button>
+      </div>
+      <div class="modal-section">Server details</div>
+      <div class="modal-field"><div class="modal-label">Network name</div><input class="modal-input" id="m-netname" placeholder="e.g. Libera.Chat"></div>
+      <div class="modal-row3">
+        <div class="modal-field" style="margin:0"><div class="modal-label">Host</div><input class="modal-input" id="m-host" placeholder="irc.libera.chat"></div>
+        <div class="modal-field" style="margin:0"><div class="modal-label">Port</div><input class="modal-input" id="m-port" value="6697"></div>
+        <div class="modal-field" style="margin:0"><div class="modal-label">TLS</div>
+          <div class="modal-toggle" style="padding:9px 10px;margin-top:0"><div class="toggle-pill" id="tls-toggle" onclick="this.classList.toggle('off')"></div></div>
+        </div>
+      </div>
+      <div class="modal-section">Identity</div>
+      <div class="modal-row">
+        <div class="modal-field" style="margin:0"><div class="modal-label">Nick</div><input class="modal-input" id="m-nick" placeholder="yournick" value="phaedra"></div>
+        <div class="modal-field" style="margin:0"><div class="modal-label">Alt nick</div><input class="modal-input" id="m-altnick" placeholder="yournick_"></div>
+      </div>
+      <div class="modal-row">
+        <div class="modal-field" style="margin:0"><div class="modal-label">Username</div><input class="modal-input" placeholder="phaedra"></div>
+        <div class="modal-field" style="margin:0"><div class="modal-label">Real name</div><input class="modal-input" placeholder="Your name"></div>
+      </div>
+      <div class="modal-section">Authentication (optional)</div>
+      <div class="modal-row">
+        <div class="modal-field" style="margin:0"><div class="modal-label">SASL username</div><input class="modal-input" placeholder="services account"></div>
+        <div class="modal-field" style="margin:0"><div class="modal-label">SASL password</div><input class="modal-input" type="password" placeholder="••••••••"></div>
+      </div>
+      <div class="modal-field"><div class="modal-label">Server password (PASS)</div><input class="modal-input" type="password" placeholder="leave blank if not needed"></div>
+      <div class="modal-section">Auto-join channels</div>
+      <div class="modal-field"><div class="modal-label">Channels (comma separated)</div><input class="modal-input" placeholder="#linux, #python, #rust"></div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="modal-btn modal-btn-connect" onclick="fakeConnect()">Connect</button>
+      </div>`;
+  }
+}
+
+function fillPreset(host, port){
+  const h=document.getElementById('m-host');
+  const p=document.getElementById('m-port');
+  const n=document.getElementById('m-netname');
+  if(h) h.value=host;
+  if(p) p.value=port;
+  if(n && !n.value){
+    const names={'irc.libera.chat':'Libera.Chat','irc.oftc.net':'OFTC','irc.ircnet.net':'IRCnet','irc.efnet.org':'EFnet'};
+    n.value=names[host]||'';
+  }
+}
+
+function fakeConnect(){
+  const name=document.getElementById('m-netname')?.value||'New Network';
+  const nick=document.getElementById('m-nick')?.value||'phaedra';
+  closeModal();
+  const id='net_'+Date.now();
+  CHANNELS[id]={name,status:'connected',nick,channels:[{name:'#general',topic:`Welcome to ${name}`,members:0,unread:0,mentions:0}]};
+  renderSidebar();
+  openChannel(id,'#general');
+}
+
+function closeModal(){
+  document.getElementById('modal-overlay').classList.remove('show');
+}
+
+function handleInput(e){
+  if(e.key==='Enter') sendMsg();
+}
+
+function sendMsg(){
+  const input=document.getElementById('chat-input');
+  const text=input.value.trim();
+  if(!text||!currentChan)return;
+  const msgs=MESSAGES[currentChan]||[];
+  const now=new Date();
+  const time=`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+  msgs.push({nick:'phaedra',cls:'n5',time,text});
+  MESSAGES[currentChan]=msgs;
+  input.value='';
+  renderMessages(currentChan);
+}
+
+function showNotif(){
+  const toast=document.getElementById('notif-toast');
+  toast.classList.add('show');
+  setTimeout(()=>toast.classList.remove('show'),4000);
+}
+
+document.getElementById('modal-overlay').addEventListener('click',function(e){
+  if(e.target===this) closeModal();
+});
+
+switchTab('sign-in');
+document.getElementById('sign-in-fields').style.display='flex';
+document.getElementById('sign-in-fields').style.flexDirection='column';
+document.getElementById('sign-in-fields').style.gap='10px';
+</script>
+

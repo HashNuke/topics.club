@@ -1,0 +1,217 @@
+defmodule Ircpipe.Chat do
+  import Ecto.Query
+
+  alias Ircpipe.Accounts.User
+  alias Ircpipe.Chat.{ChannelMembership, Message, Notification, ServerConnection, Topic}
+  alias Ircpipe.Repo
+
+  def list_topics do
+    Topic
+    |> order_by([t], asc: t.sort_order, asc: t.name)
+    |> Repo.all()
+  end
+
+  def list_connections(%User{id: user_id}) do
+    ServerConnection
+    |> where([c], c.user_id == ^user_id)
+    |> preload(:channel_memberships)
+    |> order_by([c], asc: c.name)
+    |> Repo.all()
+  end
+
+  def get_connection!(%User{id: user_id}, id) do
+    ServerConnection
+    |> where([c], c.user_id == ^user_id and c.id == ^id)
+    |> preload(:channel_memberships)
+    |> Repo.one!()
+  end
+
+  def create_connection(%User{} = user, attrs) do
+    %ServerConnection{user_id: user.id}
+    |> ServerConnection.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def update_connection_status(%ServerConnection{} = connection, status) do
+    connection
+    |> ServerConnection.changeset(%{
+      status: status,
+      last_connected_at: if(status == "connected", do: DateTime.utc_now(:second))
+    })
+    |> Repo.update()
+  end
+
+  def join_channel(%User{} = user, %ServerConnection{} = connection, channel) do
+    attrs = %{channel: normalize_channel(channel), joined_at: DateTime.utc_now(:second)}
+
+    %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
+    |> ChannelMembership.changeset(attrs)
+    |> Repo.insert(
+      on_conflict: [set: [joined_at: attrs.joined_at, updated_at: DateTime.utc_now(:second)]],
+      conflict_target: [:server_connection_id, :channel],
+      returning: true
+    )
+  end
+
+  def get_membership!(%User{id: user_id}, id) do
+    ChannelMembership
+    |> where([m], m.user_id == ^user_id and m.id == ^id)
+    |> preload(:server_connection)
+    |> Repo.one!()
+  end
+
+  def list_messages(%User{id: user_id}, membership_id, limit \\ 200) do
+    Message
+    |> where([m], m.user_id == ^user_id and m.channel_membership_id == ^membership_id)
+    |> order_by([m], desc: m.occurred_at, desc: m.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.reverse()
+  end
+
+  def record_inbound_message(
+        %ServerConnection{} = connection,
+        channel,
+        nick,
+        body,
+        kind \\ "message"
+      ) do
+    membership =
+      Repo.get_by!(ChannelMembership,
+        server_connection_id: connection.id,
+        channel: normalize_channel(channel)
+      )
+
+    user = Repo.get!(User, connection.user_id)
+    mentioned = mention?(body, connection.nickname)
+
+    Repo.transaction(fn ->
+      {:ok, message} =
+        %Message{
+          user_id: connection.user_id,
+          server_connection_id: connection.id,
+          channel_membership_id: membership.id
+        }
+        |> Message.changeset(%{
+          kind: kind,
+          nick: nick,
+          body: body,
+          mentioned: mentioned,
+          occurred_at: DateTime.utc_now(:second)
+        })
+        |> Repo.insert()
+
+      counters = [inc: [unread_count: 1]]
+
+      counters =
+        if mentioned,
+          do: Keyword.update!(counters, :inc, &([mention_count: 1] ++ &1)),
+          else: counters
+
+      {1, _} =
+        Repo.update_all(from(m in ChannelMembership, where: m.id == ^membership.id), counters)
+
+      notification =
+        if mentioned do
+          {:ok, notification} =
+            %Notification{
+              user_id: connection.user_id,
+              message_id: message.id,
+              channel_membership_id: membership.id
+            }
+            |> Notification.changeset(%{})
+            |> Repo.insert()
+
+          notification
+        end
+
+      prune_old_messages(user)
+      broadcast_message(message, membership, connection, notification)
+      %{message | channel_membership: membership, server_connection: connection}
+    end)
+  end
+
+  def mark_read(%User{id: user_id}, %ChannelMembership{} = membership) do
+    now = DateTime.utc_now(:second)
+
+    from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
+    |> Repo.update_all(set: [last_read_at: now, unread_count: 0, mention_count: 0])
+
+    from(n in Notification,
+      where:
+        n.user_id == ^user_id and n.channel_membership_id == ^membership.id and is_nil(n.read_at)
+    )
+    |> Repo.update_all(set: [read_at: now])
+
+    :ok
+  end
+
+  def update_retention_days(%User{} = user, days) do
+    days =
+      days
+      |> to_int(3)
+      |> min(3)
+      |> max(1)
+
+    user
+    |> Ecto.Changeset.change(message_retention_days: days)
+    |> Repo.update()
+  end
+
+  def prune_old_messages(%User{} = user) do
+    cutoff = DateTime.add(DateTime.utc_now(:second), -user.message_retention_days, :day)
+
+    from(m in Message, where: m.user_id == ^user.id and m.occurred_at < ^cutoff)
+    |> Repo.delete_all()
+  end
+
+  def normalize_channel("#" <> _ = channel), do: channel
+  def normalize_channel(channel), do: "##{channel}"
+
+  defp mention?(body, nickname) when is_binary(body) and is_binary(nickname) do
+    body
+    |> String.downcase()
+    |> String.contains?(String.downcase(nickname))
+  end
+
+  defp mention?(_, _), do: false
+
+  defp broadcast_message(message, membership, connection, notification) do
+    payload = %{
+      id: message.id,
+      channel_membership_id: membership.id,
+      server_connection_id: connection.id,
+      channel: membership.channel,
+      nick: message.nick,
+      body: message.body,
+      kind: message.kind,
+      mentioned: message.mentioned,
+      occurred_at: message.occurred_at
+    }
+
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{connection.user_id}",
+      {:irc_message, payload}
+    )
+
+    if notification do
+      Phoenix.PubSub.broadcast(
+        Ircpipe.PubSub,
+        "user:#{connection.user_id}",
+        {:irc_mention, payload}
+      )
+    end
+  end
+
+  defp to_int(value, _default) when is_integer(value), do: value
+
+  defp to_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> default
+    end
+  end
+
+  defp to_int(_, default), do: default
+end
