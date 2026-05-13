@@ -35,34 +35,28 @@ defmodule IrcpipeWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
+    <header class="border-b border-slate-800 bg-[#0d1118] px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
+      <div class="mx-auto flex max-w-5xl items-center justify-between gap-4">
+        <a href="/" class="text-base font-semibold tracking-tight">topics.club</a>
+        <nav class="flex items-center gap-2 text-sm text-slate-300" aria-label="Account">
+          <.link
+            href={~p"/"}
+            class="rounded-md px-3 py-2 transition hover:bg-slate-800 hover:text-white"
+          >
+            Home
+          </.link>
+          <.link
+            :if={@current_scope && @current_scope.user}
+            href={~p"/chat"}
+            class="rounded-md bg-emerald-500 px-3 py-2 font-medium text-slate-950 transition hover:bg-emerald-400"
+          >
+            Open chat
+          </.link>
+        </nav>
       </div>
     </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
+    <main class="min-h-[calc(100vh-65px)] bg-[#0a0d12] px-4 py-12 text-slate-100 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-2xl space-y-4">
         {render_slot(@inner_block)}
       </div>

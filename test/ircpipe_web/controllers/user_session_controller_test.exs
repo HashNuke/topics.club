@@ -15,6 +15,9 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
       assert response =~ "Log in"
       assert response =~ ~p"/users/register"
       assert response =~ "Log in with email"
+      assert response =~ "topics.club"
+      refute response =~ "phoenixframework.org"
+      refute response =~ "Get Started"
     end
 
     test "renders login page with email filled in (sudo mode)", %{conn: conn, user: user} do
