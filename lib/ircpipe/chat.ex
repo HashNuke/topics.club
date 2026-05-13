@@ -86,7 +86,11 @@ defmodule Ircpipe.Chat do
     end)
   end
 
-  def join_channel(%User{} = user, %ServerConnection{} = connection, channel) do
+  def join_channel(
+        %User{id: user_id} = user,
+        %ServerConnection{user_id: user_id} = connection,
+        channel
+      ) do
     attrs = %{channel: normalize_channel(channel), joined_at: DateTime.utc_now(:second)}
 
     result =
@@ -116,6 +120,8 @@ defmodule Ircpipe.Chat do
       {:ok, membership}
     end
   end
+
+  def join_channel(%User{}, %ServerConnection{}, _channel), do: {:error, :invalid_connection}
 
   def get_membership!(%User{id: user_id}, id) do
     ChannelMembership

@@ -5,6 +5,74 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Message
 
+  test "scopes server connections to their owner" do
+    user = AccountsFixtures.user_fixture()
+    other_user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    assert [owned] = Chat.list_connections(user)
+    assert owned.id == connection.id
+    assert [] = Chat.list_connections(other_user)
+    assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(other_user, connection.id) end
+  end
+
+  test "does not join channels on another user's server connection" do
+    user = AccountsFixtures.user_fixture()
+    other_user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(other_user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    assert {:error, :invalid_connection} = Chat.join_channel(user, connection, "#private")
+  end
+
+  test "scopes channel memberships and buffer history to their owner" do
+    user = AccountsFixtures.user_fixture()
+    other_user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Chat.record_inbound_message(connection, "#elixir", "akash", "scoped")
+
+    assert Chat.get_membership!(user, membership.id).id == membership.id
+    assert Chat.get_membership_by_channel!(user, connection, "#elixir").id == membership.id
+
+    assert [%Message{body: "scoped"}] =
+             Chat.list_buffer_messages(user, "channel:#{membership.id}")
+
+    assert_raise Ecto.NoResultsError, fn -> Chat.get_membership!(other_user, membership.id) end
+
+    assert_raise Ecto.NoResultsError, fn ->
+      Chat.get_membership_by_channel!(other_user, connection, "#elixir")
+    end
+
+    assert_raise Ecto.NoResultsError, fn ->
+      Chat.list_buffer_messages(other_user, "channel:#{membership.id}")
+    end
+  end
+
   test "prunes messages older than the user's retention window after inbound persistence" do
     user = AccountsFixtures.user_fixture()
     {:ok, user} = Chat.update_retention_days(user, 1)

@@ -411,6 +411,7 @@ defmodule IrcpipeWeb.UserChannel do
   defp error_reason(:invalid_buffer), do: "invalid_buffer"
   defp error_reason(:invalid_server), do: "invalid_server"
   defp error_reason(:invalid_command_args), do: "invalid_command_args"
+  defp error_reason(:invalid_connection), do: "invalid_connection"
   defp error_reason(:not_connected), do: "not_connected"
   defp error_reason(_reason), do: "send_failed"
 end

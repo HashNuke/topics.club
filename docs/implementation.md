@@ -341,7 +341,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Testing checklist
 
-- [ ] Backend context tests for buffer ownership and scoping.
+- [x] Backend context tests for buffer ownership and scoping.
+  - [x] server connection ownership
+  - [x] channel membership ownership
+  - [x] buffer history ownership
   - [x] retention pruning after inbound persistence
 - [x] Backend channel tests for `UserChannel`.
 - [x] Backend API tests for bootstrap, history, join, leave, and settings.
