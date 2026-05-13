@@ -1,9 +1,11 @@
 defmodule IrcpipeWeb.Api.BootstrapControllerTest do
-  use IrcpipeWeb.ConnCase, async: true
+  use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Topic
+  alias Ircpipe.Irc.Session
+  alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
 
   setup :register_and_log_in_user
@@ -145,5 +147,35 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
            )
 
     refute Enum.any?(get_in(json_response(conn, 200), ["buffers"]), &(&1["title"] == "#private"))
+  end
+
+  test "starts persisted IRC sessions and rejoins channels on bootstrap", %{
+    conn: conn,
+    user: user
+  } do
+    server = start_supervised!({IrcTestServer, self()})
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira",
+        "status" => "disconnected"
+      })
+
+    {:ok, _membership} = Chat.join_channel(user, connection, "#elixir")
+
+    conn = get(conn, ~p"/api/bootstrap")
+
+    assert %{"connections" => [%{"id" => connection_id}]} = json_response(conn, 200)
+    assert connection_id == connection.id
+
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+
+    assert :ok = Session.quit(connection)
   end
 end

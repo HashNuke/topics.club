@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
 
   @message_limit 150
@@ -14,7 +15,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     active_buffer_id = active_buffer_id(buffers)
     messages_by_buffer = messages_by_buffer(user, connections)
 
-    json(conn, %{
+    payload = %{
       user: user_json(user),
       notification_state: "default",
       server_time: DateTime.utc_now(:second),
@@ -25,7 +26,11 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       message_cursors_by_buffer: message_cursors_by_buffer(messages_by_buffer),
       users_by_buffer: users_by_buffer(connections),
       topics: Enum.map(topics, &topic_json/1)
-    })
+    }
+
+    Enum.each(connections, &start_session/1)
+
+    json(conn, payload)
   end
 
   defp user_json(user) do
@@ -151,4 +156,11 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   defp server_buffer_id(connection), do: "server:#{connection.id}"
   defp channel_buffer_id(membership), do: "channel:#{membership.id}"
+
+  defp start_session(connection) do
+    SessionSupervisor.start_session(connection)
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
 end

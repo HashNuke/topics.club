@@ -150,14 +150,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [view, setView] = useState("chat")
   const [notificationState, setNotificationState] = useState(notificationPermission())
   const [connectionHealth, setConnectionHealth] = useState("disconnected")
-  const [connections, setConnections] = useState(() => initialConnections())
-  const [activeChannelId, setActiveChannelId] = useState("chan-elixir")
-  const [activeServerId, setActiveServerId] = useState("server-local")
-  const [messagesByChannel, setMessagesByChannel] = useState(() => ({
-    "chan-elixir": demoMessages,
-  }))
+  const [connections, setConnections] = useState(() => (currentUser ? [] : initialConnections()))
+  const [activeChannelId, setActiveChannelId] = useState(() => (currentUser ? null : "chan-elixir"))
+  const [activeServerId, setActiveServerId] = useState(() => (currentUser ? null : "server-local"))
+  const [messagesByChannel, setMessagesByChannel] = useState(() => (currentUser ? {} : {"chan-elixir": demoMessages}))
   const [messagesByServer, setMessagesByServer] = useState(() =>
-    Object.fromEntries(initialConnections().map((connection) => [connection.id, serverBufferMessages(connection)]))
+    currentUser ? {} : Object.fromEntries(initialConnections().map((connection) => [connection.id, serverBufferMessages(connection)]))
   )
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
@@ -260,8 +258,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const activeChannel = channels.find((channel) => channel.id === activeChannelId) || channels[0]
   const activeServer = connections.find((connection) => connection.id === activeServerId) || connections[0]
   const messages = activeChannel ? messagesByChannel[activeChannel.id] || [] : []
-  const serverMessages = activeServer ? messagesByServer[activeServer.id] || serverBufferMessages(activeServer) : []
-  const users = activeChannel ? usersByChannel[activeChannel.id] || demoUsers : []
+  const serverMessages = activeServer ? messagesByServer[activeServer.id] || [] : []
+  const users = activeChannel ? usersByChannel[activeChannel.id] || [] : []
 
   function selectTopic(topic) {
     if (mode === "landing" && currentUser) {
@@ -288,9 +286,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         applyJoinedTopic(joined)
         return
       } catch (_error) {
-        // Keep the prototype usable when the backend is unavailable in design-only runs.
+        return
       }
     }
+
+    if (currentUser) return
 
     joinTopicLocally(normalized)
   }
@@ -379,13 +379,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     setMessagesByChannel((current) => ({
       ...current,
-      [channel.id]:
-        current[channel.id] ||
-        seededMessagesFor({
-          id: topic?.id || channel.id,
-          channel: channel.channel,
-          server_host: connection.host,
-        }),
+      [channel.id]: current[channel.id] || [],
     }))
     setActiveServerId(connectionId)
     setActiveChannelId(channel.id)
@@ -856,10 +850,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         Object.fromEntries(
           nextConnections.map((connection) => [
             connection.id,
-            (bootstrap.messages_by_buffer || {})[connection.id]?.map(normalizeMessage) || serverBufferMessages(connection),
+            (bootstrap.messages_by_buffer || {})[connection.id]?.map(normalizeMessage) || [],
           ])
         )
       )
+    } else {
+      setConnections([])
+      setMessagesByServer({})
     }
 
     setMessagesByChannel(
@@ -1642,8 +1639,8 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
   }
 
   return {
-    title: activeChannel?.channel || "#elixir",
-    context: `on ${activeChannel?.connection?.host || "127.0.0.1"}`,
+    title: activeChannel?.channel || "Chat",
+    context: activeChannel?.connection?.host ? `on ${activeChannel.connection.host}` : null,
     subtitle: activeChannel?.topic || "Pick a topic from the sidebar or discover view.",
   }
 }

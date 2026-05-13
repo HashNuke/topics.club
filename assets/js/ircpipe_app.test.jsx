@@ -397,20 +397,20 @@ describe("IrcpipeApp UI prototype", () => {
     )
   })
 
-  test("opens discover and joins a suggested topic in the app shell", async () => {
+  test("opens discover and joins a backend topic in the app shell", async () => {
     const user = userEvent.setup()
-    mockTopicsFetch()
+    mockJoinTopicFetch()
 
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
     await user.click(screen.getByRole("button", {name: /discover/i}))
     expect(screen.getByRole("heading", {name: "Discover topics"})).toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", {name: /#rust/i}))
+    await user.click(await screen.findByRole("button", {name: /#backend/i}))
 
-    expect(screen.getByRole("heading", {name: "#rust"})).toBeInTheDocument()
+    expect(await screen.findByRole("heading", {name: "#backend"})).toBeInTheDocument()
     expect(screen.getByText("on 127.0.0.1")).toBeInTheDocument()
-    expect(screen.getByText(/placeholder chat until the IRC backend is wired/i)).toBeInTheDocument()
+    expect(screen.queryByText(/placeholder chat until the IRC backend is wired/i)).not.toBeInTheDocument()
   })
 
   test("loads the authenticated chat shell from bootstrap", async () => {
@@ -487,7 +487,7 @@ describe("IrcpipeApp UI prototype", () => {
     window.history.pushState({}, "", "/")
   })
 
-  test("does not request backend history for prototype buffers", async () => {
+  test("does not render prototype chat when bootstrap is unavailable", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
       if (path === "/api/bootstrap") throw new Error("offline")
 
@@ -499,16 +499,9 @@ describe("IrcpipeApp UI prototype", () => {
 
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
-    expect(screen.getByRole("heading", {name: "#elixir"})).toBeInTheDocument()
-
-    const scrollback = document.getElementById("chat-scrollback")
-    Object.defineProperty(scrollback, "scrollHeight", {value: 1000, configurable: true})
-    Object.defineProperty(scrollback, "clientHeight", {value: 500, configurable: true})
-    Object.defineProperty(scrollback, "scrollTop", {value: 40, writable: true, configurable: true})
-
-    fireEvent.scroll(scrollback)
-
-    expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/^\/api\/buffers\/chan-elixir/), expect.anything())
+    expect(screen.getByRole("heading", {name: "Chat"})).toBeInTheDocument()
+    expect(screen.queryByText(/placeholder chat until the IRC backend is wired/i)).not.toBeInTheDocument()
+    expect(screen.queryByText("Phoenix, OTP, releases, and production Elixir help.")).not.toBeInTheDocument()
   })
 
   test("sends channel messages through the realtime client and replaces pending message", async () => {
@@ -1230,16 +1223,14 @@ describe("IrcpipeApp UI prototype", () => {
 
   test("opens a server buffer from the sidebar", async () => {
     const user = userEvent.setup()
-    mockTopicsFetch()
+    mockBootstrapFetch()
 
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
-    await user.click(screen.getByRole("button", {name: "local"}))
+    await user.click(await screen.findByRole("button", {name: "local"}))
 
     expect(screen.getByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
     expect(screen.getByText("Server buffer")).toBeInTheDocument()
-    expect(screen.getByText(/NickServ/i)).toBeInTheDocument()
-    expect(screen.getByText(/ChanServ/i)).toBeInTheDocument()
     expect(screen.queryByRole("complementary", {name: "People here"})).not.toBeInTheDocument()
     expect(screen.queryByRole("button", {name: "Show users"})).not.toBeInTheDocument()
   })
