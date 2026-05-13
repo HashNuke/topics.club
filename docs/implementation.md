@@ -218,15 +218,15 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Notifications
 
-- [ ] Keep the current spec behavior for the first implementation: client-side browser notifications for mentions while the document is hidden.
-- [ ] Backend persists mention notifications for unread state and notification history.
-- [ ] Backend pushes `notification:mention` over `user:{user_id}`.
-- [ ] React checks:
-  - [ ] document visibility
-  - [ ] user notification preference
-  - [ ] browser notification permission
-  - [ ] whether the message came from the current user
-- [ ] React shows a browser notification only when appropriate.
+- [x] Keep the current spec behavior for the first implementation: client-side browser notifications for mentions while the document is hidden.
+- [x] Backend persists mention notifications for unread state and notification history.
+- [x] Backend pushes `notification:mention` over `user:{user_id}`.
+- [x] React checks:
+  - [x] document visibility
+  - [x] user notification preference
+  - [x] browser notification permission
+  - [x] whether the message came from the current user
+- [x] React shows a browser notification only when appropriate.
 - [ ] Request browser permission only after clicking the bell.
 - [ ] Do not implement backend Web Push in the first pass.
 - [ ] Add backend Web Push later only if we need notifications while the web app is closed or no socket is connected.
@@ -337,7 +337,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Frontend reducer tests for realtime event application.
 - [x] Frontend component tests for the chat shell.
 - [x] Frontend tests for slash command completion.
-- [ ] Frontend tests for notification permission states.
+- [x] Frontend tests for notification permission states.
 - [ ] Frontend tests for socket/backend failure states.
 - [x] Headless Chromium tests for local-only landing topics and auth-protected chat route.
 - [x] Run `npm test --prefix assets` for React changes.

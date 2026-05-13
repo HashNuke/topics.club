@@ -24,6 +24,7 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_info({:irc_mention, message}, socket) do
     push(socket, "mention", message)
+    push(socket, "notification:mention", message)
     {:noreply, socket}
   end
 

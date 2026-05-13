@@ -148,6 +148,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   )
   const [draft, setDraft] = useState("")
   const realtimeClientRef = useRef(null)
+  const notificationStateRef = useRef(notificationState)
+
+  useEffect(() => {
+    notificationStateRef.current = notificationState
+  }, [notificationState])
 
   useEffect(() => {
     apiClient
@@ -173,8 +178,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const realtimeClient = realtimeClientFactory({
       handlers: {
         onMessage: applyRealtimeMessage,
+        onMention: handleMentionNotification,
         onBufferMessage: applyRealtimeMessage,
         onServerStatus: applyServerStatus,
+        onNotificationMention: handleMentionNotification,
         onJoinOk: () => setConnectionHealth("connected"),
         onJoinError: () => setConnectionHealth("degraded"),
         onJoinTimeout: () => setConnectionHealth("degraded"),
@@ -426,6 +433,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         connection.server_connection_id === payload.server_connection_id ? {...connection, status: payload.status} : connection
       )
     )
+  }
+
+  function handleMentionNotification(message) {
+    if (!("Notification" in window)) return
+    if (document.visibilityState !== "hidden") return
+    if (notificationStateRef.current !== "granted" && window.Notification.permission !== "granted") return
+    if (message.nick === currentUser?.email?.split("@")[0]) return
+
+    new window.Notification(message.channel || "topics.club", {body: `${message.nick}: ${message.body}`})
   }
 
   function replacePendingMessage(channelId, clientMessageId, message) {

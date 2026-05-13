@@ -294,6 +294,84 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByText("Send failed")).toBeInTheDocument()
   })
 
+  test("shows browser notifications for hidden-tab mention events", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    const originalVisibilityState = document.visibilityState
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+
+    try {
+      render(
+        <IrcpipeApp
+          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+      realtimeHandlers.onNotificationMention({channel: "#testing", nick: "akash", body: "hello mira"})
+
+      expect(NotificationMock).toHaveBeenCalledWith("#testing", {body: "akash: hello mira"})
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
+  test("does not show browser notifications while the chat tab is visible", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    const originalVisibilityState = document.visibilityState
+    Object.defineProperty(document, "visibilityState", {value: "visible", configurable: true})
+
+    try {
+      render(
+        <IrcpipeApp
+          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+      realtimeHandlers.onNotificationMention({channel: "#testing", nick: "akash", body: "hello mira"})
+
+      expect(NotificationMock).not.toHaveBeenCalled()
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
   test("lets signed-in users join their own server and channel", async () => {
     const user = userEvent.setup()
     mockTopicsFetch()
