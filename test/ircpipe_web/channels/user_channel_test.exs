@@ -257,6 +257,21 @@ defmodule IrcpipeWeb.UserChannelTest do
       mention_count: 0
     }
 
+    assert_push "buffer:read", %{
+      type: "buffer:read",
+      version: 1,
+      event_id: "buffer_read:channel:" <> _,
+      buffer_id: buffer_id,
+      server_connection_id: connection_id,
+      channel_membership_id: membership_id,
+      unread_count: 0,
+      mention_count: 0
+    }
+
+    assert buffer_id == "channel:#{membership.id}"
+    assert connection_id == connection.id
+    assert membership_id == membership.id
+
     reloaded = Chat.get_membership!(user, membership.id)
     assert reloaded.unread_count == 0
     assert reloaded.mention_count == 0

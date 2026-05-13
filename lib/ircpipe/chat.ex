@@ -331,6 +331,13 @@ defmodule Ircpipe.Chat do
     )
     |> Repo.update_all(set: [read_at: now])
 
+    broadcast_buffer_read(%{
+      user_id: user_id,
+      buffer_id: "channel:#{membership.id}",
+      server_connection_id: membership.server_connection_id,
+      channel_membership_id: membership.id
+    })
+
     :ok
   end
 
@@ -405,6 +412,21 @@ defmodule Ircpipe.Chat do
       Ircpipe.PubSub,
       "user:#{user_id}",
       {:buffer_left, event}
+    )
+  end
+
+  def broadcast_buffer_read(payload) do
+    user_id = Map.fetch!(payload, :user_id)
+
+    event =
+      payload
+      |> Event.buffer_read()
+      |> Map.drop([:user_id])
+
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{user_id}",
+      {:buffer_read, event}
     )
   end
 

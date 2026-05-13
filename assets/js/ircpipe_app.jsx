@@ -191,6 +191,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         onBufferMessage: applyRealtimeMessage,
         onBufferJoined: applyJoinedTopic,
         onBufferLeft: applyBufferLeft,
+        onBufferRead: applyBufferRead,
         onPresenceDiff: applyPresenceDiff,
         onPresenceSync: applyPresenceSync,
         onServerStatus: applyServerStatus,
@@ -653,6 +654,26 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setActiveServerId(nextServerId)
       setView("server")
     }
+  }
+
+  function applyBufferRead(payload) {
+    const bufferId = payload?.buffer_id
+    if (!bufferId?.startsWith("channel:")) return
+
+    setConnections((current) =>
+      current.map((connection) => ({
+        ...connection,
+        channels: connection.channels.map((channel) =>
+          channel.id === bufferId
+            ? {
+                ...channel,
+                unread_count: payload.unread_count ?? 0,
+                mention_count: payload.mention_count ?? 0,
+              }
+            : channel
+        ),
+      }))
+    )
   }
 
   function handleMentionNotification(message) {

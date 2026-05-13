@@ -57,6 +57,21 @@ defmodule Ircpipe.Realtime.Event do
     })
   end
 
+  def buffer_read(payload) do
+    occurred_at = DateTime.utc_now(:second)
+    payload = Map.new(payload)
+
+    Map.merge(payload, %{
+      type: "buffer:read",
+      version: @version,
+      event_id:
+        "buffer_read:#{Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      occurred_at: occurred_at,
+      unread_count: 0,
+      mention_count: 0
+    })
+  end
+
   def buffer_joined(connection, membership) do
     occurred_at = DateTime.utc_now(:second)
 

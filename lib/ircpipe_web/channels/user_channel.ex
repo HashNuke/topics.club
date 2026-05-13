@@ -69,6 +69,11 @@ defmodule IrcpipeWeb.UserChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:buffer_read, payload}, socket) do
+    push(socket, "buffer:read", payload)
+    {:noreply, socket}
+  end
+
   def handle_info({:buffer_joined, payload}, socket) do
     push(socket, "buffer:joined", payload)
     {:noreply, socket}
