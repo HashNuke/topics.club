@@ -55,6 +55,34 @@ defmodule Ircpipe.Realtime.Event do
     })
   end
 
+  def presence_sync(payload) do
+    occurred_at = DateTime.utc_now(:second)
+
+    payload
+    |> Map.new()
+    |> Map.merge(%{
+      type: "presence:sync",
+      version: @version,
+      event_id:
+        "presence_sync:#{Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      occurred_at: occurred_at
+    })
+  end
+
+  def presence_diff(payload) do
+    occurred_at = DateTime.utc_now(:second)
+
+    payload
+    |> Map.new()
+    |> Map.merge(%{
+      type: "presence:diff",
+      version: @version,
+      event_id:
+        "presence_diff:#{Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      occurred_at: occurred_at
+    })
+  end
+
   defp message_type(%{kind: "error"}), do: "buffer:error"
 
   defp message_type(%{kind: kind}) when kind in ~w(system join part quit nick topic),

@@ -301,18 +301,18 @@ defmodule Ircpipe.Chat do
            channel: normalize_channel(channel)
          ) do
       %ChannelMembership{} = membership ->
+        event =
+          Event.presence_sync(%{
+            buffer_id: "channel:#{membership.id}",
+            server_connection_id: connection.id,
+            channel_membership_id: membership.id,
+            users: Enum.map(names, &presence_user/1)
+          })
+
         Phoenix.PubSub.broadcast(
           Ircpipe.PubSub,
           "user:#{connection.user_id}",
-          {:presence_sync,
-           %{
-             type: "presence:sync",
-             buffer_id: "channel:#{membership.id}",
-             server_connection_id: connection.id,
-             channel_membership_id: membership.id,
-             users: Enum.map(names, &presence_user/1),
-             occurred_at: DateTime.utc_now(:second)
-           }}
+          {:presence_sync, event}
         )
 
       nil ->
@@ -324,18 +324,18 @@ defmodule Ircpipe.Chat do
     connection
     |> presence_memberships(channel)
     |> Enum.each(fn membership ->
+      event =
+        Event.presence_diff(%{
+          buffer_id: "channel:#{membership.id}",
+          server_connection_id: connection.id,
+          channel_membership_id: membership.id,
+          diff: diff
+        })
+
       Phoenix.PubSub.broadcast(
         Ircpipe.PubSub,
         "user:#{connection.user_id}",
-        {:presence_diff,
-         %{
-           type: "presence:diff",
-           buffer_id: "channel:#{membership.id}",
-           server_connection_id: connection.id,
-           channel_membership_id: membership.id,
-           diff: diff,
-           occurred_at: DateTime.utc_now(:second)
-         }}
+        {:presence_diff, event}
       )
     end)
   end

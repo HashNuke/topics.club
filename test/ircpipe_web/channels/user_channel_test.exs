@@ -323,6 +323,9 @@ defmodule IrcpipeWeb.UserChannelTest do
     ])
 
     assert_push "presence:sync", %{
+      type: "presence:sync",
+      version: 1,
+      event_id: "presence_sync:channel:" <> _,
       buffer_id: buffer_id,
       users: [
         %{nick: "mira", role: "op", status: "online"},
@@ -354,6 +357,9 @@ defmodule IrcpipeWeb.UserChannelTest do
     })
 
     assert_push "presence:diff", %{
+      type: "presence:diff",
+      version: 1,
+      event_id: "presence_diff:channel:" <> _,
       buffer_id: buffer_id,
       diff: %{action: "join", user: %{nick: "akash", role: "user", status: "online"}}
     }
