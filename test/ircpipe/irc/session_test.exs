@@ -251,6 +251,88 @@ defmodule Ircpipe.Irc.SessionTest do
              Chat.list_messages(user, membership.id)
   end
 
+  test "records IRC error numerics in the affected channel buffer when possible" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#invite")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:irc_error,
+                 %{
+                   code: "473",
+                   target: "#invite",
+                   reason: "Cannot join channel (+i)",
+                   params: ["ircpipe", "#invite", "Cannot join channel (+i)"]
+                 }}},
+               state
+             )
+
+    assert_receive {:buffer_error,
+                    %{
+                      buffer_id: buffer_id,
+                      channel_membership_id: membership_id,
+                      kind: "error",
+                      body: "Cannot join channel (+i)"
+                    }}
+
+    assert buffer_id == "channel:#{membership.id}"
+    assert membership_id == membership.id
+  end
+
+  test "records IRC error numerics in the server buffer without a matching channel" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:irc_error,
+                 %{
+                   code: "433",
+                   target: "ircpipe",
+                   reason: "Nickname is already in use",
+                   params: ["ircpipe", "ircpipe", "Nickname is already in use"]
+                 }}},
+               state
+             )
+
+    assert_receive {:buffer_error,
+                    %{
+                      buffer_id: buffer_id,
+                      channel_membership_id: nil,
+                      kind: "error",
+                      body: "Nickname is already in use"
+                    }}
+
+    assert buffer_id == "server:#{connection.id}"
+  end
+
   test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do
     user = AccountsFixtures.user_fixture()
 

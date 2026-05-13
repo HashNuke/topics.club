@@ -361,6 +361,11 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, state}
   end
 
+  def handle_info({:ircxd, {:irc_error, payload}}, state) do
+    record_irc_error(state.connection, payload)
+    {:noreply, state}
+  end
+
   def handle_info({:ircxd, _event}, state), do: {:noreply, state}
 
   @impl true
@@ -501,6 +506,24 @@ defmodule Ircpipe.Irc.Session do
   catch
     :exit, _reason -> {:ok, nil}
   end
+
+  defp record_irc_error(connection, %{target: "#" <> _ = channel} = payload) do
+    Chat.record_channel_system_message(connection, channel, "error", nil, irc_error_body(payload))
+  rescue
+    Ecto.NoResultsError -> record_server_line(connection, irc_error_body(payload), "error")
+    Ecto.StaleEntryError -> {:ok, nil}
+    DBConnection.OwnershipError -> {:ok, nil}
+  catch
+    :exit, _reason -> {:ok, nil}
+  end
+
+  defp record_irc_error(connection, payload) do
+    record_server_line(connection, irc_error_body(payload), "error")
+  end
+
+  defp irc_error_body(%{reason: reason}) when is_binary(reason), do: reason
+  defp irc_error_body(%{code: code}), do: "IRC error #{code}."
+  defp irc_error_body(_payload), do: "IRC error."
 
   defp fetch_client(%{client: nil}), do: {:error, :not_connected}
   defp fetch_client(%{client: client}), do: {:ok, client}
