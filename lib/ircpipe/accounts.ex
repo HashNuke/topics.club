@@ -61,6 +61,16 @@ defmodule Ircpipe.Accounts do
   """
   def get_user!(id), do: Repo.get!(User, id)
 
+  def touch_last_seen(%User{id: user_id}) do
+    now = DateTime.utc_now(:second)
+
+    User
+    |> where([u], u.id == ^user_id)
+    |> Repo.update_all(set: [last_seen_at: now, updated_at: now])
+
+    :ok
+  end
+
   ## User registration
 
   @doc """

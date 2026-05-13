@@ -75,6 +75,14 @@ defmodule IrcpipeWeb.UserAuth do
     end
   end
 
+  def track_user_activity(conn, _opts) do
+    if user = conn.assigns[:current_scope] && conn.assigns.current_scope.user do
+      Accounts.touch_last_seen(user)
+    end
+
+    conn
+  end
+
   defp ensure_user_token(conn) do
     if token = get_session(conn, :user_token) do
       {token, conn}

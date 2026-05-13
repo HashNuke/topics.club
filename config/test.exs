@@ -23,6 +23,8 @@ config :ircpipe, IrcpipeWeb.Endpoint,
   secret_key_base: "0b9bBqpbhnwgHDcBUh2E0VAxbRR6WmpBIV6oXXkFqEb4vx/LzOUfAmWBwaJRs0VQ",
   server: false
 
+config :ircpipe, irc_bouncer_enabled: false
+
 # In test we don't send emails
 config :ircpipe, Ircpipe.Mailer, adapter: Swoosh.Adapters.Test
 

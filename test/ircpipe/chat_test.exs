@@ -4,6 +4,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Message
+  alias Ircpipe.Repo
 
   test "scopes server connections to their owner" do
     user = AccountsFixtures.user_fixture()
@@ -22,6 +23,48 @@ defmodule Ircpipe.ChatTest do
     assert owned.id == connection.id
     assert [] = Chat.list_connections(other_user)
     assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(other_user, connection.id) end
+  end
+
+  test "lists bouncer connections by user activity" do
+    active_user = AccountsFixtures.user_fixture()
+    inactive_user = AccountsFixtures.user_fixture()
+    cutoff = DateTime.add(DateTime.utc_now(:second), -24, :hour)
+
+    Repo.update_all(
+      from(u in Ircpipe.Accounts.User, where: u.id == ^active_user.id),
+      set: [last_seen_at: DateTime.add(cutoff, 1, :second)]
+    )
+
+    Repo.update_all(
+      from(u in Ircpipe.Accounts.User, where: u.id == ^inactive_user.id),
+      set: [last_seen_at: DateTime.add(cutoff, -1, :second)]
+    )
+
+    {:ok, active_connection} =
+      Chat.create_connection(active_user, %{
+        "name" => "active",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "active",
+        "status" => "connected"
+      })
+
+    {:ok, inactive_connection} =
+      Chat.create_connection(inactive_user, %{
+        "name" => "inactive",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "inactive",
+        "status" => "connected"
+      })
+
+    assert Enum.map(Chat.list_recently_seen_connections(cutoff), & &1.id) == [
+             active_connection.id
+           ]
+
+    assert Enum.map(Chat.list_inactive_connections(cutoff), & &1.id) == [inactive_connection.id]
   end
 
   test "does not join channels on another user's server connection" do

@@ -23,6 +23,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
 
   return {
     bootstrap: () => request("/api/bootstrap"),
+    activity: () => request("/api/activity", {method: "POST", body: JSON.stringify({})}),
     topics: () => request("/api/topics"),
     joinTopic: (topicId) => request(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
     createConnection: (connection) => request("/api/connections", {method: "POST", body: JSON.stringify({connection})}),

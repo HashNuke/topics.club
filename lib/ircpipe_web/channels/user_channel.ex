@@ -1,6 +1,7 @@
 defmodule IrcpipeWeb.UserChannel do
   use IrcpipeWeb, :channel
 
+  alias Ircpipe.Accounts
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
@@ -10,6 +11,7 @@ defmodule IrcpipeWeb.UserChannel do
   @impl true
   def join("user:" <> user_id, _payload, socket) do
     if Integer.to_string(socket.assigns.current_user.id) == user_id do
+      Accounts.touch_last_seen(socket.assigns.current_user)
       Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user_id}")
 
       {:ok,

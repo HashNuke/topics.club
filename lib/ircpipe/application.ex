@@ -14,6 +14,7 @@ defmodule Ircpipe.Application do
       {Phoenix.PubSub, name: Ircpipe.PubSub},
       {Registry, keys: :unique, name: Ircpipe.Irc.SessionRegistry},
       {Ircpipe.Irc.SessionSupervisor, []},
+      {Ircpipe.Irc.Bouncer, []},
       # Start to serve requests, typically the last entry
       IrcpipeWeb.Endpoint
     ]

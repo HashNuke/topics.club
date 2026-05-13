@@ -218,6 +218,29 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [apiClient, currentUser?.id, mode])
 
   useEffect(() => {
+    if (!currentUser || mode === "landing" || !apiClient.activity) return
+
+    const touchActivity = () => {
+      apiClient.activity().catch(() => {})
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") touchActivity()
+    }
+
+    touchActivity()
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("focus", touchActivity)
+    const interval = window.setInterval(touchActivity, 30 * 60 * 1000)
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("focus", touchActivity)
+      window.clearInterval(interval)
+    }
+  }, [apiClient, currentUser?.id, mode])
+
+  useEffect(() => {
     if (!currentUser || mode === "landing" || !realtimeClientFactory) return
 
     const realtimeClient = realtimeClientFactory({

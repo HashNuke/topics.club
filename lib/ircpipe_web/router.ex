@@ -11,6 +11,7 @@ defmodule IrcpipeWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :fetch_current_scope_for_user
+    plug :track_user_activity
   end
 
   pipeline :api do
@@ -24,6 +25,7 @@ defmodule IrcpipeWeb.Router do
     plug :protect_from_forgery
     plug :fetch_current_scope_for_user
     plug :require_authenticated_user
+    plug :track_user_activity
   end
 
   scope "/", IrcpipeWeb do
@@ -66,6 +68,7 @@ defmodule IrcpipeWeb.Router do
     post "/channels/:channel_id/messages", MessageController, :create
 
     put "/settings", SettingsController, :update
+    post "/activity", ActivityController, :create
   end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
