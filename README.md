@@ -52,8 +52,8 @@ The repo includes a systemd unit for this development IRC server:
 
 ```bash
 sudo install -m 0644 dev/systemd/irc-server-dev.service /etc/systemd/system/irc-server-dev.service
-sudo install -m 0644 tmp/inspircd/inspircd.conf /etc/inspircd/ircpipe-dev.conf
-sudo install -m 0644 tmp/inspircd/inspircd.motd /etc/inspircd/ircpipe-dev.motd
+sudo install -m 0644 dev/inspircd/inspircd.conf /etc/inspircd/ircpipe-dev.conf
+sudo install -m 0644 dev/inspircd/inspircd.motd /etc/inspircd/ircpipe-dev.motd
 sudo systemctl daemon-reload
 sudo systemctl enable --now irc-server-dev.service
 ```

@@ -39,7 +39,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
       if (params.after) search.set("after", String(params.after))
 
       const query = search.toString()
-      return request(`/api/buffers/${encodeURIComponent(bufferId)}/messages${query ? `?${query}` : ""}`)
+      return request(`/api/buffers/${bufferId}/messages${query ? `?${query}` : ""}`)
     },
   }
 }

@@ -38,7 +38,7 @@ function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected"}
       }
     }
 
-    if (String(path).startsWith("/api/buffers/channel%3A7/messages") && String(path).includes("before=99")) {
+    if (String(path).startsWith("/api/buffers/channel:7/messages") && String(path).includes("before=99")) {
       return {
         ok: true,
         json: async () => ({
@@ -364,7 +364,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByText("older from history")).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "/api/buffers/channel%3A7/messages?limit=50&before=99",
+      "/api/buffers/channel:7/messages?limit=50&before=99",
       expect.objectContaining({credentials: "same-origin"})
     )
   })
@@ -448,7 +448,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
     expect(await screen.findByText("missed during bootstrap")).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "/api/buffers/channel%3A7/messages?limit=50&after=99",
+      "/api/buffers/channel:7/messages?limit=50&after=99",
       expect.objectContaining({credentials: "same-origin"})
     )
   })

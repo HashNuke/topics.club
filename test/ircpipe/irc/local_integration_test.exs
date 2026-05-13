@@ -16,6 +16,12 @@ if System.get_env("IRCPIPE_LOCAL_IRC_INTEGRATION") == "1" do
       {:ok, listener} = connect_second_client(listener_nick)
       {:ok, speaker} = connect_second_client(speaker_nick)
 
+      extra_clients =
+        for index <- 1..2 do
+          {:ok, client} = connect_second_client("extra#{unique}#{index}")
+          client
+        end
+
       :ok = send_line(listener, "JOIN #{channel}")
 
       :ok =
@@ -47,8 +53,10 @@ if System.get_env("IRCPIPE_LOCAL_IRC_INTEGRATION") == "1" do
 
       send_line(speaker, "QUIT :done")
       send_line(listener, "QUIT :done")
+      Enum.each(extra_clients, &send_line(&1, "QUIT :done"))
       :gen_tcp.close(speaker)
       :gen_tcp.close(listener)
+      Enum.each(extra_clients, &:gen_tcp.close/1)
     end
 
     defp connect_second_client(nick) do
