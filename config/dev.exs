@@ -17,7 +17,7 @@ config :ircpipe, Ircpipe.Repo,
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
 config :ircpipe, IrcpipeWeb.Endpoint,
-  http: [ip: {0, 0, 0, 0}],
+  http: [ip: {0, 0, 0, 0}, port: 4100],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
