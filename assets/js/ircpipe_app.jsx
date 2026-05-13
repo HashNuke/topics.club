@@ -856,14 +856,14 @@ function UserListItem({user}) {
 
 export function TopicGrid({topics, onSelectTopic}) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3 sm:grid-cols-2">
       {topics.map((topic) => {
         const normalized = normalizeTopic(topic)
 
         return (
           <button
             key={normalized.id}
-            className="group rounded-lg border border-slate-800 bg-[#121722] p-4 text-left transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-[#161d2a]"
+            className="group rounded-lg border border-slate-800 bg-[#121722] p-3 text-left transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-[#161d2a]"
             onClick={() => onSelectTopic(normalized)}
           >
             <div className="flex min-w-0 items-start justify-between gap-3">
@@ -875,8 +875,8 @@ export function TopicGrid({topics, onSelectTopic}) {
                 {normalized.vibe || "topic"}
               </span>
             </div>
-            <p className="mt-4 min-h-12 text-sm leading-6 text-slate-400">{normalized.description}</p>
-            <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+            <p className="mt-3 min-h-10 text-sm leading-5 text-slate-400">{normalized.description}</p>
+            <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
               <span>{normalized.members || "many"} online</span>
               <span className="font-semibold text-cyan-200 transition group-hover:text-white">Join</span>
             </div>
