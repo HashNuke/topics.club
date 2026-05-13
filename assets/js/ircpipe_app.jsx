@@ -639,21 +639,23 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
 function AppShell(props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [mobileUsersOpen, setMobileUsersOpen] = useState(false)
+  const showsUserSidebar = props.view === "chat"
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#0a0d12] text-slate-100">
       <div
         className={[
           "grid h-screen grid-cols-1",
-          props.view === "discover"
-            ? "lg:grid-cols-[260px_minmax(0,1fr)]"
-            : "lg:grid-cols-[260px_minmax(0,1fr)_220px]",
+          showsUserSidebar
+            ? "lg:grid-cols-[260px_minmax(0,1fr)_220px]"
+            : "lg:grid-cols-[260px_minmax(0,1fr)]",
         ].join(" ")}
       >
         <LeftSidebar {...props} />
         <section className="flex min-h-0 min-w-0 flex-col">
           <TopBar
             {...props}
+            showsUserSidebar={showsUserSidebar}
             onOpenMobileMenu={() => setMobileMenuOpen(true)}
             onOpenMobileUsers={() => setMobileUsersOpen(true)}
           />
@@ -671,7 +673,7 @@ function AppShell(props) {
             <ChatPane {...props} />
           )}
         </section>
-        {props.view !== "discover" && <RightSidebar activeChannel={props.activeChannel} users={props.users} />}
+        {showsUserSidebar && <RightSidebar activeChannel={props.activeChannel} users={props.users} />}
       </div>
       {mobileMenuOpen && (
         <MobileDrawer side="left" onClose={() => setMobileMenuOpen(false)}>
@@ -694,7 +696,7 @@ function AppShell(props) {
           />
         </MobileDrawer>
       )}
-      {props.view !== "discover" && mobileUsersOpen && (
+      {showsUserSidebar && mobileUsersOpen && (
         <MobileDrawer side="right" onClose={() => setMobileUsersOpen(false)}>
           <MobileDrawerHeader title="People" onClose={() => setMobileUsersOpen(false)} />
           <RightSidebar activeChannel={props.activeChannel} users={props.users} mobile />
@@ -823,7 +825,7 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
   )
 }
 
-function TopBar({activeChannel, activeServer, connectionHealth, notificationState, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications}) {
+function TopBar({activeChannel, activeServer, connectionHealth, notificationState, showsUserSidebar, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications}) {
   const topBarCopy = topBarCopyFor({activeChannel, activeServer, view})
 
   return (
@@ -848,7 +850,7 @@ function TopBar({activeChannel, activeServer, connectionHealth, notificationStat
       </div>
       <div className="flex items-center gap-2">
         <ConnectionHealthIndicator status={connectionHealth} />
-        {view !== "discover" && (
+        {showsUserSidebar && (
           <button
             className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden"
             onClick={onOpenMobileUsers}

@@ -560,6 +560,8 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByText("Server buffer")).toBeInTheDocument()
     expect(screen.getByText(/NickServ/i)).toBeInTheDocument()
     expect(screen.getByText(/ChanServ/i)).toBeInTheDocument()
+    expect(screen.queryByRole("complementary", {name: "People here"})).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Show users"})).not.toBeInTheDocument()
   })
 
   test("shows slash command suggestions from the chat composer", async () => {
