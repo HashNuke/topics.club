@@ -46,6 +46,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `system`
   - [x] `error`
   - [x] `command`
+  - [x] `topic`
 - [x] Store stable message ordering with `occurred_at` plus `id`.
 - [ ] Store sender metadata:
   - [ ] `nick`
@@ -291,18 +292,18 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] connect failure
   - [x] disconnect
   - [x] reconnect
-  - [ ] MOTD
-  - [ ] numeric replies
-  - [ ] service notices
-- [ ] Emit channel-buffer messages for:
-  - [ ] `PRIVMSG`
-  - [ ] `NOTICE`
-  - [ ] `/me` actions
+  - [x] MOTD
+  - [x] numeric replies
+  - [x] service notices
+- [x] Emit channel-buffer messages for:
+  - [x] `PRIVMSG`
+  - [x] `NOTICE`
+  - [x] `/me` actions
   - [x] joins
   - [x] parts
   - [x] quits
   - [x] nick changes
-  - [ ] topic changes
+  - [x] topic changes
 - [x] Track channel user lists from IRC names and membership events.
   - [x] IRC names replies
   - [x] membership events

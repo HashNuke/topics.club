@@ -132,6 +132,21 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info(
+        {:ircxd, {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body, ctcp: ctcp}}},
+        state
+      ) do
+    case action_body(ctcp) do
+      {:ok, action} ->
+        Chat.record_inbound_message(state.connection, channel, nick, action, "action")
+
+      :error ->
+        Chat.record_inbound_message(state.connection, channel, nick, body)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info(
         {:ircxd, {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body}}},
         state
       ) do
@@ -144,6 +159,56 @@ defmodule Ircpipe.Irc.Session do
         state
       ) do
     Chat.record_inbound_message(state.connection, channel, nick, body, "notice")
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:notice, %{nick: nick, body: body}}}, state) do
+    record_server_line(state.connection, "#{nick}: #{body}", "notice")
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:welcome, %{text: text}}}, state) do
+    record_server_line(state.connection, text)
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:your_host, %{text: text}}}, state) do
+    record_server_line(state.connection, text)
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:server_created, %{text: text}}}, state) do
+    record_server_line(state.connection, text)
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:server_info, payload}}, state) do
+    record_server_line(
+      state.connection,
+      "#{payload.server} #{payload.version} user modes #{payload.user_modes} channel modes #{payload.channel_modes}",
+      "notice"
+    )
+
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:motd_start, %{text: text}}}, state) do
+    record_server_line(state.connection, text, "notice")
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:motd, %{text: text}}}, state) do
+    record_server_line(state.connection, text, "notice")
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:motd_end, %{text: text}}}, state) do
+    record_server_line(state.connection, text, "notice")
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:motd_missing, %{text: text}}}, state) do
+    record_server_line(state.connection, text, "notice")
     {:noreply, state}
   end
 
@@ -184,6 +249,18 @@ defmodule Ircpipe.Irc.Session do
     record_channel_line_all(state.connection, "nick", new_nick, fn _membership ->
       "#{old_nick} is now #{new_nick}."
     end)
+
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:topic, %{channel: channel, nick: nick, topic: topic}}}, state) do
+    record_channel_line(
+      state.connection,
+      channel,
+      "topic",
+      nick,
+      "#{nick} changed the topic to: #{topic}"
+    )
 
     {:noreply, state}
   end
@@ -281,6 +358,9 @@ defmodule Ircpipe.Irc.Session do
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error
+
+  defp action_body({:ok, %{command: "ACTION", params: params}}), do: {:ok, params}
+  defp action_body(_ctcp), do: :error
 
   defp persisted_channels(%ServerConnection{channel_memberships: memberships})
        when is_list(memberships) do

@@ -107,6 +107,75 @@ defmodule Ircpipe.Irc.SessionTest do
            ]
   end
 
+  test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info({:ircxd, {:welcome, %{text: "Welcome to local"}}}, state)
+
+    assert_receive {:buffer_message, %{buffer_id: "server:" <> _, body: "Welcome to local"}}
+
+    assert {:noreply, ^state} =
+             Session.handle_info({:ircxd, {:motd, %{text: "- Be kind"}}}, state)
+
+    assert_receive {:buffer_message, %{kind: "notice", body: "- Be kind"}}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:notice, %{target: "ircpipe", nick: "NickServ", body: "identify please"}}},
+               state
+             )
+
+    assert_receive {:buffer_message, %{kind: "notice", body: "NickServ: identify please"}}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:privmsg,
+                 %{
+                   target: "#pipe",
+                   nick: "akash",
+                   body: <<1, "ACTION waves", 1>>,
+                   ctcp: {:ok, %Ircxd.CTCP{command: "ACTION", params: "waves"}}
+                 }}},
+               state
+             )
+
+    assert_receive {:irc_message, %{kind: "action", body: "waves", nick: "akash"}}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd, {:topic, %{channel: "#pipe", nick: "mira", topic: "new topic"}}},
+               state
+             )
+
+    assert_receive {:irc_message, %{kind: "topic", body: "mira changed the topic to: new topic"}}
+
+    channel_messages = Chat.list_messages(user, membership.id)
+    assert Enum.any?(channel_messages, &(&1.kind == "action" and &1.body == "waves"))
+    assert Enum.any?(channel_messages, &(&1.kind == "topic" and &1.body =~ "new topic"))
+
+    server_messages = Chat.list_buffer_messages(user, "server:#{connection.id}")
+    assert Enum.any?(server_messages, &(&1.body == "Welcome to local"))
+    assert Enum.any?(server_messages, &(&1.kind == "notice" and &1.body == "- Be kind"))
+    assert Enum.any?(server_messages, &(&1.body == "NickServ: identify please"))
+  end
+
   test "rejoins persisted channel memberships after registration" do
     server = start_supervised!({IrcTestServer, self()})
     port = IrcTestServer.port(server)
