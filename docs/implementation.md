@@ -21,7 +21,7 @@ References:
 - [x] Join one high-level user channel: `user:{user_id}`.
 - [x] Keep channel-specific IRC events inside payloads instead of joining one Phoenix topic per IRC channel.
 - [x] Keep the one-IRC-session-per-`{user_id, server_connection_id}` backend invariant from `docs/spec.md`.
-- [ ] Use REST `/api/*` for initial loads, history pagination, and durable mutations.
+- [x] Use REST `/api/*` for initial loads, history pagination, and durable mutations.
 - [x] Use Phoenix Channel pushes and socket lifecycle callbacks for realtime events, command submissions, send-message acknowledgements, and connection health.
 
 Rationale: the UI needs many IRC buffers, but the browser should not create a WebSocket per IRC channel. Phoenix already multiplexes channel topics over one socket, and this app can go further by using one authenticated user channel as the event bus for all of the user's server buffers, channel buffers, user lists, notices, and notifications.
@@ -87,7 +87,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Push `buffer:read` when counters are reset.
 - [x] Push `buffer:joined` when a channel or server buffer is created.
 - [x] Push `buffer:left` when the user leaves a channel.
-- [ ] Push `buffer:error` for join failures, send failures, bans, invite-only failures, nickname errors, TLS failures, and backend IRC errors.
+- [x] Push `buffer:error` for join failures, send failures, bans, invite-only failures, nickname errors, TLS failures, and backend IRC errors.
 - [x] Push `presence:sync` for full user list refreshes.
 - [x] Push `presence:diff` for joins, parts, quits, nick changes, role changes, and away state changes.
 - [x] Push `server:status` for `connecting`, `connected`, `reconnecting`, `errored`, and `disconnected`.
@@ -392,8 +392,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] Normalize IRC events.
   - [x] Persist messages and system lines.
   - [x] Maintain user lists.
-- [ ] Phase 5: Polish failure and notification behavior.
-  - [ ] Socket disconnect UI.
-  - [ ] Send retries.
-  - [ ] Mention notification flow.
-  - [ ] Retention pruning verification.
+- [x] Phase 5: Polish failure and notification behavior.
+  - [x] Socket disconnect UI.
+  - [x] Send retries.
+  - [x] Mention notification flow.
+  - [x] Retention pruning verification.
