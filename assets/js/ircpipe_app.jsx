@@ -1931,24 +1931,19 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
           ))}
         </div>
       )}
-      {statusLabel && (
-        <div className="mx-auto mb-2 flex max-w-4xl justify-end">
-          <div className="inline-flex items-center gap-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100" role="status">
-            <span className="size-1.5 rounded-full bg-amber-300" />
-            {statusLabel}
-          </div>
-        </div>
-      )}
       <div
         ref={refs.setReference}
         className="mx-auto flex max-w-4xl flex-col items-stretch gap-2 rounded-md border border-slate-700 bg-slate-950 p-2 transition focus-within:border-cyan-300 sm:flex-row sm:items-center sm:px-3"
       >
-        <button
-          className="order-1 self-end rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 sm:order-2"
-          disabled={disabled}
-        >
-          Send
-        </button>
+        <div className="order-1 flex min-w-0 items-center justify-end gap-2 sm:order-2">
+          {statusLabel && <ComposerStatus label={statusLabel} />}
+          <button
+            className="shrink-0 rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            disabled={disabled}
+          >
+            Send
+          </button>
+        </div>
         <textarea
           id={inputId}
           aria-label="Message composer"
@@ -1961,6 +1956,18 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
         />
       </div>
     </form>
+  )
+}
+
+function ComposerStatus({label}) {
+  return (
+    <div
+      className="inline-flex min-w-0 max-w-[min(12rem,calc(100vw-8rem))] items-center gap-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100 sm:max-w-56"
+      role="status"
+    >
+      <span className="size-1.5 shrink-0 rounded-full bg-amber-300" />
+      <span className="truncate">{label}</span>
+    </div>
   )
 }
 
