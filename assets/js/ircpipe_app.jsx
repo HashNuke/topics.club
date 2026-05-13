@@ -870,14 +870,11 @@ export function TopicGrid({topics, onSelectTopic}) {
             className="group rounded-lg border border-slate-800 bg-[#121722] p-3 text-left transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-[#161d2a]"
             onClick={() => onSelectTopic(normalized)}
           >
-            <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
               <div className="min-w-0 flex-1">
                 <div className="break-words text-lg font-semibold tracking-tight text-white">{normalized.channel}</div>
                 <div className="mt-0.5 truncate text-xs text-slate-500">on {normalized.server_host}</div>
               </div>
-              <span className="max-w-[7rem] shrink-0 truncate rounded-full bg-slate-800 px-2 py-1 text-xs font-medium text-cyan-200">
-                {normalized.vibe || "topic"}
-              </span>
             </div>
             <p className="mt-3 min-h-10 text-sm leading-5 text-slate-400">{normalized.description}</p>
             <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
