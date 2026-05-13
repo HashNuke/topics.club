@@ -1,0 +1,38 @@
+import {describe, expect, test, vi} from "vitest"
+import {createApiClient} from "./api_client.js"
+
+describe("api client", () => {
+  test("loads bootstrap with same-origin credentials and csrf token", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({ok: true})})
+    const api = createApiClient({csrfToken: "csrf", fetchImpl})
+
+    await expect(api.bootstrap()).resolves.toEqual({ok: true})
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/bootstrap",
+      expect.objectContaining({
+        credentials: "same-origin",
+        headers: expect.objectContaining({"x-csrf-token": "csrf"}),
+      })
+    )
+  })
+
+  test("joins topics and fetches cursor-paginated buffer messages", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({ok: true})})
+    const api = createApiClient({fetchImpl})
+
+    await api.joinTopic(42)
+    await api.bufferMessages("channel:9", {before: 123, limit: 50})
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "/api/topics/42/join",
+      expect.objectContaining({method: "POST", body: "{}"})
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "/api/buffers/channel%3A9/messages?limit=50&before=123",
+      expect.objectContaining({credentials: "same-origin"})
+    )
+  })
+})

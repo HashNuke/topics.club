@@ -296,8 +296,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## React state checklist
 
-- [ ] Create an API client module for bootstrap/history/mutations.
-- [ ] Create a Phoenix socket client module.
+- [x] Create an API client module for bootstrap/history/mutations.
+- [x] Create a Phoenix socket client module.
 - [ ] Create a reducer/store for:
   - [ ] connections
   - [ ] buffers
