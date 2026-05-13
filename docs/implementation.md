@@ -81,7 +81,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Realtime event contract
 
-- [ ] Define all events as versioned payloads with `type`, `version`, `event_id`, and `occurred_at`.
+- [x] Define all events as versioned payloads with `type`, `version`, `event_id`, and `occurred_at`.
 - [x] Push `buffer:message` for normal channel messages, notices, actions, and service replies.
 - [x] Push `buffer:system` for join, part, quit, nick change, topic changes, and server lifecycle lines.
 - [x] Push `buffer:read` when counters are reset.
@@ -383,10 +383,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] Add message history pagination.
   - [x] Add user list payloads.
 - [ ] Phase 3: Expand realtime channel.
-  - [ ] Add channel push handlers.
+  - [x] Add channel push handlers.
   - [ ] Add reply contracts.
-  - [ ] Add event contracts.
-  - [ ] Add backend tests.
+  - [x] Add event contracts.
+  - [x] Add backend tests.
 - [x] Phase 4: Integrate IRC runtime.
   - [x] Use `ircxd`.
   - [x] Normalize IRC events.

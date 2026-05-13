@@ -45,6 +45,18 @@ defmodule Ircpipe.Realtime.Event do
     }
   end
 
+  def server_deleted(connection) do
+    occurred_at = DateTime.utc_now(:second)
+
+    %{
+      type: "server:deleted",
+      version: @version,
+      event_id: "server_deleted:#{connection.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      server_connection_id: connection.id,
+      occurred_at: occurred_at
+    }
+  end
+
   def buffer_left(payload) do
     occurred_at = DateTime.utc_now(:second)
     payload = Map.new(payload)

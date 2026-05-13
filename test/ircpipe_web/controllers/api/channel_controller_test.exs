@@ -47,6 +47,9 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     assert %{
              "left" => %{
                "type" => "buffer:left",
+               "version" => 1,
+               "event_id" => "buffer_left:" <> _,
+               "occurred_at" => _occurred_at,
                "buffer_id" => buffer_id,
                "channel_membership_id" => membership_id
              }

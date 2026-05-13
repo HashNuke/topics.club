@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.ChannelController do
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
+  alias Ircpipe.Realtime.Event
 
   def create(conn, %{"connection_id" => connection_id, "channel" => channel}) do
     user = conn.assigns.current_scope.user
@@ -32,12 +33,12 @@ defmodule IrcpipeWeb.Api.ChannelController do
     :ok = Chat.leave_channel(user, membership)
 
     json(conn, %{
-      left: %{
-        type: "buffer:left",
-        buffer_id: "channel:#{membership.id}",
-        server_connection_id: membership.server_connection_id,
-        channel_membership_id: membership.id
-      }
+      left:
+        Event.buffer_left(%{
+          buffer_id: "channel:#{membership.id}",
+          server_connection_id: membership.server_connection_id,
+          channel_membership_id: membership.id
+        })
     })
   end
 

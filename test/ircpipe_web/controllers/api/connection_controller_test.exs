@@ -123,7 +123,15 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
     conn = delete(conn, ~p"/api/connections/#{connection.id}")
 
-    assert %{"deleted" => %{"type" => "server:deleted", "server_connection_id" => connection_id}} =
+    assert %{
+             "deleted" => %{
+               "type" => "server:deleted",
+               "version" => 1,
+               "event_id" => "server_deleted:" <> _,
+               "occurred_at" => _occurred_at,
+               "server_connection_id" => connection_id
+             }
+           } =
              json_response(conn, 200)
 
     assert connection_id == connection.id
