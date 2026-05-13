@@ -146,6 +146,16 @@ function mockJoinTopicFetch() {
   })
 }
 
+function fakeRealtimeClient(pushImpl) {
+  const client = {
+    connect: vi.fn(() => client),
+    disconnect: vi.fn(),
+    push: pushImpl,
+  }
+
+  return client
+}
+
 describe("IrcpipeApp UI prototype", () => {
   test("shows topic-first landing cards with channel and server labels", async () => {
     mockTopicsFetch()
@@ -219,6 +229,69 @@ describe("IrcpipeApp UI prototype", () => {
       "/api/topics/101/join",
       expect.objectContaining({method: "POST", credentials: "same-origin"})
     )
+  })
+
+  test("sends channel messages through the realtime client and replaces pending message", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn().mockResolvedValue({
+      client_message_id: "client-reply",
+      message: {
+        id: 100,
+        buffer_id: "channel:7",
+        nick: "mira",
+        body: "sent through socket",
+        kind: "message",
+        mentioned: false,
+        occurred_at: "2026-05-13T10:01:00Z",
+      },
+    })
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText("Message composer"), "sent through socket")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(push).toHaveBeenCalledWith(
+      "message:send",
+      expect.objectContaining({
+        buffer_id: "channel:7",
+        body: "sent through socket",
+        client_message_id: expect.stringMatching(/^client-/),
+      })
+    )
+    expect(await screen.findByText("sent through socket")).toBeInTheDocument()
+    expect(screen.queryByText("sending")).not.toBeInTheDocument()
+  })
+
+  test("marks realtime channel send failures in the timeline", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const client = fakeRealtimeClient(vi.fn().mockRejectedValue({reason: "not_connected"}))
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText("Message composer"), "will fail")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(await screen.findByText("Send failed")).toBeInTheDocument()
   })
 
   test("lets signed-in users join their own server and channel", async () => {

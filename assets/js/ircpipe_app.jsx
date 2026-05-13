@@ -1,5 +1,6 @@
-import React, {useEffect, useMemo, useState} from "react"
+import React, {useEffect, useMemo, useRef, useState} from "react"
 import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/react"
+import {createApiClient} from "./api_client.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 
@@ -128,30 +129,14 @@ export const slashCommands = [
   {name: "/quote", usage: "/quote RAW COMMAND", description: "Send a raw IRC command"},
 ]
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: {
-      "content-type": "application/json",
-      "x-csrf-token": csrfToken,
-      ...(options.headers || {}),
-    },
-    ...options,
-  })
-
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-
-  return response.json()
-}
-
-export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
+export default function IrcpipeApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}) {
+  const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
   const [topics, setTopics] = useState(demoTopics)
   const [authTopic, setAuthTopic] = useState(null)
   const [view, setView] = useState("chat")
   const [notificationState, setNotificationState] = useState(notificationPermission())
+  const [connectionHealth, setConnectionHealth] = useState("disconnected")
   const [connections, setConnections] = useState(() => initialConnections())
   const [activeChannelId, setActiveChannelId] = useState("chan-elixir")
   const [activeServerId, setActiveServerId] = useState("server-local")
@@ -162,22 +147,48 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
     Object.fromEntries(initialConnections().map((connection) => [connection.id, serverBufferMessages(connection)]))
   )
   const [draft, setDraft] = useState("")
+  const realtimeClientRef = useRef(null)
 
   useEffect(() => {
-    api("/api/topics")
+    apiClient
+      .topics()
       .then(({topics}) => {
         if (topics?.length >= demoTopics.length) setTopics(topics.map(normalizeTopic))
       })
       .catch(() => setTopics(demoTopics))
-  }, [])
+  }, [apiClient])
 
   useEffect(() => {
     if (!currentUser || mode === "landing") return
 
-    api("/api/bootstrap")
+    apiClient
+      .bootstrap()
       .then((bootstrap) => applyBootstrap(bootstrap))
       .catch(() => {})
-  }, [currentUser?.id, mode])
+  }, [apiClient, currentUser?.id, mode])
+
+  useEffect(() => {
+    if (!currentUser || mode === "landing" || !realtimeClientFactory) return
+
+    const realtimeClient = realtimeClientFactory({
+      handlers: {
+        onMessage: applyRealtimeMessage,
+        onBufferMessage: applyRealtimeMessage,
+        onServerStatus: applyServerStatus,
+        onJoinOk: () => setConnectionHealth("connected"),
+        onJoinError: () => setConnectionHealth("degraded"),
+        onJoinTimeout: () => setConnectionHealth("degraded"),
+      },
+    })
+
+    realtimeClientRef.current = realtimeClient.connect()
+
+    return () => {
+      realtimeClient.disconnect()
+      realtimeClientRef.current = null
+      setConnectionHealth("disconnected")
+    }
+  }, [currentUser?.id, mode, realtimeClientFactory])
 
   const channels = useMemo(
     () => connections.flatMap((connection) => connection.channels.map((channel) => ({...channel, connection}))),
@@ -208,10 +219,7 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
 
     if (currentUser && Number.isInteger(Number(normalized.id))) {
       try {
-        const joined = await api(`/api/topics/${normalized.id}/join`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        })
+        const joined = await apiClient.joinTopic(normalized.id)
         applyJoinedTopic(joined)
         return
       } catch (_error) {
@@ -338,15 +346,16 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
     })
   }
 
-  function sendMessage(event) {
+  async function sendMessage(event) {
     event.preventDefault()
     if (!draft.trim() || !activeChannel) return
 
+    const body = draft.trim()
     const nextMessage = {
       id: `${view}-${Date.now()}`,
       occurredAt: new Date().toISOString(),
       nick: currentUser?.email?.split("@")[0] || "you",
-      body: draft.trim(),
+      body,
     }
 
     if (view === "server" && activeServer) {
@@ -355,6 +364,31 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
         [activeServer.id]: [...(current[activeServer.id] || serverBufferMessages(activeServer)), nextMessage],
       }))
       setDraft("")
+      return
+    }
+
+    if (realtimeClientRef.current && activeChannel.id?.startsWith("channel:")) {
+      const clientMessageId = `client-${Date.now()}`
+      const pendingMessage = {...nextMessage, id: clientMessageId, clientMessageId, pending: true}
+
+      setMessagesByChannel((current) => ({
+        ...current,
+        [activeChannel.id]: [...(current[activeChannel.id] || []), pendingMessage],
+      }))
+      setDraft("")
+
+      try {
+        const reply = await realtimeClientRef.current.push("message:send", {
+          client_message_id: clientMessageId,
+          buffer_id: activeChannel.id,
+          body,
+        })
+
+        replacePendingMessage(activeChannel.id, clientMessageId, normalizeMessage(reply.message))
+      } catch (_error) {
+        markPendingFailed(activeChannel.id, clientMessageId)
+      }
+
       return
     }
 
@@ -373,6 +407,43 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
 
     const permission = await Notification.requestPermission()
     setNotificationState(permission)
+  }
+
+  function applyRealtimeMessage(message) {
+    const normalized = normalizeMessage(message)
+    const bufferId = normalized.buffer_id || (normalized.channel_membership_id ? `channel:${normalized.channel_membership_id}` : null)
+    if (!bufferId) return
+
+    setMessagesByChannel((current) => ({
+      ...current,
+      [bufferId]: [...(current[bufferId] || []), normalized],
+    }))
+  }
+
+  function applyServerStatus(payload) {
+    setConnections((current) =>
+      current.map((connection) =>
+        connection.server_connection_id === payload.server_connection_id ? {...connection, status: payload.status} : connection
+      )
+    )
+  }
+
+  function replacePendingMessage(channelId, clientMessageId, message) {
+    setMessagesByChannel((current) => ({
+      ...current,
+      [channelId]: (current[channelId] || []).map((currentMessage) =>
+        currentMessage.clientMessageId === clientMessageId ? message : currentMessage
+      ),
+    }))
+  }
+
+  function markPendingFailed(channelId, clientMessageId) {
+    setMessagesByChannel((current) => ({
+      ...current,
+      [channelId]: (current[channelId] || []).map((currentMessage) =>
+        currentMessage.clientMessageId === clientMessageId ? {...currentMessage, pending: false, failed: true} : currentMessage
+      ),
+    }))
   }
 
   function applyBootstrap(bootstrap) {
@@ -486,6 +557,7 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
       onSendMessage={sendMessage}
       onShowChat={() => setView("chat")}
       onUpdateDraft={setDraft}
+      connectionHealth={connectionHealth}
     />
   )
 }
@@ -852,6 +924,8 @@ function MessageRow({message}) {
       <span className="font-semibold text-amber-200">{message.nick}</span>
       <span className="text-slate-500">: </span>
       <span className="break-words text-slate-200">{message.body}</span>
+      {message.pending && <span className="ml-2 text-xs text-slate-500">sending</span>}
+      {message.failed && <span className="ml-2 text-xs font-semibold text-rose-300">Send failed</span>}
       <time
         className="pointer-events-none absolute right-2 top-1.5 rounded bg-slate-950/90 px-1.5 text-xs text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         dateTime={message.occurredAt}

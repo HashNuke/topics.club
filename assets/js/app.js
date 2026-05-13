@@ -26,7 +26,9 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/ircpipe"
 import topbar from "../vendor/topbar"
+import {createApiClient} from "./api_client.js"
 import IrcpipeApp from "./ircpipe_app.jsx"
+import {createRealtimeClient} from "./realtime_client.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -55,7 +57,12 @@ if (root) {
   const currentUser = root.dataset.currentUser ? JSON.parse(root.dataset.currentUser) : null
   const developerOauth = root.dataset.developerOauth === "true"
   const appMode = root.dataset.appMode
-  createRoot(root).render(React.createElement(IrcpipeApp, {appMode, currentUser, developerOauth}))
+  const apiClient = createApiClient({csrfToken})
+  const realtimeClientFactory = currentUser
+    ? ({handlers}) => createRealtimeClient({SocketClass: Socket, csrfToken, userId: currentUser.id, handlers})
+    : null
+
+  createRoot(root).render(React.createElement(IrcpipeApp, {apiClient, appMode, currentUser, developerOauth, realtimeClientFactory}))
 }
 
 // The lines below enable quality of life phoenix_live_reload

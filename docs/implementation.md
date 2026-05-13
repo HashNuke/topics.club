@@ -73,8 +73,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] recent messages for visible buffers
   - [x] current channel user lists
   - [x] suggested topics for Discover
-- [ ] React opens one Phoenix socket.
-- [ ] React joins `user:{user_id}`.
+- [x] React opens one Phoenix socket.
+- [x] React joins `user:{user_id}`.
 - [ ] UserChannel join reply includes server time and optional missed event cursor.
 - [ ] React reconciles any events newer than the bootstrap cursor.
 
@@ -94,7 +94,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Sending messages
 
-- [ ] React submits channel messages through the Phoenix user channel with `channel.push("message:send", payload)`.
+- [x] React submits channel messages through the Phoenix user channel with `channel.push("message:send", payload)`.
 - [ ] Payload includes:
   - [x] `client_message_id`
   - [x] `buffer_id`
@@ -106,9 +106,11 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Backend replies `ok` with canonical message payload.
 - [x] Backend replies `error` with a typed reason if the buffer is unavailable.
 - [ ] Backend replies `timeout` or lets the Phoenix client timeout surface a networking issue.
-- [ ] React shows pending outgoing messages with `client_message_id`.
-- [ ] React replaces pending messages with canonical messages on `ok`.
+- [x] React shows pending outgoing messages with `client_message_id`.
+- [x] React replaces pending messages with canonical messages on `ok`.
 - [ ] React marks pending messages failed on `error` or `timeout`, with retry affordance.
+  - [x] failed status
+  - [ ] retry affordance
 
 ## Slash commands
 
