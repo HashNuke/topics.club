@@ -420,6 +420,36 @@ describe("IrcpipeApp UI prototype", () => {
     await waitFor(() => expect(within(people).queryByText("ak")).not.toBeInTheDocument())
   })
 
+  test("removes a channel buffer after a realtime leave event", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onBufferLeft({
+      type: "buffer:left",
+      buffer_id: "channel:7",
+      server_connection_id: 42,
+      channel_membership_id: 7,
+    })
+
+    expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
+    expect(screen.queryByRole("complementary", {name: "People here"})).not.toBeInTheDocument()
+  })
+
   test("caps large user groups and expands them on request", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()

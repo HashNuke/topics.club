@@ -149,8 +149,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   )
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
+  const activeChannelIdRef = useRef(activeChannelId)
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
+
+  useEffect(() => {
+    activeChannelIdRef.current = activeChannelId
+  }, [activeChannelId])
 
   useEffect(() => {
     notificationStateRef.current = notificationState
@@ -182,6 +187,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         onMessage: applyRealtimeMessage,
         onMention: handleMentionNotification,
         onBufferMessage: applyRealtimeMessage,
+        onBufferLeft: applyBufferLeft,
         onPresenceDiff: applyPresenceDiff,
         onPresenceSync: applyPresenceSync,
         onServerStatus: applyServerStatus,
@@ -502,6 +508,35 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       ...current,
       [payload.buffer_id]: applyUserDiff(current[payload.buffer_id] || [], payload.diff),
     }))
+  }
+
+  function applyBufferLeft(payload) {
+    const bufferId = payload.buffer_id
+    const channelId = bufferId?.startsWith("channel:") ? bufferId : null
+    if (!channelId) return
+
+    setConnections((current) =>
+      current.map((connection) => ({
+        ...connection,
+        channels: connection.channels.filter((channel) => channel.id !== channelId),
+      }))
+    )
+    setMessagesByChannel((current) => {
+      const next = {...current}
+      delete next[channelId]
+      return next
+    })
+    setUsersByChannel((current) => {
+      const next = {...current}
+      delete next[channelId]
+      return next
+    })
+
+    if (activeChannelIdRef.current === channelId) {
+      const nextServerId = `server:${payload.server_connection_id}`
+      setActiveServerId(nextServerId)
+      setView("server")
+    }
   }
 
   function handleMentionNotification(message) {

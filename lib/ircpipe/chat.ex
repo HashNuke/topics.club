@@ -243,10 +243,34 @@ defmodule Ircpipe.Chat do
   end
 
   def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
+    broadcast_buffer_left(%{
+      user_id: user_id,
+      buffer_id: "channel:#{membership.id}",
+      server_connection_id: membership.server_connection_id,
+      channel_membership_id: membership.id
+    })
+
     from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
     |> Repo.delete_all()
 
     :ok
+  end
+
+  def broadcast_buffer_left(payload) do
+    user_id = Map.fetch!(payload, :user_id)
+
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{user_id}",
+      {:buffer_left,
+       %{
+         type: "buffer:left",
+         buffer_id: payload.buffer_id,
+         server_connection_id: payload.server_connection_id,
+         channel_membership_id: payload.channel_membership_id,
+         occurred_at: DateTime.utc_now(:second)
+       }}
+    )
   end
 
   def update_retention_days(%User{} = user, days) do

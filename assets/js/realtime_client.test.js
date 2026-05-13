@@ -87,12 +87,26 @@ describe("realtime client", () => {
 
     client.connect()
     client.channel.handlers.message({body: "hello"})
+    client.channel.handlers["buffer:left"]({buffer_id: "channel:7"})
 
     expect(client.socket.path).toBe("/socket")
     expect(client.socket.options.params).toEqual({_csrf_token: "csrf"})
     expect(client.socket.topic).toBe("user:7")
     expect(client.connectionState()).toBe("open")
     expect(onMessage).toHaveBeenCalledWith({body: "hello"})
+  })
+
+  test("forwards buffer left events", () => {
+    const onBufferLeft = vi.fn()
+    const client = createRealtimeClient({
+      SocketClass: FakeSocket,
+      userId: 7,
+      handlers: {onBufferLeft},
+    })
+
+    client.channel.handlers["buffer:left"]({buffer_id: "channel:7"})
+
+    expect(onBufferLeft).toHaveBeenCalledWith({buffer_id: "channel:7"})
   })
 
   test("wraps channel pushes in ok/error/timeout promises", async () => {

@@ -300,6 +300,14 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
 
     assert membership_id == membership.id
+
+    assert_push "buffer:left", %{
+      type: "buffer:left",
+      buffer_id: buffer_id,
+      channel_membership_id: ^membership_id
+    }
+
+    assert buffer_id == "channel:#{membership.id}"
     assert_receive {:irc_server_line, "PART #elixir leaving"}, 1_000
 
     assert_raise Ecto.NoResultsError, fn -> Chat.get_membership!(user, membership.id) end

@@ -43,6 +43,11 @@ defmodule IrcpipeWeb.UserChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:buffer_left, payload}, socket) do
+    push(socket, "buffer:left", payload)
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_in("command:suggest", %{"input" => input}, socket) do
     {:reply, {:ok, %{commands: Commands.suggest(input)}}, socket}

@@ -19,6 +19,7 @@ export function createRealtimeClient({
   channel.on("mention", (payload) => handlers.onMention?.(payload))
   channel.on("buffer:message", (payload) => handlers.onBufferMessage?.(payload))
   channel.on("buffer:read", (payload) => handlers.onBufferRead?.(payload))
+  channel.on("buffer:left", (payload) => handlers.onBufferLeft?.(payload))
   channel.on("server:status", (payload) => handlers.onServerStatus?.(payload))
   channel.on("presence:sync", (payload) => handlers.onPresenceSync?.(payload))
   channel.on("presence:diff", (payload) => handlers.onPresenceDiff?.(payload))
