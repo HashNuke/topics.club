@@ -60,7 +60,7 @@ if System.get_env("IRCPIPE_LOCAL_IRC_INTEGRATION") == "1" do
                1_000
              ),
            :ok <- send_line(socket, "NICK #{nick}"),
-           :ok <- send_line(socket, "USER #{nick} 0 * #{nick}"),
+           :ok <- send_line(socket, "USER irctest 0 * #{nick}"),
            :ok <- recv_until(socket, &String.contains?(&1, " 001 "), 15_000) do
         {:ok, socket}
       end
