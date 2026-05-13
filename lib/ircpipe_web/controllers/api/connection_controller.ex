@@ -12,10 +12,11 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   def create(conn, %{"connection" => attrs}) do
     user = conn.assigns.current_scope.user
 
-    with {:ok, connection} <- Chat.create_connection(user, attrs),
-         {:ok, _pid} <- SessionSupervisor.start_session(connection) do
+    with {:ok, connection} <- Chat.create_or_get_connection(user, attrs) do
+      SessionSupervisor.start_session(connection)
+
       conn
-      |> put_status(:created)
+      |> put_status(if(connection.inserted_at == connection.updated_at, do: :created, else: :ok))
       |> json(%{connection: connection_json(%{connection | channel_memberships: []})})
     end
   end

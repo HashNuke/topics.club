@@ -21,7 +21,7 @@ async function api(path, options = {}) {
   return response.json()
 }
 
-export default function IrcpipeApp({currentUser}) {
+export default function IrcpipeApp({currentUser, developerOauth}) {
   const [topics, setTopics] = useState([])
   const [connections, setConnections] = useState([])
   const [activeChannel, setActiveChannel] = useState(null)
@@ -90,51 +90,69 @@ export default function IrcpipeApp({currentUser}) {
   }
 
   async function connectTopic(topic) {
+    setError(null)
+
     if (!currentUser) {
       window.location.href = "/users/register"
       return
     }
 
-    const {connection} = await api("/api/connections", {
-      method: "POST",
-      body: JSON.stringify({
-        connection: {
-          name: topic.name,
-          host: topic.server_host,
-          port: topic.server_port,
-          use_tls: topic.use_tls,
-          nickname: connectionForm.nickname,
-        },
-      }),
-    })
+    try {
+      const {connection} = await api("/api/connections", {
+        method: "POST",
+        body: JSON.stringify({
+          connection: {
+            name: topic.name,
+            host: topic.server_host,
+            port: topic.server_port,
+            use_tls: topic.use_tls,
+            nickname: connectionForm.nickname,
+          },
+        }),
+      })
 
-    const {channel} = await api(`/api/connections/${connection.id}/channels`, {
-      method: "POST",
-      body: JSON.stringify({channel: topic.channel}),
-    })
+      const {channel} = await api(`/api/connections/${connection.id}/channels`, {
+        method: "POST",
+        body: JSON.stringify({channel: topic.channel}),
+      })
 
-    await refreshConnections()
-    openChannel(channel)
+      await refreshConnections()
+      openChannel(channel)
+    } catch (error) {
+      setError(error)
+    }
   }
 
   async function saveConnection(event) {
     event.preventDefault()
-    await api("/api/connections", {
-      method: "POST",
-      body: JSON.stringify({connection: connectionForm}),
-    })
-    setConnectionForm({...connectionForm, name: "", host: ""})
-    await refreshConnections()
+    setError(null)
+
+    try {
+      await api("/api/connections", {
+        method: "POST",
+        body: JSON.stringify({connection: connectionForm}),
+      })
+      setConnectionForm({...connectionForm, name: "", host: ""})
+      await refreshConnections()
+    } catch (error) {
+      setError(error)
+    }
   }
 
   async function joinChannel(event) {
     event.preventDefault()
-    const {channel} = await api(`/api/connections/${channelForm.connection_id}/channels`, {
-      method: "POST",
-      body: JSON.stringify({channel: channelForm.channel}),
-    })
-    await refreshConnections()
-    openChannel(channel)
+    setError(null)
+
+    try {
+      const {channel} = await api(`/api/connections/${channelForm.connection_id}/channels`, {
+        method: "POST",
+        body: JSON.stringify({channel: channelForm.channel}),
+      })
+      await refreshConnections()
+      openChannel(channel)
+    } catch (error) {
+      setError(error)
+    }
   }
 
   async function openChannel(channel) {
@@ -179,12 +197,14 @@ export default function IrcpipeApp({currentUser}) {
               so channels are useful even when your browser was closed.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <a className="rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white" href="/users/register">
-                Create account
+              <a className="rounded-md bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white" href="/auth/google">
+                Continue with Google
               </a>
-              <a className="rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-semibold" href="/users/log-in">
-                Log in
-              </a>
+              {developerOauth && (
+                <a className="rounded-md border border-zinc-300 px-4 py-2.5 text-sm font-semibold" href="/auth/developer">
+                  Developer sign in
+                </a>
+              )}
             </div>
           </div>
           <TopicGrid topics={topics} onConnect={connectTopic} />

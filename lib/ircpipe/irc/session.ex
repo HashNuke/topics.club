@@ -27,7 +27,14 @@ defmodule Ircpipe.Irc.Session do
   @impl true
   def init(%ServerConnection{} = connection) do
     send(self(), :connect)
-    {:ok, %{connection: connection, socket: nil, transport: nil, buffer: ""}}
+
+    {:ok,
+     %{
+       connection: connection,
+       socket: nil,
+       transport: nil,
+       pending_joins: MapSet.new()
+     }}
   end
 
   @impl true
@@ -39,7 +46,11 @@ defmodule Ircpipe.Irc.Session do
       {:ok, transport, socket} ->
         register(connection, transport, socket)
         {:ok, updated} = Chat.update_connection_status(connection, "connected")
-        {:noreply, %{state | connection: updated, socket: socket, transport: transport}}
+
+        state = %{state | connection: updated, socket: socket, transport: transport}
+        Enum.each(state.pending_joins, &send_line(state, "JOIN #{&1}"))
+
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.warning(
@@ -61,9 +72,11 @@ defmodule Ircpipe.Irc.Session do
 
   @impl true
   def handle_call({:join, channel}, _from, state) do
-    with :ok <- send_line(state, "JOIN #{channel}") do
-      {:reply, :ok, state}
-    else
+    state = %{state | pending_joins: MapSet.put(state.pending_joins, channel)}
+
+    case send_line(state, "JOIN #{channel}") do
+      :ok -> {:reply, :ok, state}
+      {:error, :not_connected} -> {:reply, :ok, state}
       error -> {:reply, error, state}
     end
   end

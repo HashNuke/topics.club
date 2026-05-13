@@ -487,3 +487,4 @@ And **never** do this:
 - IRC runtime processes are supervised by `Ircpipe.Irc.SessionSupervisor` and registered in `Ircpipe.Irc.SessionRegistry` by `{user_id, server_connection_id}`. Keep the one-process-per-user-server invariant when adding features.
 - Realtime browser updates flow through `IrcpipeWeb.UserSocket` and `IrcpipeWeb.UserChannel`; browser notifications are only triggered client-side for mention events when the document is not visible.
 - The React client talks to same-origin JSON endpoints under `/api/*` using the session cookie and CSRF token from the root layout.
+- OAuth sign in uses Ueberauth. Google is configured with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; dev/test also include a local `/auth/developer` provider implemented in `IrcpipeWeb.Auth.DevStrategy`.

@@ -73,6 +73,25 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+oauth_providers =
+  [
+    google: {Ueberauth.Strategy.Google, [default_scope: "email profile"]}
+  ] ++
+    if config_env() in [:dev, :test] do
+      [
+        developer:
+          {IrcpipeWeb.Auth.DevStrategy,
+           [
+             callback_methods: ["GET"],
+             ignores_csrf_attack: true
+           ]}
+      ]
+    else
+      []
+    end
+
+config :ueberauth, Ueberauth, providers: oauth_providers
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

@@ -7,6 +7,7 @@ defmodule Ircpipe.Accounts do
   alias Ircpipe.Repo
 
   alias Ircpipe.Accounts.{User, UserToken, UserNotifier}
+  alias Ueberauth.Auth
 
   ## Database getters
 
@@ -78,6 +79,41 @@ defmodule Ircpipe.Accounts do
     %User{}
     |> User.email_changeset(attrs)
     |> Repo.insert()
+  end
+
+  def get_or_register_oauth_user(%Auth{} = auth) do
+    attrs = oauth_attrs(auth)
+
+    Repo.transact(fn ->
+      user =
+        Repo.get_by(User, auth_provider: attrs.auth_provider, auth_uid: attrs.auth_uid) ||
+          Repo.get_by(User, email: attrs.email)
+
+      case user do
+        %User{} = user ->
+          user
+          |> User.oauth_changeset(attrs)
+          |> Repo.update()
+
+        nil ->
+          %User{}
+          |> User.oauth_changeset(attrs)
+          |> Repo.insert()
+      end
+    end)
+  end
+
+  defp oauth_attrs(%Auth{} = auth) do
+    email = auth.info.email
+
+    %{
+      email: email,
+      name: auth.info.name || email,
+      avatar_url: auth.info.image,
+      auth_provider: Atom.to_string(auth.provider),
+      auth_uid: to_string(auth.uid || email),
+      confirmed_at: DateTime.utc_now(:second)
+    }
   end
 
   ## Settings

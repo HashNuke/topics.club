@@ -4,6 +4,10 @@ defmodule Ircpipe.Accounts.User do
 
   schema "users" do
     field :email, :string
+    field :name, :string
+    field :avatar_url, :string
+    field :auth_provider, :string
+    field :auth_uid, :string
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
@@ -113,6 +117,18 @@ defmodule Ircpipe.Accounts.User do
   def confirm_changeset(user) do
     now = DateTime.utc_now(:second)
     change(user, confirmed_at: now)
+  end
+
+  def oauth_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email, :name, :avatar_url, :auth_provider, :auth_uid, :confirmed_at])
+    |> validate_required([:email, :auth_provider, :auth_uid])
+    |> validate_format(:email, ~r/^[^@,;\s]+@[^@,;\s]+$/,
+      message: "must have the @ sign and no spaces"
+    )
+    |> validate_length(:email, max: 160)
+    |> unique_constraint(:email)
+    |> unique_constraint([:auth_provider, :auth_uid])
   end
 
   @doc """

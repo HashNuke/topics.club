@@ -53,7 +53,8 @@ const root = document.getElementById("ircpipe-root")
 
 if (root) {
   const currentUser = root.dataset.currentUser ? JSON.parse(root.dataset.currentUser) : null
-  createRoot(root).render(React.createElement(IrcpipeApp, {currentUser}))
+  const developerOauth = root.dataset.developerOauth === "true"
+  createRoot(root).render(React.createElement(IrcpipeApp, {currentUser, developerOauth}))
 }
 
 // The lines below enable quality of life phoenix_live_reload

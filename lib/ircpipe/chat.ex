@@ -32,6 +32,15 @@ defmodule Ircpipe.Chat do
     |> Repo.insert()
   end
 
+  def create_or_get_connection(%User{} = user, attrs) do
+    name = Map.get(attrs, "name") || Map.get(attrs, :name)
+
+    case name && Repo.get_by(ServerConnection, user_id: user.id, name: name) do
+      %ServerConnection{} = connection -> {:ok, connection}
+      _ -> create_connection(user, attrs)
+    end
+  end
+
   def update_connection_status(%ServerConnection{} = connection, status) do
     connection
     |> ServerConnection.changeset(%{

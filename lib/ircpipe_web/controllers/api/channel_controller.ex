@@ -9,9 +9,10 @@ defmodule IrcpipeWeb.Api.ChannelController do
     user = conn.assigns.current_scope.user
     connection = Chat.get_connection!(user, connection_id)
 
-    with {:ok, membership} <- Chat.join_channel(user, connection, channel),
-         {:ok, _pid} <- SessionSupervisor.start_session(connection),
-         :ok <- Session.join(connection, membership.channel) do
+    with {:ok, membership} <- Chat.join_channel(user, connection, channel) do
+      SessionSupervisor.start_session(connection)
+      try_join(connection, membership.channel)
+
       json(conn, %{channel: channel_json(membership)})
     end
   end
@@ -31,5 +32,14 @@ defmodule IrcpipeWeb.Api.ChannelController do
       unread_count: channel.unread_count,
       mention_count: channel.mention_count
     }
+  end
+
+  defp try_join(connection, channel) do
+    case Session.join(connection, channel) do
+      :ok -> :ok
+      _ -> :ok
+    end
+  catch
+    :exit, _ -> :ok
   end
 end

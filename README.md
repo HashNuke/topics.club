@@ -15,6 +15,23 @@ The backend persists channel messages for a short configurable window. Each user
 
 IRC connections are modeled as one supervised process per user/server connection under `Ircpipe.Irc.SessionSupervisor`.
 
+## OAuth sign in
+
+Google OAuth is configured through Ueberauth. Set these environment variables before starting the server:
+
+```bash
+export GOOGLE_CLIENT_ID="..."
+export GOOGLE_CLIENT_SECRET="..."
+```
+
+Use this callback URL in the Google OAuth client:
+
+```text
+http://localhost:4100/auth/google/callback
+```
+
+For development and test, Ircpipe also exposes `/auth/developer`, a local Ueberauth strategy similar to OmniAuth's developer strategy. It presents a simple name/email form and signs in without calling an external provider. This provider is not configured in production.
+
 ## Local database
 
 The generated dev/test config expects PostgreSQL on `localhost:5432` with username/password `postgres`/`postgres`. A `docker-compose.yml` is included for that database:
