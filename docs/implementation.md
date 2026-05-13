@@ -1,0 +1,360 @@
+# topics.club implementation plan
+
+## Research notes
+
+- Phoenix Channels support browser and native clients over WebSocket or long polling, which fits the React web client now and a future mobile client later.
+- Phoenix clients can join multiple channels over one socket connection. Use one frontend socket per browser session and multiplex app topics over it, rather than opening a WebSocket per IRC channel.
+- Phoenix's JavaScript client exposes socket lifecycle callbacks such as open, close, and error; use those to drive connection health UI in React.
+- Channel pushes support `ok`, `error`, and `timeout` replies; use those replies for send/join/leave feedback instead of making the UI infer success.
+- Browser notification permission must be requested from a user gesture. Client-side notifications are enough for in-browser mention notifications while the app is open; backend web push is only needed later for notifications when the app is closed.
+
+References:
+
+- Phoenix Channels guide: https://hexdocs.pm/phoenix/channels.html
+- Phoenix JavaScript client docs: https://hexdocs.pm/phoenix/js/
+- Phoenix Socket class docs: https://hexdocs.pm/phoenix/js/classes/Socket.html
+- MDN Notifications API guide: https://developer.mozilla.org/en-US/docs/Web/API/Notifications_API/Using_the_Notifications_API
+
+## Architecture decision
+
+- [ ] Use one Phoenix `Socket` connection per signed-in browser session.
+- [ ] Join one high-level user channel: `user:{user_id}`.
+- [ ] Keep channel-specific IRC events inside payloads instead of joining one Phoenix topic per IRC channel.
+- [ ] Keep the one-IRC-session-per-`{user_id, server_connection_id}` backend invariant from `docs/spec.md`.
+- [ ] Use REST `/api/*` for initial loads, history pagination, and durable mutations.
+- [ ] Use Phoenix Channel pushes for realtime events, command submissions, send-message acknowledgements, and connection health.
+
+Rationale: the UI needs many IRC buffers, but the browser should not create a WebSocket per IRC channel. Phoenix already multiplexes channel topics over one socket, and this app can go further by using one authenticated user channel as the event bus for all of the user's server buffers, channel buffers, user lists, notices, and notifications.
+
+## Data model checklist
+
+- [ ] Add a first-class buffer concept in API payloads:
+  - [ ] `buffer_id`
+  - [ ] `buffer_type`: `server`, `channel`, `service`, or `dm`
+  - [ ] `server_connection_id`
+  - [ ] `channel_membership_id` when applicable
+  - [ ] `title`
+  - [ ] `subtitle`
+  - [ ] `status`
+- [ ] Represent server buffers for server logs, MOTD, connection lifecycle, numeric replies, and service notices.
+- [ ] Represent channel buffers for IRC channel messages and channel-local system events.
+- [ ] Represent service buffers or service-tagged messages for `NickServ`, `ChanServ`, and similar services.
+- [ ] Store message `kind` values:
+  - [ ] `message`
+  - [ ] `action`
+  - [ ] `notice`
+  - [ ] `system`
+  - [ ] `error`
+  - [ ] `command`
+- [ ] Store stable message ordering with `occurred_at` plus `id`.
+- [ ] Store sender metadata:
+  - [ ] `nick`
+  - [ ] `hostmask` when available
+  - [ ] role markers where applicable
+- [ ] Store user list entries per channel:
+  - [ ] `nick`
+  - [ ] `role`: `owner`, `admin`, `op`, `halfop`, `voice`, or `user`
+  - [ ] `status`: `online`, `away`, or unknown
+  - [ ] last observed timestamp
+- [ ] Store unread and mention counters per buffer, not only per channel.
+- [ ] Keep message retention capped by the user's 1-3 day setting.
+
+## Initial load flow
+
+- [ ] React loads `/chat`.
+- [ ] Server-rendered root passes `current_user`, CSRF token, and app mode.
+- [ ] React fetches `/api/bootstrap`.
+- [ ] `/api/bootstrap` returns:
+  - [ ] current user profile
+  - [ ] notification preference state
+  - [ ] server connections
+  - [ ] buffers ordered for the sidebar
+  - [ ] active or last-opened buffer
+  - [ ] recent messages for visible buffers
+  - [ ] current channel user lists
+  - [ ] suggested topics for Discover
+- [ ] React opens one Phoenix socket.
+- [ ] React joins `user:{user_id}`.
+- [ ] UserChannel join reply includes server time and optional missed event cursor.
+- [ ] React reconciles any events newer than the bootstrap cursor.
+
+## Realtime event contract
+
+- [ ] Define all events as versioned payloads with `type`, `version`, `event_id`, and `occurred_at`.
+- [ ] Push `buffer:message` for normal channel messages, notices, actions, and service replies.
+- [ ] Push `buffer:system` for join, part, quit, nick change, topic changes, and server lifecycle lines.
+- [ ] Push `buffer:read` when counters are reset.
+- [ ] Push `buffer:joined` when a channel or server buffer is created.
+- [ ] Push `buffer:left` when the user leaves a channel or disconnects/removes a server.
+- [ ] Push `buffer:error` for join failures, send failures, bans, invite-only failures, nickname errors, TLS failures, and backend IRC errors.
+- [ ] Push `presence:sync` for full user list refreshes.
+- [ ] Push `presence:diff` for joins, parts, quits, nick changes, role changes, and away state changes.
+- [ ] Push `server:status` for `connecting`, `connected`, `reconnecting`, `errored`, and `disconnected`.
+- [ ] Push `notification:mention` for client-side browser notification decisions.
+
+## Sending messages
+
+- [ ] React submits channel messages through the Phoenix user channel with `channel.push("message:send", payload)`.
+- [ ] Payload includes:
+  - [ ] `client_message_id`
+  - [ ] `buffer_id`
+  - [ ] `body`
+  - [ ] local draft metadata if needed
+- [ ] Backend validates buffer ownership through `current_scope.user`.
+- [ ] Backend routes channel messages to `Ircpipe.Irc.Session.say/3`.
+- [ ] Backend persists the user's outgoing message after IRC send acceptance.
+- [ ] Backend replies `ok` with canonical message payload.
+- [ ] Backend replies `error` with a typed reason if the buffer is unavailable.
+- [ ] Backend replies `timeout` or lets the Phoenix client timeout surface a networking issue.
+- [ ] React shows pending outgoing messages with `client_message_id`.
+- [ ] React replaces pending messages with canonical messages on `ok`.
+- [ ] React marks pending messages failed on `error` or `timeout`, with retry affordance.
+
+## Slash commands
+
+- [ ] React detects a leading `/` only to open a Floating UI command popover.
+- [ ] React never treats slash commands as authoritative client-only behavior.
+- [ ] React sends slash-command submissions to the backend as `command:run`.
+- [ ] Backend parses and validates slash commands.
+- [ ] Backend returns structured command results.
+- [ ] Backend emits system messages for command outcomes that should remain in the buffer.
+- [ ] Add command suggestions endpoint or channel event:
+  - [ ] `/join`
+  - [ ] `/part`
+  - [ ] `/leave`
+  - [ ] `/msg`
+  - [ ] `/nick`
+  - [ ] `/me`
+  - [ ] `/topic`
+  - [ ] `/quote` for advanced/raw IRC commands, if allowed
+- [ ] Backend returns completion metadata:
+  - [ ] command name
+  - [ ] usage
+  - [ ] description
+  - [ ] required permission
+  - [ ] examples
+- [ ] React uses Floating UI for the slash-command popover.
+- [ ] Tests cover command detection, completion display, backend parsing, and error feedback.
+
+## Leaving channels and servers
+
+- [ ] Add channel overflow menu in the UI.
+- [ ] Add server overflow menu in the UI.
+- [ ] Use Floating UI for both popover menus.
+- [ ] Channel menu actions:
+  - [ ] Mark read
+  - [ ] Copy channel name
+  - [ ] Leave channel
+- [ ] Server menu actions:
+  - [ ] Connect or reconnect
+  - [ ] Disconnect
+  - [ ] Edit connection
+  - [ ] Leave server
+- [ ] Backend channel leave flow:
+  - [ ] authorize membership
+  - [ ] send IRC `PART`
+  - [ ] mark channel membership as left or delete it
+  - [ ] broadcast `buffer:left`
+- [ ] Backend server leave flow:
+  - [ ] authorize server connection
+  - [ ] send IRC `QUIT` or close session
+  - [ ] stop the session process
+  - [ ] mark all buffers as left or archived
+  - [ ] broadcast `server:status` and `buffer:left`
+- [ ] UI confirms destructive server removal.
+
+## Connection health and backend failure feedback
+
+- [ ] React tracks Phoenix socket state with `onOpen`, `onClose`, `onError`, and `connectionState()`.
+- [ ] Show a small top-bar connection status indicator:
+  - [ ] connected
+  - [ ] reconnecting
+  - [ ] offline
+  - [ ] degraded
+- [ ] Disable message send while the Phoenix socket is disconnected.
+- [ ] Queue drafts locally but do not pretend they were sent.
+- [ ] Surface channel push timeouts as "Still trying" or "Send failed".
+- [ ] Show server-specific IRC connection failures in the server buffer.
+- [ ] Push backend IRC session failures as `server:status` and `buffer:error`.
+- [ ] Add retry actions for:
+  - [ ] reconnect backend socket
+  - [ ] reconnect IRC server
+  - [ ] retry failed message
+- [ ] Add tests for socket close, channel timeout, and IRC session error states.
+
+## User list flow
+
+- [ ] Backend parses IRC names replies and membership changes through `ircxd`.
+- [ ] Backend normalizes roles into a stable role enum.
+- [ ] UserChannel pushes `presence:sync` after join and reconnect.
+- [ ] UserChannel pushes `presence:diff` for incremental changes.
+- [ ] React stores user lists per channel buffer.
+- [ ] React groups users by role and status.
+- [ ] React caps each group visually and allows expansion.
+- [ ] React hides user sidebar for non-channel views such as Discover.
+- [ ] Server buffers do not show channel user lists.
+
+## Message history and rendering limits
+
+- [ ] Initial message fetch returns latest 150 messages for the active buffer.
+- [ ] Fetch older history in pages of 50 when scrolling near the top.
+- [ ] Keep a soft client-side cap of 300-500 messages per open buffer.
+- [ ] Do not trim messages while the user is scrolled up reading older history.
+- [ ] If the user is near the bottom:
+  - [ ] append incoming messages
+  - [ ] auto-scroll
+  - [ ] trim oldest messages over the cap
+- [ ] If the user is not near the bottom:
+  - [ ] append incoming messages
+  - [ ] keep scroll position stable
+  - [ ] show `N new messages`
+  - [ ] defer trimming until the user returns to the bottom
+- [ ] Use cursor pagination:
+  - [ ] `GET /api/buffers/:id/messages?limit=150`
+  - [ ] `GET /api/buffers/:id/messages?before=<message_cursor>&limit=50`
+- [ ] Preserve scroll offset when prepending older messages.
+
+## Notifications
+
+- [ ] Keep the current spec behavior for the first implementation: client-side browser notifications for mentions while the document is hidden.
+- [ ] Backend persists mention notifications for unread state and notification history.
+- [ ] Backend pushes `notification:mention` over `user:{user_id}`.
+- [ ] React checks:
+  - [ ] document visibility
+  - [ ] user notification preference
+  - [ ] browser notification permission
+  - [ ] whether the message came from the current user
+- [ ] React shows a browser notification only when appropriate.
+- [ ] Request browser permission only after clicking the bell.
+- [ ] Do not implement backend Web Push in the first pass.
+- [ ] Add backend Web Push later only if we need notifications while the web app is closed or no socket is connected.
+
+## API checklist
+
+- [ ] `GET /api/bootstrap`
+- [ ] `GET /api/topics`
+- [ ] `POST /api/topics/:id/join`
+- [ ] `GET /api/buffers/:id/messages`
+- [ ] `POST /api/buffers/:id/read`
+- [ ] `POST /api/connections`
+- [ ] `PUT /api/connections/:id`
+- [ ] `POST /api/connections/:id/connect`
+- [ ] `POST /api/connections/:id/disconnect`
+- [ ] `DELETE /api/connections/:id`
+- [ ] `POST /api/channel_memberships/:id/leave`
+- [ ] `PUT /api/settings`
+- [ ] Keep all authenticated endpoints under pipelines that assign `current_scope`.
+- [ ] Pass `current_scope` or `current_scope.user` into context functions for user-scoped data.
+
+## Phoenix channel checklist
+
+- [ ] Keep `IrcpipeWeb.UserSocket` authenticated by session cookie.
+- [ ] Keep `IrcpipeWeb.UserChannel` as the single realtime bus.
+- [ ] Add `handle_in/3` handlers:
+  - [ ] `message:send`
+  - [ ] `command:run`
+  - [ ] `buffer:read`
+  - [ ] `channel:leave`
+  - [ ] `server:disconnect`
+  - [ ] `server:reconnect`
+- [ ] Add typed reply payloads for every handler:
+  - [ ] `ok`
+  - [ ] `error`
+  - [ ] `timeout`
+- [ ] Add event serialization helpers so REST and realtime payloads match.
+- [ ] Add channel tests for authorization, replies, broadcasts, and failure payloads.
+
+## IRC runtime checklist
+
+- [ ] Replace or adapt `Ircpipe.Irc.Session` to use `~/projects/ircxd`.
+- [ ] Keep sessions supervised by `Ircpipe.Irc.SessionSupervisor`.
+- [ ] Keep sessions registered by `{user_id, server_connection_id}`.
+- [ ] Emit server-buffer messages for:
+  - [ ] connect start
+  - [ ] connect success
+  - [ ] connect failure
+  - [ ] disconnect
+  - [ ] reconnect
+  - [ ] MOTD
+  - [ ] numeric replies
+  - [ ] service notices
+- [ ] Emit channel-buffer messages for:
+  - [ ] `PRIVMSG`
+  - [ ] `NOTICE`
+  - [ ] `/me` actions
+  - [ ] joins
+  - [ ] parts
+  - [ ] quits
+  - [ ] nick changes
+  - [ ] topic changes
+- [ ] Track channel user lists from IRC names and membership events.
+- [ ] Handle reconnect by rejoining persisted channels.
+- [ ] Broadcast normalized events through `Ircpipe.Chat` or a dedicated realtime boundary.
+
+## React state checklist
+
+- [ ] Create an API client module for bootstrap/history/mutations.
+- [ ] Create a Phoenix socket client module.
+- [ ] Create a reducer/store for:
+  - [ ] connections
+  - [ ] buffers
+  - [ ] active buffer
+  - [ ] messages by buffer
+  - [ ] users by channel buffer
+  - [ ] unread counters
+  - [ ] connection health
+  - [ ] notification state
+- [ ] Keep React components UI-focused.
+- [ ] Keep transport/event normalization out of components.
+- [ ] Add tests for reducers and event application.
+- [ ] Add React component tests for:
+  - [ ] leaving channel/server menus
+  - [ ] slash command popover
+  - [ ] backend connection failure banner
+  - [ ] send failure and retry
+  - [ ] `N new messages` behavior
+
+## Testing checklist
+
+- [ ] Backend context tests for buffer ownership and scoping.
+- [ ] Backend channel tests for `UserChannel`.
+- [ ] Backend API tests for bootstrap, history, join, leave, and settings.
+- [ ] IRC runtime tests using local test server.
+- [ ] Integration tests using local InspIRCd and irssi where useful.
+- [ ] Frontend reducer tests for realtime event application.
+- [ ] Frontend component tests for the chat shell.
+- [ ] Frontend tests for slash command completion.
+- [ ] Frontend tests for notification permission states.
+- [ ] Frontend tests for socket/backend failure states.
+- [ ] Run `npm test --prefix assets` for React changes.
+- [ ] Run targeted `mix test` during backend work.
+- [ ] Run `mix precommit` before completing implementation changes.
+
+## Implementation sequence
+
+- [ ] Phase 1: Stabilize frontend shell contracts.
+  - [ ] Add leave buttons and popover menus.
+  - [ ] Add slash command popover UI.
+  - [ ] Add connection health indicator UI.
+  - [ ] Add reducer-level state model.
+- [ ] Phase 2: Build backend buffer model.
+  - [ ] Add buffer serialization.
+  - [ ] Add bootstrap endpoint.
+  - [ ] Add message history pagination.
+  - [ ] Add user list payloads.
+- [ ] Phase 3: Expand realtime channel.
+  - [ ] Add channel push handlers.
+  - [ ] Add reply contracts.
+  - [ ] Add event contracts.
+  - [ ] Add backend tests.
+- [ ] Phase 4: Integrate IRC runtime.
+  - [ ] Use `ircxd`.
+  - [ ] Normalize IRC events.
+  - [ ] Persist messages and system lines.
+  - [ ] Maintain user lists.
+- [ ] Phase 5: Polish failure and notification behavior.
+  - [ ] Socket disconnect UI.
+  - [ ] Send retries.
+  - [ ] Mention notification flow.
+  - [ ] Retention pruning verification.
+
