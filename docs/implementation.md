@@ -89,7 +89,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Push `buffer:error` for join failures, send failures, bans, invite-only failures, nickname errors, TLS failures, and backend IRC errors.
 - [ ] Push `presence:sync` for full user list refreshes.
 - [ ] Push `presence:diff` for joins, parts, quits, nick changes, role changes, and away state changes.
-- [ ] Push `server:status` for `connecting`, `connected`, `reconnecting`, `errored`, and `disconnected`.
+- [x] Push `server:status` for `connecting`, `connected`, `reconnecting`, `errored`, and `disconnected`.
 - [ ] Push `notification:mention` for client-side browser notification decisions.
 
 ## Sending messages
@@ -268,6 +268,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `buffer:read` counter reset reply
   - [x] `channel:leave` ownership, reply, IRC part, and deletion
   - [x] `server:disconnect` and `server:reconnect` ownership and replies
+  - [x] `server:status` scoped broadcast
 
 ## IRC runtime checklist
 

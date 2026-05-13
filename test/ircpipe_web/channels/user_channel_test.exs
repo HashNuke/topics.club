@@ -147,6 +147,51 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert reloaded.mention_count == 0
   end
 
+  test "pushes server status broadcasts over the user channel" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    join_user_channel(user)
+
+    {:ok, _connection} = Chat.update_connection_status(connection, "connected")
+
+    assert_push "server:status", %{
+      type: "server:status",
+      server_connection_id: connection_id,
+      status: "connected"
+    }
+
+    assert connection_id == connection.id
+  end
+
+  test "does not push server status broadcasts to another user's channel" do
+    user = AccountsFixtures.user_fixture()
+    other_user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(other_user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "other"
+      })
+
+    join_user_channel(user)
+
+    {:ok, _connection} = Chat.update_connection_status(connection, "connected")
+
+    refute_push "server:status", %{server_connection_id: _connection_id}, 100
+  end
+
   test "leaves a channel buffer through the IRC session" do
     server = start_supervised!({IrcTestServer, self()})
     user = AccountsFixtures.user_fixture()

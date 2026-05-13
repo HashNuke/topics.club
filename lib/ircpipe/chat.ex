@@ -67,6 +67,10 @@ defmodule Ircpipe.Chat do
       last_connected_at: if(status == "connected", do: DateTime.utc_now(:second))
     })
     |> Repo.update()
+    |> tap(fn
+      {:ok, updated} -> broadcast_server_status(updated)
+      _other -> :ok
+    end)
   end
 
   def join_channel(%User{} = user, %ServerConnection{} = connection, channel) do
@@ -294,6 +298,20 @@ defmodule Ircpipe.Chat do
         {:irc_mention, payload}
       )
     end
+  end
+
+  defp broadcast_server_status(connection) do
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{connection.user_id}",
+      {:server_status,
+       %{
+         type: "server:status",
+         server_connection_id: connection.id,
+         status: connection.status,
+         occurred_at: DateTime.utc_now(:second)
+       }}
+    )
   end
 
   defp to_int(value, _default) when is_integer(value), do: value
