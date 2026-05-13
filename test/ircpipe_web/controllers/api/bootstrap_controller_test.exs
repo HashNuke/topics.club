@@ -31,6 +31,11 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     {:ok, server_message} = Chat.record_server_message(connection, "Connected to local")
     Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
 
+    Chat.broadcast_presence_sync(connection, "#elixir", [
+      %{nick: "mira", prefixes: ["@"], raw_source: "mira!user@example.test"},
+      %{nick: "akash", prefixes: []}
+    ])
+
     {:ok, other_connection} =
       Chat.create_connection(other_user, %{
         "name" => "other",
@@ -111,7 +116,22 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
            ] =
              messages_by_buffer[channel_buffer_id]
 
-    assert users_by_buffer[channel_buffer_id] == []
+    assert [
+             %{
+               "nick" => "akash",
+               "role" => "user",
+               "status" => "online",
+               "last_observed_at" => _
+             },
+             %{
+               "nick" => "mira",
+               "role" => "op",
+               "status" => "online",
+               "hostmask" => "mira!user@example.test",
+               "last_observed_at" => _
+             }
+           ] = users_by_buffer[channel_buffer_id]
+
     assert topic_json["server_host"] == "127.0.0.1"
     refute Enum.any?(get_in(json_response(conn, 200), ["buffers"]), &(&1["title"] == "#private"))
   end

@@ -3,7 +3,7 @@ defmodule Ircpipe.Chat.ChannelMembership do
   import Ecto.Changeset
 
   alias Ircpipe.Accounts.User
-  alias Ircpipe.Chat.{Message, ServerConnection}
+  alias Ircpipe.Chat.{ChannelUser, Message, ServerConnection}
 
   schema "channel_memberships" do
     field :channel, :string
@@ -15,6 +15,7 @@ defmodule Ircpipe.Chat.ChannelMembership do
     belongs_to :server_connection, ServerConnection
     belongs_to :user, User
     has_many :messages, Message
+    has_many :channel_users, ChannelUser
 
     timestamps(type: :utc_datetime)
   end

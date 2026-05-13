@@ -254,6 +254,76 @@ defmodule Ircpipe.ChatTest do
     refute_receive {:buffer_joined, _payload}, 100
   end
 
+  test "stores channel user lists from presence sync and diffs" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+
+    Chat.broadcast_presence_sync(connection, "#elixir", [
+      %{nick: "mira", prefixes: ["@"], raw_source: "mira!user@example.test"},
+      %{nick: "akash", prefixes: []}
+    ])
+
+    assert [
+             %{
+               nick: "akash",
+               role: "user",
+               status: "online",
+               last_observed_at: %DateTime{}
+             },
+             %{
+               nick: "mira",
+               role: "op",
+               status: "online",
+               hostmask: "mira!user@example.test",
+               last_observed_at: %DateTime{}
+             }
+           ] = Chat.list_channel_users(membership)
+
+    Chat.broadcast_presence_diff(connection, "#elixir", %{
+      action: "away",
+      nick: "akash",
+      status: "away"
+    })
+
+    assert Enum.any?(
+             Chat.list_channel_users(membership),
+             &(&1.nick == "akash" and &1.status == "away")
+           )
+
+    Chat.broadcast_presence_diff(connection, "#elixir", %{
+      action: "role",
+      nick: "akash",
+      role: "voice"
+    })
+
+    assert Enum.any?(
+             Chat.list_channel_users(membership),
+             &(&1.nick == "akash" and &1.role == "voice")
+           )
+
+    Chat.broadcast_presence_diff(connection, "#elixir", %{
+      action: "nick",
+      old_nick: "akash",
+      new_nick: "ak"
+    })
+
+    assert Enum.any?(Chat.list_channel_users(membership), &(&1.nick == "ak"))
+
+    Chat.broadcast_presence_diff(connection, "#elixir", %{action: "part", nick: "ak"})
+
+    refute Enum.any?(Chat.list_channel_users(membership), &(&1.nick == "ak"))
+  end
+
   test "broadcasts inbound channel messages as normalized buffer events" do
     user = AccountsFixtures.user_fixture()
 

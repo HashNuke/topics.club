@@ -123,7 +123,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   defp users_by_buffer(connections) do
     connections
     |> Enum.flat_map(& &1.channel_memberships)
-    |> Map.new(&{channel_buffer_id(&1), []})
+    |> Map.new(&{channel_buffer_id(&1), Chat.list_channel_users(&1)})
   end
 
   defp topic_json(topic) do

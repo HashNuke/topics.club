@@ -52,11 +52,11 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `nick`
   - [x] `hostmask` when available
   - [x] role markers where applicable
-- [ ] Store user list entries per channel:
-  - [ ] `nick`
-  - [ ] `role`: `owner`, `admin`, `op`, `halfop`, `voice`, or `user`
-  - [ ] `status`: `online`, `away`, or unknown
-  - [ ] last observed timestamp
+- [x] Store user list entries per channel:
+  - [x] `nick`
+  - [x] `role`: `owner`, `admin`, `op`, `halfop`, `voice`, or `user`
+  - [x] `status`: `online`, `away`, or unknown
+  - [x] last observed timestamp
 - [ ] Store unread and mention counters per buffer, not only per channel.
 - [x] Keep message retention capped by the user's 1-3 day setting.
 
@@ -378,7 +378,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] Add buffer serialization.
   - [ ] Add bootstrap endpoint.
   - [ ] Add message history pagination.
-  - [ ] Add user list payloads.
+  - [x] Add user list payloads.
 - [ ] Phase 3: Expand realtime channel.
   - [ ] Add channel push handlers.
   - [ ] Add reply contracts.

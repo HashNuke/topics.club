@@ -2,7 +2,16 @@ defmodule Ircpipe.Chat do
   import Ecto.Query
 
   alias Ircpipe.Accounts.User
-  alias Ircpipe.Chat.{ChannelMembership, Message, Notification, ServerConnection, Topic}
+
+  alias Ircpipe.Chat.{
+    ChannelMembership,
+    ChannelUser,
+    Message,
+    Notification,
+    ServerConnection,
+    Topic
+  }
+
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
@@ -148,6 +157,14 @@ defmodule Ircpipe.Chat do
     |> limit(^limit)
     |> Repo.all()
     |> Enum.reverse()
+  end
+
+  def list_channel_users(%ChannelMembership{} = membership) do
+    ChannelUser
+    |> where([u], u.channel_membership_id == ^membership.id)
+    |> order_by([u], asc: u.nick)
+    |> Repo.all()
+    |> Enum.map(&channel_user_json/1)
   end
 
   def list_buffer_messages(user, buffer_id, opts \\ [])
@@ -347,12 +364,15 @@ defmodule Ircpipe.Chat do
            channel: normalize_channel(channel)
          ) do
       %ChannelMembership{} = membership ->
+        users = Enum.map(names, &presence_user/1)
+        sync_channel_users(membership, users)
+
         event =
           Event.presence_sync(%{
             buffer_id: "channel:#{membership.id}",
             server_connection_id: connection.id,
             channel_membership_id: membership.id,
-            users: Enum.map(names, &presence_user/1)
+            users: users
           })
 
         Phoenix.PubSub.broadcast(
@@ -370,6 +390,8 @@ defmodule Ircpipe.Chat do
     connection
     |> presence_memberships(channel)
     |> Enum.each(fn membership ->
+      apply_presence_diff(membership, diff)
+
       event =
         Event.presence_diff(%{
           buffer_id: "channel:#{membership.id}",
@@ -559,6 +581,126 @@ defmodule Ircpipe.Chat do
       status: "online",
       hostmask: Map.get(name, :raw_source),
       last_observed_at: DateTime.utc_now(:second)
+    }
+  end
+
+  defp channel_user_json(%ChannelUser{} = user) do
+    %{
+      nick: user.nick,
+      role: user.role,
+      status: user.status,
+      hostmask: user.hostmask,
+      last_observed_at: user.last_observed_at
+    }
+  end
+
+  defp sync_channel_users(%ChannelMembership{} = membership, users) do
+    now = DateTime.utc_now(:second)
+
+    Repo.transaction(fn ->
+      from(u in ChannelUser, where: u.channel_membership_id == ^membership.id)
+      |> Repo.delete_all()
+
+      entries =
+        Enum.map(users, fn user ->
+          user
+          |> channel_user_attrs(now)
+          |> Map.merge(%{
+            channel_membership_id: membership.id,
+            inserted_at: now,
+            updated_at: now
+          })
+        end)
+
+      if entries != [] do
+        Repo.insert_all(ChannelUser, entries)
+      end
+    end)
+  end
+
+  defp apply_presence_diff(%ChannelMembership{} = membership, %{action: "join", user: user}) do
+    upsert_channel_user(membership, user)
+  end
+
+  defp apply_presence_diff(%ChannelMembership{} = membership, %{action: action, nick: nick})
+       when action in ["part", "quit"] and is_binary(nick) do
+    from(u in ChannelUser, where: u.channel_membership_id == ^membership.id and u.nick == ^nick)
+    |> Repo.delete_all()
+  end
+
+  defp apply_presence_diff(%ChannelMembership{} = membership, %{
+         action: "nick",
+         old_nick: old_nick,
+         new_nick: new_nick
+       })
+       when is_binary(old_nick) and is_binary(new_nick) do
+    now = DateTime.utc_now(:second)
+
+    from(u in ChannelUser,
+      where: u.channel_membership_id == ^membership.id and u.nick == ^old_nick
+    )
+    |> Repo.update_all(set: [nick: new_nick, last_observed_at: now, updated_at: now])
+  end
+
+  defp apply_presence_diff(%ChannelMembership{} = membership, %{
+         action: "away",
+         nick: nick,
+         status: status
+       })
+       when is_binary(nick) and is_binary(status) do
+    update_channel_user(membership, nick, %{status: status})
+  end
+
+  defp apply_presence_diff(%ChannelMembership{} = membership, %{
+         action: "role",
+         nick: nick,
+         role: role
+       })
+       when is_binary(nick) and is_binary(role) do
+    update_channel_user(membership, nick, %{role: role})
+  end
+
+  defp apply_presence_diff(_membership, _diff), do: :ok
+
+  defp upsert_channel_user(%ChannelMembership{} = membership, user) do
+    now = DateTime.utc_now(:second)
+
+    attrs =
+      user
+      |> channel_user_attrs(now)
+      |> Map.merge(%{
+        channel_membership_id: membership.id,
+        inserted_at: now,
+        updated_at: now
+      })
+
+    Repo.insert_all(ChannelUser, [attrs],
+      on_conflict: {:replace, [:role, :status, :hostmask, :last_observed_at, :updated_at]},
+      conflict_target: [:channel_membership_id, :nick]
+    )
+  end
+
+  defp update_channel_user(%ChannelMembership{} = membership, nick, attrs) do
+    now = DateTime.utc_now(:second)
+
+    updates =
+      attrs
+      |> Map.take([:role, :status, :hostmask])
+      |> Map.put(:last_observed_at, now)
+      |> Map.put(:updated_at, now)
+      |> Map.to_list()
+
+    from(u in ChannelUser, where: u.channel_membership_id == ^membership.id and u.nick == ^nick)
+    |> Repo.update_all(set: updates)
+  end
+
+  defp channel_user_attrs(user, observed_at) do
+    %{
+      nick: metadata_value(user, :nick),
+      role: metadata_value(user, :role) || "user",
+      status: metadata_value(user, :status) || "online",
+      hostmask: metadata_value(user, :hostmask),
+      last_observed_at: metadata_value(user, :last_observed_at) || observed_at
     }
   end
 
