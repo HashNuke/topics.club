@@ -1,0 +1,57 @@
+defmodule Ircpipe.Realtime.Event do
+  @moduledoc false
+
+  @version 1
+
+  def message(message, buffer_id, extra \\ %{}) do
+    %{
+      type: "buffer:message",
+      version: @version,
+      event_id: "message:#{message.id}",
+      id: message.id,
+      buffer_id: buffer_id,
+      channel_membership_id: message.channel_membership_id,
+      server_connection_id: message.server_connection_id,
+      nick: message.nick,
+      body: message.body,
+      kind: message.kind,
+      mentioned: message.mentioned,
+      occurred_at: message.occurred_at
+    }
+    |> Map.merge(extra)
+  end
+
+  def notification_mention(message_event) do
+    message_event
+    |> Map.merge(%{
+      type: "notification:mention",
+      event_id: "notification_mention:#{message_event.event_id}"
+    })
+  end
+
+  def server_status(connection) do
+    occurred_at = DateTime.utc_now(:second)
+
+    %{
+      type: "server:status",
+      version: @version,
+      event_id: "server_status:#{connection.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      server_connection_id: connection.id,
+      status: connection.status,
+      occurred_at: occurred_at
+    }
+  end
+
+  def buffer_left(payload) do
+    occurred_at = DateTime.utc_now(:second)
+    payload = Map.new(payload)
+
+    Map.merge(payload, %{
+      type: "buffer:left",
+      version: @version,
+      event_id:
+        "buffer_left:#{Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      occurred_at: occurred_at
+    })
+  end
+end

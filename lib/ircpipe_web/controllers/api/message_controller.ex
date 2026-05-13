@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.MessageController do
 
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Session
+  alias Ircpipe.Realtime.Event
 
   def index(conn, %{"channel_id" => channel_id}) do
     user = conn.assigns.current_scope.user
@@ -32,16 +33,6 @@ defmodule IrcpipeWeb.Api.MessageController do
   end
 
   defp message_json(message, buffer_id \\ nil) do
-    %{
-      id: message.id,
-      buffer_id: buffer_id,
-      channel_membership_id: message.channel_membership_id,
-      server_connection_id: message.server_connection_id,
-      nick: message.nick,
-      body: message.body,
-      kind: message.kind,
-      mentioned: message.mentioned,
-      occurred_at: message.occurred_at
-    }
+    Event.message(message, buffer_id)
   end
 end

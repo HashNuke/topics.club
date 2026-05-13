@@ -60,6 +60,8 @@ defmodule Ircpipe.ChatTest do
     assert_receive {:buffer_message,
                     %{
                       type: "buffer:message",
+                      version: 1,
+                      event_id: "message:" <> _,
                       buffer_id: "server:" <> _,
                       server_connection_id: connection_id,
                       channel_membership_id: nil,
@@ -71,5 +73,40 @@ defmodule Ircpipe.ChatTest do
 
     assert [%Message{body: "Connected"}] =
              Chat.list_buffer_messages(user, "server:#{connection.id}")
+  end
+
+  test "broadcasts inbound channel messages as normalized buffer events" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    Chat.record_inbound_message(connection, "#elixir", "akash", "hello")
+
+    assert_receive {:buffer_message,
+                    %{
+                      type: "buffer:message",
+                      version: 1,
+                      event_id: "message:" <> _,
+                      buffer_id: buffer_id,
+                      server_connection_id: connection_id,
+                      channel_membership_id: membership_id,
+                      channel: "#elixir",
+                      body: "hello"
+                    }}
+
+    assert buffer_id == "channel:#{membership.id}"
+    assert connection_id == connection.id
+    assert membership_id == membership.id
   end
 end

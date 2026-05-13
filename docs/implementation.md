@@ -81,7 +81,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Realtime event contract
 
 - [ ] Define all events as versioned payloads with `type`, `version`, `event_id`, and `occurred_at`.
-- [ ] Push `buffer:message` for normal channel messages, notices, actions, and service replies.
+- [x] Push `buffer:message` for normal channel messages, notices, actions, and service replies.
 - [ ] Push `buffer:system` for join, part, quit, nick change, topic changes, and server lifecycle lines.
 - [x] Push `buffer:read` when counters are reset.
 - [ ] Push `buffer:joined` when a channel or server buffer is created.
@@ -90,7 +90,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Push `presence:sync` for full user list refreshes.
 - [ ] Push `presence:diff` for joins, parts, quits, nick changes, role changes, and away state changes.
 - [x] Push `server:status` for `connecting`, `connected`, `reconnecting`, `errored`, and `disconnected`.
-- [ ] Push `notification:mention` for client-side browser notification decisions.
+- [x] Push `notification:mention` for client-side browser notification decisions.
 
 ## Sending messages
 
@@ -270,7 +270,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] `ok`
   - [ ] `error`
   - [ ] `timeout`
-- [ ] Add event serialization helpers so REST and realtime payloads match.
+- [x] Add event serialization helpers so REST and realtime payloads match.
 - [ ] Add channel tests for authorization, replies, broadcasts, and failure payloads.
   - [x] `message:send` ownership, reply, IRC send, and persistence
   - [x] `command:run` reply
@@ -307,7 +307,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] IRC names replies
   - [x] membership events
 - [x] Handle reconnect by rejoining persisted channels.
-- [ ] Broadcast normalized events through `Ircpipe.Chat` or a dedicated realtime boundary.
+- [x] Broadcast normalized events through `Ircpipe.Chat` or a dedicated realtime boundary.
 
 ## React state checklist
 

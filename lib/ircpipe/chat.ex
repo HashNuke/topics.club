@@ -3,6 +3,7 @@ defmodule Ircpipe.Chat do
 
   alias Ircpipe.Accounts.User
   alias Ircpipe.Chat.{ChannelMembership, Message, Notification, ServerConnection, Topic}
+  alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
   def list_topics do
@@ -356,17 +357,15 @@ defmodule Ircpipe.Chat do
   def broadcast_buffer_left(payload) do
     user_id = Map.fetch!(payload, :user_id)
 
+    event =
+      payload
+      |> Event.buffer_left()
+      |> Map.drop([:user_id])
+
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{user_id}",
-      {:buffer_left,
-       %{
-         type: "buffer:left",
-         buffer_id: payload.buffer_id,
-         server_connection_id: payload.server_connection_id,
-         channel_membership_id: payload.channel_membership_id,
-         occurred_at: DateTime.utc_now(:second)
-       }}
+      {:buffer_left, event}
     )
   end
 
@@ -439,17 +438,7 @@ defmodule Ircpipe.Chat do
   defp mention?(_, _), do: false
 
   defp broadcast_message(message, membership, connection, notification) do
-    payload = %{
-      id: message.id,
-      channel_membership_id: membership.id,
-      server_connection_id: connection.id,
-      channel: membership.channel,
-      nick: message.nick,
-      body: message.body,
-      kind: message.kind,
-      mentioned: message.mentioned,
-      occurred_at: message.occurred_at
-    }
+    payload = Event.message(message, "channel:#{membership.id}", %{channel: membership.channel})
 
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
@@ -457,11 +446,17 @@ defmodule Ircpipe.Chat do
       {:irc_message, payload}
     )
 
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{connection.user_id}",
+      {:buffer_message, payload}
+    )
+
     if notification do
       Phoenix.PubSub.broadcast(
         Ircpipe.PubSub,
         "user:#{connection.user_id}",
-        {:irc_mention, payload}
+        {:irc_mention, Event.notification_mention(payload)}
       )
     end
   end
@@ -470,19 +465,7 @@ defmodule Ircpipe.Chat do
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {:buffer_message,
-       %{
-         type: "buffer:message",
-         buffer_id: "server:#{connection.id}",
-         id: message.id,
-         channel_membership_id: nil,
-         server_connection_id: connection.id,
-         nick: message.nick,
-         body: message.body,
-         kind: message.kind,
-         mentioned: false,
-         occurred_at: message.occurred_at
-       }}
+      {:buffer_message, Event.message(message, "server:#{connection.id}", %{mentioned: false})}
     )
   end
 
@@ -490,13 +473,7 @@ defmodule Ircpipe.Chat do
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {:server_status,
-       %{
-         type: "server:status",
-         server_connection_id: connection.id,
-         status: connection.status,
-         occurred_at: DateTime.utc_now(:second)
-       }}
+      {:server_status, Event.server_status(connection)}
     )
   end
 

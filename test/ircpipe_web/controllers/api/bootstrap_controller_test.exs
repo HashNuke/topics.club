@@ -87,12 +87,28 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
     assert active_buffer_id == channel_buffer_id
 
-    assert [%{"body" => "Connected to local", "buffer_id" => ^server_buffer_id}] =
+    assert [
+             %{
+               "body" => "Connected to local",
+               "buffer_id" => ^server_buffer_id,
+               "type" => "buffer:message",
+               "version" => 1,
+               "event_id" => "message:" <> _
+             }
+           ] =
              messages_by_buffer[server_buffer_id]
 
     assert server_message.channel_membership_id == nil
 
-    assert [%{"body" => "hello mira", "buffer_id" => ^channel_buffer_id}] =
+    assert [
+             %{
+               "body" => "hello mira",
+               "buffer_id" => ^channel_buffer_id,
+               "type" => "buffer:message",
+               "version" => 1,
+               "event_id" => "message:" <> _
+             }
+           ] =
              messages_by_buffer[channel_buffer_id]
 
     assert users_by_buffer[channel_buffer_id] == []

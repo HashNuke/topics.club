@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Realtime.Event
 
   @message_limit 150
 
@@ -112,31 +113,11 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   end
 
   defp server_message_json(message, connection) do
-    %{
-      id: message.id,
-      buffer_id: server_buffer_id(connection),
-      server_connection_id: message.server_connection_id,
-      channel_membership_id: nil,
-      nick: message.nick,
-      body: message.body,
-      kind: message.kind,
-      mentioned: message.mentioned,
-      occurred_at: message.occurred_at
-    }
+    Event.message(message, server_buffer_id(connection), %{mentioned: false})
   end
 
   defp message_json(message, membership) do
-    %{
-      id: message.id,
-      buffer_id: channel_buffer_id(membership),
-      server_connection_id: message.server_connection_id,
-      channel_membership_id: message.channel_membership_id,
-      nick: message.nick,
-      body: message.body,
-      kind: message.kind,
-      mentioned: message.mentioned,
-      occurred_at: message.occurred_at
-    }
+    Event.message(message, channel_buffer_id(membership))
   end
 
   defp users_by_buffer(connections) do

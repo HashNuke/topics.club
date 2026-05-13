@@ -20,6 +20,9 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     assert Enum.map(messages, & &1["id"]) == [newer.id, newest.id]
     assert Enum.map(messages, & &1["body"]) == ["newer", "newest"]
     assert Enum.all?(messages, &(&1["buffer_id"] == buffer_id(membership)))
+    assert Enum.all?(messages, &(&1["type"] == "buffer:message"))
+    assert Enum.all?(messages, &(&1["version"] == 1))
+    assert Enum.all?(messages, &String.starts_with?(&1["event_id"], "message:"))
     refute Enum.any?(messages, &(&1["id"] == old.id))
   end
 

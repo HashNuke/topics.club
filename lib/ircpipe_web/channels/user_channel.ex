@@ -5,6 +5,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
+  alias Ircpipe.Realtime.Event
 
   @impl true
   def join("user:" <> user_id, _payload, socket) do
@@ -87,7 +88,7 @@ defmodule IrcpipeWeb.UserChannel do
        {:ok,
         %{
           client_message_id: client_message_id,
-          message: message_json(message, "channel:#{membership.id}")
+          message: Event.message(message, "channel:#{membership.id}")
         }}, socket}
     else
       false ->
@@ -136,6 +137,9 @@ defmodule IrcpipeWeb.UserChannel do
        {:ok,
         %{
           type: "buffer:left",
+          version: 1,
+          event_id: "buffer_left:channel:#{membership.id}",
+          occurred_at: DateTime.utc_now(:second),
           buffer_id: "channel:#{membership.id}",
           server_connection_id: membership.server_connection_id,
           channel_membership_id: membership.id
@@ -160,6 +164,9 @@ defmodule IrcpipeWeb.UserChannel do
      {:ok,
       %{
         type: "server:status",
+        version: 1,
+        event_id: "server_status:#{connection.id}",
+        occurred_at: DateTime.utc_now(:second),
         server_connection_id: connection.id,
         status: connection.status
       }}, socket}
@@ -176,6 +183,9 @@ defmodule IrcpipeWeb.UserChannel do
        {:ok,
         %{
           type: "server:status",
+          version: 1,
+          event_id: "server_status:#{connection.id}",
+          occurred_at: DateTime.utc_now(:second),
           server_connection_id: connection.id,
           status: "connecting"
         }}, socket}
@@ -221,20 +231,6 @@ defmodule IrcpipeWeb.UserChannel do
     user
     |> Chat.list_messages(membership.id, 1)
     |> List.first()
-  end
-
-  defp message_json(message, buffer_id) do
-    %{
-      id: message.id,
-      buffer_id: buffer_id,
-      server_connection_id: message.server_connection_id,
-      channel_membership_id: message.channel_membership_id,
-      nick: message.nick,
-      body: message.body,
-      kind: message.kind,
-      mentioned: message.mentioned,
-      occurred_at: message.occurred_at
-    }
   end
 
   defp error_reason(:invalid_buffer), do: "invalid_buffer"

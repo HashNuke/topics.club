@@ -176,6 +176,8 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert_push "server:status", %{
       type: "server:status",
+      version: 1,
+      event_id: "server_status:" <> _,
       server_connection_id: connection_id,
       status: "connected"
     }
@@ -201,6 +203,8 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert_push "buffer:message", %{
       type: "buffer:message",
+      version: 1,
+      event_id: "message:" <> _,
       buffer_id: buffer_id,
       server_connection_id: connection_id,
       channel_membership_id: nil,
@@ -229,7 +233,13 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
 
-    assert_push "notification:mention", %{body: "hello mira", mentioned: true}
+    assert_push "notification:mention", %{
+      type: "notification:mention",
+      version: 1,
+      event_id: "notification_mention:message:" <> _,
+      body: "hello mira",
+      mentioned: true
+    }
   end
 
   test "pushes presence sync over the user channel" do
