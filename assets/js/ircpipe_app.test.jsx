@@ -385,6 +385,41 @@ describe("IrcpipeApp UI prototype", () => {
     await waitFor(() => expect(within(people).queryByText("ak")).not.toBeInTheDocument())
   })
 
+  test("caps large user groups and expands them on request", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    const manyUsers = Array.from({length: 12}, (_, index) => ({
+      nick: `user${index + 1}`,
+      role: "user",
+      status: "online",
+    }))
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onPresenceSync({buffer_id: "channel:7", users: manyUsers})
+
+    const people = screen.getByRole("complementary", {name: "People here"})
+    await waitFor(() => expect(within(people).getByText("user10")).toBeInTheDocument())
+    expect(within(people).queryByText("user11")).not.toBeInTheDocument()
+
+    await user.click(within(people).getByRole("button", {name: "+2 more"}))
+
+    expect(within(people).getByText("user12")).toBeInTheDocument()
+  })
+
   test("shows browser notifications for hidden-tab mention events", async () => {
     mockBootstrapFetch()
     let realtimeHandlers

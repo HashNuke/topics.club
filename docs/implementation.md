@@ -195,8 +195,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] UserChannel pushes `presence:sync` after join and reconnect.
 - [x] UserChannel pushes `presence:diff` for incremental changes.
 - [x] React stores user lists per channel buffer.
-- [ ] React groups users by role and status.
-- [ ] React caps each group visually and allows expansion.
+- [x] React groups users by role and status.
+- [x] React caps each group visually and allows expansion.
 - [ ] React hides user sidebar for non-channel views such as Discover.
 - [ ] Server buffers do not show channel user lists.
 
