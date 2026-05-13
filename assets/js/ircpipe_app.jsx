@@ -362,6 +362,23 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!draft.trim() || !activeChannel) return
 
     const body = draft.trim()
+    if (body.startsWith("/") && realtimeClientRef.current) {
+      setDraft("")
+
+      try {
+        await realtimeClientRef.current.push("command:run", {
+          input: body,
+          buffer_id: currentBufferId(),
+        })
+
+        appendSystemMessage("Command accepted.")
+      } catch (_error) {
+        appendSystemMessage("Command failed.")
+      }
+
+      return
+    }
+
     const nextMessage = {
       id: `${view}-${Date.now()}`,
       occurredAt: new Date().toISOString(),
@@ -408,6 +425,36 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       [activeChannel.id]: [...(current[activeChannel.id] || []), nextMessage],
     }))
     setDraft("")
+  }
+
+  function currentBufferId() {
+    if (view === "server" && activeServer) return `server:${activeServer.server_connection_id || activeServer.id}`
+    return activeChannel?.id
+  }
+
+  function appendSystemMessage(body) {
+    const message = {
+      id: `system-${Date.now()}`,
+      occurredAt: new Date().toISOString(),
+      nick: "topics.club",
+      body,
+      kind: "system",
+    }
+
+    if (view === "server" && activeServer) {
+      setMessagesByServer((current) => ({
+        ...current,
+        [activeServer.id]: [...(current[activeServer.id] || serverBufferMessages(activeServer)), message],
+      }))
+      return
+    }
+
+    if (!activeChannel) return
+
+    setMessagesByChannel((current) => ({
+      ...current,
+      [activeChannel.id]: [...(current[activeChannel.id] || []), message],
+    }))
   }
 
   async function requestNotifications() {

@@ -576,6 +576,36 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(suggestions).getByRole("option", {name: /\/join/i})).toBeInTheDocument()
   })
 
+  test("runs slash command submissions through the realtime client", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn().mockResolvedValue({command: {name: "join", args: ["#ops"]}})
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText("Message composer"), "/join #ops")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(push).toHaveBeenCalledWith(
+      "command:run",
+      expect.objectContaining({
+        input: "/join #ops",
+        buffer_id: "channel:7",
+      })
+    )
+    expect(await screen.findByText("Command accepted.")).toBeInTheDocument()
+    expect(screen.queryByText("/join #ops")).not.toBeInTheDocument()
+  })
+
   test("keeps slash command suggestions hidden for normal messages", async () => {
     const user = userEvent.setup()
     mockTopicsFetch()

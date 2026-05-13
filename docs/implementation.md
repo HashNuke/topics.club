@@ -116,7 +116,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [x] React detects a leading `/` only to open a Floating UI command popover.
 - [x] React never treats slash commands as authoritative client-only behavior.
-- [ ] React sends slash-command submissions to the backend as `command:run`.
+- [x] React sends slash-command submissions to the backend as `command:run`.
 - [x] Backend parses and validates slash commands.
 - [x] Backend returns structured command results.
 - [ ] Backend emits system messages for command outcomes that should remain in the buffer.
