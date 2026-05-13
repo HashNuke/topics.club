@@ -61,7 +61,7 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/users/log-in/#{token}")
       html = html_response(conn, 200)
       refute html =~ "Confirm my account"
-      assert html =~ "Log in"
+      assert html =~ "Keep me logged in on this device"
     end
 
     test "raises error for invalid token", %{conn: conn} do
@@ -89,8 +89,8 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/")
       response = html_response(conn, 200)
       assert response =~ user.email
-      assert response =~ ~p"/users/settings"
-      assert response =~ ~p"/users/log-out"
+      assert response =~ ~s(id="ircpipe-root")
+      assert response =~ ~s(data-app-mode="landing")
     end
 
     test "logs the user in with remember me", %{conn: conn, user: user} do
@@ -164,8 +164,8 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/")
       response = html_response(conn, 200)
       assert response =~ user.email
-      assert response =~ ~p"/users/settings"
-      assert response =~ ~p"/users/log-out"
+      assert response =~ ~s(id="ircpipe-root")
+      assert response =~ ~s(data-app-mode="landing")
     end
 
     test "confirms unconfirmed user", %{conn: conn, unconfirmed_user: user} do
@@ -188,8 +188,8 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
       conn = get(conn, ~p"/")
       response = html_response(conn, 200)
       assert response =~ user.email
-      assert response =~ ~p"/users/settings"
-      assert response =~ ~p"/users/log-out"
+      assert response =~ ~s(id="ircpipe-root")
+      assert response =~ ~s(data-app-mode="landing")
     end
 
     test "emits error message when magic link is invalid", %{conn: conn} do

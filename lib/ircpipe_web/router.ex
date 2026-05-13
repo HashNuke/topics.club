@@ -34,6 +34,7 @@ defmodule IrcpipeWeb.Router do
   scope "/", IrcpipeWeb do
     pipe_through [:browser, :require_authenticated_user]
 
+    get "/chat", AppController, :index
     get "/app", AppController, :index
   end
 

@@ -1,5 +1,6 @@
 <div
   id="ircpipe-root"
+  data-app-mode="landing"
   data-developer-oauth={Application.get_env(:ueberauth, Ueberauth)[:providers][:developer] != nil}
   data-current-user={
     if @current_scope do
