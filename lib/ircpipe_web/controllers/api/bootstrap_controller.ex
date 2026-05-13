@@ -84,16 +84,45 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   end
 
   defp messages_by_buffer(user, connections) do
-    connections
-    |> Enum.flat_map(& &1.channel_memberships)
-    |> Map.new(fn membership ->
-      messages =
-        user
-        |> Chat.list_messages(membership.id, @message_limit)
-        |> Enum.map(&message_json(&1, membership))
+    channel_messages =
+      connections
+      |> Enum.flat_map(& &1.channel_memberships)
+      |> Map.new(fn membership ->
+        messages =
+          user
+          |> Chat.list_messages(membership.id, @message_limit)
+          |> Enum.map(&message_json(&1, membership))
 
-      {channel_buffer_id(membership), messages}
-    end)
+        {channel_buffer_id(membership), messages}
+      end)
+
+    server_messages =
+      Map.new(connections, fn connection ->
+        buffer_id = server_buffer_id(connection)
+
+        messages =
+          user
+          |> Chat.list_buffer_messages(buffer_id, limit: @message_limit)
+          |> Enum.map(&server_message_json(&1, connection))
+
+        {buffer_id, messages}
+      end)
+
+    Map.merge(server_messages, channel_messages)
+  end
+
+  defp server_message_json(message, connection) do
+    %{
+      id: message.id,
+      buffer_id: server_buffer_id(connection),
+      server_connection_id: message.server_connection_id,
+      channel_membership_id: nil,
+      nick: message.nick,
+      body: message.body,
+      kind: message.kind,
+      mentioned: message.mentioned,
+      occurred_at: message.occurred_at
+    }
   end
 
   defp message_json(message, membership) do

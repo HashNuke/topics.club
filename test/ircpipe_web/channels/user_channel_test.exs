@@ -183,6 +183,35 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert connection_id == connection.id
   end
 
+  test "pushes server buffer messages over the user channel" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    join_user_channel(user)
+
+    Chat.record_server_message(connection, "MOTD starts here", "notice")
+
+    assert_push "buffer:message", %{
+      type: "buffer:message",
+      buffer_id: buffer_id,
+      server_connection_id: connection_id,
+      channel_membership_id: nil,
+      body: "MOTD starts here",
+      kind: "notice"
+    }
+
+    assert buffer_id == "server:#{connection.id}"
+    assert connection_id == connection.id
+  end
+
   test "pushes mention notifications over the user channel" do
     user = AccountsFixtures.user_fixture()
 

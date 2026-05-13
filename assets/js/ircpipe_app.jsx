@@ -517,6 +517,14 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const bufferId = normalized.buffer_id || (normalized.channel_membership_id ? `channel:${normalized.channel_membership_id}` : null)
     if (!bufferId) return
 
+    if (bufferId.startsWith("server:")) {
+      setMessagesByServer((current) => ({
+        ...current,
+        [bufferId]: [...(current[bufferId] || []), normalized],
+      }))
+      return
+    }
+
     setMessagesByChannel((current) => ({
       ...current,
       [bufferId]: [...(current[bufferId] || []), normalized],
@@ -632,7 +640,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (nextConnections.length > 0) {
       setConnections(nextConnections)
       setMessagesByServer(
-        Object.fromEntries(nextConnections.map((connection) => [connection.id, serverBufferMessages(connection)]))
+        Object.fromEntries(
+          nextConnections.map((connection) => [
+            connection.id,
+            (bootstrap.messages_by_buffer || {})[connection.id]?.map(normalizeMessage) || serverBufferMessages(connection),
+          ])
+        )
       )
     }
 

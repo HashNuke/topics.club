@@ -28,6 +28,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, server_message} = Chat.record_server_message(connection, "Connected to local")
     Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
 
     {:ok, other_connection} =
@@ -82,8 +83,14 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert channel_buffer["unread_count"] == 1
 
     channel_buffer_id = "channel:#{membership.id}"
+    server_buffer_id = "server:#{connection.id}"
 
     assert active_buffer_id == channel_buffer_id
+
+    assert [%{"body" => "Connected to local", "buffer_id" => ^server_buffer_id}] =
+             messages_by_buffer[server_buffer_id]
+
+    assert server_message.channel_membership_id == nil
 
     assert [%{"body" => "hello mira", "buffer_id" => ^channel_buffer_id}] =
              messages_by_buffer[channel_buffer_id]

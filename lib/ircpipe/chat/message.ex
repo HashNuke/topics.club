@@ -5,7 +5,7 @@ defmodule Ircpipe.Chat.Message do
   alias Ircpipe.Accounts.User
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
 
-  @kinds ~w(message action notice system join part quit nick)
+  @kinds ~w(message action notice system error command join part quit nick)
 
   schema "messages" do
     field :kind, :string, default: "message"

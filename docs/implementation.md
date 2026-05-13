@@ -39,14 +39,14 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Represent server buffers for server logs, MOTD, connection lifecycle, numeric replies, and service notices.
 - [x] Represent channel buffers for IRC channel messages and channel-local system events.
 - [ ] Represent service buffers or service-tagged messages for `NickServ`, `ChanServ`, and similar services.
-- [ ] Store message `kind` values:
-  - [ ] `message`
-  - [ ] `action`
-  - [ ] `notice`
-  - [ ] `system`
-  - [ ] `error`
-  - [ ] `command`
-- [ ] Store stable message ordering with `occurred_at` plus `id`.
+- [x] Store message `kind` values:
+  - [x] `message`
+  - [x] `action`
+  - [x] `notice`
+  - [x] `system`
+  - [x] `error`
+  - [x] `command`
+- [x] Store stable message ordering with `occurred_at` plus `id`.
 - [ ] Store sender metadata:
   - [ ] `nick`
   - [ ] `hostmask` when available
@@ -218,6 +218,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Use cursor pagination:
   - [x] `GET /api/buffers/:id/messages?limit=150`
   - [x] `GET /api/buffers/:id/messages?before=<message_cursor>&limit=50`
+  - [x] server buffers use the same message history API
 - [ ] Preserve scroll offset when prepending older messages.
 
 ## Notifications
@@ -275,6 +276,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `channel:leave` ownership, reply, IRC part, and deletion
   - [x] `server:disconnect` and `server:reconnect` ownership and replies
   - [x] `server:status` scoped broadcast
+  - [x] server `buffer:message` broadcast
 
 ## IRC runtime checklist
 
@@ -336,6 +338,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Backend API tests for bootstrap, history, join, leave, and settings.
   - [x] bootstrap
   - [x] history
+  - [x] server buffer history
   - [x] topic join
   - [x] channel leave
   - [x] server disconnect

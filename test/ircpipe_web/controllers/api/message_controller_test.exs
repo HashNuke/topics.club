@@ -41,15 +41,19 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     assert Enum.map(messages, & &1["id"]) == [oldest.id, older.id]
   end
 
-  test "returns an empty history for server buffers until server lines are persisted", %{
+  test "returns server buffer message history", %{
     conn: conn,
     user: user
   } do
     {connection, _membership} = joined_channel(user)
+    Chat.record_server_message(connection, "Connected to local")
 
     conn = get(conn, ~p"/api/buffers/server:#{connection.id}/messages")
 
-    assert json_response(conn, 200) == %{"messages" => []}
+    assert %{"messages" => [%{"buffer_id" => buffer_id, "body" => "Connected to local"}]} =
+             json_response(conn, 200)
+
+    assert buffer_id == "server:#{connection.id}"
   end
 
   defp joined_channel(user) do

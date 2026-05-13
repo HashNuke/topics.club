@@ -535,6 +535,39 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByRole("complementary", {name: "People here"})).not.toBeInTheDocument()
   })
 
+  test("renders realtime server buffer messages", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    await user.click(screen.getByRole("button", {name: "local"}))
+
+    realtimeHandlers.onBufferMessage({
+      type: "buffer:message",
+      buffer_id: "server:42",
+      id: 204,
+      nick: "127.0.0.1",
+      body: "MOTD starts here",
+      kind: "notice",
+      occurred_at: "2026-05-13T10:03:00Z",
+    })
+
+    expect(await screen.findByText("MOTD starts here")).toBeInTheDocument()
+  })
+
   test("caps large user groups and expands them on request", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()

@@ -116,7 +116,22 @@ defmodule Ircpipe.Chat do
     |> Enum.reverse()
   end
 
-  def list_buffer_messages(%User{}, "server:" <> _connection_id, _opts), do: []
+  def list_buffer_messages(%User{} = user, "server:" <> connection_id, opts) do
+    connection = get_connection!(user, connection_id)
+    limit = opts |> Keyword.get(:limit, 150) |> to_int(150) |> min(150) |> max(1)
+
+    Message
+    |> where(
+      [m],
+      m.user_id == ^user.id and m.server_connection_id == ^connection.id and
+        is_nil(m.channel_membership_id)
+    )
+    |> before_cursor(user, opts[:before])
+    |> order_by([m], desc: m.occurred_at, desc: m.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.reverse()
+  end
 
   def list_buffer_messages(%User{}, _buffer_id, _opts), do: []
 
@@ -179,6 +194,30 @@ defmodule Ircpipe.Chat do
       prune_old_messages(user)
       broadcast_message(message, membership, connection, notification)
       %{message | channel_membership: membership, server_connection: connection}
+    end)
+  end
+
+  def record_server_message(%ServerConnection{} = connection, body, kind \\ "system", nick \\ nil) do
+    user = Repo.get!(User, connection.user_id)
+
+    Repo.transaction(fn ->
+      {:ok, message} =
+        %Message{
+          user_id: connection.user_id,
+          server_connection_id: connection.id
+        }
+        |> Message.changeset(%{
+          kind: kind,
+          nick: nick || connection.host,
+          body: body,
+          mentioned: false,
+          occurred_at: DateTime.utc_now(:second)
+        })
+        |> Repo.insert()
+
+      prune_old_messages(user)
+      broadcast_server_message(message, connection)
+      message
     end)
   end
 
@@ -367,6 +406,26 @@ defmodule Ircpipe.Chat do
         {:irc_mention, payload}
       )
     end
+  end
+
+  defp broadcast_server_message(message, connection) do
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{connection.user_id}",
+      {:buffer_message,
+       %{
+         type: "buffer:message",
+         buffer_id: "server:#{connection.id}",
+         id: message.id,
+         channel_membership_id: nil,
+         server_connection_id: connection.id,
+         nick: message.nick,
+         body: message.body,
+         kind: message.kind,
+         mentioned: false,
+         occurred_at: message.occurred_at
+       }}
+    )
   end
 
   defp broadcast_server_status(connection) do
