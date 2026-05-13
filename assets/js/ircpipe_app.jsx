@@ -658,21 +658,31 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   function applyBufferRead(payload) {
     const bufferId = payload?.buffer_id
-    if (!bufferId?.startsWith("channel:")) return
+    if (!bufferId) return
 
     setConnections((current) =>
-      current.map((connection) => ({
-        ...connection,
-        channels: connection.channels.map((channel) =>
-          channel.id === bufferId
-            ? {
-                ...channel,
-                unread_count: payload.unread_count ?? 0,
-                mention_count: payload.mention_count ?? 0,
-              }
-            : channel
-        ),
-      }))
+      current.map((connection) => {
+        if (connection.id === bufferId) {
+          return {
+            ...connection,
+            unread_count: payload.unread_count ?? 0,
+            mention_count: payload.mention_count ?? 0,
+          }
+        }
+
+        return {
+          ...connection,
+          channels: connection.channels.map((channel) =>
+            channel.id === bufferId
+              ? {
+                  ...channel,
+                  unread_count: payload.unread_count ?? 0,
+                  mention_count: payload.mention_count ?? 0,
+                }
+              : channel
+          ),
+        }
+      })
     )
   }
 
@@ -723,6 +733,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         use_tls: connection.use_tls,
         nickname: connection.nickname,
         status: connection.status,
+        unread_count: connection.unread_count || 0,
+        mention_count: connection.mention_count || 0,
         channels: channelBuffers.map((buffer) => ({
           id: buffer.buffer_id,
           channel_membership_id: buffer.channel_membership_id,

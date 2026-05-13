@@ -57,7 +57,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `role`: `owner`, `admin`, `op`, `halfop`, `voice`, or `user`
   - [x] `status`: `online`, `away`, or unknown
   - [x] last observed timestamp
-- [ ] Store unread and mention counters per buffer, not only per channel.
+- [x] Store unread and mention counters per buffer, not only per channel.
 - [x] Keep message retention capped by the user's 1-3 day setting.
 
 ## Initial load flow

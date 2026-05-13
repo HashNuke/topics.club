@@ -20,6 +20,9 @@ defmodule Ircpipe.Chat.ServerConnection do
     field :sasl_password, :string, redact: true
     field :status, :string, default: "disconnected"
     field :last_connected_at, :utc_datetime
+    field :last_read_at, :utc_datetime
+    field :unread_count, :integer, default: 0
+    field :mention_count, :integer, default: 0
 
     belongs_to :user, User
     has_many :channel_memberships, ChannelMembership
@@ -41,7 +44,10 @@ defmodule Ircpipe.Chat.ServerConnection do
       :sasl_username,
       :sasl_password,
       :status,
-      :last_connected_at
+      :last_connected_at,
+      :last_read_at,
+      :unread_count,
+      :mention_count
     ])
     |> validate_required([:name, :host, :port, :nickname])
     |> validate_number(:port, greater_than: 0, less_than: 65_536)

@@ -141,6 +141,43 @@ defmodule Ircpipe.ChatTest do
 
     assert [%Message{body: "Connected"}] =
              Chat.list_buffer_messages(user, "server:#{connection.id}")
+
+    assert Chat.get_connection!(user, connection.id).unread_count == 1
+  end
+
+  test "marks server buffers read" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    Chat.record_server_message(connection, "Connected")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert :ok = Chat.mark_read(user, Chat.get_connection!(user, connection.id))
+
+    assert_receive {:buffer_read,
+                    %{
+                      type: "buffer:read",
+                      buffer_id: buffer_id,
+                      server_connection_id: connection_id,
+                      channel_membership_id: nil,
+                      unread_count: 0,
+                      mention_count: 0
+                    }}
+
+    assert buffer_id == "server:#{connection.id}"
+    assert connection_id == connection.id
+
+    reloaded = Chat.get_connection!(user, connection.id)
+    assert reloaded.unread_count == 0
+    assert reloaded.mention_count == 0
   end
 
   test "broadcasts server errors as buffer error events" do

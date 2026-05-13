@@ -43,6 +43,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       use_tls: connection.use_tls,
       nickname: connection.nickname,
       status: connection.status,
+      unread_count: connection.unread_count,
+      mention_count: connection.mention_count,
       channels: Enum.map(connection.channel_memberships, & &1.id)
     }
   end
@@ -57,8 +59,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         title: connection.host,
         subtitle: connection.name,
         status: connection.status,
-        unread_count: 0,
-        mention_count: 0
+        unread_count: connection.unread_count,
+        mention_count: connection.mention_count
       }
       | Enum.map(connection.channel_memberships, &channel_buffer(&1, connection))
     ]

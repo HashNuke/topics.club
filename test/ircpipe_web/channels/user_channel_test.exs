@@ -277,6 +277,43 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert reloaded.mention_count == 0
   end
 
+  test "marks a server buffer read over the user channel" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    Chat.record_server_message(connection, "Connected")
+    socket = join_user_channel(user)
+
+    ref = push(socket, "buffer:read", %{"buffer_id" => "server:#{connection.id}"})
+
+    assert_reply ref, :ok, %{
+      buffer_id: "server:" <> _,
+      unread_count: 0,
+      mention_count: 0
+    }
+
+    assert_push "buffer:read", %{
+      type: "buffer:read",
+      buffer_id: buffer_id,
+      server_connection_id: connection_id,
+      channel_membership_id: nil,
+      unread_count: 0,
+      mention_count: 0
+    }
+
+    assert buffer_id == "server:#{connection.id}"
+    assert connection_id == connection.id
+    assert Chat.get_connection!(user, connection.id).unread_count == 0
+  end
+
   test "pushes server status broadcasts over the user channel" do
     user = AccountsFixtures.user_fixture()
 

@@ -80,6 +80,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert server_buffer["buffer_id"] == "server:#{connection.id}"
     assert server_buffer["buffer_type"] == "server"
     assert server_buffer["title"] == "127.0.0.1"
+    assert server_buffer["unread_count"] == 1
 
     assert channel_buffer["buffer_id"] == "channel:#{membership.id}"
     assert channel_buffer["buffer_type"] == "channel"

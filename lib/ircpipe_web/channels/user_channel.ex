@@ -151,6 +151,18 @@ defmodule IrcpipeWeb.UserChannel do
     end
   end
 
+  def handle_in("buffer:read", %{"buffer_id" => "server:" <> connection_id}, socket) do
+    user = socket.assigns.current_user
+
+    connection = Chat.get_connection!(user, connection_id)
+    :ok = Chat.mark_read(user, connection)
+
+    {:reply, {:ok, %{buffer_id: "server:#{connection.id}", unread_count: 0, mention_count: 0}},
+     socket}
+  rescue
+    Ecto.NoResultsError -> {:reply, {:error, %{reason: "invalid_server"}}, socket}
+  end
+
   def handle_in("buffer:read", _payload, socket) do
     {:reply, {:error, %{reason: "invalid_buffer"}}, socket}
   end

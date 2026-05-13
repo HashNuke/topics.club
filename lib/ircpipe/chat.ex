@@ -291,6 +291,12 @@ defmodule Ircpipe.Chat do
         })
         |> Repo.insert()
 
+      {1, _} =
+        Repo.update_all(
+          from(c in ServerConnection, where: c.id == ^connection.id),
+          inc: [unread_count: 1]
+        )
+
       prune_old_messages(user)
       broadcast_server_message(message, connection)
       message
@@ -360,6 +366,22 @@ defmodule Ircpipe.Chat do
       buffer_id: "channel:#{membership.id}",
       server_connection_id: membership.server_connection_id,
       channel_membership_id: membership.id
+    })
+
+    :ok
+  end
+
+  def mark_read(%User{id: user_id}, %ServerConnection{} = connection) do
+    now = DateTime.utc_now(:second)
+
+    from(c in ServerConnection, where: c.id == ^connection.id and c.user_id == ^user_id)
+    |> Repo.update_all(set: [last_read_at: now, unread_count: 0, mention_count: 0])
+
+    broadcast_buffer_read(%{
+      user_id: user_id,
+      buffer_id: "server:#{connection.id}",
+      server_connection_id: connection.id,
+      channel_membership_id: nil
     })
 
     :ok
