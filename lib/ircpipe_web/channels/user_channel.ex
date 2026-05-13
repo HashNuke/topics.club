@@ -10,7 +10,12 @@ defmodule IrcpipeWeb.UserChannel do
   def join("user:" <> user_id, _payload, socket) do
     if Integer.to_string(socket.assigns.current_user.id) == user_id do
       Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user_id}")
-      {:ok, socket}
+
+      {:ok,
+       %{
+         server_time: DateTime.utc_now(:second) |> DateTime.to_iso8601(),
+         missed_event_cursor: nil
+       }, socket}
     else
       {:error, %{reason: "unauthorized"}}
     end

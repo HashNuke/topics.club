@@ -75,7 +75,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] suggested topics for Discover
 - [x] React opens one Phoenix socket.
 - [x] React joins `user:{user_id}`.
-- [ ] UserChannel join reply includes server time and optional missed event cursor.
+- [x] UserChannel join reply includes server time and optional missed event cursor.
 - [ ] React reconciles any events newer than the bootstrap cursor.
 
 ## Realtime event contract

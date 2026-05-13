@@ -9,6 +9,17 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias IrcpipeWeb.UserChannel
   alias IrcpipeWeb.UserSocket
 
+  test "joins with server time and missed event cursor metadata" do
+    user = AccountsFixtures.user_fixture()
+
+    assert {:ok, %{server_time: server_time, missed_event_cursor: nil}, _socket} =
+             UserSocket
+             |> socket("user_socket:#{user.id}", %{current_user: user})
+             |> subscribe_and_join(UserChannel, "user:#{user.id}")
+
+    assert {:ok, _datetime, 0} = DateTime.from_iso8601(server_time)
+  end
+
   test "suggests slash commands over the user channel" do
     user = AccountsFixtures.user_fixture()
 
