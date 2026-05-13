@@ -19,7 +19,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
         sender_role: "op"
       })
 
-    conn = get(conn, ~p"/api/buffers/#{buffer_id(membership)}/messages?limit=2")
+    conn = get(conn, ~p"/api/buffer_messages?buffer_id=#{buffer_id(membership)}&limit=2")
 
     assert %{"messages" => messages} = json_response(conn, 200)
     assert Enum.map(messages, & &1["id"]) == [newer.id, newest.id]
@@ -44,7 +44,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     conn =
       get(
         conn,
-        ~p"/api/buffers/#{buffer_id(membership)}/messages?before=#{cursor.id}&limit=50"
+        ~p"/api/buffer_messages?buffer_id=#{buffer_id(membership)}&before=#{cursor.id}&limit=50"
       )
 
     assert %{"messages" => messages} = json_response(conn, 200)
@@ -62,7 +62,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     conn =
       get(
         conn,
-        ~p"/api/buffers/#{buffer_id(membership)}/messages?after=#{cursor.id}&limit=50"
+        ~p"/api/buffer_messages?buffer_id=#{buffer_id(membership)}&after=#{cursor.id}&limit=50"
       )
 
     assert %{"messages" => messages} = json_response(conn, 200)
@@ -76,7 +76,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     {connection, _membership} = joined_channel(user)
     Chat.record_server_message(connection, "Connected to local")
 
-    conn = get(conn, ~p"/api/buffers/server:#{connection.id}/messages")
+    conn = get(conn, ~p"/api/buffer_messages?buffer_id=server:#{connection.id}")
 
     assert %{"messages" => [%{"buffer_id" => buffer_id, "body" => "Connected to local"}]} =
              json_response(conn, 200)

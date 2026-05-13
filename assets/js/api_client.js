@@ -37,9 +37,10 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
       if (params.limit) search.set("limit", String(params.limit))
       if (params.before) search.set("before", String(params.before))
       if (params.after) search.set("after", String(params.after))
+      search.set("buffer_id", bufferId)
 
       const query = search.toString()
-      return request(`/api/buffers/${bufferId}/messages${query ? `?${query}` : ""}`)
+      return request(`/api/buffer_messages?${query}`)
     },
   }
 }

@@ -11,8 +11,9 @@ defmodule IrcpipeWeb.Api.MessageController do
     json(conn, %{messages: Enum.map(messages, &message_json/1)})
   end
 
-  def buffer_index(conn, %{"id" => buffer_id} = params) do
+  def buffer_index(conn, params) do
     user = conn.assigns.current_scope.user
+    buffer_id = Map.get(params, "buffer_id") || Map.fetch!(params, "id")
 
     messages =
       Chat.list_buffer_messages(user, buffer_id,

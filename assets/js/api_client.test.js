@@ -32,12 +32,12 @@ describe("api client", () => {
     )
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
-      "/api/buffers/channel:9/messages?limit=50&before=123",
+      "/api/buffer_messages?limit=50&before=123&buffer_id=channel%3A9",
       expect.objectContaining({credentials: "same-origin"})
     )
     expect(fetchImpl).toHaveBeenNthCalledWith(
       3,
-      "/api/buffers/channel:9/messages?limit=25&after=456",
+      "/api/buffer_messages?limit=25&after=456&buffer_id=channel%3A9",
       expect.objectContaining({credentials: "same-origin"})
     )
   })
