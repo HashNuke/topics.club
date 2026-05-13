@@ -57,9 +57,9 @@ defmodule Ircpipe.ChatTest do
     assert {:ok, %Message{channel_membership_id: nil, kind: "system", body: "Connected"}} =
              Chat.record_server_message(connection, "Connected")
 
-    assert_receive {:buffer_message,
+    assert_receive {:buffer_system,
                     %{
-                      type: "buffer:message",
+                      type: "buffer:system",
                       version: 1,
                       event_id: "message:" <> _,
                       buffer_id: "server:" <> _,
@@ -104,6 +104,47 @@ defmodule Ircpipe.ChatTest do
                     }}
 
     assert connection_id == connection.id
+  end
+
+  test "broadcasts channel system lines as buffer system events" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:ok, _message} =
+             Chat.record_channel_system_message(
+               connection,
+               "#elixir",
+               "join",
+               "akash",
+               "akash joined #elixir."
+             )
+
+    assert_receive {:buffer_system,
+                    %{
+                      type: "buffer:system",
+                      version: 1,
+                      event_id: "message:" <> _,
+                      buffer_id: buffer_id,
+                      server_connection_id: connection_id,
+                      channel_membership_id: membership_id,
+                      kind: "join",
+                      body: "akash joined #elixir."
+                    }}
+
+    assert buffer_id == "channel:#{membership.id}"
+    assert connection_id == connection.id
+    assert membership_id == membership.id
   end
 
   test "broadcasts inbound channel messages as normalized buffer events" do

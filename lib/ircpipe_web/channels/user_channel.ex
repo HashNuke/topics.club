@@ -38,6 +38,11 @@ defmodule IrcpipeWeb.UserChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:buffer_system, message}, socket) do
+    push(socket, "buffer:system", message)
+    {:noreply, socket}
+  end
+
   def handle_info({:irc_mention, message}, socket) do
     push(socket, "mention", message)
     push(socket, "notification:mention", message)

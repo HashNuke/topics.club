@@ -26,12 +26,12 @@ defmodule Ircpipe.Irc.SessionTest do
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert :ok = Session.join(connection, "#pipe")
 
-    assert_receive {:buffer_message, %{kind: "system", body: "Connecting to localhost:" <> _}},
+    assert_receive {:buffer_system, %{kind: "system", body: "Connecting to localhost:" <> _}},
                    1_000
 
     assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
     assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
-    assert_receive {:buffer_message, %{kind: "system", body: "Connected to localhost."}}, 1_000
+    assert_receive {:buffer_system, %{kind: "system", body: "Connected to localhost."}}, 1_000
     assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000
 
     assert_receive {:presence_sync,
@@ -57,7 +57,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert :ok = Session.quit(connection)
 
-    assert_receive {:buffer_message, %{kind: "system", body: "Disconnected from localhost."}},
+    assert_receive {:buffer_system, %{kind: "system", body: "Disconnected from localhost."}},
                    1_000
   end
 
@@ -127,7 +127,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert {:noreply, ^state} =
              Session.handle_info({:ircxd, {:welcome, %{text: "Welcome to local"}}}, state)
 
-    assert_receive {:buffer_message, %{buffer_id: "server:" <> _, body: "Welcome to local"}}
+    assert_receive {:buffer_system, %{buffer_id: "server:" <> _, body: "Welcome to local"}}
 
     assert {:noreply, ^state} =
              Session.handle_info({:ircxd, {:motd, %{text: "- Be kind"}}}, state)

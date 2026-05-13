@@ -91,7 +91,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              %{
                "body" => "Connected to local",
                "buffer_id" => ^server_buffer_id,
-               "type" => "buffer:message",
+               "type" => "buffer:system",
                "version" => 1,
                "event_id" => "message:" <> _
              }

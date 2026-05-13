@@ -449,7 +449,7 @@ defmodule Ircpipe.Chat do
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {:buffer_message, payload}
+      {pubsub_event(payload), payload}
     )
 
     if notification do
@@ -463,12 +463,11 @@ defmodule Ircpipe.Chat do
 
   defp broadcast_server_message(message, connection) do
     event = Event.message(message, "server:#{connection.id}", %{mentioned: false})
-    pubsub_event = if event.type == "buffer:error", do: :buffer_error, else: :buffer_message
 
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {pubsub_event, event}
+      {pubsub_event(event), event}
     )
   end
 
@@ -489,6 +488,10 @@ defmodule Ircpipe.Chat do
       last_observed_at: DateTime.utc_now(:second)
     }
   end
+
+  defp pubsub_event(%{type: "buffer:error"}), do: :buffer_error
+  defp pubsub_event(%{type: "buffer:system"}), do: :buffer_system
+  defp pubsub_event(_event), do: :buffer_message
 
   defp presence_memberships(connection, nil) do
     ChannelMembership

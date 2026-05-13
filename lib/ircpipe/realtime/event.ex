@@ -56,5 +56,9 @@ defmodule Ircpipe.Realtime.Event do
   end
 
   defp message_type(%{kind: "error"}), do: "buffer:error"
+
+  defp message_type(%{kind: kind}) when kind in ~w(system join part quit nick topic),
+    do: "buffer:system"
+
   defp message_type(_message), do: "buffer:message"
 end

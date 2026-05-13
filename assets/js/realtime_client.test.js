@@ -122,6 +122,19 @@ describe("realtime client", () => {
     expect(onBufferMessage).toHaveBeenCalledWith({type: "buffer:error", body: "connection failed"})
   })
 
+  test("forwards buffer system events through the timeline message handler", () => {
+    const onBufferMessage = vi.fn()
+    const client = createRealtimeClient({
+      SocketClass: FakeSocket,
+      userId: 7,
+      handlers: {onBufferMessage},
+    })
+
+    client.channel.handlers["buffer:system"]({type: "buffer:system", body: "akash joined #elixir"})
+
+    expect(onBufferMessage).toHaveBeenCalledWith({type: "buffer:system", body: "akash joined #elixir"})
+  })
+
   test("wraps channel pushes in ok/error/timeout promises", async () => {
     const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7})
 
