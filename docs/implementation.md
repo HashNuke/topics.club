@@ -173,8 +173,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] reconnecting
   - [x] offline
   - [x] degraded
-- [ ] Disable message send while the Phoenix socket is disconnected.
-- [ ] Queue drafts locally but do not pretend they were sent.
+- [x] Disable message send while the Phoenix socket is disconnected.
+- [x] Queue drafts locally but do not pretend they were sent.
 - [x] Surface channel push timeouts as "Still trying" or "Send failed".
 - [ ] Show server-specific IRC connection failures in the server buffer.
 - [ ] Push backend IRC session failures as `server:status` and `buffer:error`.

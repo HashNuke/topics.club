@@ -254,16 +254,21 @@ describe("IrcpipeApp UI prototype", () => {
       },
     })
     const client = fakeRealtimeClient(push)
+    let realtimeHandlers
 
     render(
       <IrcpipeApp
         currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
         developerOauth={true}
-        realtimeClientFactory={() => client}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
       />
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
 
     await user.type(screen.getByLabelText("Message composer"), "sent through socket")
     await user.click(screen.getByRole("button", {name: "Send"}))
@@ -284,6 +289,33 @@ describe("IrcpipeApp UI prototype", () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
     const client = fakeRealtimeClient(vi.fn().mockRejectedValue({reason: "not_connected"}))
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+
+    await user.type(screen.getByLabelText("Message composer"), "will fail")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(await screen.findByText("Send failed")).toBeInTheDocument()
+  })
+
+  test("keeps channel drafts unsent while the realtime socket is offline", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn()
+    const client = fakeRealtimeClient(push)
 
     render(
       <IrcpipeApp
@@ -295,10 +327,12 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText("Message composer"), "will fail")
-    await user.click(screen.getByRole("button", {name: "Send"}))
+    const composer = screen.getByLabelText("Message composer")
+    await user.type(composer, "still drafting")
 
-    expect(await screen.findByText("Send failed")).toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "Send"})).toBeDisabled()
+    expect(push).not.toHaveBeenCalled()
+    expect(composer).toHaveValue("still drafting")
   })
 
   test("shows degraded connection health when the realtime join fails", async () => {
@@ -646,16 +680,21 @@ describe("IrcpipeApp UI prototype", () => {
     mockBootstrapFetch()
     const push = vi.fn().mockResolvedValue({command: {name: "join", args: ["#ops"]}})
     const client = fakeRealtimeClient(push)
+    let realtimeHandlers
 
     render(
       <IrcpipeApp
         currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
         developerOauth={true}
-        realtimeClientFactory={() => client}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
       />
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
 
     await user.type(screen.getByLabelText("Message composer"), "/join #ops")
     await user.click(screen.getByRole("button", {name: "Send"}))

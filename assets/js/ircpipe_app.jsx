@@ -372,6 +372,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!draft.trim() || !activeChannel) return
 
     const body = draft.trim()
+    if (isRealtimeChannel(activeChannel) && realtimeClientRef.current && connectionHealth !== "connected") return
+
     if (body.startsWith("/") && realtimeClientRef.current) {
       setDraft("")
 
@@ -1018,9 +1020,10 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
   }
 }
 
-function ChatPane({activeChannel, draft, messages, onSendMessage, onUpdateDraft}) {
+function ChatPane({activeChannel, connectionHealth, draft, messages, onSendMessage, onUpdateDraft}) {
   const {readingOlder, scrollRef} = useChatScroll(messages)
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
+  const sendDisabled = isRealtimeChannel(activeChannel) && connectionHealth !== "connected"
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
@@ -1032,6 +1035,7 @@ function ChatPane({activeChannel, draft, messages, onSendMessage, onUpdateDraft}
       <ChatComposer
         inputId="chat-message-input"
         draft={draft}
+        disabled={sendDisabled}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
         placeholder={activeChannel ? "Write a message" : "Choose a topic first"}
@@ -1129,6 +1133,7 @@ function ServerBufferPane({draft, messages, server, onSendMessage, onUpdateDraft
       <ChatComposer
         inputId="server-command-input"
         draft={draft}
+        disabled={false}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
         placeholder="Message a service or type a server command"
@@ -1137,7 +1142,7 @@ function ServerBufferPane({draft, messages, server, onSendMessage, onUpdateDraft
   )
 }
 
-function ChatComposer({draft, inputId, onSendMessage, onUpdateDraft, placeholder}) {
+function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdateDraft, placeholder}) {
   const suggestions = commandSuggestionsFor(draft)
   const {refs, floatingStyles} = useFloating({
     placement: "top-start",
@@ -1187,7 +1192,10 @@ function ChatComposer({draft, inputId, onSendMessage, onUpdateDraft, placeholder
           onChange={(event) => onUpdateDraft(event.target.value)}
           placeholder={placeholder}
         />
-        <button className="rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white">
+        <button
+          className="rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+          disabled={disabled}
+        >
           Send
         </button>
       </div>
@@ -1532,6 +1540,10 @@ function normalizeMessage(message) {
     ...message,
     occurredAt: message.occurredAt || message.occurred_at,
   }
+}
+
+function isRealtimeChannel(channel) {
+  return channel?.id?.startsWith("channel:")
 }
 
 export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_RENDER_LIMIT) {

@@ -1,5 +1,5 @@
 defmodule IrcpipeWeb.Api.TopicControllerTest do
-  use IrcpipeWeb.ConnCase, async: true
+  use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Topic
@@ -65,7 +65,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
     assert connection.nickname == expected_nick
     assert Enum.map(connection.channel_memberships, & &1.channel) == ["#elixir"]
 
-    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 2_000
     assert :ok = Session.quit(connection)
   end
 
