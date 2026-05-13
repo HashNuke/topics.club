@@ -439,6 +439,39 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setDraft("")
   }
 
+  async function retryMessage(message) {
+    if (!activeChannel || !isRealtimeChannel(activeChannel) || !realtimeClientRef.current || connectionHealth !== "connected") return
+
+    const clientMessageId = `client-${Date.now()}`
+    const pendingMessage = {
+      ...message,
+      id: clientMessageId,
+      clientMessageId,
+      occurredAt: new Date().toISOString(),
+      pending: true,
+      failed: false,
+    }
+
+    setMessagesByChannel((current) => ({
+      ...current,
+      [activeChannel.id]: (current[activeChannel.id] || []).map((currentMessage) =>
+        currentMessage.id === message.id ? pendingMessage : currentMessage
+      ),
+    }))
+
+    try {
+      const reply = await realtimeClientRef.current.push("message:send", {
+        client_message_id: clientMessageId,
+        buffer_id: activeChannel.id,
+        body: message.body,
+      })
+
+      replacePendingMessage(activeChannel.id, clientMessageId, normalizeMessage(reply.message))
+    } catch (_error) {
+      markPendingFailed(activeChannel.id, clientMessageId)
+    }
+  }
+
   function currentBufferId() {
     if (view === "server" && activeServer) return `server:${activeServer.server_connection_id || activeServer.id}`
     return activeChannel?.id
@@ -677,6 +710,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         setView("server")
       }}
       onSelectTopic={selectTopic}
+      onRetryMessage={retryMessage}
       onSendMessage={sendMessage}
       onShowChat={() => setView("chat")}
       onUpdateDraft={setDraft}
@@ -1020,7 +1054,7 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
   }
 }
 
-function ChatPane({activeChannel, connectionHealth, draft, messages, onSendMessage, onUpdateDraft}) {
+function ChatPane({activeChannel, connectionHealth, draft, messages, onRetryMessage, onSendMessage, onUpdateDraft}) {
   const {readingOlder, scrollRef} = useChatScroll(messages)
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
   const sendDisabled = isRealtimeChannel(activeChannel) && connectionHealth !== "connected"
@@ -1029,7 +1063,7 @@ function ChatPane({activeChannel, connectionHealth, draft, messages, onSendMessa
     <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-4xl space-y-1">
-          <MessageTimeline messages={visibleMessages} />
+          <MessageTimeline messages={visibleMessages} onRetryMessage={onRetryMessage} />
         </div>
       </div>
       <ChatComposer
@@ -1044,7 +1078,7 @@ function ChatPane({activeChannel, connectionHealth, draft, messages, onSendMessa
   )
 }
 
-function MessageTimeline({messages}) {
+function MessageTimeline({messages, onRetryMessage}) {
   return (
     <>
       {messages.map((message, index) => {
@@ -1054,7 +1088,7 @@ function MessageTimeline({messages}) {
         return (
           <React.Fragment key={message.id}>
             {showSeparator && <TimeSeparator value={message.occurredAt} />}
-            <MessageRow message={message} />
+            <MessageRow message={message} onRetryMessage={onRetryMessage} />
           </React.Fragment>
         )
       })}
@@ -1072,7 +1106,7 @@ function TimeSeparator({value}) {
   )
 }
 
-function MessageRow({message}) {
+function MessageRow({message, onRetryMessage}) {
   if (message.kind === "system") {
     return <div className="px-2 py-1 text-xs italic text-emerald-300">{message.body}</div>
   }
@@ -1083,7 +1117,15 @@ function MessageRow({message}) {
       <span className="text-slate-500">: </span>
       <span className="break-words text-slate-200">{message.body}</span>
       {message.pending && <span className="ml-2 text-xs text-slate-500">sending</span>}
-      {message.failed && <span className="ml-2 text-xs font-semibold text-rose-300">Send failed</span>}
+      {message.failed && (
+        <button
+          className="ml-2 rounded border border-rose-400/40 px-1.5 py-0.5 text-xs font-semibold text-rose-200 transition hover:border-rose-200 hover:text-white"
+          onClick={() => onRetryMessage?.(message)}
+          type="button"
+        >
+          Retry
+        </button>
+      )}
       <time
         className="pointer-events-none absolute right-2 top-1.5 rounded bg-slate-950/90 px-1.5 text-xs text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         dateTime={message.occurredAt}

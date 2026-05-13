@@ -108,9 +108,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Backend replies `timeout` or lets the Phoenix client timeout surface a networking issue.
 - [x] React shows pending outgoing messages with `client_message_id`.
 - [x] React replaces pending messages with canonical messages on `ok`.
-- [ ] React marks pending messages failed on `error` or `timeout`, with retry affordance.
+- [x] React marks pending messages failed on `error` or `timeout`, with retry affordance.
   - [x] failed status
-  - [ ] retry affordance
+  - [x] retry affordance
 
 ## Slash commands
 
@@ -181,7 +181,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Add retry actions for:
   - [ ] reconnect backend socket
   - [ ] reconnect IRC server
-  - [ ] retry failed message
+  - [x] retry failed message
 - [ ] Add tests for socket close, channel timeout, and IRC session error states.
   - [x] realtime join error shows degraded status
   - [x] channel send error shows failed status
@@ -325,7 +325,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] leaving channel/server menus
   - [ ] slash command popover
   - [ ] backend connection failure banner
-  - [ ] send failure and retry
+  - [x] send failure and retry
   - [ ] `N new messages` behavior
 
 ## Testing checklist

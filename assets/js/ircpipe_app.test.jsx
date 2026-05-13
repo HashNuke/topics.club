@@ -308,7 +308,58 @@ describe("IrcpipeApp UI prototype", () => {
     await user.type(screen.getByLabelText("Message composer"), "will fail")
     await user.click(screen.getByRole("button", {name: "Send"}))
 
-    expect(await screen.findByText("Send failed")).toBeInTheDocument()
+    expect(await screen.findByRole("button", {name: "Retry"})).toBeInTheDocument()
+  })
+
+  test("retries failed realtime channel messages", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi
+      .fn()
+      .mockRejectedValueOnce({reason: "not_connected"})
+      .mockResolvedValueOnce({
+        message: {
+          id: 101,
+          buffer_id: "channel:7",
+          nick: "mira",
+          body: "try again",
+          kind: "message",
+          mentioned: false,
+          occurred_at: "2026-05-13T10:02:00Z",
+        },
+      })
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+
+    await user.type(screen.getByLabelText("Message composer"), "try again")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+    await user.click(await screen.findByRole("button", {name: "Retry"}))
+
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(2))
+    expect(push).toHaveBeenLastCalledWith(
+      "message:send",
+      expect.objectContaining({
+        buffer_id: "channel:7",
+        body: "try again",
+        client_message_id: expect.stringMatching(/^client-/),
+      })
+    )
+    expect(await screen.findByText("try again")).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Retry"})).not.toBeInTheDocument()
   })
 
   test("keeps channel drafts unsent while the realtime socket is offline", async () => {
