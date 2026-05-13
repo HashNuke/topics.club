@@ -296,10 +296,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] `PRIVMSG`
   - [ ] `NOTICE`
   - [ ] `/me` actions
-  - [ ] joins
-  - [ ] parts
-  - [ ] quits
-  - [ ] nick changes
+  - [x] joins
+  - [x] parts
+  - [x] quits
+  - [x] nick changes
   - [ ] topic changes
 - [x] Track channel user lists from IRC names and membership events.
   - [x] IRC names replies

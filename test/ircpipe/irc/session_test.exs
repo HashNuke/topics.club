@@ -60,4 +60,50 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:buffer_message, %{kind: "system", body: "Disconnected from localhost."}},
                    1_000
   end
+
+  test "records channel system lines for IRC membership events" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info({:ircxd, {:join, %{channel: "#pipe", nick: "akash"}}}, state)
+
+    assert_receive {:irc_message, %{kind: "join", body: "akash joined #pipe."}}
+
+    assert {:noreply, ^state} =
+             Session.handle_info({:ircxd, {:part, %{channel: "#pipe", nick: "akash"}}}, state)
+
+    assert_receive {:irc_message, %{kind: "part", body: "akash left #pipe."}}
+
+    assert {:noreply, ^state} = Session.handle_info({:ircxd, {:quit, %{nick: "akash"}}}, state)
+    assert_receive {:irc_message, %{kind: "quit", body: "akash quit."}}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd, {:nick, %{old_nick: "akash", new_nick: "ak"}}},
+               state
+             )
+
+    assert_receive {:irc_message, %{kind: "nick", body: "akash is now ak."}}
+
+    assert Enum.map(Chat.list_messages(user, membership.id), & &1.kind) == [
+             "join",
+             "part",
+             "quit",
+             "nick"
+           ]
+  end
 end

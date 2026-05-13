@@ -221,6 +221,52 @@ defmodule Ircpipe.Chat do
     end)
   end
 
+  def record_channel_system_message(%ServerConnection{} = connection, channel, kind, nick, body) do
+    membership =
+      Repo.get_by!(ChannelMembership,
+        server_connection_id: connection.id,
+        channel: normalize_channel(channel)
+      )
+
+    user = Repo.get!(User, connection.user_id)
+
+    Repo.transaction(fn ->
+      {:ok, message} =
+        %Message{
+          user_id: connection.user_id,
+          server_connection_id: connection.id,
+          channel_membership_id: membership.id
+        }
+        |> Message.changeset(%{
+          kind: kind,
+          nick: nick,
+          body: body,
+          mentioned: false,
+          occurred_at: DateTime.utc_now(:second)
+        })
+        |> Repo.insert()
+
+      prune_old_messages(user)
+      broadcast_message(message, membership, connection, nil)
+      message
+    end)
+  end
+
+  def record_channel_system_message_all(%ServerConnection{} = connection, kind, nick, body_fun)
+      when is_function(body_fun, 1) do
+    connection
+    |> presence_memberships(nil)
+    |> Enum.each(fn membership ->
+      record_channel_system_message(
+        connection,
+        membership.channel,
+        kind,
+        nick,
+        body_fun.(membership)
+      )
+    end)
+  end
+
   def mark_read(%User{id: user_id}, %ChannelMembership{} = membership) do
     now = DateTime.utc_now(:second)
 

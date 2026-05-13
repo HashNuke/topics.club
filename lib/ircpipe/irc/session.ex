@@ -158,16 +158,19 @@ defmodule Ircpipe.Irc.Session do
       user: %{nick: nick, role: "user", status: "online"}
     })
 
+    record_channel_line(state.connection, channel, "join", nick, "#{nick} joined #{channel}.")
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:part, %{channel: channel, nick: nick}}}, state) do
     Chat.broadcast_presence_diff(state.connection, channel, %{action: "part", nick: nick})
+    record_channel_line(state.connection, channel, "part", nick, "#{nick} left #{channel}.")
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:quit, %{nick: nick}}}, state) do
     Chat.broadcast_presence_diff(state.connection, nil, %{action: "quit", nick: nick})
+    record_channel_line_all(state.connection, "quit", nick, fn _membership -> "#{nick} quit." end)
     {:noreply, state}
   end
 
@@ -177,6 +180,10 @@ defmodule Ircpipe.Irc.Session do
       old_nick: old_nick,
       new_nick: new_nick
     })
+
+    record_channel_line_all(state.connection, "nick", new_nick, fn _membership ->
+      "#{old_nick} is now #{new_nick}."
+    end)
 
     {:noreply, state}
   end
@@ -244,6 +251,24 @@ defmodule Ircpipe.Irc.Session do
 
   defp record_server_line(connection, body, kind \\ "system") do
     Chat.record_server_message(connection, body, kind)
+  rescue
+    Ecto.StaleEntryError -> {:ok, nil}
+    DBConnection.OwnershipError -> {:ok, nil}
+  catch
+    :exit, _reason -> {:ok, nil}
+  end
+
+  defp record_channel_line(connection, channel, kind, nick, body) do
+    Chat.record_channel_system_message(connection, channel, kind, nick, body)
+  rescue
+    Ecto.StaleEntryError -> {:ok, nil}
+    DBConnection.OwnershipError -> {:ok, nil}
+  catch
+    :exit, _reason -> {:ok, nil}
+  end
+
+  defp record_channel_line_all(connection, kind, nick, body_fun) do
+    Chat.record_channel_system_message_all(connection, kind, nick, body_fun)
   rescue
     Ecto.StaleEntryError -> {:ok, nil}
     DBConnection.OwnershipError -> {:ok, nil}
