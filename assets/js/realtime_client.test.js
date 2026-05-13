@@ -8,12 +8,25 @@ class FakeSocket {
     this.connected = false
     this.disconnected = false
     this.fakeChannel = new FakeChannel()
+    this.lifecycleHandlers = {}
   }
 
   channel(topic, payload) {
     this.topic = topic
     this.channelPayload = payload
     return this.fakeChannel
+  }
+
+  onOpen(callback) {
+    this.lifecycleHandlers.open = callback
+  }
+
+  onClose(callback) {
+    this.lifecycleHandlers.close = callback
+  }
+
+  onError(callback) {
+    this.lifecycleHandlers.error = callback
   }
 
   connect() {
@@ -92,6 +105,23 @@ describe("realtime client", () => {
       payload: {body: "hello"},
       timeout: 500,
     })
+  })
+
+  test("forwards socket lifecycle events to handlers", () => {
+    const handlers = {
+      onOpen: vi.fn(),
+      onClose: vi.fn(),
+      onError: vi.fn(),
+    }
+    const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers})
+
+    client.socket.lifecycleHandlers.open()
+    client.socket.lifecycleHandlers.close({code: 1006})
+    client.socket.lifecycleHandlers.error(new Error("boom"))
+
+    expect(handlers.onOpen).toHaveBeenCalledOnce()
+    expect(handlers.onClose).toHaveBeenCalledWith({code: 1006})
+    expect(handlers.onError).toHaveBeenCalledWith(expect.any(Error))
   })
 
   test("disconnects the channel and socket", () => {

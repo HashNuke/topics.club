@@ -11,6 +11,10 @@ export function createRealtimeClient({
   const socket = new SocketClass(socketPath, {params: {_csrf_token: csrfToken}})
   const channel = socket.channel(`user:${userId}`, {})
 
+  socket.onOpen?.(() => handlers.onOpen?.())
+  socket.onClose?.((event) => handlers.onClose?.(event))
+  socket.onError?.((error) => handlers.onError?.(error))
+
   channel.on("message", (payload) => handlers.onMessage?.(payload))
   channel.on("mention", (payload) => handlers.onMention?.(payload))
   channel.on("buffer:message", (payload) => handlers.onBufferMessage?.(payload))

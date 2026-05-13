@@ -22,7 +22,7 @@ References:
 - [x] Keep channel-specific IRC events inside payloads instead of joining one Phoenix topic per IRC channel.
 - [x] Keep the one-IRC-session-per-`{user_id, server_connection_id}` backend invariant from `docs/spec.md`.
 - [ ] Use REST `/api/*` for initial loads, history pagination, and durable mutations.
-- [ ] Use Phoenix Channel pushes for realtime events, command submissions, send-message acknowledgements, and connection health.
+- [x] Use Phoenix Channel pushes and socket lifecycle callbacks for realtime events, command submissions, send-message acknowledgements, and connection health.
 
 Rationale: the UI needs many IRC buffers, but the browser should not create a WebSocket per IRC channel. Phoenix already multiplexes channel topics over one socket, and this app can go further by using one authenticated user channel as the event bus for all of the user's server buffers, channel buffers, user lists, notices, and notifications.
 
@@ -167,7 +167,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Connection health and backend failure feedback
 
-- [ ] React tracks Phoenix socket state with `onOpen`, `onClose`, `onError`, and `connectionState()`.
+- [x] React tracks Phoenix socket state with `onOpen`, `onClose`, `onError`, and `connectionState()`.
 - [x] Show a small top-bar connection status indicator:
   - [x] connected
   - [x] reconnecting

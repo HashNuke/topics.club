@@ -324,6 +324,34 @@ describe("IrcpipeApp UI prototype", () => {
     await waitFor(() => expect(screen.getByLabelText("Connection degraded")).toBeInTheDocument())
   })
 
+  test("updates connection health from socket lifecycle callbacks", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onOpen()
+    await waitFor(() => expect(screen.getByLabelText("Connection connected")).toBeInTheDocument())
+
+    realtimeHandlers.onClose()
+    await waitFor(() => expect(screen.getByLabelText("Connection reconnecting")).toBeInTheDocument())
+
+    realtimeHandlers.onError()
+    await waitFor(() => expect(screen.getByLabelText("Connection degraded")).toBeInTheDocument())
+  })
+
   test("updates the user sidebar from presence sync events", async () => {
     mockBootstrapFetch()
     let realtimeHandlers
