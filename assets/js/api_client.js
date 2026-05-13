@@ -25,6 +25,9 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
     bootstrap: () => request("/api/bootstrap"),
     topics: () => request("/api/topics"),
     joinTopic: (topicId) => request(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
+    createConnection: (connection) => request("/api/connections", {method: "POST", body: JSON.stringify({connection})}),
+    joinChannel: (connectionId, channel) =>
+      request(`/api/connections/${connectionId}/channels`, {method: "POST", body: JSON.stringify({channel})}),
     updateConnection: (connectionId, connection) =>
       request(`/api/connections/${connectionId}`, {method: "PUT", body: JSON.stringify({connection})}),
     deleteConnection: (connectionId) => request(`/api/connections/${connectionId}`, {method: "DELETE", body: JSON.stringify({})}),

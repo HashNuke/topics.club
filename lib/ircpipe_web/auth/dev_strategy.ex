@@ -30,6 +30,11 @@ defmodule IrcpipeWeb.Auth.DevStrategy do
   @impl true
   def extra(conn), do: %Extra{raw_info: conn.params}
 
+  def enabled? do
+    providers = Application.get_env(:ueberauth, Ueberauth)[:providers] || []
+    Keyword.has_key?(providers, :developer) || Application.get_env(:ircpipe, :dev_routes) == true
+  end
+
   defp email(conn), do: param(conn, "email")
 
   defp param(conn, key) do

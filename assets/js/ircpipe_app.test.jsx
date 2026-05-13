@@ -262,6 +262,64 @@ function mockResolvedLocalTopicFetch() {
   })
 }
 
+function mockManualJoinFetch() {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
+    if (path === "/api/bootstrap") {
+      return {
+        ok: true,
+        json: async () => ({
+          connections: [],
+          buffers: [],
+          messages_by_buffer: {},
+          users_by_buffer: {},
+          topics: demoTopics,
+          notification_state: "default",
+        }),
+      }
+    }
+
+    if (path === "/api/connections" && options.method === "POST") {
+      return {
+        ok: true,
+        json: async () => ({
+          connection: {
+            id: 90,
+            name: "irc.example.net",
+            host: "irc.example.net",
+            port: 6667,
+            use_tls: false,
+            nickname: "mira",
+            status: "connected",
+          },
+        }),
+      }
+    }
+
+    if (path === "/api/connections/90/channels" && options.method === "POST") {
+      const {channel} = JSON.parse(options.body)
+      const id = channel === "#music" ? 91 : 92
+
+      return {
+        ok: true,
+        json: async () => ({
+          channel: {
+            id,
+            connection_id: 90,
+            channel,
+            unread_count: 0,
+            mention_count: 0,
+          },
+        }),
+      }
+    }
+
+    return {
+      ok: true,
+      json: async () => ({topics: demoTopics}),
+    }
+  })
+}
+
 function fakeRealtimeClient(pushImpl) {
   const client = {
     connect: vi.fn(() => client),
@@ -317,8 +375,9 @@ describe("IrcpipeApp UI prototype", () => {
     render(<IrcpipeApp currentUser={null} developerOauth={true} />)
 
     expect(await screen.findByRole("heading", {name: "Community chat"})).toBeInTheDocument()
-    expect(screen.getByRole("button", {name: /#elixir/i})).toHaveTextContent("on 127.0.0.1")
+    expect(await screen.findByRole("button", {name: /#elixir/i})).toHaveTextContent("on 127.0.0.1")
     expect(screen.getByRole("link", {name: "Open chat"})).toHaveAttribute("href", "/chat")
+    expect(screen.getByRole("link", {name: "Developer OAuth"})).toHaveAttribute("href", "/auth/developer")
   })
 
   test("asks unauthenticated users to sign in before joining a topic", async () => {
@@ -1142,7 +1201,7 @@ describe("IrcpipeApp UI prototype", () => {
 
   test("lets signed-in users join their own server and channel", async () => {
     const user = userEvent.setup()
-    mockTopicsFetch()
+    mockManualJoinFetch()
 
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
@@ -1154,10 +1213,18 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(screen.getByRole("button", {name: "Join"}))
 
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
-    expect(within(nav).getByText("irc.example.net")).toBeInTheDocument()
+    expect(await within(nav).findByText("irc.example.net")).toBeInTheDocument()
     expect(within(nav).getByText("#music")).toBeInTheDocument()
     expect(within(nav).getByText("##deep")).toBeInTheDocument()
-    expect(screen.getByRole("heading", {name: "##deep"})).toBeInTheDocument()
+    expect(await screen.findByRole("heading", {name: "##deep"})).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/connections",
+      expect.objectContaining({method: "POST", body: expect.stringContaining("irc.example.net")})
+    )
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/connections/90/channels",
+      expect.objectContaining({method: "POST", body: JSON.stringify({channel: "##deep"})})
+    )
   })
 
   test("opens a server buffer from the sidebar", async () => {

@@ -42,6 +42,11 @@ mix setup
 mix phx.server
 ```
 
+`mix setup` also seeds suggested topics for the local InspIRCd server at
+`127.0.0.1:6667` and then tries to join those channels once with `ircxd` so they
+are ready for manual testing. If InspIRCd is not running yet, setup continues and
+the channels will still be created when users join them from the app.
+
 Ready to run in production? Please [check our deployment guides](https://hexdocs.pm/phoenix/deployment.html).
 
 ## Learn more

@@ -22,7 +22,7 @@
         Continue with Google
       </.link>
       <.link
-        :if={Application.get_env(:ueberauth, Ueberauth)[:providers][:developer] != nil}
+        :if={IrcpipeWeb.Auth.DevStrategy.enabled?()}
         href={~p"/auth/developer"}
         class="btn btn-soft w-full"
       >

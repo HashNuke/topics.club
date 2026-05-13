@@ -1,7 +1,7 @@
 <div
   id="ircpipe-root"
   data-app-mode="landing"
-  data-developer-oauth={Application.get_env(:ueberauth, Ueberauth)[:providers][:developer] != nil}
+  data-developer-oauth={if(IrcpipeWeb.Auth.DevStrategy.enabled?(), do: "true", else: "false")}
   data-current-user={
     if @current_scope do
       Jason.encode!(%{

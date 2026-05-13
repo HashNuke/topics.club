@@ -144,7 +144,7 @@ export const slashCommands = [
 export default function IrcpipeApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}) {
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
-  const [topics, setTopics] = useState(demoTopics)
+  const [topics, setTopics] = useState([])
   const [topicsLoaded, setTopicsLoaded] = useState(false)
   const [authTopic, setAuthTopic] = useState(null)
   const [view, setView] = useState("chat")
@@ -190,11 +190,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient
       .topics()
       .then(({topics}) => {
-        if (topics?.length) setTopics(topics.map(normalizeTopic))
+        setTopics(topics?.length ? topics.map(normalizeTopic) : [])
         setTopicsLoaded(true)
       })
       .catch(() => {
-        setTopics(demoTopics)
+        setTopics([])
         setTopicsLoaded(true)
       })
   }, [apiClient])
@@ -392,7 +392,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setView("chat")
   }
 
-  function joinManualServer(form) {
+  async function joinManualServer(form) {
     const host = form.host.trim()
     const channels = String(form.channels || "")
       .split(",")
@@ -401,17 +401,75 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     if (!host || channels.length === 0) return
 
-    channels.forEach((channel) => {
-      joinTopic({
-        id: `${host}-${channel}`,
-        name: channel,
-        description: `A channel you joined directly on ${host}.`,
-        server_host: host,
-        server_port: Number(form.port) || 6667,
+    try {
+      const {connection} = await apiClient.createConnection({
+        name: host,
+        host,
+        port: Number(form.port) || 6667,
         use_tls: form.useTls,
-        channel,
+        nickname: currentUser?.email?.split("@")[0] || "topics_user",
       })
+
+      for (const channel of channels) {
+        const joined = await apiClient.joinChannel(connection.id, channel)
+        applyJoinedChannel(connection, joined.channel)
+      }
+    } catch (_error) {
+      appendSystemMessage("Server join failed.")
+    }
+  }
+
+  function applyJoinedChannel(connection, membership) {
+    if (!connection || !membership) return
+
+    const connectionId = `server:${connection.id}`
+    const channel = {
+      id: `channel:${membership.id}`,
+      channel_membership_id: membership.id,
+      channel: membership.channel,
+      topic: `on ${connection.host}`,
+      unread_count: membership.unread_count,
+      mention_count: membership.mention_count,
+    }
+
+    setConnections((current) => {
+      const existingConnection = current.find((item) => item.server_connection_id === connection.id || item.id === connectionId)
+
+      if (existingConnection) {
+        return current.map((item) => {
+          if (item.id !== existingConnection.id) return item
+
+          return {
+            ...item,
+            status: connection.status,
+            channels: item.channels.some((existing) => existing.id === channel.id) ? item.channels : [...item.channels, channel],
+          }
+        })
+      }
+
+      return [
+        ...current,
+        {
+          id: connectionId,
+          server_connection_id: connection.id,
+          name: connection.name,
+          host: connection.host,
+          port: connection.port,
+          use_tls: connection.use_tls,
+          nickname: connection.nickname,
+          status: connection.status,
+          channels: [channel],
+        },
+      ]
     })
+
+    setMessagesByChannel((current) => ({
+      ...current,
+      [channel.id]: current[channel.id] || [],
+    }))
+    setActiveServerId(connectionId)
+    setActiveChannelId(channel.id)
+    setView("chat")
   }
 
   async function sendMessage(event) {
@@ -1106,6 +1164,14 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
             <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" href="/chat">
               Open chat
             </a>
+            {!currentUser && developerOauth && (
+              <a
+                className="rounded-md border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:text-white"
+                href="/auth/developer"
+              >
+                Developer OAuth
+              </a>
+            )}
           </div>
         </div>
         <section aria-label="Suggested topics" className="self-center">
@@ -2267,7 +2333,7 @@ function topicForRequestedId(requestedId, topics) {
   const demoMatch = demoTopics.find((topic) => String(topic.id) === String(requestedId))
   if (!demoMatch) return null
 
-  return backendTopicFor(normalizeTopic(demoMatch), topics) || demoMatch
+  return backendTopicFor(normalizeTopic(demoMatch), topics) || null
 }
 
 function requestedTopicId() {

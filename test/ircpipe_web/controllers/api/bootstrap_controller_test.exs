@@ -73,7 +73,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              "messages_by_buffer" => messages_by_buffer,
              "message_cursors_by_buffer" => message_cursors_by_buffer,
              "users_by_buffer" => users_by_buffer,
-             "topics" => [topic_json]
+             "topics" => topics_json
            } = json_response(conn, 200)
 
     assert user_id == user.id
@@ -139,7 +139,11 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              }
            ] = users_by_buffer[channel_buffer_id]
 
-    assert topic_json["server_host"] == "127.0.0.1"
+    assert Enum.any?(
+             topics_json,
+             &match?(%{"channel" => "#elixir", "server_host" => "127.0.0.1"}, &1)
+           )
+
     refute Enum.any?(get_in(json_response(conn, 200), ["buffers"]), &(&1["title"] == "#private"))
   end
 end

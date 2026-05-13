@@ -60,6 +60,35 @@ describe("api client", () => {
     )
   })
 
+  test("creates a server connection and joins a channel", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({ok: true})})
+    const api = createApiClient({csrfToken: "csrf", fetchImpl})
+
+    await api.createConnection({name: "irc.example.net", host: "irc.example.net", port: 6697, use_tls: true, nickname: "mira"})
+    await api.joinChannel(42, "##deep")
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "/api/connections",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          connection: {name: "irc.example.net", host: "irc.example.net", port: 6697, use_tls: true, nickname: "mira"},
+        }),
+        headers: expect.objectContaining({"x-csrf-token": "csrf"}),
+      })
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "/api/connections/42/channels",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({channel: "##deep"}),
+        headers: expect.objectContaining({"x-csrf-token": "csrf"}),
+      })
+    )
+  })
+
   test("deletes a server connection", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({deleted: {server_connection_id: 42}})})
     const api = createApiClient({csrfToken: "csrf", fetchImpl})
