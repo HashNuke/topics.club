@@ -624,6 +624,36 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByRole("complementary", {name: "People here"})).not.toBeInTheDocument()
   })
 
+  test("removes a server after a realtime server buffer leave event", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onBufferLeft({
+      type: "buffer:left",
+      buffer_id: "server:42",
+      server_connection_id: 42,
+      channel_membership_id: null,
+    })
+
+    expect(await screen.findByRole("heading", {name: "Discover topics"})).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: /^local$/i})).not.toBeInTheDocument()
+  })
+
   test("adds a channel buffer after a realtime joined event", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()

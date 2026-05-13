@@ -152,12 +152,22 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const loadingOlderRef = useRef(new Set())
   const readingBuffersRef = useRef(new Set())
   const activeChannelIdRef = useRef(activeChannelId)
+  const activeServerIdRef = useRef(activeServerId)
+  const connectionsRef = useRef(connections)
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
 
   useEffect(() => {
+    connectionsRef.current = connections
+  }, [connections])
+
+  useEffect(() => {
     activeChannelIdRef.current = activeChannelId
   }, [activeChannelId])
+
+  useEffect(() => {
+    activeServerIdRef.current = activeServerId
+  }, [activeServerId])
 
   useEffect(() => {
     notificationStateRef.current = notificationState
@@ -629,6 +639,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   function applyBufferLeft(payload) {
     const bufferId = payload.buffer_id
+    if (bufferId?.startsWith("server:")) {
+      applyServerDeleted({server_connection_id: payload.server_connection_id})
+      return
+    }
+
     const channelId = bufferId?.startsWith("channel:") ? bufferId : null
     if (!channelId) return
 
@@ -963,16 +978,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   function applyServerDeleted(payload) {
     const deletedId = `server:${payload.server_connection_id}`
-    const deletedServer = connections.find(
+    const currentConnections = connectionsRef.current
+    const deletedServer = currentConnections.find(
       (server) => server.id === deletedId || server.server_connection_id === payload.server_connection_id
     )
     if (!deletedServer) return
 
     const deletedChannelIds = new Set(deletedServer.channels.map((channel) => channel.id))
-    const nextConnections = connections.filter((server) => server.id !== deletedServer.id)
+    const nextConnections = currentConnections.filter((server) => server.id !== deletedServer.id)
     const nextServer = nextConnections[0]
     const nextChannel = nextServer?.channels[0]
 
+    connectionsRef.current = nextConnections
     setConnections(nextConnections)
     setMessagesByServer((current) => {
       const next = {...current}
@@ -990,7 +1007,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       return next
     })
 
-    if (activeServer?.id === deletedServer.id || deletedChannelIds.has(activeChannel?.id)) {
+    if (activeServerIdRef.current === deletedServer.id || deletedChannelIds.has(activeChannelIdRef.current)) {
       if (nextChannel) {
         setActiveServerId(nextServer.id)
         setActiveChannelId(nextChannel.id)

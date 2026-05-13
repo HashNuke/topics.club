@@ -160,12 +160,12 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] send IRC `PART`
   - [x] mark channel membership as left or delete it
   - [x] broadcast `buffer:left`
-- [ ] Backend server leave flow:
+- [x] Backend server leave flow:
   - [x] authorize server connection
   - [x] send IRC `QUIT` or close session
   - [x] stop the session process
-  - [ ] mark all buffers as left or archived
-  - [ ] broadcast `server:status` and `buffer:left`
+  - [x] mark all buffers as left or archived
+  - [x] broadcast `server:status` and `buffer:left`
 - [x] UI confirms destructive server removal.
 
 ## Connection health and backend failure feedback

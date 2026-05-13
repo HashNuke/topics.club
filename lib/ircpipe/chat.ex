@@ -62,7 +62,26 @@ defmodule Ircpipe.Chat do
 
   def delete_connection(%User{} = user, id) do
     connection = get_connection!(user, id)
-    Repo.delete(connection)
+
+    {:ok, disconnected} = update_connection_status(connection, "disconnected")
+
+    Enum.each(connection.channel_memberships, fn membership ->
+      broadcast_buffer_left(%{
+        user_id: user.id,
+        buffer_id: "channel:#{membership.id}",
+        server_connection_id: connection.id,
+        channel_membership_id: membership.id
+      })
+    end)
+
+    broadcast_buffer_left(%{
+      user_id: user.id,
+      buffer_id: "server:#{connection.id}",
+      server_connection_id: connection.id,
+      channel_membership_id: nil
+    })
+
+    Repo.delete(disconnected)
   end
 
   def join_topic(%User{} = user, %Topic{} = topic) do

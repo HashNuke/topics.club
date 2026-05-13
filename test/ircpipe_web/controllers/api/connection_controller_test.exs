@@ -118,12 +118,43 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
         "nickname" => "mira"
       })
 
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
     conn = delete(conn, ~p"/api/connections/#{connection.id}")
 
     assert %{"deleted" => %{"type" => "server:deleted", "server_connection_id" => connection_id}} =
              json_response(conn, 200)
 
     assert connection_id == connection.id
+
+    assert_receive {:server_status,
+                    %{
+                      type: "server:status",
+                      server_connection_id: ^connection_id,
+                      status: "disconnected"
+                    }}
+
+    assert_receive {:buffer_left,
+                    %{
+                      type: "buffer:left",
+                      buffer_id: channel_buffer_id,
+                      server_connection_id: ^connection_id,
+                      channel_membership_id: channel_membership_id
+                    }}
+
+    assert channel_buffer_id == "channel:#{membership.id}"
+    assert channel_membership_id == membership.id
+
+    assert_receive {:buffer_left,
+                    %{
+                      type: "buffer:left",
+                      buffer_id: server_buffer_id,
+                      server_connection_id: ^connection_id,
+                      channel_membership_id: nil
+                    }}
+
+    assert server_buffer_id == "server:#{connection.id}"
     assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(user, connection.id) end
   end
 
