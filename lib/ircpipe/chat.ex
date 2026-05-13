@@ -153,7 +153,8 @@ defmodule Ircpipe.Chat do
         channel,
         nick,
         body,
-        kind \\ "message"
+        kind \\ "message",
+        metadata \\ %{}
       ) do
     membership =
       Repo.get_by!(ChannelMembership,
@@ -174,6 +175,8 @@ defmodule Ircpipe.Chat do
         |> Message.changeset(%{
           kind: kind,
           nick: nick,
+          hostmask: metadata_value(metadata, :hostmask),
+          sender_role: metadata_value(metadata, :sender_role),
           body: body,
           mentioned: mentioned,
           occurred_at: DateTime.utc_now(:second)
@@ -436,6 +439,10 @@ defmodule Ircpipe.Chat do
   end
 
   defp mention?(_, _), do: false
+
+  defp metadata_value(metadata, key) do
+    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
+  end
 
   defp broadcast_message(message, membership, connection, notification) do
     payload = Event.message(message, "channel:#{membership.id}", %{channel: membership.channel})

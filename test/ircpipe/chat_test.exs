@@ -163,7 +163,10 @@ defmodule Ircpipe.ChatTest do
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
-    Chat.record_inbound_message(connection, "#elixir", "akash", "hello")
+    Chat.record_inbound_message(connection, "#elixir", "akash", "hello", "message", %{
+      hostmask: "akash!user@example.test",
+      sender_role: "voice"
+    })
 
     assert_receive {:buffer_message,
                     %{
@@ -174,11 +177,16 @@ defmodule Ircpipe.ChatTest do
                       server_connection_id: connection_id,
                       channel_membership_id: membership_id,
                       channel: "#elixir",
+                      hostmask: "akash!user@example.test",
+                      sender_role: "voice",
                       body: "hello"
                     }}
 
     assert buffer_id == "channel:#{membership.id}"
     assert connection_id == connection.id
     assert membership_id == membership.id
+
+    assert [%Message{hostmask: "akash!user@example.test", sender_role: "voice"}] =
+             Chat.list_messages(user, membership.id)
   end
 end

@@ -12,7 +12,12 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
 
     old = insert_message(user, membership, "old", ~U[2026-05-13 09:00:00Z])
     newer = insert_message(user, membership, "newer", ~U[2026-05-13 09:01:00Z])
-    newest = insert_message(user, membership, "newest", ~U[2026-05-13 09:02:00Z])
+
+    newest =
+      insert_message(user, membership, "newest", ~U[2026-05-13 09:02:00Z], %{
+        hostmask: "akash!user@example.test",
+        sender_role: "op"
+      })
 
     conn = get(conn, ~p"/api/buffers/#{buffer_id(membership)}/messages?limit=2")
 
@@ -23,6 +28,8 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     assert Enum.all?(messages, &(&1["type"] == "buffer:message"))
     assert Enum.all?(messages, &(&1["version"] == 1))
     assert Enum.all?(messages, &String.starts_with?(&1["event_id"], "message:"))
+    assert List.last(messages)["hostmask"] == "akash!user@example.test"
+    assert List.last(messages)["sender_role"] == "op"
     refute Enum.any?(messages, &(&1["id"] == old.id))
   end
 
@@ -73,18 +80,23 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     {%{connection | channel_memberships: [membership]}, membership}
   end
 
-  defp insert_message(user, membership, body, occurred_at) do
+  defp insert_message(user, membership, body, occurred_at, attrs \\ %{}) do
     %Message{
       user_id: user.id,
       server_connection_id: membership.server_connection_id,
       channel_membership_id: membership.id
     }
-    |> Message.changeset(%{
-      kind: "message",
-      nick: "akash",
-      body: body,
-      occurred_at: occurred_at
-    })
+    |> Message.changeset(
+      Map.merge(
+        %{
+          kind: "message",
+          nick: "akash",
+          body: body,
+          occurred_at: occurred_at
+        },
+        attrs
+      )
+    )
     |> Repo.insert!()
   end
 

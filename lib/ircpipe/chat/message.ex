@@ -10,6 +10,8 @@ defmodule Ircpipe.Chat.Message do
   schema "messages" do
     field :kind, :string, default: "message"
     field :nick, :string
+    field :hostmask, :string
+    field :sender_role, :string
     field :body, :string
     field :mentioned, :boolean, default: false
     field :occurred_at, :utc_datetime
@@ -23,7 +25,7 @@ defmodule Ircpipe.Chat.Message do
 
   def changeset(message, attrs) do
     message
-    |> cast(attrs, [:kind, :nick, :body, :mentioned, :occurred_at])
+    |> cast(attrs, [:kind, :nick, :hostmask, :sender_role, :body, :mentioned, :occurred_at])
     |> validate_required([:kind, :body, :occurred_at])
     |> validate_inclusion(:kind, @kinds)
   end

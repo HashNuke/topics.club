@@ -48,10 +48,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `command`
   - [x] `topic`
 - [x] Store stable message ordering with `occurred_at` plus `id`.
-- [ ] Store sender metadata:
-  - [ ] `nick`
-  - [ ] `hostmask` when available
-  - [ ] role markers where applicable
+- [x] Store sender metadata:
+  - [x] `nick`
+  - [x] `hostmask` when available
+  - [x] role markers where applicable
 - [ ] Store user list entries per channel:
   - [ ] `nick`
   - [ ] `role`: `owner`, `admin`, `op`, `halfop`, `voice`, or `user`

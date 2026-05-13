@@ -132,33 +132,64 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info(
-        {:ircxd, {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body, ctcp: ctcp}}},
+        {:ircxd,
+         {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body, ctcp: ctcp} = payload}},
         state
       ) do
     case action_body(ctcp) do
       {:ok, action} ->
-        Chat.record_inbound_message(state.connection, channel, nick, action, "action")
+        Chat.record_inbound_message(
+          state.connection,
+          channel,
+          nick,
+          action,
+          "action",
+          sender_metadata(payload)
+        )
 
       :error ->
-        Chat.record_inbound_message(state.connection, channel, nick, body)
+        Chat.record_inbound_message(
+          state.connection,
+          channel,
+          nick,
+          body,
+          "message",
+          sender_metadata(payload)
+        )
     end
 
     {:noreply, state}
   end
 
   def handle_info(
-        {:ircxd, {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body}}},
+        {:ircxd, {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body} = payload}},
         state
       ) do
-    Chat.record_inbound_message(state.connection, channel, nick, body)
+    Chat.record_inbound_message(
+      state.connection,
+      channel,
+      nick,
+      body,
+      "message",
+      sender_metadata(payload)
+    )
+
     {:noreply, state}
   end
 
   def handle_info(
-        {:ircxd, {:notice, %{target: "#" <> _ = channel, nick: nick, body: body}}},
+        {:ircxd, {:notice, %{target: "#" <> _ = channel, nick: nick, body: body} = payload}},
         state
       ) do
-    Chat.record_inbound_message(state.connection, channel, nick, body, "notice")
+    Chat.record_inbound_message(
+      state.connection,
+      channel,
+      nick,
+      body,
+      "notice",
+      sender_metadata(payload)
+    )
+
     {:noreply, state}
   end
 
@@ -361,6 +392,26 @@ defmodule Ircpipe.Irc.Session do
 
   defp action_body({:ok, %{command: "ACTION", params: params}}), do: {:ok, params}
   defp action_body(_ctcp), do: :error
+
+  defp sender_metadata(payload) do
+    %{
+      hostmask: Map.get(payload, :raw_source),
+      sender_role: role_from_prefixes(Map.get(payload, :prefixes, []))
+    }
+  end
+
+  defp role_from_prefixes(prefixes) when is_list(prefixes) do
+    cond do
+      "~" in prefixes -> "owner"
+      "&" in prefixes -> "admin"
+      "@" in prefixes -> "op"
+      "%" in prefixes -> "halfop"
+      "+" in prefixes -> "voice"
+      true -> nil
+    end
+  end
+
+  defp role_from_prefixes(_prefixes), do: nil
 
   defp persisted_channels(%ServerConnection{channel_memberships: memberships})
        when is_list(memberships) do

@@ -150,13 +150,20 @@ defmodule Ircpipe.Irc.SessionTest do
                  %{
                    target: "#pipe",
                    nick: "akash",
+                   raw_source: "akash!user@test",
                    body: <<1, "ACTION waves", 1>>,
                    ctcp: {:ok, %Ircxd.CTCP{command: "ACTION", params: "waves"}}
                  }}},
                state
              )
 
-    assert_receive {:irc_message, %{kind: "action", body: "waves", nick: "akash"}}
+    assert_receive {:irc_message,
+                    %{
+                      kind: "action",
+                      body: "waves",
+                      nick: "akash",
+                      hostmask: "akash!user@test"
+                    }}
 
     assert {:noreply, ^state} =
              Session.handle_info(
@@ -167,7 +174,13 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:irc_message, %{kind: "topic", body: "mira changed the topic to: new topic"}}
 
     channel_messages = Chat.list_messages(user, membership.id)
-    assert Enum.any?(channel_messages, &(&1.kind == "action" and &1.body == "waves"))
+
+    assert Enum.any?(
+             channel_messages,
+             &(&1.kind == "action" and &1.body == "waves" and
+                 &1.hostmask == "akash!user@test")
+           )
+
     assert Enum.any?(channel_messages, &(&1.kind == "topic" and &1.body =~ "new topic"))
 
     server_messages = Chat.list_buffer_messages(user, "server:#{connection.id}")

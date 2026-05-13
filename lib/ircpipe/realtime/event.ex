@@ -13,6 +13,8 @@ defmodule Ircpipe.Realtime.Event do
       channel_membership_id: message.channel_membership_id,
       server_connection_id: message.server_connection_id,
       nick: message.nick,
+      hostmask: message.hostmask,
+      sender_role: message.sender_role,
       body: message.body,
       kind: message.kind,
       mentioned: message.mentioned,
