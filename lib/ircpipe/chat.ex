@@ -78,6 +78,25 @@ defmodule Ircpipe.Chat do
     |> Enum.reverse()
   end
 
+  def list_buffer_messages(user, buffer_id, opts \\ [])
+
+  def list_buffer_messages(%User{} = user, "channel:" <> membership_id, opts) do
+    membership = get_membership!(user, membership_id)
+    limit = opts |> Keyword.get(:limit, 150) |> to_int(150) |> min(150) |> max(1)
+
+    Message
+    |> where([m], m.user_id == ^user.id and m.channel_membership_id == ^membership.id)
+    |> before_cursor(user, opts[:before])
+    |> order_by([m], desc: m.occurred_at, desc: m.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.reverse()
+  end
+
+  def list_buffer_messages(%User{}, "server:" <> _connection_id, _opts), do: []
+
+  def list_buffer_messages(%User{}, _buffer_id, _opts), do: []
+
   def record_inbound_message(
         %ServerConnection{} = connection,
         channel,
@@ -176,6 +195,33 @@ defmodule Ircpipe.Chat do
 
   def normalize_channel("#" <> _ = channel), do: channel
   def normalize_channel(channel), do: "##{channel}"
+
+  defp before_cursor(query, %User{id: user_id}, before_id) when is_binary(before_id) do
+    case Integer.parse(before_id) do
+      {id, ""} ->
+        before_cursor(query, %User{id: user_id}, id)
+
+      _ ->
+        query
+    end
+  end
+
+  defp before_cursor(query, %User{id: user_id}, before_id) when is_integer(before_id) do
+    case Repo.get_by(Message, id: before_id, user_id: user_id) do
+      %Message{} = cursor ->
+        where(
+          query,
+          [m],
+          m.occurred_at < ^cursor.occurred_at or
+            (m.occurred_at == ^cursor.occurred_at and m.id < ^cursor.id)
+        )
+
+      nil ->
+        query
+    end
+  end
+
+  defp before_cursor(query, _user, _before_id), do: query
 
   defp mention?(body, nickname) when is_binary(body) and is_binary(nickname) do
     body

@@ -56,6 +56,7 @@ defmodule IrcpipeWeb.Router do
     post "/connections/:connection_id/channels", ChannelController, :create
     post "/channels/:id/read", ChannelController, :mark_read
 
+    get "/buffers/:id/messages", MessageController, :buffer_index
     get "/channels/:channel_id/messages", MessageController, :index
     post "/channels/:channel_id/messages", MessageController, :create
 

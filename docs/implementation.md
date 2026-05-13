@@ -196,7 +196,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Message history and rendering limits
 
-- [ ] Initial message fetch returns latest 150 messages for the active buffer.
+- [x] Initial message fetch returns latest 150 messages for the active buffer.
 - [ ] Fetch older history in pages of 50 when scrolling near the top.
 - [ ] Keep a soft client-side cap of 300-500 messages per open buffer.
 - [ ] Do not trim messages while the user is scrolled up reading older history.
@@ -209,9 +209,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] keep scroll position stable
   - [ ] show `N new messages`
   - [ ] defer trimming until the user returns to the bottom
-- [ ] Use cursor pagination:
-  - [ ] `GET /api/buffers/:id/messages?limit=150`
-  - [ ] `GET /api/buffers/:id/messages?before=<message_cursor>&limit=50`
+- [x] Use cursor pagination:
+  - [x] `GET /api/buffers/:id/messages?limit=150`
+  - [x] `GET /api/buffers/:id/messages?before=<message_cursor>&limit=50`
 - [ ] Preserve scroll offset when prepending older messages.
 
 ## Notifications
@@ -234,7 +234,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] `GET /api/bootstrap`
 - [ ] `GET /api/topics`
 - [ ] `POST /api/topics/:id/join`
-- [ ] `GET /api/buffers/:id/messages`
+- [x] `GET /api/buffers/:id/messages`
 - [ ] `POST /api/buffers/:id/read`
 - [ ] `POST /api/connections`
 - [ ] `PUT /api/connections/:id`
@@ -320,6 +320,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Backend channel tests for `UserChannel`.
 - [ ] Backend API tests for bootstrap, history, join, leave, and settings.
   - [x] bootstrap
+  - [x] history
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [ ] Frontend reducer tests for realtime event application.
