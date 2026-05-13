@@ -395,6 +395,36 @@ describe("IrcpipeApp UI prototype", () => {
     }
   })
 
+  test("requests browser notification permission from the bell button", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const requestPermission = vi.fn().mockResolvedValue("granted")
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "default"
+    NotificationMock.requestPermission = requestPermission
+    const originalNotification = window.Notification
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+
+    try {
+      render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+      expect(requestPermission).not.toHaveBeenCalled()
+
+      await user.click(screen.getByLabelText("Enable browser notifications"))
+
+      expect(requestPermission).toHaveBeenCalledTimes(1)
+      expect(await screen.findByLabelText("Enable browser notifications")).toHaveClass("text-emerald-200")
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+    }
+  })
+
   test("lets signed-in users join their own server and channel", async () => {
     const user = userEvent.setup()
     mockTopicsFetch()

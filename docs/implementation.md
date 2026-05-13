@@ -229,7 +229,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] browser notification permission
   - [x] whether the message came from the current user
 - [x] React shows a browser notification only when appropriate.
-- [ ] Request browser permission only after clicking the bell.
+- [x] Request browser permission only after clicking the bell.
 - [ ] Do not implement backend Web Push in the first pass.
 - [ ] Add backend Web Push later only if we need notifications while the web app is closed or no socket is connected.
 
