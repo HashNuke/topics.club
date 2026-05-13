@@ -1,5 +1,14 @@
 import {describe, expect, test} from "vitest"
-import {chatReducer, emptyChatState, hydrateBootstrap} from "./chat_store.js"
+import {
+  appendTimelineMessage,
+  chatReducer,
+  emptyChatState,
+  hydrateBootstrap,
+  mergeNewerMessages,
+  mergeOlderMessages,
+  normalizeMessage,
+  normalizeTopic,
+} from "./chat_store.js"
 
 const bootstrap = {
   notification_state: "granted",
@@ -122,5 +131,37 @@ describe("chat store", () => {
     expect(errored.connectionHealth).toBe("reconnecting")
     expect(errored.connections[0].status).toBe("errored")
     expect(errored.buffers.map((buffer) => buffer.status)).toEqual(["errored", "errored"])
+  })
+
+  test("normalizes topic and message payloads outside UI components", () => {
+    expect(normalizeTopic({server_host: "127.0.0.1", channel: "elixir"})).toMatchObject({
+      id: "127.0.0.1-elixir",
+      channel: "#elixir",
+      name: "#elixir",
+    })
+
+    expect(normalizeMessage({id: 1, occurred_at: "2026-05-13T10:00:00Z"})).toMatchObject({
+      id: 1,
+      occurredAt: "2026-05-13T10:00:00Z",
+    })
+  })
+
+  test("deduplicates older, newer, and appended timeline messages", () => {
+    const current = [
+      {id: 2, body: "two"},
+      {id: 3, body: "three"},
+    ]
+
+    expect(mergeOlderMessages([{id: 1, body: "one"}, {id: 2, body: "two"}], current).map((message) => message.id)).toEqual([
+      1,
+      2,
+      3,
+    ])
+    expect(mergeNewerMessages(current, [{id: 3, body: "three"}, {id: 4, body: "four"}]).map((message) => message.id)).toEqual([
+      2,
+      3,
+      4,
+    ])
+    expect(appendTimelineMessage(current, {id: 3, body: "three"}, false).map((message) => message.id)).toEqual([2, 3])
   })
 })

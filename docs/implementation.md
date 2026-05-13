@@ -96,11 +96,11 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Sending messages
 
 - [x] React submits channel messages through the Phoenix user channel with `channel.push("message:send", payload)`.
-- [ ] Payload includes:
+- [x] Payload includes:
   - [x] `client_message_id`
   - [x] `buffer_id`
   - [x] `body`
-  - [ ] local draft metadata if needed
+  - [x] local draft metadata if needed
 - [x] Backend validates buffer ownership through `current_scope.user`.
 - [x] Backend routes channel messages to `Ircpipe.Irc.Session.say/3`.
 - [x] Backend persists the user's outgoing message after IRC send acceptance.
@@ -329,7 +329,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] connection health
   - [x] notification state
 - [ ] Keep React components UI-focused.
-- [ ] Keep transport/event normalization out of components.
+- [x] Keep transport/event normalization out of components.
 - [x] Add tests for reducers and event application.
 - [x] Add React component tests for:
   - [x] leaving channel/server menus

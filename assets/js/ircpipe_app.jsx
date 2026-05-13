@@ -1,7 +1,17 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/react"
 import {createApiClient} from "./api_client.js"
-import {applyUserDiff} from "./chat_store.js"
+import {
+  applyUserDiff,
+  appendTimelineMessage,
+  mergeNewerMessages,
+  mergeOlderMessages,
+  normalizeChannel,
+  normalizeMessage,
+  normalizeTopic,
+  trimMessagesToLimit,
+} from "./chat_store.js"
+export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 export const MESSAGE_RENDER_LIMIT = 400
@@ -2198,25 +2208,6 @@ function serverBufferMessages(server) {
   ]
 }
 
-function normalizeTopic(topic) {
-  return {
-    ...topic,
-    id: topic.id || `${topic.server_host}-${topic.channel}`,
-    channel: normalizeChannel(topic.channel || topic.name),
-    name: normalizeChannel(topic.channel || topic.name),
-    description: topic.description || "A live topic you can join.",
-    members: topic.members || topic.member_count,
-    vibe: topic.vibe || "topic",
-  }
-}
-
-function normalizeMessage(message) {
-  return {
-    ...message,
-    occurredAt: message.occurredAt || message.occurred_at,
-  }
-}
-
 function isRealtimeChannel(channel) {
   return channel?.id?.startsWith("channel:")
 }
@@ -2224,33 +2215,6 @@ function isRealtimeChannel(channel) {
 export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
   if (readingOlder || messages.length <= limit) return messages
   return messages.slice(-limit)
-}
-
-export function trimMessagesToLimit(messages, limit = MESSAGE_RENDER_LIMIT) {
-  if (messages.length <= limit) return messages
-  return messages.slice(-limit)
-}
-
-export function appendTimelineMessage(messages, message, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
-  if (message.id && messages.some((current) => current.id === message.id)) return messages
-
-  const nextMessages = [...messages, message]
-  return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
-}
-
-function mergeOlderMessages(olderMessages, currentMessages) {
-  const currentIds = new Set(currentMessages.map((message) => message.id))
-  return [...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages]
-}
-
-function mergeNewerMessages(currentMessages, newerMessages) {
-  const currentIds = new Set(currentMessages.map((message) => message.id))
-  return trimMessagesToLimit([...currentMessages, ...newerMessages.filter((message) => !currentIds.has(message.id))])
-}
-
-function normalizeChannel(channel) {
-  if (!channel) return "#general"
-  return channel.startsWith("#") ? channel : `#${channel}`
 }
 
 function commandSuggestionsFor(value) {

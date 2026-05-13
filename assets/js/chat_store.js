@@ -9,6 +9,8 @@ export const emptyChatState = {
   notificationState: "default",
 }
 
+export const MESSAGE_RENDER_LIMIT = 400
+
 export function chatReducer(state = emptyChatState, action) {
   switch (action.type) {
     case "bootstrap:loaded":
@@ -136,4 +138,50 @@ export function applyUserDiff(users, diff) {
   }
 
   return users
+}
+
+export function normalizeTopic(topic) {
+  return {
+    ...topic,
+    id: topic.id || `${topic.server_host}-${topic.channel}`,
+    channel: normalizeChannel(topic.channel || topic.name),
+    name: normalizeChannel(topic.channel || topic.name),
+    description: topic.description || "A live topic you can join.",
+    members: topic.members || topic.member_count,
+    vibe: topic.vibe || "topic",
+  }
+}
+
+export function normalizeMessage(message) {
+  return {
+    ...message,
+    occurredAt: message.occurredAt || message.occurred_at,
+  }
+}
+
+export function trimMessagesToLimit(messages, limit = MESSAGE_RENDER_LIMIT) {
+  if (messages.length <= limit) return messages
+  return messages.slice(-limit)
+}
+
+export function appendTimelineMessage(messages, message, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
+  if (message.id && messages.some((current) => current.id === message.id)) return messages
+
+  const nextMessages = [...messages, message]
+  return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
+}
+
+export function mergeOlderMessages(olderMessages, currentMessages) {
+  const currentIds = new Set(currentMessages.map((message) => message.id))
+  return [...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages]
+}
+
+export function mergeNewerMessages(currentMessages, newerMessages) {
+  const currentIds = new Set(currentMessages.map((message) => message.id))
+  return trimMessagesToLimit([...currentMessages, ...newerMessages.filter((message) => !currentIds.has(message.id))])
+}
+
+export function normalizeChannel(channel) {
+  if (!channel) return "#general"
+  return channel.startsWith("#") ? channel : `#${channel}`
 }
