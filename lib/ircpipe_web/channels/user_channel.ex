@@ -192,15 +192,11 @@ defmodule IrcpipeWeb.UserChannel do
          :ok <- Chat.leave_channel(user, membership) do
       {:reply,
        {:ok,
-        %{
-          type: "buffer:left",
-          version: 1,
-          event_id: "buffer_left:channel:#{membership.id}",
-          occurred_at: DateTime.utc_now(:second),
+        Event.buffer_left(%{
           buffer_id: "channel:#{membership.id}",
           server_connection_id: membership.server_connection_id,
           channel_membership_id: membership.id
-        }}, socket}
+        })}, socket}
     else
       {:error, reason} -> {:reply, {:error, %{reason: error_reason(reason)}}, socket}
     end
@@ -217,16 +213,7 @@ defmodule IrcpipeWeb.UserChannel do
     :ok = SessionSupervisor.stop_session(connection)
     {:ok, connection} = Chat.update_connection_status(connection, "disconnected")
 
-    {:reply,
-     {:ok,
-      %{
-        type: "server:status",
-        version: 1,
-        event_id: "server_status:#{connection.id}",
-        occurred_at: DateTime.utc_now(:second),
-        server_connection_id: connection.id,
-        status: connection.status
-      }}, socket}
+    {:reply, {:ok, Event.server_status(connection)}, socket}
   rescue
     Ecto.NoResultsError -> {:reply, {:error, %{reason: "invalid_server"}}, socket}
   end
@@ -236,16 +223,7 @@ defmodule IrcpipeWeb.UserChannel do
     connection = Chat.get_connection!(user, connection_id)
 
     with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
-      {:reply,
-       {:ok,
-        %{
-          type: "server:status",
-          version: 1,
-          event_id: "server_status:#{connection.id}",
-          occurred_at: DateTime.utc_now(:second),
-          server_connection_id: connection.id,
-          status: "connecting"
-        }}, socket}
+      {:reply, {:ok, Event.server_status(%{connection | status: "connecting"})}, socket}
     else
       _error -> {:reply, {:error, %{reason: "reconnect_failed"}}, socket}
     end
