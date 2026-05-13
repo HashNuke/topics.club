@@ -191,7 +191,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## User list flow
 
-- [ ] Backend parses IRC names replies and membership changes through `ircxd`.
+- [x] Backend parses IRC names replies and membership changes through `ircxd`.
   - [x] names replies
   - [x] membership changes
 - [x] Backend normalizes roles into a stable role enum.
@@ -236,8 +236,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] whether the message came from the current user
 - [x] React shows a browser notification only when appropriate.
 - [x] Request browser permission only after clicking the bell.
-- [ ] Do not implement backend Web Push in the first pass.
-- [ ] Add backend Web Push later only if we need notifications while the web app is closed or no socket is connected.
+- [x] Do not implement backend Web Push in the first pass.
+- [x] Add backend Web Push later only if we need notifications while the web app is closed or no socket is connected.
 
 ## API checklist
 
@@ -328,13 +328,13 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Keep React components UI-focused.
 - [ ] Keep transport/event normalization out of components.
 - [x] Add tests for reducers and event application.
-- [ ] Add React component tests for:
-  - [ ] leaving channel/server menus
+- [x] Add React component tests for:
+  - [x] leaving channel/server menus
     - [x] channel menu
     - [x] server menu
     - [x] edit connection from server menu
     - [x] confirmed leave server from server menu
-  - [ ] slash command popover
+  - [x] slash command popover
   - [x] backend connection failure banner
   - [x] send failure and retry
   - [x] `N new messages` behavior
@@ -344,13 +344,14 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Backend context tests for buffer ownership and scoping.
   - [x] retention pruning after inbound persistence
 - [x] Backend channel tests for `UserChannel`.
-- [ ] Backend API tests for bootstrap, history, join, leave, and settings.
+- [x] Backend API tests for bootstrap, history, join, leave, and settings.
   - [x] bootstrap
   - [x] history
   - [x] server buffer history
   - [x] topic join
   - [x] channel leave
   - [x] server disconnect
+  - [x] settings
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [x] Frontend reducer tests for realtime event application.
@@ -366,9 +367,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Implementation sequence
 
 - [ ] Phase 1: Stabilize frontend shell contracts.
-  - [ ] Add leave buttons and popover menus.
+  - [x] Add leave buttons and popover menus.
   - [x] Add slash command popover UI.
-  - [ ] Add connection health indicator UI.
+  - [x] Add connection health indicator UI.
   - [ ] Add reducer-level state model.
 - [ ] Phase 2: Build backend buffer model.
   - [ ] Add buffer serialization.
@@ -380,11 +381,11 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] Add reply contracts.
   - [ ] Add event contracts.
   - [ ] Add backend tests.
-- [ ] Phase 4: Integrate IRC runtime.
+- [x] Phase 4: Integrate IRC runtime.
   - [x] Use `ircxd`.
-  - [ ] Normalize IRC events.
-  - [ ] Persist messages and system lines.
-  - [ ] Maintain user lists.
+  - [x] Normalize IRC events.
+  - [x] Persist messages and system lines.
+  - [x] Maintain user lists.
 - [ ] Phase 5: Polish failure and notification behavior.
   - [ ] Socket disconnect UI.
   - [ ] Send retries.
