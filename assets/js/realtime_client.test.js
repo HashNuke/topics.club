@@ -107,6 +107,7 @@ describe("realtime client", () => {
 
     expect(client.socket.path).toBe("/socket")
     expect(client.socket.options.params).toEqual({_csrf_token: "csrf"})
+    expect(client.socket.options.longPollFallbackMs).toBe(2500)
     expect(client.socket.topic).toBe("user:7")
     expect(client.connectionState()).toBe("open")
     expect(onMessage).toHaveBeenCalledWith({body: "hello"})

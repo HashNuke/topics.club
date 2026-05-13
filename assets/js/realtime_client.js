@@ -5,10 +5,14 @@ export function createRealtimeClient({
   handlers = {},
   socketPath = "/socket",
   pushTimeout = 10_000,
+  longPollFallbackMs = 2500,
 } = {}) {
   if (!SocketClass) throw new Error("SocketClass is required")
 
-  const socket = new SocketClass(socketPath, {params: {_csrf_token: csrfToken}})
+  const socket = new SocketClass(socketPath, {
+    longPollFallbackMs,
+    params: {_csrf_token: csrfToken},
+  })
   const channel = socket.channel(`user:${userId}`, {})
 
   socket.onOpen?.(() => handlers.onOpen?.())
