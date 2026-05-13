@@ -318,7 +318,9 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     join_user_channel(user)
 
-    Chat.record_server_message(connection, "MOTD starts here", "notice")
+    Chat.record_server_message(connection, "NickServ: identify please", "notice", "NickServ", %{
+      service: "NickServ"
+    })
 
     assert_push "buffer:message", %{
       type: "buffer:message",
@@ -327,8 +329,10 @@ defmodule IrcpipeWeb.UserChannelTest do
       buffer_id: buffer_id,
       server_connection_id: connection_id,
       channel_membership_id: nil,
-      body: "MOTD starts here",
-      kind: "notice"
+      body: "NickServ: identify please",
+      kind: "notice",
+      nick: "NickServ",
+      service: "NickServ"
     }
 
     assert buffer_id == "server:#{connection.id}"

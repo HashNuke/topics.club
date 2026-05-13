@@ -367,7 +367,8 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    assert_receive {:buffer_message, %{kind: "notice", body: "NickServ: identify please"}}
+    assert_receive {:buffer_message,
+                    %{kind: "notice", body: "NickServ: identify please", service: "NickServ"}}
 
     assert {:noreply, ^state} =
              Session.handle_info(
@@ -412,7 +413,11 @@ defmodule Ircpipe.Irc.SessionTest do
     server_messages = Chat.list_buffer_messages(user, "server:#{connection.id}")
     assert Enum.any?(server_messages, &(&1.body == "Welcome to local"))
     assert Enum.any?(server_messages, &(&1.kind == "notice" and &1.body == "- Be kind"))
-    assert Enum.any?(server_messages, &(&1.body == "NickServ: identify please"))
+
+    assert Enum.any?(
+             server_messages,
+             &(&1.body == "NickServ: identify please" and &1.service == "NickServ")
+           )
   end
 
   test "rejoins persisted channel memberships after registration" do

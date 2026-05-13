@@ -38,7 +38,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `status`
 - [x] Represent server buffers for server logs, MOTD, connection lifecycle, numeric replies, and service notices.
 - [x] Represent channel buffers for IRC channel messages and channel-local system events.
-- [ ] Represent service buffers or service-tagged messages for `NickServ`, `ChanServ`, and similar services.
+- [x] Represent service buffers or service-tagged messages for `NickServ`, `ChanServ`, and similar services.
 - [x] Store message `kind` values:
   - [x] `message`
   - [x] `action`

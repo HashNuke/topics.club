@@ -266,7 +266,13 @@ defmodule Ircpipe.Chat do
     end)
   end
 
-  def record_server_message(%ServerConnection{} = connection, body, kind \\ "system", nick \\ nil) do
+  def record_server_message(
+        %ServerConnection{} = connection,
+        body,
+        kind \\ "system",
+        nick \\ nil,
+        metadata \\ %{}
+      ) do
     user = Repo.get!(User, connection.user_id)
 
     Repo.transaction(fn ->
@@ -278,6 +284,7 @@ defmodule Ircpipe.Chat do
         |> Message.changeset(%{
           kind: kind,
           nick: nick || connection.host,
+          service: metadata_value(metadata, :service),
           body: body,
           mentioned: false,
           occurred_at: DateTime.utc_now(:second)

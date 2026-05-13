@@ -214,7 +214,10 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:notice, %{nick: nick, body: body}}}, state) do
-    record_server_line(state.connection, "#{nick}: #{body}", "notice")
+    record_server_line(state.connection, "#{nick}: #{body}", "notice", %{
+      service: service_name(nick)
+    })
+
     {:noreply, state}
   end
 
@@ -480,8 +483,8 @@ defmodule Ircpipe.Irc.Session do
     :exit, _reason -> {:ok, connection}
   end
 
-  defp record_server_line(connection, body, kind \\ "system") do
-    Chat.record_server_message(connection, body, kind)
+  defp record_server_line(connection, body, kind \\ "system", metadata \\ %{}) do
+    Chat.record_server_message(connection, body, kind, nil, metadata)
   rescue
     Ecto.StaleEntryError -> {:ok, nil}
     DBConnection.OwnershipError -> {:ok, nil}
@@ -600,6 +603,12 @@ defmodule Ircpipe.Irc.Session do
 
   defp maybe_append(list, nil), do: list
   defp maybe_append(list, item), do: [item | list]
+
+  defp service_name(nick) when is_binary(nick) do
+    if String.ends_with?(nick, "Serv"), do: nick
+  end
+
+  defp service_name(_nick), do: nil
 
   defp mode_body(payload) do
     setter = if present?(Map.get(payload, :nick)), do: Map.get(payload, :nick), else: "server"

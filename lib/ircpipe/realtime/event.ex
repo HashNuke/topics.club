@@ -15,6 +15,7 @@ defmodule Ircpipe.Realtime.Event do
       nick: message.nick,
       hostmask: message.hostmask,
       sender_role: message.sender_role,
+      service: message.service,
       body: message.body,
       kind: message.kind,
       mentioned: message.mentioned,
