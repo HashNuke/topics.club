@@ -147,6 +147,45 @@ defmodule Ircpipe.ChatTest do
     assert membership_id == membership.id
   end
 
+  test "broadcasts newly joined channel buffers" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+
+    assert_receive {:buffer_joined,
+                    %{
+                      type: "buffer:joined",
+                      version: 1,
+                      event_id: "buffer_joined:channel:" <> _,
+                      buffer: %{
+                        buffer_id: buffer_id,
+                        buffer_type: "channel",
+                        title: "#elixir",
+                        server_connection_id: connection_id,
+                        channel_membership_id: membership_id
+                      },
+                      connection: %{id: connection_id}
+                    }}
+
+    assert buffer_id == "channel:#{membership.id}"
+    assert connection_id == connection.id
+    assert membership_id == membership.id
+
+    assert {:ok, _membership} = Chat.join_channel(user, connection, "#elixir")
+    refute_receive {:buffer_joined, _payload}, 100
+  end
+
   test "broadcasts inbound channel messages as normalized buffer events" do
     user = AccountsFixtures.user_fixture()
 

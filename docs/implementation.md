@@ -85,7 +85,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Push `buffer:message` for normal channel messages, notices, actions, and service replies.
 - [x] Push `buffer:system` for join, part, quit, nick change, topic changes, and server lifecycle lines.
 - [x] Push `buffer:read` when counters are reset.
-- [ ] Push `buffer:joined` when a channel or server buffer is created.
+- [x] Push `buffer:joined` when a channel or server buffer is created.
 - [x] Push `buffer:left` when the user leaves a channel.
 - [ ] Push `buffer:error` for join failures, send failures, bans, invite-only failures, nickname errors, TLS failures, and backend IRC errors.
 - [x] Push `presence:sync` for full user list refreshes.

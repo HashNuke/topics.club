@@ -109,6 +109,19 @@ describe("realtime client", () => {
     expect(onBufferLeft).toHaveBeenCalledWith({buffer_id: "channel:7"})
   })
 
+  test("forwards buffer joined events", () => {
+    const onBufferJoined = vi.fn()
+    const client = createRealtimeClient({
+      SocketClass: FakeSocket,
+      userId: 7,
+      handlers: {onBufferJoined},
+    })
+
+    client.channel.handlers["buffer:joined"]({buffer: {buffer_id: "channel:8"}})
+
+    expect(onBufferJoined).toHaveBeenCalledWith({buffer: {buffer_id: "channel:8"}})
+  })
+
   test("forwards buffer error events through the timeline message handler", () => {
     const onBufferMessage = vi.fn()
     const client = createRealtimeClient({

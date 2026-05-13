@@ -89,13 +89,32 @@ defmodule Ircpipe.Chat do
   def join_channel(%User{} = user, %ServerConnection{} = connection, channel) do
     attrs = %{channel: normalize_channel(channel), joined_at: DateTime.utc_now(:second)}
 
-    %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
-    |> ChannelMembership.changeset(attrs)
-    |> Repo.insert(
-      on_conflict: [set: [joined_at: attrs.joined_at, updated_at: DateTime.utc_now(:second)]],
-      conflict_target: [:server_connection_id, :channel],
-      returning: true
-    )
+    result =
+      case Repo.get_by(ChannelMembership,
+             server_connection_id: connection.id,
+             channel: attrs.channel
+           ) do
+        %ChannelMembership{} = membership ->
+          membership
+          |> ChannelMembership.changeset(%{joined_at: attrs.joined_at})
+          |> Repo.update()
+
+        nil ->
+          result =
+            %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
+            |> ChannelMembership.changeset(attrs)
+            |> Repo.insert()
+
+          with {:ok, membership} <- result do
+            broadcast_buffer_joined(connection, membership)
+          end
+
+          result
+      end
+
+    with {:ok, membership} <- result do
+      {:ok, membership}
+    end
   end
 
   def get_membership!(%User{id: user_id}, id) do
@@ -369,6 +388,14 @@ defmodule Ircpipe.Chat do
       Ircpipe.PubSub,
       "user:#{user_id}",
       {:buffer_left, event}
+    )
+  end
+
+  def broadcast_buffer_joined(%ServerConnection{} = connection, %ChannelMembership{} = membership) do
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{connection.user_id}",
+      {:buffer_joined, Event.buffer_joined(connection, membership)}
     )
   end
 

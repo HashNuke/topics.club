@@ -189,6 +189,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         onMessage: applyRealtimeMessage,
         onMention: handleMentionNotification,
         onBufferMessage: applyRealtimeMessage,
+        onBufferJoined: applyJoinedTopic,
         onBufferLeft: applyBufferLeft,
         onPresenceDiff: applyPresenceDiff,
         onPresenceSync: applyPresenceSync,

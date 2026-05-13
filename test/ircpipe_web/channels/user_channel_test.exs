@@ -367,6 +367,41 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert buffer_id == "channel:#{membership.id}"
   end
 
+  test "pushes joined buffers over the user channel" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    join_user_channel(user)
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+
+    assert_push "buffer:joined", %{
+      type: "buffer:joined",
+      version: 1,
+      event_id: "buffer_joined:channel:" <> _,
+      buffer: %{
+        buffer_id: buffer_id,
+        buffer_type: "channel",
+        title: "#elixir",
+        server_connection_id: connection_id,
+        channel_membership_id: membership_id
+      },
+      connection: %{id: connection_id}
+    }
+
+    assert buffer_id == "channel:#{membership.id}"
+    assert connection_id == connection.id
+    assert membership_id == membership.id
+  end
+
   test "does not push server status broadcasts to another user's channel" do
     user = AccountsFixtures.user_fixture()
     other_user = AccountsFixtures.user_fixture()

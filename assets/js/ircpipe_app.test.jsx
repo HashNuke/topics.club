@@ -609,6 +609,54 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByRole("complementary", {name: "People here"})).not.toBeInTheDocument()
   })
 
+  test("adds a channel buffer after a realtime joined event", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onBufferJoined({
+      type: "buffer:joined",
+      connection: {
+        id: 42,
+        name: "local",
+        host: "127.0.0.1",
+        port: 6667,
+        use_tls: false,
+        nickname: "mira",
+        status: "connected",
+      },
+      buffer: {
+        buffer_id: "channel:8",
+        buffer_type: "channel",
+        server_connection_id: 42,
+        channel_membership_id: 8,
+        title: "#phoenix",
+        subtitle: "on 127.0.0.1",
+        status: "connected",
+        unread_count: 0,
+        mention_count: 0,
+      },
+    })
+
+    await user.click(await screen.findByRole("button", {name: /^#phoenix$/i}))
+
+    expect(screen.getByRole("heading", {name: "#phoenix"})).toBeInTheDocument()
+  })
+
   test("renders realtime server buffer messages", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()

@@ -57,6 +57,38 @@ defmodule Ircpipe.Realtime.Event do
     })
   end
 
+  def buffer_joined(connection, membership) do
+    occurred_at = DateTime.utc_now(:second)
+
+    %{
+      type: "buffer:joined",
+      version: @version,
+      event_id:
+        "buffer_joined:channel:#{membership.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      buffer: %{
+        buffer_id: "channel:#{membership.id}",
+        buffer_type: "channel",
+        server_connection_id: connection.id,
+        channel_membership_id: membership.id,
+        title: membership.channel,
+        subtitle: "on #{connection.host}",
+        status: connection.status,
+        unread_count: membership.unread_count,
+        mention_count: membership.mention_count
+      },
+      connection: %{
+        id: connection.id,
+        name: connection.name,
+        host: connection.host,
+        port: connection.port,
+        use_tls: connection.use_tls,
+        nickname: connection.nickname,
+        status: connection.status
+      },
+      occurred_at: occurred_at
+    }
+  end
+
   def presence_sync(payload) do
     occurred_at = DateTime.utc_now(:second)
 
