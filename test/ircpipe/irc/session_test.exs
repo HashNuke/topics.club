@@ -186,6 +186,8 @@ defmodule Ircpipe.Irc.SessionTest do
                       diff: %{action: "role", nick: "mira", role: "voice"}
                     }}
 
+    assert_receive {:irc_message, %{kind: "mode", body: "server set mode +ov akash mira."}}
+
     assert buffer_id == "channel:#{membership.id}"
 
     assert {:noreply, ^state} =
@@ -200,6 +202,53 @@ defmodule Ircpipe.Irc.SessionTest do
                       buffer_id: ^buffer_id,
                       diff: %{action: "role", nick: "akash", role: "user"}
                     }}
+
+    assert_receive {:irc_message,
+                    %{kind: "mode", body: "server set mode +b-o *!*@example.test akash."}}
+  end
+
+  test "records kicks as channel system lines and removes kicked users from presence" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:kick,
+                 %{
+                   channel: "#pipe",
+                   nick: "mira",
+                   target_nick: "akash",
+                   reason: "too loud"
+                 }}},
+               state
+             )
+
+    assert_receive {:presence_diff,
+                    %{
+                      buffer_id: buffer_id,
+                      diff: %{action: "part", nick: "akash"}
+                    }}
+
+    assert_receive {:irc_message, %{kind: "kick", body: "akash was kicked by mira: too loud"}}
+
+    assert buffer_id == "channel:#{membership.id}"
+
+    assert [%{kind: "kick", body: "akash was kicked by mira: too loud"}] =
+             Chat.list_messages(user, membership.id)
   end
 
   test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do

@@ -301,6 +301,31 @@ defmodule Ircpipe.Irc.Session do
     |> mode_presence_diffs()
     |> Enum.each(&Chat.broadcast_presence_diff(state.connection, channel, &1))
 
+    record_channel_line(
+      state.connection,
+      channel,
+      "mode",
+      Map.get(payload, :nick),
+      mode_body(payload)
+    )
+
+    {:noreply, state}
+  end
+
+  def handle_info(
+        {:ircxd, {:kick, %{channel: channel, nick: nick, target_nick: target_nick} = payload}},
+        state
+      ) do
+    Chat.broadcast_presence_diff(state.connection, channel, %{action: "part", nick: target_nick})
+
+    record_channel_line(
+      state.connection,
+      channel,
+      "kick",
+      nick,
+      kick_body(payload)
+    )
+
     {:noreply, state}
   end
 
@@ -479,6 +504,31 @@ defmodule Ircpipe.Irc.Session do
 
   defp maybe_append(list, nil), do: list
   defp maybe_append(list, item), do: [item | list]
+
+  defp mode_body(payload) do
+    setter = if present?(Map.get(payload, :nick)), do: Map.get(payload, :nick), else: "server"
+    modes = Map.get(payload, :modes)
+    rendered_params = Enum.join(Map.get(payload, :params, []), " ")
+
+    mode_text =
+      if present?(rendered_params) do
+        "#{modes} #{rendered_params}"
+      else
+        modes
+      end
+
+    "#{setter} set mode #{mode_text}."
+  end
+
+  defp kick_body(%{nick: nick, target_nick: target_nick, reason: reason}) do
+    kicker = if present?(nick), do: nick, else: "server"
+
+    if present?(reason) do
+      "#{target_nick} was kicked by #{kicker}: #{reason}"
+    else
+      "#{target_nick} was kicked by #{kicker}."
+    end
+  end
 
   defp persisted_channels(%ServerConnection{channel_memberships: memberships})
        when is_list(memberships) do

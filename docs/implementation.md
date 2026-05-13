@@ -286,7 +286,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Replace or adapt `Ircpipe.Irc.Session` to use `~/projects/ircxd`.
 - [x] Keep sessions supervised by `Ircpipe.Irc.SessionSupervisor`.
 - [x] Keep sessions registered by `{user_id, server_connection_id}`.
-- [ ] Emit server-buffer messages for:
+- [x] Emit server-buffer messages for:
   - [x] connect start
   - [x] connect success
   - [x] connect failure
@@ -304,6 +304,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] quits
   - [x] nick changes
   - [x] topic changes
+  - [x] mode changes
+  - [x] kicks
 - [x] Track channel user lists from IRC names and membership events.
   - [x] IRC names replies
   - [x] membership events
