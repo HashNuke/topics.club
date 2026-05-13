@@ -359,7 +359,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] server disconnect
   - [x] settings
 - [x] IRC runtime tests using local test server.
-- [ ] Integration tests using local InspIRCd and irssi where useful.
+- [x] Integration tests using local InspIRCd and irssi where useful.
+  - [x] Opt-in local check: `IRCPIPE_LOCAL_IRC_INTEGRATION=1 mix test test/ircpipe/irc/local_integration_test.exs`
+  - [x] Verifies `irssi` is installed and local InspIRCd relays messages between IRC clients on `127.0.0.1:6667`.
 - [x] Frontend reducer tests for realtime event application.
 - [x] Frontend component tests for the chat shell.
 - [x] Frontend tests for slash command completion.
