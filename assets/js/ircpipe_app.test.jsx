@@ -945,6 +945,12 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(screen.getByRole("menuitem", {name: "Disconnect"}))
 
     expect(push).toHaveBeenCalledWith("server:disconnect", {server_connection_id: 42})
+
+    await user.click(screen.getByRole("button", {name: /^local$/i}))
+    expect(await screen.findByText("Server disconnected")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", {name: "Reconnect"}))
+    expect(push).toHaveBeenLastCalledWith("server:reconnect", {server_connection_id: 42})
   })
 
   test("edits a server connection from the server action menu", async () => {

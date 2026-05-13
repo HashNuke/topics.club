@@ -178,11 +178,11 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Disable message send while the Phoenix socket is disconnected.
 - [x] Queue drafts locally but do not pretend they were sent.
 - [x] Surface channel push timeouts as "Still trying" or "Send failed".
-- [ ] Show server-specific IRC connection failures in the server buffer.
+- [x] Show server-specific IRC connection failures in the server buffer.
 - [ ] Push backend IRC session failures as `server:status` and `buffer:error`.
 - [ ] Add retry actions for:
   - [ ] reconnect backend socket
-  - [ ] reconnect IRC server
+  - [x] reconnect IRC server
   - [x] retry failed message
 - [ ] Add tests for socket close, channel timeout, and IRC session error states.
   - [x] realtime join error shows degraded status
@@ -332,7 +332,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
     - [x] edit connection from server menu
     - [x] confirmed leave server from server menu
   - [ ] slash command popover
-  - [ ] backend connection failure banner
+  - [x] backend connection failure banner
   - [x] send failure and retry
   - [x] `N new messages` behavior
 
@@ -354,7 +354,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Frontend component tests for the chat shell.
 - [x] Frontend tests for slash command completion.
 - [x] Frontend tests for notification permission states.
-- [ ] Frontend tests for socket/backend failure states.
+- [x] Frontend tests for socket/backend failure states.
 - [x] Headless Chromium tests for local-only landing topics and auth-protected chat route.
 - [x] Run `npm test --prefix assets` for React changes.
 - [x] Run targeted `mix test` during backend work.

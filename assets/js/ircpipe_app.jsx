@@ -1041,6 +1041,7 @@ function AppShell(props) {
               messages={props.serverMessages}
               onLoadOlderMessages={props.onLoadOlderMessages}
               onReadingStateChange={props.onReadingStateChange}
+              onReconnectServer={props.onReconnectServer}
               server={props.activeServer}
               onSendMessage={props.onSendMessage}
               onUpdateDraft={props.onUpdateDraft}
@@ -1567,7 +1568,7 @@ function DiscoverPane({topics, onSelectTopic}) {
   )
 }
 
-function ServerBufferPane({draft, messages, onLoadOlderMessages, onReadingStateChange, server, onSendMessage, onUpdateDraft}) {
+function ServerBufferPane({draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(server?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(server?.id, nextReadingOlder),
@@ -1587,6 +1588,7 @@ function ServerBufferPane({draft, messages, onLoadOlderMessages, onReadingStateC
               Notices, connection logs, service replies, and server-level commands live here.
             </p>
           </div>
+          <ServerStatusBanner server={server} onReconnectServer={onReconnectServer} />
           <MessageTimeline messages={visibleMessages} />
         </div>
       </div>
@@ -1600,6 +1602,34 @@ function ServerBufferPane({draft, messages, onLoadOlderMessages, onReadingStateC
         placeholder="Message a service or type a server command"
       />
     </section>
+  )
+}
+
+function ServerStatusBanner({onReconnectServer, server}) {
+  if (!server || server.status === "connected") return null
+
+  const label = server.status === "errored" ? "Server error" : `Server ${server.status || "offline"}`
+  const canReconnect = server.status !== "connecting" && server.status !== "reconnecting"
+
+  return (
+    <div
+      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-sm text-amber-100"
+      role="status"
+    >
+      <div>
+        <div className="font-semibold">{label}</div>
+        <div className="text-xs text-amber-100/70">IRC messages for this server may be delayed until it reconnects.</div>
+      </div>
+      {canReconnect && (
+        <button
+          className="rounded-md border border-amber-200/40 px-3 py-1.5 text-xs font-semibold text-amber-50 transition hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
+          onClick={() => onReconnectServer?.(server)}
+          type="button"
+        >
+          Reconnect
+        </button>
+      )}
+    </div>
   )
 }
 
