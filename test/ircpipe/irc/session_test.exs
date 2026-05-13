@@ -74,6 +74,7 @@ defmodule Ircpipe.Irc.SessionTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    {:ok, other_membership} = Chat.join_channel(user, connection, "#other")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     state = %{connection: connection}
@@ -88,8 +89,12 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_message, %{kind: "part", body: "akash left #pipe."}}
 
+    Chat.broadcast_presence_sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
+
     assert {:noreply, ^state} = Session.handle_info({:ircxd, {:quit, %{nick: "akash"}}}, state)
     assert_receive {:irc_message, %{kind: "quit", body: "akash quit."}}
+
+    Chat.broadcast_presence_sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
 
     assert {:noreply, ^state} =
              Session.handle_info(
@@ -105,6 +110,8 @@ defmodule Ircpipe.Irc.SessionTest do
              "quit",
              "nick"
            ]
+
+    assert Chat.list_messages(user, other_membership.id) == []
   end
 
   test "consumes matching echoed channel messages from the current connection nick" do

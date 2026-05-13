@@ -386,6 +386,37 @@ defmodule Ircpipe.Chat do
     end)
   end
 
+  def record_channel_system_message_for_present_nick(
+        %ServerConnection{} = connection,
+        kind,
+        nick,
+        body_fun
+      )
+      when is_binary(nick) and is_function(body_fun, 1) do
+    record_channel_system_message_for_present_nick(connection, kind, nick, nick, body_fun)
+  end
+
+  def record_channel_system_message_for_present_nick(
+        %ServerConnection{} = connection,
+        kind,
+        present_nick,
+        message_nick,
+        body_fun
+      )
+      when is_binary(present_nick) and is_function(body_fun, 1) do
+    connection
+    |> presence_memberships_with_nick(present_nick)
+    |> Enum.each(fn membership ->
+      record_channel_system_message(
+        connection,
+        membership.channel,
+        kind,
+        message_nick,
+        body_fun.(membership)
+      )
+    end)
+  end
+
   def mark_read(%User{id: user_id}, %ChannelMembership{} = membership) do
     now = DateTime.utc_now(:second)
 
@@ -864,6 +895,17 @@ defmodule Ircpipe.Chat do
       %ChannelMembership{} = membership -> [membership]
       nil -> []
     end
+  end
+
+  defp presence_memberships_with_nick(connection, nick) do
+    ChannelMembership
+    |> join(:inner, [m], u in ChannelUser, on: u.channel_membership_id == m.id)
+    |> where(
+      [m, u],
+      m.server_connection_id == ^connection.id and
+        fragment("lower(?)", u.nick) == fragment("lower(?)", ^nick)
+    )
+    |> Repo.all()
   end
 
   defp role_for_prefixes(prefixes) do

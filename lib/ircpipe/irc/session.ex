@@ -352,21 +352,28 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:quit, %{nick: nick}}}, state) do
+    record_channel_line_for_present_nick(state.connection, "quit", nick, fn _membership ->
+      "#{nick} quit."
+    end)
+
     Chat.broadcast_presence_diff(state.connection, nil, %{action: "quit", nick: nick})
-    record_channel_line_all(state.connection, "quit", nick, fn _membership -> "#{nick} quit." end)
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:nick, %{old_nick: old_nick, new_nick: new_nick}}}, state) do
+    record_channel_line_for_present_nick(
+      state.connection,
+      "nick",
+      old_nick,
+      new_nick,
+      fn _membership -> "#{old_nick} is now #{new_nick}." end
+    )
+
     Chat.broadcast_presence_diff(state.connection, nil, %{
       action: "nick",
       old_nick: old_nick,
       new_nick: new_nick
     })
-
-    record_channel_line_all(state.connection, "nick", new_nick, fn _membership ->
-      "#{old_nick} is now #{new_nick}."
-    end)
 
     {:noreply, state}
   end
@@ -573,8 +580,32 @@ defmodule Ircpipe.Irc.Session do
     :exit, _reason -> {:ok, nil}
   end
 
-  defp record_channel_line_all(connection, kind, nick, body_fun) do
-    Chat.record_channel_system_message_all(connection, kind, nick, body_fun)
+  defp record_channel_line_for_present_nick(connection, kind, nick, body_fun) do
+    Chat.record_channel_system_message_for_present_nick(connection, kind, nick, body_fun)
+  rescue
+    DBConnection.ConnectionError -> {:ok, nil}
+    Ecto.ConstraintError -> {:ok, nil}
+    Ecto.NoResultsError -> {:ok, nil}
+    Ecto.StaleEntryError -> {:ok, nil}
+    DBConnection.OwnershipError -> {:ok, nil}
+  catch
+    :exit, _reason -> {:ok, nil}
+  end
+
+  defp record_channel_line_for_present_nick(
+         connection,
+         kind,
+         present_nick,
+         message_nick,
+         body_fun
+       ) do
+    Chat.record_channel_system_message_for_present_nick(
+      connection,
+      kind,
+      present_nick,
+      message_nick,
+      body_fun
+    )
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}
