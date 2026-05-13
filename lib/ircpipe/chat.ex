@@ -114,6 +114,7 @@ defmodule Ircpipe.Chat do
           "nickname" => default_nick(user)
         })
 
+      connection = ensure_valid_nick(connection, user)
       {:ok, membership} = join_channel(user, connection, topic.channel)
 
       %{connection: connection, membership: membership, topic: topic}
@@ -547,14 +548,40 @@ defmodule Ircpipe.Chat do
   def normalize_channel("#" <> _ = channel), do: channel
   def normalize_channel(channel), do: "##{channel}"
 
+  def valid_nick?(nick) when is_binary(nick) do
+    String.match?(nick, ~r/^[A-Za-z_\[\]\\`^{}][A-Za-z0-9_\-\[\]\\`^{}]{0,23}$/)
+  end
+
+  def valid_nick?(_nick), do: false
+
   defp default_nick(%User{email: email}) do
-    email
-    |> String.split("@")
-    |> List.first()
-    |> String.replace(~r/[^A-Za-z0-9_\-\[\]`^{}]/, "_")
-    |> case do
-      "" -> "topics_user"
-      nick -> String.slice(nick, 0, 24)
+    base =
+      email
+      |> String.split("@")
+      |> List.first()
+      |> String.replace(~r/[^A-Za-z0-9_\-\[\]\\`^{}]/, "_")
+      |> String.trim("_-")
+
+    base =
+      cond do
+        base == "" -> "topics_user"
+        String.match?(String.first(base), ~r/^[A-Za-z_\[\]\\`^{}]$/) -> base
+        true -> "u_#{base}"
+      end
+
+    String.slice(base, 0, 24)
+  end
+
+  defp ensure_valid_nick(%ServerConnection{} = connection, %User{} = user) do
+    if valid_nick?(connection.nickname) do
+      connection
+    else
+      {:ok, connection} =
+        connection
+        |> ServerConnection.changeset(%{nickname: default_nick(user), status: "disconnected"})
+        |> Repo.update()
+
+      connection
     end
   end
 
