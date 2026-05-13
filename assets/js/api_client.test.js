@@ -53,4 +53,20 @@ describe("api client", () => {
       })
     )
   })
+
+  test("deletes a server connection", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({deleted: {server_connection_id: 42}})})
+    const api = createApiClient({csrfToken: "csrf", fetchImpl})
+
+    await api.deleteConnection(42)
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/connections/42",
+      expect.objectContaining({
+        method: "DELETE",
+        body: "{}",
+        headers: expect.objectContaining({"x-csrf-token": "csrf"}),
+      })
+    )
+  })
 })

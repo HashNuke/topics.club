@@ -153,7 +153,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] Connect or reconnect
   - [x] Disconnect
   - [x] Edit connection
-  - [ ] Leave server
+  - [x] Leave server
 - [ ] Backend channel leave flow:
   - [x] authorize membership
   - [x] send IRC `PART`
@@ -165,7 +165,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] stop the session process
   - [ ] mark all buffers as left or archived
   - [ ] broadcast `server:status` and `buffer:left`
-- [ ] UI confirms destructive server removal.
+- [x] UI confirms destructive server removal.
 
 ## Connection health and backend failure feedback
 
@@ -330,6 +330,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
     - [x] channel menu
     - [x] server menu
     - [x] edit connection from server menu
+    - [x] confirmed leave server from server menu
   - [ ] slash command popover
   - [ ] backend connection failure banner
   - [x] send failure and retry

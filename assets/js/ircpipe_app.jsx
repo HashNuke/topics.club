@@ -757,6 +757,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onMarkChannelRead={markChannelRead}
       onRequestNotifications={requestNotifications}
       onDisconnectServer={disconnectServer}
+      onLeaveServer={leaveServer}
       onReconnectServer={reconnectServer}
       onUpdateServer={updateServerConnection}
       onSelectChannel={(channel) => {
@@ -835,6 +836,17 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
   }
 
+  async function leaveServer(server) {
+    if (!server?.server_connection_id) return
+
+    try {
+      const {deleted} = await apiClient.deleteConnection(server.server_connection_id)
+      applyServerDeleted(deleted || {server_connection_id: server.server_connection_id})
+    } catch (_error) {
+      // Keep the server visible if deletion fails.
+    }
+  }
+
   async function updateServerConnection(server, form) {
     if (!server?.server_connection_id) return
 
@@ -878,6 +890,49 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           : server
       )
     )
+  }
+
+  function applyServerDeleted(payload) {
+    const deletedId = `server:${payload.server_connection_id}`
+    const deletedServer = connections.find(
+      (server) => server.id === deletedId || server.server_connection_id === payload.server_connection_id
+    )
+    if (!deletedServer) return
+
+    const deletedChannelIds = new Set(deletedServer.channels.map((channel) => channel.id))
+    const nextConnections = connections.filter((server) => server.id !== deletedServer.id)
+    const nextServer = nextConnections[0]
+    const nextChannel = nextServer?.channels[0]
+
+    setConnections(nextConnections)
+    setMessagesByServer((current) => {
+      const next = {...current}
+      delete next[deletedServer.id]
+      return next
+    })
+    setMessagesByChannel((current) => {
+      const next = {...current}
+      deletedChannelIds.forEach((channelId) => delete next[channelId])
+      return next
+    })
+    setUsersByChannel((current) => {
+      const next = {...current}
+      deletedChannelIds.forEach((channelId) => delete next[channelId])
+      return next
+    })
+
+    if (activeServer?.id === deletedServer.id || deletedChannelIds.has(activeChannel?.id)) {
+      if (nextChannel) {
+        setActiveServerId(nextServer.id)
+        setActiveChannelId(nextChannel.id)
+        setView("chat")
+      } else if (nextServer) {
+        setActiveServerId(nextServer.id)
+        setView("server")
+      } else {
+        setView("discover")
+      }
+    }
   }
 }
 
@@ -1017,9 +1072,10 @@ function MobileDrawerHeader({title, onClose}) {
   )
 }
 
-function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onMarkChannelRead, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer}) {
+function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer}) {
   const [manualOpen, setManualOpen] = useState(false)
   const [editingServer, setEditingServer] = useState(null)
+  const [leavingServer, setLeavingServer] = useState(null)
 
   return (
     <aside className={[
@@ -1069,6 +1125,7 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
                 server={connection}
                 onDisconnect={() => onDisconnectServer?.(connection)}
                 onEdit={() => setEditingServer(connection)}
+                onLeave={() => setLeavingServer(connection)}
                 onReconnect={() => onReconnectServer?.(connection)}
               />
             </div>
@@ -1134,6 +1191,16 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
           }}
         />
       )}
+      {leavingServer && (
+        <LeaveServerDialog
+          server={leavingServer}
+          onClose={() => setLeavingServer(null)}
+          onConfirm={() => {
+            onLeaveServer?.(leavingServer)
+            setLeavingServer(null)
+          }}
+        />
+      )}
     </aside>
   )
 }
@@ -1188,7 +1255,7 @@ function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMarkRead})
   )
 }
 
-function ServerActionMenu({server, onDisconnect, onEdit, onReconnect}) {
+function ServerActionMenu({server, onDisconnect, onEdit, onLeave, onReconnect}) {
   const [open, setOpen] = useState(false)
   const {refs, floatingStyles} = useFloating({
     placement: "bottom-end",
@@ -1231,6 +1298,9 @@ function ServerActionMenu({server, onDisconnect, onEdit, onReconnect}) {
           </button>
           <button className="w-full rounded-md px-3 py-2 text-left text-rose-200 transition hover:bg-rose-950/50" onClick={() => run(onDisconnect)} role="menuitem" type="button">
             Disconnect
+          </button>
+          <button className="w-full rounded-md px-3 py-2 text-left text-rose-200 transition hover:bg-rose-950/50" onClick={() => run(onLeave)} role="menuitem" type="button">
+            Leave server
           </button>
         </div>
       )}
@@ -1791,6 +1861,38 @@ function EditServerDialog({onClose, onSave, server}) {
           </button>
         </div>
       </form>
+    </div>
+  )
+}
+
+function LeaveServerDialog({onClose, onConfirm, server}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
+      <section
+        aria-label="Leave server"
+        className="w-full max-w-sm rounded-lg border border-rose-900/70 bg-[#101620] p-5 shadow-2xl"
+        role="dialog"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Leave server</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Remove {server.name} and its joined topics from this account.
+            </p>
+          </div>
+          <button type="button" className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-800 hover:text-white" onClick={onClose}>
+            x
+          </button>
+        </div>
+        <div className="mt-5 flex gap-3">
+          <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="flex-1 rounded-md bg-rose-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white" onClick={onConfirm} type="button">
+            Leave
+          </button>
+        </div>
+      </section>
     </div>
   )
 }

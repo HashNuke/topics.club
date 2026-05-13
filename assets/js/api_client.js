@@ -27,6 +27,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
     joinTopic: (topicId) => request(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
     updateConnection: (connectionId, connection) =>
       request(`/api/connections/${connectionId}`, {method: "PUT", body: JSON.stringify({connection})}),
+    deleteConnection: (connectionId) => request(`/api/connections/${connectionId}`, {method: "DELETE", body: JSON.stringify({})}),
     bufferMessages: (bufferId, params = {}) => {
       const search = new URLSearchParams()
       if (params.limit) search.set("limit", String(params.limit))

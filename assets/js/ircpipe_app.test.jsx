@@ -31,6 +31,13 @@ function mockBootstrapFetch() {
       }
     }
 
+    if (path === "/api/connections/42" && options.method === "DELETE") {
+      return {
+        ok: true,
+        json: async () => ({deleted: {type: "server:deleted", server_connection_id: 42}}),
+      }
+    }
+
     if (String(path).startsWith("/api/buffers/channel%3A7/messages")) {
       return {
         ok: true,
@@ -966,6 +973,31 @@ describe("IrcpipeApp UI prototype", () => {
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
     expect(within(nav).getByText("edited")).toBeInTheDocument()
     expect(screen.getAllByText("on irc.edited.test").length).toBeGreaterThan(0)
+  })
+
+  test("confirms leaving a server from the server action menu", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", {name: "Server actions for local"}))
+    await user.click(screen.getByRole("menuitem", {name: "Leave server"}))
+
+    const dialog = screen.getByRole("dialog", {name: "Leave server"})
+    expect(within(dialog).getByText(/Remove local and its joined topics/i)).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", {name: "Leave"}))
+
+    await waitFor(() =>
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/connections/42",
+        expect.objectContaining({method: "DELETE", body: "{}"})
+      )
+    )
+    expect(await screen.findByRole("heading", {name: "Discover topics"})).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: /#testing/i})).not.toBeInTheDocument()
   })
 
   test("shows slash command suggestions from the chat composer", async () => {
