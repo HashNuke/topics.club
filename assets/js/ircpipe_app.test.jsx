@@ -11,7 +11,7 @@ function mockTopicsFetch() {
   })
 }
 
-function mockBootstrapFetch({afterMessages = []} = {}) {
+function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected"} = {}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/connections/42" && options.method === "PUT") {
       return {
@@ -79,7 +79,7 @@ function mockBootstrapFetch({afterMessages = []} = {}) {
               port: 6667,
               use_tls: false,
               nickname: "mira",
-              status: "connected",
+              status: connectionStatus,
               channels: [7],
             },
           ],
@@ -90,7 +90,7 @@ function mockBootstrapFetch({afterMessages = []} = {}) {
               server_connection_id: 42,
               title: "127.0.0.1",
               subtitle: "local",
-              status: "connected",
+              status: connectionStatus,
               unread_count: 0,
               mention_count: 0,
             },
@@ -101,7 +101,7 @@ function mockBootstrapFetch({afterMessages = []} = {}) {
               channel_membership_id: 7,
               title: "#testing",
               subtitle: "on 127.0.0.1",
-              status: "connected",
+              status: connectionStatus,
               unread_count: 1,
               mention_count: 0,
             },
@@ -182,6 +182,70 @@ function mockJoinTopicFetch() {
             server_connection_id: 55,
             channel_membership_id: 88,
             title: "#backend",
+            subtitle: "on 127.0.0.1",
+            status: "connected",
+            unread_count: 0,
+            mention_count: 0,
+          },
+        }),
+      }
+    }
+
+    return {
+      ok: true,
+      json: async () => ({topics}),
+    }
+  })
+}
+
+function mockResolvedLocalTopicFetch() {
+  const topics = [
+    {
+      id: 101,
+      name: "#elixir",
+      description: "Phoenix, OTP, releases, and production Elixir help.",
+      server_host: "127.0.0.1",
+      server_port: 6667,
+      use_tls: false,
+      channel: "#elixir",
+    },
+  ]
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
+    if (path === "/api/bootstrap") {
+      return {
+        ok: true,
+        json: async () => ({
+          connections: [],
+          buffers: [],
+          messages_by_buffer: {},
+          users_by_buffer: {},
+          topics: [],
+          notification_state: "default",
+        }),
+      }
+    }
+
+    if (path === "/api/topics/101/join") {
+      return {
+        ok: true,
+        json: async () => ({
+          topic: topics[0],
+          connection: {
+            id: 55,
+            name: "127.0.0.1",
+            host: "127.0.0.1",
+            port: 6667,
+            use_tls: false,
+            nickname: "mira",
+            status: "connected",
+          },
+          buffer: {
+            buffer_id: "channel:88",
+            buffer_type: "channel",
+            server_connection_id: 55,
+            channel_membership_id: 88,
+            title: "#elixir",
             subtitle: "on 127.0.0.1",
             status: "connected",
             unread_count: 0,
@@ -344,6 +408,47 @@ describe("IrcpipeApp UI prototype", () => {
       "/api/topics/101/join",
       expect.objectContaining({method: "POST", credentials: "same-origin"})
     )
+  })
+
+  test("resolves a local landing topic query to the backend topic before joining", async () => {
+    mockResolvedLocalTopicFetch()
+    window.history.pushState({}, "", "/chat?topic=local-elixir")
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "#elixir"})).toBeInTheDocument()
+    await waitFor(() =>
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/topics/101/join",
+        expect.objectContaining({method: "POST", credentials: "same-origin"})
+      )
+    )
+
+    window.history.pushState({}, "", "/")
+  })
+
+  test("does not request backend history for prototype buffers", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
+      if (path === "/api/bootstrap") throw new Error("offline")
+
+      return {
+        ok: true,
+        json: async () => ({topics: demoTopics}),
+      }
+    })
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(screen.getByRole("heading", {name: "#elixir"})).toBeInTheDocument()
+
+    const scrollback = document.getElementById("chat-scrollback")
+    Object.defineProperty(scrollback, "scrollHeight", {value: 1000, configurable: true})
+    Object.defineProperty(scrollback, "clientHeight", {value: 500, configurable: true})
+    Object.defineProperty(scrollback, "scrollTop", {value: 40, writable: true, configurable: true})
+
+    fireEvent.scroll(scrollback)
+
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringMatching(/^\/api\/buffers\/chan-elixir/), expect.anything())
   })
 
   test("sends channel messages through the realtime client and replaces pending message", async () => {
@@ -519,6 +624,35 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByRole("button", {name: "Send"})).toBeDisabled()
     expect(push).not.toHaveBeenCalled()
     expect(composer).toHaveValue("still drafting")
+  })
+
+  test("keeps channel drafts unsent while the IRC server is still connecting", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({connectionStatus: "connecting"})
+    const push = vi.fn()
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+
+    const composer = screen.getByLabelText("Message composer")
+    await user.type(composer, "wait for irc")
+
+    expect(screen.getByRole("button", {name: "Send"})).toBeDisabled()
+    expect(push).not.toHaveBeenCalled()
+    expect(composer).toHaveValue("wait for irc")
   })
 
   test("shows degraded connection health when the realtime join fails", async () => {

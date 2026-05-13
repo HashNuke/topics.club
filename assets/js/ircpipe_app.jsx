@@ -145,6 +145,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
   const [topics, setTopics] = useState(demoTopics)
+  const [topicsLoaded, setTopicsLoaded] = useState(false)
   const [authTopic, setAuthTopic] = useState(null)
   const [view, setView] = useState("chat")
   const [notificationState, setNotificationState] = useState(notificationPermission())
@@ -167,6 +168,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const connectionsRef = useRef(connections)
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
+  const requestedTopicIdRef = useRef(requestedTopicId())
 
   useEffect(() => {
     connectionsRef.current = connections
@@ -188,10 +190,25 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient
       .topics()
       .then(({topics}) => {
-        if (topics?.length >= demoTopics.length) setTopics(topics.map(normalizeTopic))
+        if (topics?.length) setTopics(topics.map(normalizeTopic))
+        setTopicsLoaded(true)
       })
-      .catch(() => setTopics(demoTopics))
+      .catch(() => {
+        setTopics(demoTopics)
+        setTopicsLoaded(true)
+      })
   }, [apiClient])
+
+  useEffect(() => {
+    if (!currentUser || mode === "landing" || !topicsLoaded || !requestedTopicIdRef.current) return
+
+    const requestedTopic = topicForRequestedId(requestedTopicIdRef.current, topics)
+    if (!requestedTopic) return
+
+    requestedTopicIdRef.current = null
+    joinTopic(requestedTopic)
+    if (window.history?.replaceState) window.history.replaceState(null, "", window.location.pathname)
+  }, [currentUser?.id, mode, topics, topicsLoaded])
 
   useEffect(() => {
     if (!currentUser || mode === "landing") return
@@ -262,10 +279,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   async function joinTopic(topic) {
     const normalized = normalizeTopic(topic)
+    const backendTopic = backendTopicFor(normalized, topics)
+    const topicId = numericId(normalized.id) || numericId(backendTopic?.id)
 
-    if (currentUser && Number.isInteger(Number(normalized.id))) {
+    if (currentUser && topicId) {
       try {
-        const joined = await apiClient.joinTopic(normalized.id)
+        const joined = await apiClient.joinTopic(topicId)
         applyJoinedTopic(joined)
         return
       } catch (_error) {
@@ -400,7 +419,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!draft.trim() || !activeChannel) return
 
     const body = draft.trim()
-    if (isRealtimeChannel(activeChannel) && realtimeClientRef.current && connectionHealth !== "connected") return
+    if (isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)) return
 
     if (body.startsWith("/") && realtimeClientRef.current) {
       setDraft("")
@@ -468,7 +487,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   async function retryMessage(message) {
-    if (!activeChannel || !isRealtimeChannel(activeChannel) || !realtimeClientRef.current || connectionHealth !== "connected") return
+    if (!activeChannel || !isRealtimeChannel(activeChannel) || !realtimeClientRef.current || !realtimeReadyFor(activeChannel, connectionHealth)) return
 
     const clientMessageId = `client-${Date.now()}`
     const pendingMessage = {
@@ -536,6 +555,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   async function loadOlderMessages(bufferId) {
     if (!bufferId || loadingOlderRef.current.has(bufferId)) return
+    if (!isBackendBufferId(bufferId)) return
 
     const currentMessages = bufferId.startsWith("server:")
       ? messagesByServer[bufferId] || []
@@ -899,6 +919,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   function reconcileBootstrapCursors(cursorsByBuffer) {
     Object.entries(cursorsByBuffer).forEach(([bufferId, cursor]) => {
+      if (!isBackendBufferId(bufferId)) return
+
       apiClient
         .bufferMessages(bufferId, cursor ? {after: cursor, limit: 50} : {limit: 50})
         .then(({messages = []}) => {
@@ -1566,7 +1588,7 @@ function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlder
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(activeChannel?.id, nextReadingOlder),
   })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
-  const sendDisabled = isRealtimeChannel(activeChannel) && connectionHealth !== "connected"
+  const sendDisabled = isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
@@ -2210,6 +2232,48 @@ function serverBufferMessages(server) {
 
 function isRealtimeChannel(channel) {
   return channel?.id?.startsWith("channel:")
+}
+
+function isBackendBufferId(bufferId) {
+  return bufferId?.startsWith("channel:") || bufferId?.startsWith("server:")
+}
+
+function realtimeReadyFor(channel, connectionHealth) {
+  return Boolean(isRealtimeChannel(channel) && connectionHealth === "connected" && channel.connection?.status === "connected")
+}
+
+function numericId(value) {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) ? parsed : null
+}
+
+function backendTopicFor(topic, topics) {
+  return topics.find((candidate) => {
+    const normalized = normalizeTopic(candidate)
+
+    return (
+      numericId(normalized.id) &&
+      normalized.channel === topic.channel &&
+      normalized.server_host === topic.server_host &&
+      Number(normalized.server_port || 6667) === Number(topic.server_port || 6667)
+    )
+  })
+}
+
+function topicForRequestedId(requestedId, topics) {
+  const directMatch = topics.find((topic) => String(topic.id) === String(requestedId))
+  if (directMatch) return directMatch
+
+  const demoMatch = demoTopics.find((topic) => String(topic.id) === String(requestedId))
+  if (!demoMatch) return null
+
+  return backendTopicFor(normalizeTopic(demoMatch), topics) || demoMatch
+}
+
+function requestedTopicId() {
+  if (typeof window === "undefined") return null
+
+  return new URLSearchParams(window.location.search).get("topic")
 }
 
 export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
