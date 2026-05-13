@@ -356,10 +356,10 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
           </div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">IRC, without the setup maze</p>
           <h1 className="mt-4 max-w-xl text-5xl font-semibold leading-[1.02] tracking-tight text-white sm:text-6xl">
-            Pick a topic and start talking.
+            Choose a topic and land straight in the chat.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-8 text-slate-400">
-            Join open conversations without setting up an IRC client. Choose a topic, sign in, and land straight in chat.
+            Join open conversations without setting up an IRC client.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             {currentUser ? (
