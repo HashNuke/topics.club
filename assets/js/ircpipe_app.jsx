@@ -203,8 +203,26 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
     joinTopic(topic)
   }
 
-  function joinTopic(topic) {
+  async function joinTopic(topic) {
     const normalized = normalizeTopic(topic)
+
+    if (currentUser && Number.isInteger(Number(normalized.id))) {
+      try {
+        const joined = await api(`/api/topics/${normalized.id}/join`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        })
+        applyJoinedTopic(joined)
+        return
+      } catch (_error) {
+        // Keep the prototype usable when the backend is unavailable in design-only runs.
+      }
+    }
+
+    joinTopicLocally(normalized)
+  }
+
+  function joinTopicLocally(normalized) {
     const connectionKey = normalized.server_host
     const channelId = `${connectionKey}-${normalized.channel}`.replace(/[^a-z0-9]+/gi, "-").toLowerCase()
 
@@ -243,6 +261,58 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
       [channelId]: current[channelId] || seededMessagesFor(normalized),
     }))
     setActiveChannelId(channelId)
+    setView("chat")
+  }
+
+  function applyJoinedTopic({connection, buffer, topic}) {
+    if (!connection || !buffer) return
+
+    const connectionId = `server:${connection.id}`
+    const channel = {
+      id: buffer.buffer_id,
+      channel_membership_id: buffer.channel_membership_id,
+      channel: buffer.title,
+      topic: topic?.description || buffer.subtitle,
+      unread_count: buffer.unread_count,
+      mention_count: buffer.mention_count,
+    }
+
+    setConnections((current) => {
+      const existingConnection = current.find((item) => item.server_connection_id === connection.id || item.id === connectionId)
+
+      if (existingConnection) {
+        return current.map((item) => {
+          if (item.id !== existingConnection.id) return item
+          if (item.channels.some((existing) => existing.id === channel.id)) return item
+          return {...item, channels: [...item.channels, channel]}
+        })
+      }
+
+      return [
+        ...current,
+        {
+          id: connectionId,
+          server_connection_id: connection.id,
+          name: connection.name,
+          host: connection.host,
+          status: connection.status,
+          channels: [channel],
+        },
+      ]
+    })
+
+    setMessagesByChannel((current) => ({
+      ...current,
+      [channel.id]:
+        current[channel.id] ||
+        seededMessagesFor({
+          id: topic?.id || channel.id,
+          channel: channel.channel,
+          server_host: connection.host,
+        }),
+    }))
+    setActiveServerId(connectionId)
+    setActiveChannelId(channel.id)
     setView("chat")
   }
 

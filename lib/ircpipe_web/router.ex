@@ -49,6 +49,7 @@ defmodule IrcpipeWeb.Router do
     pipe_through :authenticated_api
 
     get "/bootstrap", BootstrapController, :show
+    post "/topics/:id/join", TopicController, :join
     get "/connections", ConnectionController, :index
     post "/connections", ConnectionController, :create
     post "/connections/:id/connect", ConnectionController, :connect

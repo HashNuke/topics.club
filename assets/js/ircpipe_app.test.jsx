@@ -82,6 +82,70 @@ function mockBootstrapFetch() {
   })
 }
 
+function mockJoinTopicFetch() {
+  const topics = [
+    {
+      id: 101,
+      name: "#backend",
+      description: "Backend implementation work.",
+      server_host: "127.0.0.1",
+      server_port: 6667,
+      use_tls: false,
+      channel: "#backend",
+    },
+  ]
+
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
+    if (path === "/api/bootstrap") {
+      return {
+        ok: true,
+        json: async () => ({
+          connections: [],
+          buffers: [],
+          messages_by_buffer: {},
+          users_by_buffer: {},
+          topics,
+          notification_state: "default",
+        }),
+      }
+    }
+
+    if (path === "/api/topics/101/join") {
+      return {
+        ok: true,
+        json: async () => ({
+          topic: topics[0],
+          connection: {
+            id: 55,
+            name: "127.0.0.1",
+            host: "127.0.0.1",
+            port: 6667,
+            use_tls: false,
+            nickname: "mira",
+            status: "connected",
+          },
+          buffer: {
+            buffer_id: "channel:88",
+            buffer_type: "channel",
+            server_connection_id: 55,
+            channel_membership_id: 88,
+            title: "#backend",
+            subtitle: "on 127.0.0.1",
+            status: "connected",
+            unread_count: 0,
+            mention_count: 0,
+          },
+        }),
+      }
+    }
+
+    return {
+      ok: true,
+      json: async () => ({topics}),
+    }
+  })
+}
+
 describe("IrcpipeApp UI prototype", () => {
   test("shows topic-first landing cards with channel and server labels", async () => {
     mockTopicsFetch()
@@ -138,6 +202,23 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(nav).getByText("local")).toBeInTheDocument()
     expect(within(nav).getByText("#testing")).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/bootstrap", expect.objectContaining({credentials: "same-origin"}))
+  })
+
+  test("joins numeric backend topics through the topic join API", async () => {
+    const user = userEvent.setup()
+    mockJoinTopicFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    await user.click(screen.getByRole("button", {name: /discover/i}))
+    await user.click(await screen.findByRole("button", {name: /#backend/i}))
+
+    expect(await screen.findByRole("heading", {name: "#backend"})).toBeInTheDocument()
+    expect(screen.getByText("on 127.0.0.1")).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/topics/101/join",
+      expect.objectContaining({method: "POST", credentials: "same-origin"})
+    )
   })
 
   test("lets signed-in users join their own server and channel", async () => {

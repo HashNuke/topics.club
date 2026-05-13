@@ -11,6 +11,8 @@ defmodule Ircpipe.Chat do
     |> Repo.all()
   end
 
+  def get_topic!(id), do: Repo.get!(Topic, id)
+
   def list_connections(%User{id: user_id}) do
     ServerConnection
     |> where([c], c.user_id == ^user_id)
@@ -39,6 +41,23 @@ defmodule Ircpipe.Chat do
       %ServerConnection{} = connection -> {:ok, connection}
       _ -> create_connection(user, attrs)
     end
+  end
+
+  def join_topic(%User{} = user, %Topic{} = topic) do
+    Repo.transaction(fn ->
+      {:ok, connection} =
+        create_or_get_connection(user, %{
+          "name" => topic.server_host,
+          "host" => topic.server_host,
+          "port" => topic.server_port,
+          "use_tls" => topic.use_tls,
+          "nickname" => default_nick(user)
+        })
+
+      {:ok, membership} = join_channel(user, connection, topic.channel)
+
+      %{connection: connection, membership: membership, topic: topic}
+    end)
   end
 
   def update_connection_status(%ServerConnection{} = connection, status) do
@@ -195,6 +214,17 @@ defmodule Ircpipe.Chat do
 
   def normalize_channel("#" <> _ = channel), do: channel
   def normalize_channel(channel), do: "##{channel}"
+
+  defp default_nick(%User{email: email}) do
+    email
+    |> String.split("@")
+    |> List.first()
+    |> String.replace(~r/[^A-Za-z0-9_\-\[\]`^{}]/, "_")
+    |> case do
+      "" -> "topics_user"
+      nick -> String.slice(nick, 0, 24)
+    end
+  end
 
   defp before_cursor(query, %User{id: user_id}, before_id) when is_binary(before_id) do
     case Integer.parse(before_id) do

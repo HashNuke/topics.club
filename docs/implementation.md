@@ -233,7 +233,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [x] `GET /api/bootstrap`
 - [ ] `GET /api/topics`
-- [ ] `POST /api/topics/:id/join`
+- [x] `POST /api/topics/:id/join`
 - [x] `GET /api/buffers/:id/messages`
 - [ ] `POST /api/buffers/:id/read`
 - [ ] `POST /api/connections`
@@ -321,6 +321,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Backend API tests for bootstrap, history, join, leave, and settings.
   - [x] bootstrap
   - [x] history
+  - [x] topic join
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [ ] Frontend reducer tests for realtime event application.
