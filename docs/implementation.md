@@ -304,7 +304,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Track channel user lists from IRC names and membership events.
   - [x] IRC names replies
   - [x] membership events
-- [ ] Handle reconnect by rejoining persisted channels.
+- [x] Handle reconnect by rejoining persisted channels.
 - [ ] Broadcast normalized events through `Ircpipe.Chat` or a dedicated realtime boundary.
 
 ## React state checklist

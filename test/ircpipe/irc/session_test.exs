@@ -106,4 +106,30 @@ defmodule Ircpipe.Irc.SessionTest do
              "nick"
            ]
   end
+
+  test "rejoins persisted channel memberships after registration" do
+    server = start_supervised!({IrcTestServer, self()})
+    port = IrcTestServer.port(server)
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test-rejoin",
+        "host" => "localhost",
+        "port" => port,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, _membership} = Chat.join_channel(user, connection, "#persisted")
+    connection = Chat.get_connection!(user, connection.id)
+
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
+    assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
+    assert_receive {:irc_server_line, "JOIN #persisted"}, 1_000
+
+    assert :ok = Session.quit(connection)
+  end
 end

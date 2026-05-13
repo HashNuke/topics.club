@@ -47,7 +47,7 @@ defmodule Ircpipe.Irc.Session do
        connection: connection,
        client: nil,
        registered?: false,
-       pending_joins: MapSet.new()
+       pending_joins: persisted_channels(connection)
      }}
   end
 
@@ -281,6 +281,15 @@ defmodule Ircpipe.Irc.Session do
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error
+
+  defp persisted_channels(%ServerConnection{channel_memberships: memberships})
+       when is_list(memberships) do
+    memberships
+    |> Enum.map(& &1.channel)
+    |> MapSet.new()
+  end
+
+  defp persisted_channels(_connection), do: MapSet.new()
 
   defp present?(value), do: is_binary(value) and value != ""
 end
