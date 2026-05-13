@@ -355,9 +355,9 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
             <span className="text-xl font-semibold tracking-tight">topics.club</span>
           </div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">IRC, without the setup maze</p>
-          <p className="mt-5 max-w-xl text-base leading-8 text-slate-400">
-            Join open conversations without setting up an IRC client.
-          </p>
+          <h1 className="mt-4 max-w-xl text-5xl font-semibold leading-[1.02] tracking-tight text-white sm:text-6xl">
+            Community chat
+          </h1>
           <div className="mt-8 flex flex-wrap gap-3">
             {currentUser ? (
               <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" href="/chat">
