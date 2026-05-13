@@ -107,6 +107,112 @@ defmodule Ircpipe.Irc.SessionTest do
            ]
   end
 
+  test "ignores echoed channel messages from the current connection nick" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+
+    Chat.record_inbound_message(connection, "#pipe", "mira", "hello from app")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:privmsg,
+                 %{
+                   target: "#pipe",
+                   nick: "Mira",
+                   raw_source: "mira!user@test",
+                   body: "hello from app"
+                 }}},
+               state
+             )
+
+    assert [%{body: "hello from app", nick: "mira"}] = Chat.list_messages(user, membership.id)
+  end
+
+  test "accumulates IRC names chunks until names end before syncing presence" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{
+      connection: connection,
+      pending_joins: MapSet.new(["#pipe"]),
+      joined_channels: MapSet.new(),
+      names_buffers: %{}
+    }
+
+    assert {:noreply, state} =
+             Session.handle_info(
+               {:ircxd,
+                {:names,
+                 %{
+                   channel: "#pipe",
+                   names: [
+                     %{nick: "mira", prefixes: ["@"]},
+                     %{nick: "akash", prefixes: []}
+                   ]
+                 }}},
+               state
+             )
+
+    refute_receive {:presence_sync, _payload}, 100
+
+    assert {:noreply, state} =
+             Session.handle_info(
+               {:ircxd,
+                {:names,
+                 %{
+                   channel: "#pipe",
+                   names: [
+                     %{nick: "sam", prefixes: ["+"]},
+                     %{nick: "zoe", prefixes: []}
+                   ]
+                 }}},
+               state
+             )
+
+    refute_receive {:presence_sync, _payload}, 100
+
+    assert {:noreply, state} =
+             Session.handle_info({:ircxd, {:names_end, %{channel: "#pipe"}}}, state)
+
+    assert_receive {:presence_sync, %{users: users}}, 1_000
+    assert Enum.map(users, & &1.nick) == ["mira", "akash", "sam", "zoe"]
+
+    assert Enum.map(Chat.list_channel_users(membership), & &1.nick) == [
+             "akash",
+             "mira",
+             "sam",
+             "zoe"
+           ]
+
+    assert state.names_buffers == %{}
+    assert MapSet.member?(state.joined_channels, "#pipe")
+    refute MapSet.member?(state.pending_joins, "#pipe")
+  end
+
   test "broadcasts away state changes to joined channel buffers" do
     user = AccountsFixtures.user_fixture()
 
