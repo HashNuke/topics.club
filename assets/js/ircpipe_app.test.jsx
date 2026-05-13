@@ -17,7 +17,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     render(<IrcpipeApp currentUser={null} developerOauth={true} />)
 
-    expect(await screen.findByRole("heading", {name: "Find your community."})).toBeInTheDocument()
+    expect(await screen.findByText("Join open conversations without setting up an IRC client.")).toBeInTheDocument()
     expect(screen.getByRole("button", {name: /#elixir/i})).toHaveTextContent("on irc.libera.chat")
     expect(screen.getByRole("link", {name: "Developer OAuth"})).toHaveAttribute("href", "/auth/developer")
   })
@@ -100,7 +100,7 @@ describe("IrcpipeApp UI prototype", () => {
       />
     )
 
-    expect(await screen.findByRole("heading", {name: "Find your community."})).toBeInTheDocument()
+    expect(await screen.findByText("Join open conversations without setting up an IRC client.")).toBeInTheDocument()
     expect(screen.getByRole("link", {name: "Open chat"})).toHaveAttribute("href", "/chat")
     expect(screen.queryByRole("navigation", {name: "Joined topics"})).not.toBeInTheDocument()
   })

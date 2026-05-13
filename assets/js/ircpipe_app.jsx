@@ -355,9 +355,6 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
             <span className="text-xl font-semibold tracking-tight">topics.club</span>
           </div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">IRC, without the setup maze</p>
-          <h1 className="mt-4 max-w-xl text-5xl font-semibold leading-[1.02] tracking-tight text-white sm:text-6xl">
-            Find your community.
-          </h1>
           <p className="mt-5 max-w-xl text-base leading-8 text-slate-400">
             Join open conversations without setting up an IRC client.
           </p>
