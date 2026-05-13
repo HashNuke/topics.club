@@ -1279,7 +1279,7 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
 }
 
 function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlderMessages, onRetryMessage, onSendMessage, onUpdateDraft}) {
-  const {readingOlder, scrollRef} = useChatScroll(messages, {
+  const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
   })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
@@ -1292,6 +1292,7 @@ function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlder
           <MessageTimeline messages={visibleMessages} onRetryMessage={onRetryMessage} />
         </div>
       </div>
+      {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}
       <ChatComposer
         inputId="chat-message-input"
         draft={draft}
@@ -1301,6 +1302,20 @@ function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlder
         placeholder={activeChannel ? "Write a message" : "Choose a topic first"}
       />
     </section>
+  )
+}
+
+function NewMessagesButton({count, onClick}) {
+  return (
+    <div className="pointer-events-none -mt-12 flex justify-center">
+      <button
+        className="pointer-events-auto rounded-full border border-cyan-300/40 bg-cyan-300 px-3 py-1.5 text-xs font-semibold text-slate-950 shadow-lg shadow-black/30 transition hover:bg-white"
+        onClick={onClick}
+        type="button"
+      >
+        {count} new {count === 1 ? "message" : "messages"}
+      </button>
+    </div>
   )
 }
 
@@ -1379,7 +1394,7 @@ function DiscoverPane({topics, onSelectTopic}) {
 }
 
 function ServerBufferPane({draft, messages, onLoadOlderMessages, server, onSendMessage, onUpdateDraft}) {
-  const {readingOlder, scrollRef} = useChatScroll(messages, {
+  const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(server?.id),
   })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
@@ -1400,6 +1415,7 @@ function ServerBufferPane({draft, messages, onLoadOlderMessages, server, onSendM
           <MessageTimeline messages={visibleMessages} />
         </div>
       </div>
+      {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}
       <ChatComposer
         inputId="server-command-input"
         draft={draft}
@@ -1873,14 +1889,21 @@ function notificationLabel(state) {
 function useChatScroll(messages, {onNearTop} = {}) {
   const scrollRef = React.useRef(null)
   const previousScrollHeightRef = React.useRef(0)
+  const previousLastMessageIdRef = React.useRef(null)
+  const previousMessageLengthRef = React.useRef(0)
+  const readingOlderRef = React.useRef(false)
   const [readingOlder, setReadingOlder] = useState(false)
+  const [newMessageCount, setNewMessageCount] = useState(0)
 
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
     const updateReadingState = ({loadOlder = false} = {}) => {
       const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
-      setReadingOlder(distanceFromBottom > 96)
+      const nextReadingOlder = distanceFromBottom > 96
+      readingOlderRef.current = nextReadingOlder
+      setReadingOlder(nextReadingOlder)
+      if (!nextReadingOlder) setNewMessageCount(0)
       if (loadOlder && node.scrollTop <= 80 && node.scrollHeight > node.clientHeight) onNearTop?.()
     }
 
@@ -1909,7 +1932,33 @@ function useChatScroll(messages, {onNearTop} = {}) {
     previousScrollHeightRef.current = node.scrollHeight
   }, [messages.length, readingOlder])
 
-  return {readingOlder, scrollRef}
+  useEffect(() => {
+    const lastMessage = messages[messages.length - 1]
+    const previousLastMessageId = previousLastMessageIdRef.current
+    const previousLength = previousMessageLengthRef.current
+
+    if (
+      readingOlderRef.current &&
+      previousLastMessageId != null &&
+      lastMessage?.id !== previousLastMessageId &&
+      messages.length > previousLength
+    ) {
+      setNewMessageCount((current) => current + messages.length - previousLength)
+    }
+
+    previousLastMessageIdRef.current = lastMessage?.id ?? null
+    previousMessageLengthRef.current = messages.length
+  }, [messages])
+
+  function scrollToBottom() {
+    const node = scrollRef.current
+    if (node) node.scrollTop = node.scrollHeight
+    readingOlderRef.current = false
+    setReadingOlder(false)
+    setNewMessageCount(0)
+  }
+
+  return {newMessageCount, readingOlder, scrollRef, scrollToBottom}
 }
 
 function minutesBetween(previous, current) {

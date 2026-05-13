@@ -209,13 +209,13 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Keep a soft client-side render cap of 300-500 messages per open buffer.
 - [x] Do not trim rendered messages while the user is scrolled up reading older history.
 - [ ] If the user is near the bottom:
-  - [ ] append incoming messages
-  - [ ] auto-scroll
+  - [x] append incoming messages
+  - [x] auto-scroll
   - [ ] trim oldest messages over the cap
 - [ ] If the user is not near the bottom:
-  - [ ] append incoming messages
-  - [ ] keep scroll position stable
-  - [ ] show `N new messages`
+  - [x] append incoming messages
+  - [x] keep scroll position stable
+  - [x] show `N new messages`
   - [ ] defer trimming until the user returns to the bottom
 - [x] Use cursor pagination:
   - [x] `GET /api/buffers/:id/messages?limit=150`
@@ -332,7 +332,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] slash command popover
   - [ ] backend connection failure banner
   - [x] send failure and retry
-  - [ ] `N new messages` behavior
+  - [x] `N new messages` behavior
 
 ## Testing checklist
 

@@ -608,6 +608,47 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByText("MOTD starts here")).toBeInTheDocument()
   })
 
+  test("shows a new message affordance while reading older chat", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    const scrollback = document.getElementById("chat-scrollback")
+    Object.defineProperty(scrollback, "scrollHeight", {value: 1000, configurable: true})
+    Object.defineProperty(scrollback, "clientHeight", {value: 500, configurable: true})
+    Object.defineProperty(scrollback, "scrollTop", {value: 100, writable: true, configurable: true})
+    fireEvent.scroll(scrollback)
+
+    realtimeHandlers.onBufferMessage({
+      type: "buffer:message",
+      buffer_id: "channel:7",
+      id: 205,
+      nick: "akash",
+      body: "new while reading",
+      kind: "message",
+      occurred_at: "2026-05-13T10:04:00Z",
+    })
+
+    const jump = await screen.findByRole("button", {name: "1 new message"})
+    await user.click(jump)
+
+    expect(screen.queryByRole("button", {name: "1 new message"})).not.toBeInTheDocument()
+  })
+
   test("caps large user groups and expands them on request", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
