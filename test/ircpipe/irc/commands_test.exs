@@ -4,7 +4,13 @@ defmodule Ircpipe.Irc.CommandsTest do
   alias Ircpipe.Irc.Commands
 
   test "suggests commands from a slash prefix" do
-    assert [%{name: "/join"}] = Commands.suggest("/jo")
+    assert [
+             %{
+               name: "/join",
+               required_permission: "user",
+               examples: ["/join #elixir"]
+             }
+           ] = Commands.suggest("/jo")
   end
 
   test "does not suggest commands for normal chat messages" do
@@ -12,7 +18,13 @@ defmodule Ircpipe.Irc.CommandsTest do
   end
 
   test "parses slash commands on the backend" do
-    assert {:ok, %{name: "join", args: ["#elixir"]}} = Commands.parse("/join #elixir")
+    assert {:ok,
+            %{
+              name: "join",
+              args: ["#elixir"],
+              required_permission: "user",
+              examples: ["/join #elixir"]
+            }} = Commands.parse("/join #elixir")
 
     assert {:ok, %{name: "msg", args: ["NickServ", "help"]}} =
              Commands.parse("/msg NickServ help")

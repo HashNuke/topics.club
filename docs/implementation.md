@@ -130,12 +130,12 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `/me`
   - [x] `/topic`
   - [x] `/quote` for advanced/raw IRC commands, if allowed
-- [ ] Backend returns completion metadata:
+- [x] Backend returns completion metadata:
   - [x] command name
   - [x] usage
   - [x] description
-  - [ ] required permission
-  - [ ] examples
+  - [x] required permission
+  - [x] examples
 - [x] React uses Floating UI for the slash-command popover.
 - [x] Tests cover command detection, completion display, backend parsing, and error feedback.
 

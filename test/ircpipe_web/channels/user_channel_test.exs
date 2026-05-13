@@ -27,7 +27,15 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     ref = push(socket, "command:suggest", %{"input" => "/jo"})
 
-    assert_reply ref, :ok, %{commands: [%{name: "/join"}]}
+    assert_reply ref, :ok, %{
+      commands: [
+        %{
+          name: "/join",
+          required_permission: "user",
+          examples: ["/join #elixir"]
+        }
+      ]
+    }
   end
 
   test "parses supported slash commands over the user channel" do
@@ -37,7 +45,14 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     ref = push(socket, "command:parse", %{"input" => "/msg NickServ help"})
 
-    assert_reply ref, :ok, %{command: %{name: "msg", args: ["NickServ", "help"]}}
+    assert_reply ref, :ok, %{
+      command: %{
+        name: "msg",
+        args: ["NickServ", "help"],
+        required_permission: "user",
+        examples: ["/msg NickServ help"]
+      }
+    }
   end
 
   test "runs supported slash commands over the user channel" do

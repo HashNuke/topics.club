@@ -7,28 +7,69 @@ defmodule Ircpipe.Irc.Commands do
   """
 
   @commands [
-    %{name: "/join", command: "join", usage: "/join #channel", description: "Join a channel"},
-    %{name: "/part", command: "part", usage: "/part #channel", description: "Leave a channel"},
-    %{name: "/leave", command: "leave", usage: "/leave #channel", description: "Leave a channel"},
+    %{
+      name: "/join",
+      command: "join",
+      usage: "/join #channel",
+      description: "Join a channel",
+      required_permission: "user",
+      examples: ["/join #elixir"]
+    },
+    %{
+      name: "/part",
+      command: "part",
+      usage: "/part #channel",
+      description: "Leave a channel",
+      required_permission: "user",
+      examples: ["/part #elixir"]
+    },
+    %{
+      name: "/leave",
+      command: "leave",
+      usage: "/leave #channel",
+      description: "Leave a channel",
+      required_permission: "user",
+      examples: ["/leave #elixir"]
+    },
     %{
       name: "/msg",
       command: "msg",
       usage: "/msg nick message",
-      description: "Send a private message"
+      description: "Send a private message",
+      required_permission: "user",
+      examples: ["/msg NickServ help"]
     },
-    %{name: "/me", command: "me", usage: "/me action", description: "Send an action message"},
-    %{name: "/nick", command: "nick", usage: "/nick newnick", description: "Change nickname"},
+    %{
+      name: "/me",
+      command: "me",
+      usage: "/me action",
+      description: "Send an action message",
+      required_permission: "user",
+      examples: ["/me waves"]
+    },
+    %{
+      name: "/nick",
+      command: "nick",
+      usage: "/nick newnick",
+      description: "Change nickname",
+      required_permission: "user",
+      examples: ["/nick mira_"]
+    },
     %{
       name: "/topic",
       command: "topic",
       usage: "/topic #channel text",
-      description: "Set or view a topic"
+      description: "Set or view a topic",
+      required_permission: "channel_operator",
+      examples: ["/topic #elixir Releases and OTP"]
     },
     %{
       name: "/quote",
       command: "quote",
       usage: "/quote RAW COMMAND",
-      description: "Send a raw IRC command"
+      description: "Send a raw IRC command",
+      required_permission: "advanced_user",
+      examples: ["/quote WHO #elixir"]
     }
   ]
 
@@ -66,7 +107,12 @@ defmodule Ircpipe.Irc.Commands do
     with "/" <> command_line <- input,
          [name | rest] <- String.split(command_line, ~r/\s+/, parts: 2),
          true <- known_command?(name) do
-      {:ok, %{name: name, args: parse_args(name, List.first(rest) || "")}}
+      {:ok,
+       %{
+         name: name,
+         args: parse_args(name, List.first(rest) || "")
+       }
+       |> Map.merge(command_metadata(name))}
     else
       false -> {:error, {:unknown_command, command_name(input)}}
       _ -> {:error, :not_a_command}
@@ -78,6 +124,12 @@ defmodule Ircpipe.Irc.Commands do
   def all, do: Enum.map(@commands, &Map.drop(&1, [:command]))
 
   defp known_command?(name), do: Enum.any?(@commands, &(&1.command == name))
+
+  defp command_metadata(name) do
+    @commands
+    |> Enum.find(&(&1.command == name))
+    |> Map.drop([:command, :name])
+  end
 
   defp parse_args(name, args) when name in ["me", "quote"] do
     args
