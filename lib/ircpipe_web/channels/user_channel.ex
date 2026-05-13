@@ -110,15 +110,31 @@ defmodule IrcpipeWeb.UserChannel do
     client_message_id = Map.get(payload, "client_message_id")
 
     with true <- String.trim(body) != "",
-         {:ok, membership} <- fetch_membership(user, membership_id),
-         :ok <- say(membership, body),
-         message <- latest_message(user, membership) do
-      {:reply,
-       {:ok,
-        %{
-          client_message_id: client_message_id,
-          message: Event.message(message, "channel:#{membership.id}")
-        }}, socket}
+         {:ok, membership} <- fetch_membership(user, membership_id) do
+      case say(membership, body) do
+        :ok ->
+          message = latest_message(user, membership)
+
+          {:reply,
+           {:ok,
+            %{
+              client_message_id: client_message_id,
+              message: Event.message(message, "channel:#{membership.id}")
+            }}, socket}
+
+        {:error, reason} ->
+          Chat.record_channel_system_message(
+            membership.server_connection,
+            membership.channel,
+            "error",
+            nil,
+            send_error_body(reason)
+          )
+
+          {:reply,
+           {:error, %{reason: error_reason(reason), client_message_id: client_message_id}},
+           socket}
+      end
     else
       false ->
         {:reply, {:error, %{reason: "empty_message", client_message_id: client_message_id}},
@@ -431,4 +447,7 @@ defmodule IrcpipeWeb.UserChannel do
   defp error_reason(:invalid_connection), do: "invalid_connection"
   defp error_reason(:not_connected), do: "not_connected"
   defp error_reason(_reason), do: "send_failed"
+
+  defp send_error_body(:not_connected), do: "Message could not be sent: not connected."
+  defp send_error_body(_reason), do: "Message could not be sent."
 end

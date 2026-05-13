@@ -233,6 +233,46 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_reply ref, :error, %{reason: "invalid_buffer", client_message_id: "client-2"}
   end
 
+  test "pushes channel buffer errors when sending fails" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    socket = join_user_channel(user)
+
+    ref =
+      push(socket, "message:send", %{
+        "client_message_id" => "client-failed",
+        "buffer_id" => "channel:#{membership.id}",
+        "body" => "this will fail"
+      })
+
+    assert_reply ref, :error, %{reason: "not_connected", client_message_id: "client-failed"}
+
+    assert_push "buffer:error", %{
+      type: "buffer:error",
+      version: 1,
+      event_id: "message:" <> _,
+      buffer_id: buffer_id,
+      server_connection_id: connection_id,
+      channel_membership_id: membership_id,
+      body: "Message could not be sent: not connected.",
+      kind: "error"
+    }
+
+    assert buffer_id == "channel:#{membership.id}"
+    assert connection_id == connection.id
+    assert membership_id == membership.id
+  end
+
   test "marks a channel buffer read over the user channel" do
     user = AccountsFixtures.user_fixture()
 
