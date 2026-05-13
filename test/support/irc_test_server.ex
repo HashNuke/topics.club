@@ -15,7 +15,19 @@ defmodule Ircpipe.IrcTestServer do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :line, active: false, reuseaddr: true])
     {:ok, {_address, port}} = :inet.sockname(listener)
     state = %{listener: listener, socket: nil, test_pid: test_pid, port: port}
-    send(self(), :accept)
+    parent = self()
+
+    Task.start_link(fn ->
+      case :gen_tcp.accept(listener) do
+        {:ok, socket} ->
+          :ok = :gen_tcp.controlling_process(socket, parent)
+          send(parent, {:accepted, {:ok, socket}})
+
+        {:error, reason} ->
+          send(parent, {:accepted, {:error, reason}})
+      end
+    end)
+
     {:ok, state}
   end
 
@@ -33,17 +45,19 @@ defmodule Ircpipe.IrcTestServer do
   end
 
   @impl true
-  def handle_info(:accept, state) do
-    {:ok, socket} = :gen_tcp.accept(state.listener)
+  def handle_info({:accepted, {:ok, socket}}, state) do
     send(self(), :read)
     {:noreply, %{state | socket: socket}}
   end
+
+  def handle_info({:accepted, {:error, reason}}, state), do: {:stop, reason, state}
 
   def handle_info(:read, %{socket: socket, test_pid: test_pid} = state) do
     case :gen_tcp.recv(socket, 0, 100) do
       {:ok, line} ->
         line = String.trim(line)
         send(test_pid, {:irc_server_line, line})
+        Enum.each(reply(line), &:gen_tcp.send(socket, [&1, "\r\n"]))
 
         if String.starts_with?(line, "PING ") do
           :ok = :gen_tcp.send(socket, "PONG :ircpipe-test\r\n")
@@ -67,4 +81,21 @@ defmodule Ircpipe.IrcTestServer do
     :gen_tcp.close(state.listener)
     :ok
   end
+
+  defp reply("CAP LS" <> _rest) do
+    [":ircpipe-test CAP * LS :server-time echo-message multi-prefix userhost-in-names"]
+  end
+
+  defp reply("USER " <> _rest) do
+    [
+      ":ircpipe-test 001 ircpipe :Welcome to the test server",
+      ":ircpipe-test 005 ircpipe CHANTYPES=# PREFIX=(ov)@+ :are supported"
+    ]
+  end
+
+  defp reply("JOIN " <> channel) do
+    [":ircpipe!user@test JOIN :#{channel}"]
+  end
+
+  defp reply(_line), do: []
 end

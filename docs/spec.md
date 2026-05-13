@@ -28,7 +28,7 @@ Users should think in terms of joining interesting topics. Internally, each topi
 
 ## Chat interface
 
-The main app is a React IRC client mounted at `/` and `/app`.
+The public landing page is mounted at `/`. The main React IRC client is mounted at `/chat`, with `/app` retained as a compatibility route during development.
 
 Required layout:
 

@@ -27,7 +27,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert :ok = Session.join(connection, "#pipe")
 
     assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
-    assert_receive {:irc_server_line, "USER ircpipe 0 * :ircpipe"}, 1_000
+    assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
     assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000
 
     assert :ok = Session.say(connection, "#pipe", "hello from app")
@@ -39,5 +39,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     messages = Chat.list_messages(user, membership.id)
     assert Enum.any?(messages, &(&1.body == "hello ircpipe" and &1.nick == "akash"))
+
+    assert :ok = Session.quit(connection)
   end
 end

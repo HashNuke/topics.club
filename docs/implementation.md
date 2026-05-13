@@ -17,10 +17,10 @@ References:
 
 ## Architecture decision
 
-- [ ] Use one Phoenix `Socket` connection per signed-in browser session.
-- [ ] Join one high-level user channel: `user:{user_id}`.
-- [ ] Keep channel-specific IRC events inside payloads instead of joining one Phoenix topic per IRC channel.
-- [ ] Keep the one-IRC-session-per-`{user_id, server_connection_id}` backend invariant from `docs/spec.md`.
+- [x] Use one Phoenix `Socket` connection per signed-in browser session.
+- [x] Join one high-level user channel: `user:{user_id}`.
+- [x] Keep channel-specific IRC events inside payloads instead of joining one Phoenix topic per IRC channel.
+- [x] Keep the one-IRC-session-per-`{user_id, server_connection_id}` backend invariant from `docs/spec.md`.
 - [ ] Use REST `/api/*` for initial loads, history pagination, and durable mutations.
 - [ ] Use Phoenix Channel pushes for realtime events, command submissions, send-message acknowledgements, and connection health.
 
@@ -61,7 +61,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Initial load flow
 
-- [ ] React loads `/chat`.
+- [x] React loads `/chat`.
 - [ ] Server-rendered root passes `current_user`, CSRF token, and app mode.
 - [ ] React fetches `/api/bootstrap`.
 - [ ] `/api/bootstrap` returns:
@@ -248,8 +248,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Phoenix channel checklist
 
-- [ ] Keep `IrcpipeWeb.UserSocket` authenticated by session cookie.
-- [ ] Keep `IrcpipeWeb.UserChannel` as the single realtime bus.
+- [x] Keep `IrcpipeWeb.UserSocket` authenticated by session cookie.
+- [x] Keep `IrcpipeWeb.UserChannel` as the single realtime bus.
 - [ ] Add `handle_in/3` handlers:
   - [ ] `message:send`
   - [ ] `command:run`
@@ -266,9 +266,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## IRC runtime checklist
 
-- [ ] Replace or adapt `Ircpipe.Irc.Session` to use `~/projects/ircxd`.
-- [ ] Keep sessions supervised by `Ircpipe.Irc.SessionSupervisor`.
-- [ ] Keep sessions registered by `{user_id, server_connection_id}`.
+- [x] Replace or adapt `Ircpipe.Irc.Session` to use `~/projects/ircxd`.
+- [x] Keep sessions supervised by `Ircpipe.Irc.SessionSupervisor`.
+- [x] Keep sessions registered by `{user_id, server_connection_id}`.
 - [ ] Emit server-buffer messages for:
   - [ ] connect start
   - [ ] connect success
@@ -319,16 +319,17 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Backend context tests for buffer ownership and scoping.
 - [ ] Backend channel tests for `UserChannel`.
 - [ ] Backend API tests for bootstrap, history, join, leave, and settings.
-- [ ] IRC runtime tests using local test server.
+- [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [ ] Frontend reducer tests for realtime event application.
-- [ ] Frontend component tests for the chat shell.
+- [x] Frontend component tests for the chat shell.
 - [ ] Frontend tests for slash command completion.
 - [ ] Frontend tests for notification permission states.
 - [ ] Frontend tests for socket/backend failure states.
-- [ ] Run `npm test --prefix assets` for React changes.
-- [ ] Run targeted `mix test` during backend work.
-- [ ] Run `mix precommit` before completing implementation changes.
+- [x] Headless Chromium tests for local-only landing topics and auth-protected chat route.
+- [x] Run `npm test --prefix assets` for React changes.
+- [x] Run targeted `mix test` during backend work.
+- [x] Run `mix precommit` before completing implementation changes.
 
 ## Implementation sequence
 
@@ -348,7 +349,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] Add event contracts.
   - [ ] Add backend tests.
 - [ ] Phase 4: Integrate IRC runtime.
-  - [ ] Use `ircxd`.
+  - [x] Use `ircxd`.
   - [ ] Normalize IRC events.
   - [ ] Persist messages and system lines.
   - [ ] Maintain user lists.
@@ -357,4 +358,3 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] Send retries.
   - [ ] Mention notification flow.
   - [ ] Retention pruning verification.
-

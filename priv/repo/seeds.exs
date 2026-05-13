@@ -15,30 +15,30 @@ alias Ircpipe.Repo
 
 topics = [
   %{
-    name: "Elixir",
-    description: "Phoenix, OTP, libraries, releases, and production Elixir.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
+    name: "#elixir",
+    description: "Local Elixir discussion for development and testing.",
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
     channel: "#elixir",
     sort_order: 10
   },
   %{
-    name: "Phoenix",
-    description: "Phoenix web apps, LiveView, channels, and deployment.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
-    channel: "#phoenixframework",
+    name: "#phoenix",
+    description: "Local Phoenix discussion for development and testing.",
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
+    channel: "#phoenix",
     sort_order: 20
   },
   %{
-    name: "Open Source",
-    description: "General open source discussion on Libera.Chat.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
-    channel: "#opensource",
+    name: "#testing",
+    description: "Local testing channel for irssi and automated checks.",
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
+    channel: "#testing",
     sort_order: 30
   }
 ]

@@ -18,7 +18,7 @@ describe("IrcpipeApp UI prototype", () => {
     render(<IrcpipeApp currentUser={null} developerOauth={true} />)
 
     expect(await screen.findByRole("heading", {name: "Community chat"})).toBeInTheDocument()
-    expect(screen.getByRole("button", {name: /#elixir/i})).toHaveTextContent("on irc.libera.chat")
+    expect(screen.getByRole("button", {name: /#elixir/i})).toHaveTextContent("on 127.0.0.1")
     expect(screen.getByRole("link", {name: "Developer OAuth"})).toHaveAttribute("href", "/auth/developer")
   })
 
@@ -35,7 +35,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(dialog).getByRole("heading", {name: "Sign in to join"})).toBeInTheDocument()
     expect(within(dialog).getByRole("link", {name: "Developer OAuth"})).toHaveAttribute(
       "href",
-      "/auth/developer?topic=libera-phoenix"
+      "/auth/developer?topic=local-phoenix"
     )
   })
 
@@ -51,7 +51,7 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(screen.getByRole("button", {name: /#rust/i}))
 
     expect(screen.getByRole("heading", {name: "#rust"})).toBeInTheDocument()
-    expect(screen.getByText("on irc.libera.chat")).toBeInTheDocument()
+    expect(screen.getByText("on 127.0.0.1")).toBeInTheDocument()
     expect(screen.getByText(/placeholder chat until the IRC backend is wired/i)).toBeInTheDocument()
   })
 
@@ -81,9 +81,9 @@ describe("IrcpipeApp UI prototype", () => {
 
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
-    await user.click(screen.getByRole("button", {name: /libera/i}))
+    await user.click(screen.getByRole("button", {name: "local"}))
 
-    expect(screen.getByRole("heading", {name: "irc.libera.chat", level: 2})).toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
     expect(screen.getByText("Server buffer")).toBeInTheDocument()
     expect(screen.getByText(/NickServ/i)).toBeInTheDocument()
     expect(screen.getByText(/ChanServ/i)).toBeInTheDocument()
@@ -103,5 +103,10 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "Community chat"})).toBeInTheDocument()
     expect(screen.getByRole("link", {name: "Open chat"})).toHaveAttribute("href", "/chat")
     expect(screen.queryByRole("navigation", {name: "Joined topics"})).not.toBeInTheDocument()
+  })
+
+  test("prototype topics do not reference public IRC servers", () => {
+    expect(demoTopics.map((topic) => topic.server_host)).toEqual(demoTopics.map(() => "127.0.0.1"))
+    expect(demoTopics.map((topic) => topic.use_tls)).toEqual(demoTopics.map(() => false))
   })
 })

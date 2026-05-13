@@ -5,67 +5,67 @@ const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribut
 
 export const demoTopics = [
   {
-    id: "libera-elixir",
+    id: "local-elixir",
     name: "#elixir",
     description: "Phoenix, OTP, releases, and production Elixir help.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
     channel: "#elixir",
     members: 426,
     vibe: "builders",
   },
   {
-    id: "libera-phoenix",
+    id: "local-phoenix",
     name: "#phoenix",
     description: "LiveView patterns, web UI questions, and framework support.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
     channel: "#phoenix",
     members: 188,
     vibe: "web",
   },
   {
-    id: "oftc-linux",
+    id: "local-linux",
     name: "#linux",
     description: "Daily Linux discussion, troubleshooting, and desktop setups.",
-    server_host: "irc.oftc.net",
-    server_port: 6697,
-    use_tls: true,
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
     channel: "#linux",
     members: 931,
     vibe: "systems",
   },
   {
-    id: "libera-rust",
+    id: "local-rust",
     name: "#rust",
     description: "Rust language help, async crates, and compiler talk.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
     channel: "#rust",
     members: 812,
     vibe: "language",
   },
   {
-    id: "libera-gamedev",
+    id: "local-gamedev",
     name: "#gamedev",
     description: "Indie games, engines, shaders, and release feedback.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
     channel: "#gamedev",
     members: 147,
     vibe: "creative",
   },
   {
-    id: "libera-homelab",
+    id: "local-homelab",
     name: "#homelab",
     description: "Self-hosting, small servers, storage, and network projects.",
-    server_host: "irc.libera.chat",
-    server_port: 6697,
-    use_tls: true,
+    server_host: "127.0.0.1",
+    server_port: 6667,
+    use_tls: false,
     channel: "#homelab",
     members: 269,
     vibe: "infra",
@@ -143,7 +143,7 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
   const [notificationState, setNotificationState] = useState(notificationPermission())
   const [connections, setConnections] = useState(() => initialConnections())
   const [activeChannelId, setActiveChannelId] = useState("chan-elixir")
-  const [activeServerId, setActiveServerId] = useState("server-libera")
+  const [activeServerId, setActiveServerId] = useState("server-local")
   const [messagesByChannel, setMessagesByChannel] = useState(() => ({
     "chan-elixir": demoMessages,
   }))
@@ -242,7 +242,7 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
         name: channel,
         description: `A channel you joined directly on ${host}.`,
         server_host: host,
-        server_port: Number(form.port) || 6697,
+        server_port: Number(form.port) || 6667,
         use_tls: form.useTls,
         channel,
       })
@@ -656,7 +656,7 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
 
   return {
     title: activeChannel?.channel || "#elixir",
-    context: `on ${activeChannel?.connection?.host || "irc.libera.chat"}`,
+    context: `on ${activeChannel?.connection?.host || "127.0.0.1"}`,
     subtitle: activeChannel?.topic || "Pick a topic from the sidebar or discover view.",
   }
 }
@@ -926,7 +926,7 @@ function AuthPrompt({developerOauth, topic, onClose}) {
 }
 
 function ManualJoinDialog({onClose, onJoin}) {
-  const [form, setForm] = useState({host: "irc.libera.chat", port: "6697", channels: "#elixir, #phoenix", useTls: true})
+  const [form, setForm] = useState({host: "127.0.0.1", port: "6667", channels: "#elixir, #phoenix", useTls: false})
 
   function submit(event) {
     event.preventDefault()
@@ -1034,9 +1034,9 @@ function AppMark({small = false}) {
 function initialConnections() {
   return [
     {
-      id: "server-libera",
-      name: "libera",
-      host: "irc.libera.chat",
+      id: "server-local",
+      name: "local",
+      host: "127.0.0.1",
       status: "connected",
       channels: [
         {id: "chan-elixir", channel: "#elixir", topic: "Phoenix, OTP, releases, and production Elixir help.", unread_count: 0, mention_count: 1},
@@ -1044,9 +1044,9 @@ function initialConnections() {
       ],
     },
     {
-      id: "server-oftc",
-      name: "oftc",
-      host: "irc.oftc.net",
+      id: "server-local-testing",
+      name: "local testing",
+      host: "127.0.0.1",
       status: "connected",
       channels: [
         {id: "chan-linux", channel: "#linux", topic: "Linux systems and troubleshooting.", unread_count: 0, mention_count: 0},
