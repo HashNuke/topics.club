@@ -26,8 +26,12 @@ defmodule Ircpipe.Irc.SessionTest do
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert :ok = Session.join(connection, "#pipe")
 
+    assert_receive {:buffer_message, %{kind: "system", body: "Connecting to localhost:" <> _}},
+                   1_000
+
     assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
     assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
+    assert_receive {:buffer_message, %{kind: "system", body: "Connected to localhost."}}, 1_000
     assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000
 
     assert_receive {:presence_sync,
@@ -52,5 +56,8 @@ defmodule Ircpipe.Irc.SessionTest do
     assert Enum.any?(messages, &(&1.body == "hello ircpipe" and &1.nick == "akash"))
 
     assert :ok = Session.quit(connection)
+
+    assert_receive {:buffer_message, %{kind: "system", body: "Disconnected from localhost."}},
+                   1_000
   end
 end

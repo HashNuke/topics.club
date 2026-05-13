@@ -54,6 +54,7 @@ defmodule Ircpipe.Irc.Session do
   @impl true
   def handle_info(:connect, state) do
     connection = state.connection
+    record_server_line(connection, "Connecting to #{connection.host}:#{connection.port}.")
     update_status(connection, "connecting")
 
     opts = [
@@ -83,6 +84,12 @@ defmodule Ircpipe.Irc.Session do
           "IRC connection failed for #{connection.host}:#{connection.port}: #{inspect(reason)}"
         )
 
+        record_server_line(
+          connection,
+          "Connection to #{connection.host}:#{connection.port} failed: #{inspect(reason)}.",
+          "error"
+        )
+
         update_status(connection, "errored")
         {:stop, reason, state}
     end
@@ -90,22 +97,36 @@ defmodule Ircpipe.Irc.Session do
 
   def handle_info({:ircxd, :registered}, state) do
     {:ok, updated} = update_status(state.connection, "connected")
+    record_server_line(updated, "Connected to #{updated.host}.")
     Enum.each(state.pending_joins, &Ircxd.Client.join(state.client, &1))
     {:noreply, %{state | connection: updated, registered?: true}}
   end
 
   def handle_info({:ircxd, {:connect_error, reason}}, state) do
     Logger.warning("IRC connection error for #{state.connection.host}: #{inspect(reason)}")
+
+    record_server_line(
+      state.connection,
+      "Connection error for #{state.connection.host}: #{inspect(reason)}.",
+      "error"
+    )
+
     update_status(state.connection, "errored")
     {:noreply, state}
   end
 
   def handle_info({:ircxd, :disconnected}, state) do
+    record_server_line(state.connection, "Disconnected from #{state.connection.host}.")
     update_status(state.connection, "disconnected")
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:reconnecting, _payload}}, state) do
+    record_server_line(
+      state.connection,
+      "Reconnecting to #{state.connection.host}:#{state.connection.port}."
+    )
+
     update_status(state.connection, "connecting")
     {:noreply, state}
   end
@@ -202,6 +223,7 @@ defmodule Ircpipe.Irc.Session do
         client -> Ircxd.Client.quit(client, reason)
       end
 
+    record_server_line(state.connection, "Disconnected from #{state.connection.host}.")
     {:stop, :normal, normalize_result(result), state}
   end
 
@@ -218,6 +240,15 @@ defmodule Ircpipe.Irc.Session do
     DBConnection.OwnershipError -> {:ok, connection}
   catch
     :exit, _reason -> {:ok, connection}
+  end
+
+  defp record_server_line(connection, body, kind \\ "system") do
+    Chat.record_server_message(connection, body, kind)
+  rescue
+    Ecto.StaleEntryError -> {:ok, nil}
+    DBConnection.OwnershipError -> {:ok, nil}
+  catch
+    :exit, _reason -> {:ok, nil}
   end
 
   defp fetch_client(%{client: nil}), do: {:error, :not_connected}

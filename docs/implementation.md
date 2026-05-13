@@ -284,11 +284,11 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Keep sessions supervised by `Ircpipe.Irc.SessionSupervisor`.
 - [x] Keep sessions registered by `{user_id, server_connection_id}`.
 - [ ] Emit server-buffer messages for:
-  - [ ] connect start
-  - [ ] connect success
-  - [ ] connect failure
-  - [ ] disconnect
-  - [ ] reconnect
+  - [x] connect start
+  - [x] connect success
+  - [x] connect failure
+  - [x] disconnect
+  - [x] reconnect
   - [ ] MOTD
   - [ ] numeric replies
   - [ ] service notices
