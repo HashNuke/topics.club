@@ -352,7 +352,7 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
             Pick a topic and start talking.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-8 text-slate-400">
-            Browse live communities by name. We handle the server connection, join the room, and keep short scrollback so returning feels natural.
+            Join open conversations without setting up an IRC client. Choose a topic, sign in, and land straight in chat.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             {currentUser ? (
