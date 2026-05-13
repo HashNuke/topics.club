@@ -68,6 +68,20 @@ class FakeChannel {
   }
 }
 
+class TimeoutChannel extends FakeChannel {
+  push(event, payload, timeout) {
+    this.pushed = {event, payload, timeout}
+    return receiver({timeout: true})
+  }
+}
+
+class TimeoutSocket extends FakeSocket {
+  constructor(path, options) {
+    super(path, options)
+    this.fakeChannel = new TimeoutChannel()
+  }
+}
+
 function receiver(responses = {}) {
   return {
     receive(status, callback) {
@@ -159,6 +173,15 @@ describe("realtime client", () => {
       event: "message:send",
       payload: {body: "hello"},
       timeout: 500,
+    })
+  })
+
+  test("wraps channel push timeouts in typed payloads", async () => {
+    const client = createRealtimeClient({SocketClass: TimeoutSocket, userId: 7})
+
+    await expect(client.push("message:send", {body: "hello"}, 500)).rejects.toEqual({
+      reply: "timeout",
+      reason: "timeout",
     })
   })
 

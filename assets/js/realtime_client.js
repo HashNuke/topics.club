@@ -49,7 +49,7 @@ export function createRealtimeClient({
         .push(event, payload, timeout)
         .receive("ok", resolve)
         .receive("error", reject)
-        .receive("timeout", () => reject({reason: "timeout"}))
+        .receive("timeout", () => reject({reply: "timeout", reason: "timeout"}))
     })
   }
 

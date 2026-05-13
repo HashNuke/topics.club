@@ -106,7 +106,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Backend persists the user's outgoing message after IRC send acceptance.
 - [x] Backend replies `ok` with canonical message payload.
 - [x] Backend replies `error` with a typed reason if the buffer is unavailable.
-- [ ] Backend replies `timeout` or lets the Phoenix client timeout surface a networking issue.
+- [x] Backend replies `timeout` or lets the Phoenix client timeout surface a networking issue.
 - [x] React shows pending outgoing messages with `client_message_id`.
 - [x] React replaces pending messages with canonical messages on `ok`.
 - [x] React marks pending messages failed on `error` or `timeout`, with retry affordance.
@@ -270,10 +270,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `channel:leave`
   - [x] `server:disconnect`
   - [x] `server:reconnect`
-- [ ] Add typed reply payloads for every handler:
+- [x] Add typed reply payloads for every handler:
   - [x] `ok`
   - [x] `error`
-  - [ ] `timeout`
+  - [x] `timeout`
 - [x] Add event serialization helpers so REST and realtime payloads match.
 - [x] Add channel tests for authorization, replies, broadcasts, and failure payloads.
   - [x] `message:send` ownership, reply, IRC send, and persistence
@@ -382,9 +382,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] Add bootstrap endpoint.
   - [x] Add message history pagination.
   - [x] Add user list payloads.
-- [ ] Phase 3: Expand realtime channel.
+- [x] Phase 3: Expand realtime channel.
   - [x] Add channel push handlers.
-  - [ ] Add reply contracts.
+  - [x] Add reply contracts.
   - [x] Add event contracts.
   - [x] Add backend tests.
 - [x] Phase 4: Integrate IRC runtime.

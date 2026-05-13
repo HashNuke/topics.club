@@ -1,7 +1,8 @@
 defmodule IrcpipeWeb.Api.ConnectionControllerTest do
-  use IrcpipeWeb.ConnCase, async: true
+  use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Irc.Session
   alias Ircpipe.IrcTestServer
 
   setup :register_and_log_in_user
@@ -29,6 +30,10 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
     assert %{"connections" => [%{"id" => ^connection_id, "host" => "127.0.0.1"}]} =
              json_response(list_conn, 200)
+
+    connection = Chat.get_connection!(user, connection_id)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert :ok = Session.quit(connection)
   end
 
   test "connects an owned server connection", %{conn: conn, user: user} do
@@ -51,6 +56,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
     assert connection_id == connection.id
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert :ok = Session.quit(connection)
   end
 
   test "disconnects an owned server connection", %{conn: conn, user: user} do
