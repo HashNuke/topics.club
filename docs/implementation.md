@@ -299,17 +299,17 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Create an API client module for bootstrap/history/mutations.
 - [x] Create a Phoenix socket client module.
 - [ ] Create a reducer/store for:
-  - [ ] connections
-  - [ ] buffers
-  - [ ] active buffer
-  - [ ] messages by buffer
-  - [ ] users by channel buffer
-  - [ ] unread counters
-  - [ ] connection health
-  - [ ] notification state
+  - [x] connections
+  - [x] buffers
+  - [x] active buffer
+  - [x] messages by buffer
+  - [x] users by channel buffer
+  - [x] unread counters
+  - [x] connection health
+  - [x] notification state
 - [ ] Keep React components UI-focused.
 - [ ] Keep transport/event normalization out of components.
-- [ ] Add tests for reducers and event application.
+- [x] Add tests for reducers and event application.
 - [ ] Add React component tests for:
   - [ ] leaving channel/server menus
   - [ ] slash command popover
@@ -327,7 +327,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] topic join
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
-- [ ] Frontend reducer tests for realtime event application.
+- [x] Frontend reducer tests for realtime event application.
 - [x] Frontend component tests for the chat shell.
 - [x] Frontend tests for slash command completion.
 - [ ] Frontend tests for notification permission states.
