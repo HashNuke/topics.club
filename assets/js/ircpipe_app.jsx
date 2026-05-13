@@ -2160,6 +2160,10 @@ function applyUserDiff(users, diff) {
     return users.map((user) => (user.nick === diff.old_nick ? {...user, nick: diff.new_nick} : user))
   }
 
+  if (diff.action === "away" && diff.nick && diff.status) {
+    return users.map((user) => (user.nick === diff.nick ? {...user, status: diff.status} : user))
+  }
+
   return users
 }
 

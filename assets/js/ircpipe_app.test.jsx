@@ -572,6 +572,13 @@ describe("IrcpipeApp UI prototype", () => {
     const people = screen.getByRole("complementary", {name: "People here"})
     await waitFor(() => expect(within(people).getByText("akash")).toBeInTheDocument())
 
+    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "away", nick: "akash", status: "away"}})
+    await waitFor(() => expect(within(people).getByText("Away")).toBeInTheDocument())
+    expect(within(people).getByText("akash")).toBeInTheDocument()
+
+    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "away", nick: "akash", status: "online"}})
+    await waitFor(() => expect(within(people).queryByText("Away")).not.toBeInTheDocument())
+
     realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "nick", old_nick: "akash", new_nick: "ak"}})
     await waitFor(() => expect(within(people).getByText("ak")).toBeInTheDocument())
 

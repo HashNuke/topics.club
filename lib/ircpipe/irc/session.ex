@@ -284,6 +284,18 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, state}
   end
 
+  def handle_info({:ircxd, {:away, %{nick: nick} = payload}}, state) do
+    status = if Map.get(payload, :away?), do: "away", else: "online"
+
+    Chat.broadcast_presence_diff(state.connection, nil, %{
+      action: "away",
+      nick: nick,
+      status: status
+    })
+
+    {:noreply, state}
+  end
+
   def handle_info({:ircxd, {:topic, %{channel: channel, nick: nick, topic: topic}}}, state) do
     record_channel_line(
       state.connection,

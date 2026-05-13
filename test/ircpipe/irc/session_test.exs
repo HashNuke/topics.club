@@ -107,6 +107,50 @@ defmodule Ircpipe.Irc.SessionTest do
            ]
   end
 
+  test "broadcasts away state changes to joined channel buffers" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd, {:away, %{nick: "akash", away?: true, message: "brb"}}},
+               state
+             )
+
+    assert_receive {:presence_diff,
+                    %{
+                      buffer_id: buffer_id,
+                      diff: %{action: "away", nick: "akash", status: "away"}
+                    }}
+
+    assert buffer_id == "channel:#{membership.id}"
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd, {:away, %{nick: "akash", away?: false}}},
+               state
+             )
+
+    assert_receive {:presence_diff,
+                    %{
+                      buffer_id: ^buffer_id,
+                      diff: %{action: "away", nick: "akash", status: "online"}
+                    }}
+  end
+
   test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do
     user = AccountsFixtures.user_fixture()
 
