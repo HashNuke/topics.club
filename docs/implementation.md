@@ -238,19 +238,19 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## API checklist
 
 - [x] `GET /api/bootstrap`
-- [ ] `GET /api/topics`
+- [x] `GET /api/topics`
 - [x] `POST /api/topics/:id/join`
 - [x] `GET /api/buffers/:id/messages`
-- [ ] `POST /api/buffers/:id/read`
-- [ ] `POST /api/connections`
+- [x] `POST /api/channels/:id/read`
+- [x] `POST /api/connections`
 - [ ] `PUT /api/connections/:id`
-- [ ] `POST /api/connections/:id/connect`
+- [x] `POST /api/connections/:id/connect`
 - [x] `POST /api/connections/:id/disconnect`
 - [ ] `DELETE /api/connections/:id`
 - [x] `POST /api/channel_memberships/:id/leave`
-- [ ] `PUT /api/settings`
-- [ ] Keep all authenticated endpoints under pipelines that assign `current_scope`.
-- [ ] Pass `current_scope` or `current_scope.user` into context functions for user-scoped data.
+- [x] `PUT /api/settings`
+- [x] Keep all authenticated endpoints under pipelines that assign `current_scope`.
+- [x] Pass `current_scope` or `current_scope.user` into context functions for user-scoped data.
 
 ## Phoenix channel checklist
 

@@ -9,6 +9,25 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
 
   setup :register_and_log_in_user
 
+  test "lists suggested local topics", %{conn: conn} do
+    Repo.insert!(
+      Topic.changeset(%Topic{}, %{
+        name: "#elixir",
+        description: "Local Elixir discussion.",
+        server_host: "127.0.0.1",
+        server_port: 6667,
+        use_tls: false,
+        channel: "#elixir",
+        sort_order: 10
+      })
+    )
+
+    conn = get(conn, ~p"/api/topics")
+
+    assert %{"topics" => [%{"name" => "#elixir", "server_host" => "127.0.0.1"}]} =
+             json_response(conn, 200)
+  end
+
   test "joins a suggested topic using the local IRC server", %{conn: conn, user: user} do
     server = start_supervised!({IrcTestServer, self()})
 

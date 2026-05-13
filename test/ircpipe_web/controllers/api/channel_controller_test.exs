@@ -2,8 +2,33 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
   use IrcpipeWeb.ConnCase, async: true
 
   alias Ircpipe.Chat
+  alias Ircpipe.Repo
 
   setup :register_and_log_in_user
+
+  test "marks a channel membership read through the API", %{conn: conn, user: user} do
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+
+    membership =
+      membership |> Ecto.Changeset.change(unread_count: 3, mention_count: 1) |> Repo.update!()
+
+    conn = post(conn, ~p"/api/channels/#{membership.id}/read")
+
+    assert json_response(conn, 200) == %{"ok" => true}
+
+    reloaded = Chat.get_membership!(user, membership.id)
+    assert reloaded.unread_count == 0
+    assert reloaded.mention_count == 0
+  end
 
   test "leaves a channel membership through the API", %{conn: conn, user: user} do
     {:ok, connection} =
