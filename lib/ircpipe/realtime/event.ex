@@ -5,7 +5,7 @@ defmodule Ircpipe.Realtime.Event do
 
   def message(message, buffer_id, extra \\ %{}) do
     %{
-      type: "buffer:message",
+      type: message_type(message),
       version: @version,
       event_id: "message:#{message.id}",
       id: message.id,
@@ -54,4 +54,7 @@ defmodule Ircpipe.Realtime.Event do
       occurred_at: occurred_at
     })
   end
+
+  defp message_type(%{kind: "error"}), do: "buffer:error"
+  defp message_type(_message), do: "buffer:message"
 end

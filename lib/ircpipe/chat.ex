@@ -462,10 +462,13 @@ defmodule Ircpipe.Chat do
   end
 
   defp broadcast_server_message(message, connection) do
+    event = Event.message(message, "server:#{connection.id}", %{mentioned: false})
+    pubsub_event = if event.type == "buffer:error", do: :buffer_error, else: :buffer_message
+
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {:buffer_message, Event.message(message, "server:#{connection.id}", %{mentioned: false})}
+      {pubsub_event, event}
     )
   end
 

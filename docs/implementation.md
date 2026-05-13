@@ -180,7 +180,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Queue drafts locally but do not pretend they were sent.
 - [x] Surface channel push timeouts as "Still trying" or "Send failed".
 - [x] Show server-specific IRC connection failures in the server buffer.
-- [ ] Push backend IRC session failures as `server:status` and `buffer:error`.
+- [x] Push backend IRC session failures as `server:status` and `buffer:error`.
 - [ ] Add retry actions for:
   - [ ] reconnect backend socket
   - [x] reconnect IRC server

@@ -75,6 +75,37 @@ defmodule Ircpipe.ChatTest do
              Chat.list_buffer_messages(user, "server:#{connection.id}")
   end
 
+  test "broadcasts server errors as buffer error events" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:ok, %Message{kind: "error", body: "Connection failed"}} =
+             Chat.record_server_message(connection, "Connection failed", "error")
+
+    assert_receive {:buffer_error,
+                    %{
+                      type: "buffer:error",
+                      version: 1,
+                      event_id: "message:" <> _,
+                      buffer_id: "server:" <> _,
+                      server_connection_id: connection_id,
+                      kind: "error",
+                      body: "Connection failed"
+                    }}
+
+    assert connection_id == connection.id
+  end
+
   test "broadcasts inbound channel messages as normalized buffer events" do
     user = AccountsFixtures.user_fixture()
 
