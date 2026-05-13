@@ -146,16 +146,16 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Use Floating UI for both popover menus.
   - [x] channel menu
   - [x] server menu
-- [ ] Channel menu actions:
+- [x] Channel menu actions:
   - [x] Mark read
   - [x] Copy channel name
   - [x] Leave channel
-- [ ] Server menu actions:
+- [x] Server menu actions:
   - [x] Connect or reconnect
   - [x] Disconnect
   - [x] Edit connection
   - [x] Leave server
-- [ ] Backend channel leave flow:
+- [x] Backend channel leave flow:
   - [x] authorize membership
   - [x] send IRC `PART`
   - [x] mark channel membership as left or delete it
@@ -260,7 +260,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [x] Keep `IrcpipeWeb.UserSocket` authenticated by session cookie.
 - [x] Keep `IrcpipeWeb.UserChannel` as the single realtime bus.
-- [ ] Add `handle_in/3` handlers:
+- [x] Add `handle_in/3` handlers:
   - [x] `message:send`
   - [x] `command:run`
   - [x] `buffer:read`
@@ -272,7 +272,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] `error`
   - [ ] `timeout`
 - [x] Add event serialization helpers so REST and realtime payloads match.
-- [ ] Add channel tests for authorization, replies, broadcasts, and failure payloads.
+- [x] Add channel tests for authorization, replies, broadcasts, and failure payloads.
   - [x] `message:send` ownership, reply, IRC send, and persistence
   - [x] `command:run` reply
   - [x] `buffer:read` counter reset reply
@@ -316,7 +316,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [x] Create an API client module for bootstrap/history/mutations.
 - [x] Create a Phoenix socket client module.
-- [ ] Create a reducer/store for:
+- [x] Create a reducer/store for:
   - [x] connections
   - [x] buffers
   - [x] active buffer
@@ -369,15 +369,15 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Implementation sequence
 
-- [ ] Phase 1: Stabilize frontend shell contracts.
+- [x] Phase 1: Stabilize frontend shell contracts.
   - [x] Add leave buttons and popover menus.
   - [x] Add slash command popover UI.
   - [x] Add connection health indicator UI.
-  - [ ] Add reducer-level state model.
-- [ ] Phase 2: Build backend buffer model.
-  - [ ] Add buffer serialization.
-  - [ ] Add bootstrap endpoint.
-  - [ ] Add message history pagination.
+  - [x] Add reducer-level state model.
+- [x] Phase 2: Build backend buffer model.
+  - [x] Add buffer serialization.
+  - [x] Add bootstrap endpoint.
+  - [x] Add message history pagination.
   - [x] Add user list payloads.
 - [ ] Phase 3: Expand realtime channel.
   - [ ] Add channel push handlers.
