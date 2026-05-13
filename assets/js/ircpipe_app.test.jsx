@@ -428,6 +428,38 @@ describe("IrcpipeApp UI prototype", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/bootstrap", expect.objectContaining({credentials: "same-origin"}))
   })
 
+  test("renders IRC join events as channel meta messages", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onBufferMessage({
+      type: "buffer:message",
+      buffer_id: "channel:7",
+      id: 206,
+      nick: "dev23",
+      body: "dev23 joined #elixir.",
+      kind: "join",
+      occurred_at: "2026-05-13T10:05:00Z",
+    })
+
+    expect(await screen.findByText("dev23 joined #elixir.")).toBeInTheDocument()
+    expect(screen.queryByText("dev23:")).not.toBeInTheDocument()
+  })
+
   test("reconciles messages newer than the bootstrap cursor", async () => {
     mockBootstrapFetch({
       afterMessages: [

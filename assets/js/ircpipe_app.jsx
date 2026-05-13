@@ -1796,8 +1796,12 @@ function TimeSeparator({value}) {
 }
 
 function MessageRow({message, onRetryMessage}) {
-  if (message.kind === "system") {
-    return <div className="px-2 py-1 text-xs italic text-emerald-300">{message.body}</div>
+  if (metaMessageKind(message.kind)) {
+    return (
+      <div className={["px-2 py-1 text-xs italic", message.kind === "error" ? "text-rose-300" : "text-emerald-300"].join(" ")}>
+        {message.body}
+      </div>
+    )
   }
 
   return (
@@ -1823,6 +1827,10 @@ function MessageRow({message, onRetryMessage}) {
       </time>
     </div>
   )
+}
+
+function metaMessageKind(kind) {
+  return ["system", "command", "join", "part", "quit", "nick", "mode", "kick", "topic", "notice", "error"].includes(kind)
 }
 
 function DiscoverPane({topics, onSelectTopic}) {
