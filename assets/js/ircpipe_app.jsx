@@ -171,10 +171,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
+  const viewRef = useRef(view)
 
   useEffect(() => {
     connectionsRef.current = connections
   }, [connections])
+
+  useEffect(() => {
+    viewRef.current = view
+  }, [view])
 
   useEffect(() => {
     messagesByChannelRef.current = messagesByChannel
@@ -301,6 +306,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const messages = activeChannel ? messagesByChannel[activeChannel.id] || [] : []
   const serverMessages = activeServer ? messagesByServer[activeServer.id] || [] : []
   const users = activeChannel ? usersByChannel[activeChannel.id] || [] : []
+
+  useEffect(() => {
+    if (mode === "landing" || view !== "chat" || !activeChannel?.id?.startsWith("channel:")) return
+    if ((activeChannel.unread_count || 0) === 0 && (activeChannel.mention_count || 0) === 0) return
+
+    markBufferRead(activeChannel.id)
+  }, [mode, view, activeChannel?.id, activeChannel?.unread_count, activeChannel?.mention_count])
 
   function selectTopic(topic) {
     if (mode === "landing" && currentUser) {
@@ -708,6 +720,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       ...current,
       [bufferId]: appendTimelineMessage(current[bufferId] || [], normalized, readingBuffersRef.current.has(bufferId)),
     }))
+
+    if (viewRef.current === "chat" && activeChannelIdRef.current === bufferId) {
+      defer(() => markBufferRead(bufferId))
+    }
   }
 
   function updateBufferReadingState(bufferId, readingOlder) {
@@ -998,20 +1014,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   )
 
   async function markChannelRead(channel) {
-    if (!channel?.id || !realtimeClientRef.current) return
+    return markBufferRead(channel?.id)
+  }
+
+  async function markBufferRead(bufferId) {
+    if (!bufferId || !realtimeClientRef.current) return
 
     try {
-      await realtimeClientRef.current.push("buffer:read", {buffer_id: channel.id})
-      setConnections((current) =>
-        current.map((connection) => ({
-          ...connection,
-          channels: connection.channels.map((currentChannel) =>
-            currentChannel.id === channel.id
-              ? {...currentChannel, unread_count: 0, mention_count: 0}
-              : currentChannel
-          ),
-        }))
-      )
+      await realtimeClientRef.current.push("buffer:read", {buffer_id: bufferId})
+      applyBufferRead({buffer_id: bufferId, unread_count: 0, mention_count: 0})
     } catch (_error) {
       // Keep counters as-is if the backend rejects the read marker.
     }

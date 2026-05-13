@@ -11,7 +11,13 @@ function mockTopicsFetch() {
   })
 }
 
-function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected", messageCursorsByBuffer = {"channel:7": 99}} = {}) {
+function mockBootstrapFetch({
+  afterMessages = [],
+  channelMentionCount = 0,
+  channelUnreadCount = 0,
+  connectionStatus = "connected",
+  messageCursorsByBuffer = {"channel:7": 99},
+} = {}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/connections/42" && options.method === "PUT") {
       return {
@@ -25,7 +31,7 @@ function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected",
             use_tls: true,
             nickname: "mira2",
             status: "connected",
-            channels: [{id: 7, channel: "#testing", unread_count: 1, mention_count: 0}],
+            channels: [{id: 7, channel: "#testing", unread_count: channelUnreadCount, mention_count: channelMentionCount}],
           },
         }),
       }
@@ -102,8 +108,8 @@ function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected",
               title: "#testing",
               subtitle: "on 127.0.0.1",
               status: connectionStatus,
-              unread_count: 1,
-              mention_count: 0,
+              unread_count: channelUnreadCount,
+              mention_count: channelMentionCount,
             },
           ],
           active_buffer_id: "channel:7",
@@ -1413,6 +1419,57 @@ describe("IrcpipeApp UI prototype", () => {
     } finally {
       Object.defineProperty(navigator, "clipboard", {value: originalClipboard, configurable: true})
     }
+  })
+
+  test("marks the active channel read when it has unread mentions", async () => {
+    mockBootstrapFetch({channelMentionCount: 3, channelUnreadCount: 4})
+    const push = vi.fn(() => Promise.resolve({ok: true}))
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"}))
+    await waitFor(() => expect(screen.queryByText("3")).not.toBeInTheDocument())
+  })
+
+  test("marks visible active channel read after receiving a realtime message", async () => {
+    mockBootstrapFetch({channelMentionCount: 0, channelUnreadCount: 0})
+    const push = vi.fn(() => Promise.resolve({ok: true}))
+    let realtimeHandlers
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onBufferMessage({
+      id: 201,
+      buffer_id: "channel:7",
+      nick: "akash",
+      body: "hello mira",
+      kind: "message",
+      mentioned: true,
+      occurred_at: "2026-05-13T10:01:00Z",
+    })
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"}))
   })
 
   test("uses the server action menu for reconnect and disconnect actions", async () => {
