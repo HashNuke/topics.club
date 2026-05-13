@@ -579,6 +579,14 @@ describe("IrcpipeApp UI prototype", () => {
     realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "away", nick: "akash", status: "online"}})
     await waitFor(() => expect(within(people).queryByText("Away")).not.toBeInTheDocument())
 
+    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "role", nick: "akash", role: "op"}})
+    await waitFor(() => expect(within(people).getByText("Mods")).toBeInTheDocument())
+    await waitFor(() => expect(within(people).getAllByText("mod")).toHaveLength(2))
+    expect(within(people).getByText("akash")).toBeInTheDocument()
+
+    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "role", nick: "akash", role: "user"}})
+    await waitFor(() => expect(within(people).getAllByText("mod")).toHaveLength(1))
+
     realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "nick", old_nick: "akash", new_nick: "ak"}})
     await waitFor(() => expect(within(people).getByText("ak")).toBeInTheDocument())
 

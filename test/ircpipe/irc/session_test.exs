@@ -151,6 +151,57 @@ defmodule Ircpipe.Irc.SessionTest do
                     }}
   end
 
+  test "broadcasts channel privilege mode changes as role presence diffs" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd, {:mode, %{target: "#pipe", modes: "+ov", params: ["akash", "mira"]}}},
+               state
+             )
+
+    assert_receive {:presence_diff,
+                    %{
+                      buffer_id: buffer_id,
+                      diff: %{action: "role", nick: "akash", role: "op"}
+                    }}
+
+    assert_receive {:presence_diff,
+                    %{
+                      buffer_id: ^buffer_id,
+                      diff: %{action: "role", nick: "mira", role: "voice"}
+                    }}
+
+    assert buffer_id == "channel:#{membership.id}"
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:mode, %{target: "#pipe", modes: "+b-o", params: ["*!*@example.test", "akash"]}}},
+               state
+             )
+
+    assert_receive {:presence_diff,
+                    %{
+                      buffer_id: ^buffer_id,
+                      diff: %{action: "role", nick: "akash", role: "user"}
+                    }}
+  end
+
   test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do
     user = AccountsFixtures.user_fixture()
 

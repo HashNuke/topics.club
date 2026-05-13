@@ -296,6 +296,14 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, state}
   end
 
+  def handle_info({:ircxd, {:mode, %{target: "#" <> _ = channel} = payload}}, state) do
+    payload
+    |> mode_presence_diffs()
+    |> Enum.each(&Chat.broadcast_presence_diff(state.connection, channel, &1))
+
+    {:noreply, state}
+  end
+
   def handle_info({:ircxd, {:topic, %{channel: channel, nick: nick, topic: topic}}}, state) do
     record_channel_line(
       state.connection,
@@ -424,6 +432,53 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp role_from_prefixes(_prefixes), do: nil
+
+  defp mode_presence_diffs(%{modes: modes, params: params}) do
+    modes
+    |> String.graphemes()
+    |> Enum.reduce({"+", params, []}, fn
+      sign, {_current_sign, remaining_params, diffs} when sign in ["+", "-"] ->
+        {sign, remaining_params, diffs}
+
+      mode, {sign, remaining_params, diffs} ->
+        {nick, next_params} =
+          if mode_argument?(mode, sign) do
+            {List.first(remaining_params), Enum.drop(remaining_params, 1)}
+          else
+            {nil, remaining_params}
+          end
+
+        diff =
+          if mode in ["q", "a", "o", "h", "v"] && is_binary(nick) do
+            %{
+              action: "role",
+              nick: nick,
+              role: if(sign == "+", do: role_for_mode(mode), else: "user")
+            }
+          end
+
+        {sign, next_params, maybe_append(diffs, diff)}
+    end)
+    |> elem(2)
+    |> Enum.reverse()
+  end
+
+  defp mode_presence_diffs(_payload), do: []
+
+  defp mode_argument?(mode, _sign) when mode in ["q", "a", "o", "h", "v", "b", "e", "I", "k"],
+    do: true
+
+  defp mode_argument?("l", "+"), do: true
+  defp mode_argument?(_mode, _sign), do: false
+
+  defp role_for_mode("q"), do: "owner"
+  defp role_for_mode("a"), do: "admin"
+  defp role_for_mode("o"), do: "op"
+  defp role_for_mode("h"), do: "halfop"
+  defp role_for_mode("v"), do: "voice"
+
+  defp maybe_append(list, nil), do: list
+  defp maybe_append(list, item), do: [item | list]
 
   defp persisted_channels(%ServerConnection{channel_memberships: memberships})
        when is_list(memberships) do

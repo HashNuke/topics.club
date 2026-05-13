@@ -1698,7 +1698,7 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
 function RightSidebar({activeChannel, users, mobile = false}) {
   const [expandedGroups, setExpandedGroups] = useState({})
   const groupedUsers = [
-    {label: "Mods", users: users.filter((user) => user.role === "op")},
+    {label: "Mods", users: users.filter((user) => ["owner", "admin", "op", "halfop"].includes(user.role))},
     {label: "Voiced", users: users.filter((user) => user.role === "voice")},
     {label: "Online", users: users.filter((user) => (!user.role || user.role === "user") && user.status !== "away")},
     {label: "Away", users: users.filter((user) => user.status === "away")},
@@ -1741,7 +1741,7 @@ function RightSidebar({activeChannel, users, mobile = false}) {
 }
 
 function UserListItem({user}) {
-  const role = user.role === "op" ? "mod" : user.role === "voice" ? "voice" : "user"
+  const role = ["owner", "admin", "op", "halfop"].includes(user.role) ? "mod" : user.role === "voice" ? "voice" : "user"
 
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-300 hover:bg-slate-800/70">
@@ -2162,6 +2162,10 @@ function applyUserDiff(users, diff) {
 
   if (diff.action === "away" && diff.nick && diff.status) {
     return users.map((user) => (user.nick === diff.nick ? {...user, status: diff.status} : user))
+  }
+
+  if (diff.action === "role" && diff.nick && diff.role) {
+    return users.map((user) => (user.nick === diff.nick ? {...user, role: diff.role} : user))
   }
 
   return users

@@ -414,6 +414,38 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert buffer_id == "channel:#{membership.id}"
   end
 
+  test "pushes role presence diffs over the user channel" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    join_user_channel(user)
+
+    Chat.broadcast_presence_diff(connection, "#elixir", %{
+      action: "role",
+      nick: "akash",
+      role: "op"
+    })
+
+    assert_push "presence:diff", %{
+      type: "presence:diff",
+      version: 1,
+      event_id: "presence_diff:channel:" <> _,
+      buffer_id: buffer_id,
+      diff: %{action: "role", nick: "akash", role: "op"}
+    }
+
+    assert buffer_id == "channel:#{membership.id}"
+  end
+
   test "pushes joined buffers over the user channel" do
     user = AccountsFixtures.user_fixture()
 
