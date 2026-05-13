@@ -43,6 +43,18 @@ defmodule Ircpipe.Chat do
     end
   end
 
+  def update_connection(%User{} = user, id, attrs) do
+    user
+    |> get_connection!(id)
+    |> ServerConnection.changeset(attrs)
+    |> Repo.update()
+  end
+
+  def delete_connection(%User{} = user, id) do
+    connection = get_connection!(user, id)
+    Repo.delete(connection)
+  end
+
   def join_topic(%User{} = user, %Topic{} = topic) do
     Repo.transaction(fn ->
       {:ok, connection} =

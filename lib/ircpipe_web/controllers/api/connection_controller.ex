@@ -21,6 +21,14 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     end
   end
 
+  def update(conn, %{"id" => id, "connection" => attrs}) do
+    user = conn.assigns.current_scope.user
+
+    with {:ok, connection} <- Chat.update_connection(user, id, attrs) do
+      json(conn, %{connection: connection_json(connection)})
+    end
+  end
+
   def connect(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
     connection = Chat.get_connection!(user, id)
@@ -38,6 +46,21 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     {:ok, connection} = Chat.update_connection_status(connection, "disconnected")
 
     json(conn, %{connection: connection_json(connection)})
+  end
+
+  def delete(conn, %{"id" => id}) do
+    user = conn.assigns.current_scope.user
+    connection = Chat.get_connection!(user, id)
+
+    :ok = SessionSupervisor.stop_session(connection)
+    {:ok, _connection} = Chat.delete_connection(user, id)
+
+    json(conn, %{
+      deleted: %{
+        type: "server:deleted",
+        server_connection_id: connection.id
+      }
+    })
   end
 
   defp connection_json(connection) do

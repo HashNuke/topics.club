@@ -244,10 +244,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] `GET /api/buffers/:id/messages`
 - [x] `POST /api/channels/:id/read`
 - [x] `POST /api/connections`
-- [ ] `PUT /api/connections/:id`
+- [x] `PUT /api/connections/:id`
 - [x] `POST /api/connections/:id/connect`
 - [x] `POST /api/connections/:id/disconnect`
-- [ ] `DELETE /api/connections/:id`
+- [x] `DELETE /api/connections/:id`
 - [x] `POST /api/channel_memberships/:id/leave`
 - [x] `PUT /api/settings`
 - [x] Keep all authenticated endpoints under pipelines that assign `current_scope`.

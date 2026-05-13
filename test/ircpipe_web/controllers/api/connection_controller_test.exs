@@ -73,6 +73,60 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
     assert Chat.get_connection!(user, connection.id).status == "disconnected"
   end
 
+  test "updates an owned server connection", %{conn: conn, user: user} do
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    conn =
+      put(conn, ~p"/api/connections/#{connection.id}", %{
+        "connection" => %{
+          "name" => "local-edited",
+          "host" => "localhost",
+          "port" => 6697,
+          "use_tls" => true,
+          "nickname" => "mira2"
+        }
+      })
+
+    assert %{
+             "connection" => %{
+               "id" => connection_id,
+               "name" => "local-edited",
+               "host" => "localhost",
+               "port" => 6697,
+               "use_tls" => true,
+               "nickname" => "mira2"
+             }
+           } = json_response(conn, 200)
+
+    assert connection_id == connection.id
+  end
+
+  test "deletes an owned server connection", %{conn: conn, user: user} do
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    conn = delete(conn, ~p"/api/connections/#{connection.id}")
+
+    assert %{"deleted" => %{"type" => "server:deleted", "server_connection_id" => connection_id}} =
+             json_response(conn, 200)
+
+    assert connection_id == connection.id
+    assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(user, connection.id) end
+  end
+
   test "does not disconnect another user's server connection", %{conn: conn} do
     other_user = Ircpipe.AccountsFixtures.user_fixture()
 
