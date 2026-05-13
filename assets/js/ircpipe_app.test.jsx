@@ -11,7 +11,7 @@ function mockTopicsFetch() {
   })
 }
 
-function mockBootstrapFetch() {
+function mockBootstrapFetch({afterMessages = []} = {}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/connections/42" && options.method === "PUT") {
       return {
@@ -38,7 +38,7 @@ function mockBootstrapFetch() {
       }
     }
 
-    if (String(path).startsWith("/api/buffers/channel%3A7/messages")) {
+    if (String(path).startsWith("/api/buffers/channel%3A7/messages") && String(path).includes("before=99")) {
       return {
         ok: true,
         json: async () => ({
@@ -54,6 +54,13 @@ function mockBootstrapFetch() {
             },
           ],
         }),
+      }
+    }
+
+    if (String(path).startsWith("/api/buffers/")) {
+      return {
+        ok: true,
+        json: async () => ({messages: afterMessages}),
       }
     }
 
@@ -113,6 +120,7 @@ function mockBootstrapFetch() {
               },
             ],
           },
+          message_cursors_by_buffer: {"channel:7": 99},
           users_by_buffer: {"channel:7": []},
           topics: demoTopics,
         }),
@@ -294,6 +302,31 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(nav).getByText("local")).toBeInTheDocument()
     expect(within(nav).getByText("#testing")).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/bootstrap", expect.objectContaining({credentials: "same-origin"}))
+  })
+
+  test("reconciles messages newer than the bootstrap cursor", async () => {
+    mockBootstrapFetch({
+      afterMessages: [
+        {
+          id: 100,
+          buffer_id: "channel:7",
+          nick: "mira",
+          body: "missed during bootstrap",
+          kind: "message",
+          mentioned: false,
+          occurred_at: "2026-05-13T10:01:00Z",
+        },
+      ],
+    })
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
+    expect(await screen.findByText("missed during bootstrap")).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/buffers/channel%3A7/messages?limit=50&after=99",
+      expect.objectContaining({credentials: "same-origin"})
+    )
   })
 
   test("joins numeric backend topics through the topic join API", async () => {

@@ -23,6 +23,7 @@ describe("api client", () => {
 
     await api.joinTopic(42)
     await api.bufferMessages("channel:9", {before: 123, limit: 50})
+    await api.bufferMessages("channel:9", {after: 456, limit: 25})
 
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
@@ -32,6 +33,11 @@ describe("api client", () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
       "/api/buffers/channel%3A9/messages?limit=50&before=123",
+      expect.objectContaining({credentials: "same-origin"})
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      3,
+      "/api/buffers/channel%3A9/messages?limit=25&after=456",
       expect.objectContaining({credentials: "same-origin"})
     )
   })

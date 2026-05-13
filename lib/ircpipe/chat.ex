@@ -192,30 +192,28 @@ defmodule Ircpipe.Chat do
     membership = get_membership!(user, membership_id)
     limit = opts |> Keyword.get(:limit, 150) |> to_int(150) |> min(150) |> max(1)
 
-    Message
-    |> where([m], m.user_id == ^user.id and m.channel_membership_id == ^membership.id)
-    |> before_cursor(user, opts[:before])
-    |> order_by([m], desc: m.occurred_at, desc: m.id)
-    |> limit(^limit)
-    |> Repo.all()
-    |> Enum.reverse()
+    query =
+      Message
+      |> where([m], m.user_id == ^user.id and m.channel_membership_id == ^membership.id)
+      |> cursor_filter(user, opts)
+
+    list_cursor_messages(query, opts, limit)
   end
 
   def list_buffer_messages(%User{} = user, "server:" <> connection_id, opts) do
     connection = get_connection!(user, connection_id)
     limit = opts |> Keyword.get(:limit, 150) |> to_int(150) |> min(150) |> max(1)
 
-    Message
-    |> where(
-      [m],
-      m.user_id == ^user.id and m.server_connection_id == ^connection.id and
-        is_nil(m.channel_membership_id)
-    )
-    |> before_cursor(user, opts[:before])
-    |> order_by([m], desc: m.occurred_at, desc: m.id)
-    |> limit(^limit)
-    |> Repo.all()
-    |> Enum.reverse()
+    query =
+      Message
+      |> where(
+        [m],
+        m.user_id == ^user.id and m.server_connection_id == ^connection.id and
+          is_nil(m.channel_membership_id)
+      )
+      |> cursor_filter(user, opts)
+
+    list_cursor_messages(query, opts, limit)
   end
 
   def list_buffer_messages(%User{}, _buffer_id, _opts), do: []
@@ -567,6 +565,56 @@ defmodule Ircpipe.Chat do
   end
 
   defp before_cursor(query, _user, _before_id), do: query
+
+  defp after_cursor(query, %User{id: user_id}, after_id) when is_binary(after_id) do
+    case Integer.parse(after_id) do
+      {id, ""} ->
+        after_cursor(query, %User{id: user_id}, id)
+
+      _ ->
+        query
+    end
+  end
+
+  defp after_cursor(query, %User{id: user_id}, after_id) when is_integer(after_id) do
+    case Repo.get_by(Message, id: after_id, user_id: user_id) do
+      %Message{} = cursor ->
+        where(
+          query,
+          [m],
+          m.occurred_at > ^cursor.occurred_at or
+            (m.occurred_at == ^cursor.occurred_at and m.id > ^cursor.id)
+        )
+
+      nil ->
+        query
+    end
+  end
+
+  defp after_cursor(query, _user, _after_id), do: query
+
+  defp cursor_filter(query, user, opts) do
+    cond do
+      opts[:after] -> after_cursor(query, user, opts[:after])
+      opts[:before] -> before_cursor(query, user, opts[:before])
+      true -> query
+    end
+  end
+
+  defp list_cursor_messages(query, opts, limit) do
+    if opts[:after] do
+      query
+      |> order_by([m], asc: m.occurred_at, asc: m.id)
+      |> limit(^limit)
+      |> Repo.all()
+    else
+      query
+      |> order_by([m], desc: m.occurred_at, desc: m.id)
+      |> limit(^limit)
+      |> Repo.all()
+      |> Enum.reverse()
+    end
+  end
 
   defp mention?(body, nickname) when is_binary(body) and is_binary(nickname) do
     body

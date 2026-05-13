@@ -12,6 +12,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     topics = Chat.list_topics()
     buffers = Enum.flat_map(connections, &connection_buffers/1)
     active_buffer_id = active_buffer_id(buffers)
+    messages_by_buffer = messages_by_buffer(user, connections)
 
     json(conn, %{
       user: user_json(user),
@@ -20,7 +21,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       connections: Enum.map(connections, &connection_json/1),
       buffers: buffers,
       active_buffer_id: active_buffer_id,
-      messages_by_buffer: messages_by_buffer(user, connections),
+      messages_by_buffer: messages_by_buffer,
+      message_cursors_by_buffer: message_cursors_by_buffer(messages_by_buffer),
       users_by_buffer: users_by_buffer(connections),
       topics: Enum.map(topics, &topic_json/1)
     })
@@ -112,6 +114,13 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       end)
 
     Map.merge(server_messages, channel_messages)
+  end
+
+  defp message_cursors_by_buffer(messages_by_buffer) do
+    Map.new(messages_by_buffer, fn {buffer_id, messages} ->
+      latest = List.last(messages)
+      {buffer_id, latest && latest.id}
+    end)
   end
 
   defp server_message_json(message, connection) do

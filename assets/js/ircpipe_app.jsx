@@ -794,6 +794,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setActiveServerId(bootstrap.active_buffer_id)
       setView("server")
     }
+
+    reconcileBootstrapCursors(bootstrap.message_cursors_by_buffer || {})
   }
 
   if (mode === "landing") {
@@ -883,6 +885,30 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     } catch (_error) {
       // Keep counters as-is if the backend rejects the read marker.
     }
+  }
+
+  function reconcileBootstrapCursors(cursorsByBuffer) {
+    Object.entries(cursorsByBuffer).forEach(([bufferId, cursor]) => {
+      apiClient
+        .bufferMessages(bufferId, cursor ? {after: cursor, limit: 50} : {limit: 50})
+        .then(({messages = []}) => {
+          const normalized = messages.map(normalizeMessage)
+          if (normalized.length === 0) return
+
+          if (bufferId.startsWith("server:")) {
+            setMessagesByServer((current) => ({
+              ...current,
+              [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
+            }))
+          } else {
+            setMessagesByChannel((current) => ({
+              ...current,
+              [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
+            }))
+          }
+        })
+        .catch(() => {})
+    })
   }
 
   function retryRealtimeConnection() {
@@ -2206,6 +2232,8 @@ export function trimMessagesToLimit(messages, limit = MESSAGE_RENDER_LIMIT) {
 }
 
 export function appendTimelineMessage(messages, message, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
+  if (message.id && messages.some((current) => current.id === message.id)) return messages
+
   const nextMessages = [...messages, message]
   return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
 }
@@ -2213,6 +2241,11 @@ export function appendTimelineMessage(messages, message, readingOlder, limit = M
 function mergeOlderMessages(olderMessages, currentMessages) {
   const currentIds = new Set(currentMessages.map((message) => message.id))
   return [...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages]
+}
+
+function mergeNewerMessages(currentMessages, newerMessages) {
+  const currentIds = new Set(currentMessages.map((message) => message.id))
+  return trimMessagesToLimit([...currentMessages, ...newerMessages.filter((message) => !currentIds.has(message.id))])
 }
 
 function normalizeChannel(channel) {

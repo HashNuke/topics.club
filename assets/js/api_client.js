@@ -32,6 +32,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
       const search = new URLSearchParams()
       if (params.limit) search.set("limit", String(params.limit))
       if (params.before) search.set("before", String(params.before))
+      if (params.after) search.set("after", String(params.after))
 
       const query = search.toString()
       return request(`/api/buffers/${encodeURIComponent(bufferId)}/messages${query ? `?${query}` : ""}`)

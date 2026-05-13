@@ -17,7 +17,8 @@ defmodule IrcpipeWeb.Api.MessageController do
     messages =
       Chat.list_buffer_messages(user, buffer_id,
         limit: Map.get(params, "limit", 150),
-        before: Map.get(params, "before")
+        before: Map.get(params, "before"),
+        after: Map.get(params, "after")
       )
 
     json(conn, %{messages: Enum.map(messages, &message_json(&1, buffer_id))})

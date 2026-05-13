@@ -51,6 +51,24 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     assert Enum.map(messages, & &1["id"]) == [oldest.id, older.id]
   end
 
+  test "returns newer channel buffer messages after a cursor", %{conn: conn, user: user} do
+    {_connection, membership} = joined_channel(user)
+
+    _oldest = insert_message(user, membership, "oldest", ~U[2026-05-13 09:00:00Z])
+    cursor = insert_message(user, membership, "cursor", ~U[2026-05-13 09:01:00Z])
+    newer = insert_message(user, membership, "newer", ~U[2026-05-13 09:02:00Z])
+    newest = insert_message(user, membership, "newest", ~U[2026-05-13 09:03:00Z])
+
+    conn =
+      get(
+        conn,
+        ~p"/api/buffers/#{buffer_id(membership)}/messages?after=#{cursor.id}&limit=50"
+      )
+
+    assert %{"messages" => messages} = json_response(conn, 200)
+    assert Enum.map(messages, & &1["id"]) == [newer.id, newest.id]
+  end
+
   test "returns server buffer message history", %{
     conn: conn,
     user: user

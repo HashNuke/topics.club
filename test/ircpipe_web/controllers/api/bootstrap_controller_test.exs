@@ -29,7 +29,9 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     {:ok, server_message} = Chat.record_server_message(connection, "Connected to local")
-    Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
+
+    {:ok, channel_message} =
+      Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
 
     Chat.broadcast_presence_sync(connection, "#elixir", [
       %{nick: "mira", prefixes: ["@"], raw_source: "mira!user@example.test"},
@@ -69,6 +71,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              "buffers" => [server_buffer, channel_buffer],
              "active_buffer_id" => active_buffer_id,
              "messages_by_buffer" => messages_by_buffer,
+             "message_cursors_by_buffer" => message_cursors_by_buffer,
              "users_by_buffer" => users_by_buffer,
              "topics" => [topic_json]
            } = json_response(conn, 200)
@@ -92,6 +95,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     server_buffer_id = "server:#{connection.id}"
 
     assert active_buffer_id == channel_buffer_id
+    assert message_cursors_by_buffer[server_buffer_id] == server_message.id
 
     assert [
              %{
@@ -116,6 +120,8 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              }
            ] =
              messages_by_buffer[channel_buffer_id]
+
+    assert message_cursors_by_buffer[channel_buffer_id] == channel_message.id
 
     assert [
              %{
