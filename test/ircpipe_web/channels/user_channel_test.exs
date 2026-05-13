@@ -1,17 +1,18 @@
 defmodule IrcpipeWeb.UserChannelTest do
-  use IrcpipeWeb.ChannelCase, async: true
+  use IrcpipeWeb.ChannelCase
 
   alias Ircpipe.AccountsFixtures
+  alias Ircpipe.Chat
+  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionSupervisor
+  alias Ircpipe.IrcTestServer
   alias IrcpipeWeb.UserChannel
   alias IrcpipeWeb.UserSocket
 
   test "suggests slash commands over the user channel" do
     user = AccountsFixtures.user_fixture()
 
-    assert {:ok, _reply, socket} =
-             UserSocket
-             |> socket("user_socket:#{user.id}", %{current_user: user})
-             |> subscribe_and_join(UserChannel, "user:#{user.id}")
+    socket = join_user_channel(user)
 
     ref = push(socket, "command:suggest", %{"input" => "/jo"})
 
@@ -21,26 +22,137 @@ defmodule IrcpipeWeb.UserChannelTest do
   test "parses supported slash commands over the user channel" do
     user = AccountsFixtures.user_fixture()
 
-    assert {:ok, _reply, socket} =
-             UserSocket
-             |> socket("user_socket:#{user.id}", %{current_user: user})
-             |> subscribe_and_join(UserChannel, "user:#{user.id}")
+    socket = join_user_channel(user)
 
     ref = push(socket, "command:parse", %{"input" => "/msg NickServ help"})
 
     assert_reply ref, :ok, %{command: %{name: "msg", args: ["NickServ", "help"]}}
   end
 
+  test "runs supported slash commands over the user channel" do
+    user = AccountsFixtures.user_fixture()
+    socket = join_user_channel(user)
+
+    ref = push(socket, "command:run", %{"input" => "/join #elixir"})
+
+    assert_reply ref, :ok, %{command: %{name: "join", args: ["#elixir"]}}
+  end
+
   test "rejects unknown slash commands over the user channel" do
     user = AccountsFixtures.user_fixture()
+    socket = join_user_channel(user)
 
+    ref = push(socket, "command:parse", %{"input" => "/wat"})
+
+    assert_reply ref, :error, %{reason: "unknown_command", command: "wat"}
+  end
+
+  test "sends channel messages through the IRC session and replies with canonical message" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    socket = join_user_channel(user)
+
+    ref =
+      push(socket, "message:send", %{
+        "client_message_id" => "client-1",
+        "buffer_id" => "channel:#{membership.id}",
+        "body" => "hello from channel"
+      })
+
+    assert_reply ref, :ok, %{
+      client_message_id: "client-1",
+      message: %{
+        buffer_id: "channel:" <> _,
+        channel_membership_id: membership_id,
+        body: "hello from channel",
+        nick: "mira"
+      }
+    }
+
+    assert membership_id == membership.id
+    assert_receive {:irc_server_line, "PRIVMSG #elixir :hello from channel"}, 1_000
+    assert [%{body: "hello from channel", nick: "mira"}] = Chat.list_messages(user, membership.id)
+
+    assert :ok = Session.quit(connection)
+  end
+
+  test "rejects channel messages for buffers the user does not own" do
+    user = AccountsFixtures.user_fixture()
+    other_user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(other_user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "other"
+      })
+
+    {:ok, membership} = Chat.join_channel(other_user, connection, "#private")
+    socket = join_user_channel(user)
+
+    ref =
+      push(socket, "message:send", %{
+        "client_message_id" => "client-2",
+        "buffer_id" => "channel:#{membership.id}",
+        "body" => "nope"
+      })
+
+    assert_reply ref, :error, %{reason: "invalid_buffer", client_message_id: "client-2"}
+  end
+
+  test "marks a channel buffer read over the user channel" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
+    socket = join_user_channel(user)
+
+    ref = push(socket, "buffer:read", %{"buffer_id" => "channel:#{membership.id}"})
+
+    assert_reply ref, :ok, %{
+      buffer_id: "channel:" <> _,
+      unread_count: 0,
+      mention_count: 0
+    }
+
+    reloaded = Chat.get_membership!(user, membership.id)
+    assert reloaded.unread_count == 0
+    assert reloaded.mention_count == 0
+  end
+
+  defp join_user_channel(user) do
     assert {:ok, _reply, socket} =
              UserSocket
              |> socket("user_socket:#{user.id}", %{current_user: user})
              |> subscribe_and_join(UserChannel, "user:#{user.id}")
 
-    ref = push(socket, "command:parse", %{"input" => "/wat"})
-
-    assert_reply ref, :error, %{reason: "unknown_command", command: "wat"}
+    socket
   end
 end

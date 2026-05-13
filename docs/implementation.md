@@ -96,15 +96,15 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [ ] React submits channel messages through the Phoenix user channel with `channel.push("message:send", payload)`.
 - [ ] Payload includes:
-  - [ ] `client_message_id`
-  - [ ] `buffer_id`
-  - [ ] `body`
+  - [x] `client_message_id`
+  - [x] `buffer_id`
+  - [x] `body`
   - [ ] local draft metadata if needed
-- [ ] Backend validates buffer ownership through `current_scope.user`.
-- [ ] Backend routes channel messages to `Ircpipe.Irc.Session.say/3`.
-- [ ] Backend persists the user's outgoing message after IRC send acceptance.
-- [ ] Backend replies `ok` with canonical message payload.
-- [ ] Backend replies `error` with a typed reason if the buffer is unavailable.
+- [x] Backend validates buffer ownership through `current_scope.user`.
+- [x] Backend routes channel messages to `Ircpipe.Irc.Session.say/3`.
+- [x] Backend persists the user's outgoing message after IRC send acceptance.
+- [x] Backend replies `ok` with canonical message payload.
+- [x] Backend replies `error` with a typed reason if the buffer is unavailable.
 - [ ] Backend replies `timeout` or lets the Phoenix client timeout surface a networking issue.
 - [ ] React shows pending outgoing messages with `client_message_id`.
 - [ ] React replaces pending messages with canonical messages on `ok`.
@@ -134,7 +134,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] required permission
   - [ ] examples
 - [x] React uses Floating UI for the slash-command popover.
-- [ ] Tests cover command detection, completion display, backend parsing, and error feedback.
+- [x] Tests cover command detection, completion display, backend parsing, and error feedback.
 
 ## Leaving channels and servers
 
@@ -251,9 +251,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Keep `IrcpipeWeb.UserSocket` authenticated by session cookie.
 - [x] Keep `IrcpipeWeb.UserChannel` as the single realtime bus.
 - [ ] Add `handle_in/3` handlers:
-  - [ ] `message:send`
-  - [ ] `command:run`
-  - [ ] `buffer:read`
+  - [x] `message:send`
+  - [x] `command:run`
+  - [x] `buffer:read`
   - [ ] `channel:leave`
   - [ ] `server:disconnect`
   - [ ] `server:reconnect`
@@ -263,6 +263,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] `timeout`
 - [ ] Add event serialization helpers so REST and realtime payloads match.
 - [ ] Add channel tests for authorization, replies, broadcasts, and failure payloads.
+  - [x] `message:send` ownership, reply, IRC send, and persistence
+  - [x] `command:run` reply
+  - [x] `buffer:read` counter reset reply
 
 ## IRC runtime checklist
 
