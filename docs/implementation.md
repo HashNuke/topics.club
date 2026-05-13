@@ -83,7 +83,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Define all events as versioned payloads with `type`, `version`, `event_id`, and `occurred_at`.
 - [ ] Push `buffer:message` for normal channel messages, notices, actions, and service replies.
 - [ ] Push `buffer:system` for join, part, quit, nick change, topic changes, and server lifecycle lines.
-- [ ] Push `buffer:read` when counters are reset.
+- [x] Push `buffer:read` when counters are reset.
 - [ ] Push `buffer:joined` when a channel or server buffer is created.
 - [x] Push `buffer:left` when the user leaves a channel.
 - [ ] Push `buffer:error` for join failures, send failures, bans, invite-only failures, nickname errors, TLS failures, and backend IRC errors.
@@ -140,13 +140,14 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Leaving channels and servers
 
-- [ ] Add channel overflow menu in the UI.
+- [x] Add channel overflow menu in the UI.
 - [ ] Add server overflow menu in the UI.
 - [ ] Use Floating UI for both popover menus.
+  - [x] channel menu
 - [ ] Channel menu actions:
-  - [ ] Mark read
-  - [ ] Copy channel name
-  - [ ] Leave channel
+  - [x] Mark read
+  - [x] Copy channel name
+  - [x] Leave channel
 - [ ] Server menu actions:
   - [ ] Connect or reconnect
   - [ ] Disconnect
@@ -325,6 +326,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Add tests for reducers and event application.
 - [ ] Add React component tests for:
   - [ ] leaving channel/server menus
+    - [x] channel menu
   - [ ] slash command popover
   - [ ] backend connection failure banner
   - [x] send failure and retry

@@ -747,6 +747,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       view={view}
       onDiscover={() => setView("discover")}
       onJoinManualServer={joinManualServer}
+      onLeaveChannel={leaveChannel}
+      onMarkChannelRead={markChannelRead}
       onRequestNotifications={requestNotifications}
       onSelectChannel={(channel) => {
         setActiveServerId(channel.connection?.id || activeServerId)
@@ -766,6 +768,37 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       connectionHealth={connectionHealth}
     />
   )
+
+  async function markChannelRead(channel) {
+    if (!channel?.id || !realtimeClientRef.current) return
+
+    try {
+      await realtimeClientRef.current.push("buffer:read", {buffer_id: channel.id})
+      setConnections((current) =>
+        current.map((connection) => ({
+          ...connection,
+          channels: connection.channels.map((currentChannel) =>
+            currentChannel.id === channel.id
+              ? {...currentChannel, unread_count: 0, mention_count: 0}
+              : currentChannel
+          ),
+        }))
+      )
+    } catch (_error) {
+      // Keep counters as-is if the backend rejects the read marker.
+    }
+  }
+
+  async function leaveChannel(channel) {
+    if (!channel?.id || !realtimeClientRef.current) return
+
+    try {
+      const left = await realtimeClientRef.current.push("channel:leave", {buffer_id: channel.id})
+      applyBufferLeft(left)
+    } catch (_error) {
+      // The channel remains visible if the backend cannot leave it.
+    }
+  }
 }
 
 export function LandingPage({currentUser, topics, developerOauth, selectedTopic, onSelectTopic, onCloseAuth}) {
@@ -904,7 +937,7 @@ function MobileDrawerHeader({title, onClose}) {
   )
 }
 
-function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onJoinManualServer, onSelectChannel, onSelectServer, onShowChat}) {
+function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onJoinManualServer, onLeaveChannel, onMarkChannelRead, onSelectChannel, onSelectServer, onShowChat}) {
   const [manualOpen, setManualOpen] = useState(false)
 
   return (
@@ -953,21 +986,31 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
             </button>
             <div className="space-y-1">
               {connection.channels.map((channel) => (
-                <button
+                <div
                   key={channel.id}
                   className={[
-                    "flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm outline-none transition focus-visible:border-cyan-300/50",
+                    "group flex w-full items-center gap-1 rounded-md border pr-1 text-sm outline-none transition focus-within:border-cyan-300/50",
                     activeChannel?.id === channel.id
                       ? "border border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
                       : "border-transparent text-slate-300 hover:bg-slate-800/80 hover:text-white",
                   ].join(" ")}
-                  onClick={() => onSelectChannel(channel)}
                 >
-                  <span className="min-w-0 flex-1 truncate">{channel.channel}</span>
-                  {channel.mention_count > 0 && (
-                    <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-slate-950">{channel.mention_count}</span>
-                  )}
-                </button>
+                  <button
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+                    onClick={() => onSelectChannel(channel)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{channel.channel}</span>
+                    {channel.mention_count > 0 && (
+                      <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-slate-950">{channel.mention_count}</span>
+                    )}
+                  </button>
+                  <ChannelActionMenu
+                    channel={channel}
+                    onCopyChannel={() => navigator.clipboard?.writeText(channel.channel)}
+                    onLeaveChannel={() => onLeaveChannel?.(channel)}
+                    onMarkRead={() => onMarkChannelRead?.(channel)}
+                  />
+                </div>
               ))}
             </div>
           </section>
@@ -994,6 +1037,56 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
         />
       )}
     </aside>
+  )
+}
+
+function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMarkRead}) {
+  const [open, setOpen] = useState(false)
+  const {refs, floatingStyles} = useFloating({
+    placement: "bottom-end",
+    middleware: [offset(6), shift({padding: 8})],
+  })
+
+  function run(action) {
+    action?.()
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative">
+      <button
+        ref={refs.setReference}
+        className="grid size-7 place-items-center rounded-md text-slate-500 transition hover:bg-slate-700 hover:text-white"
+        aria-label={`Channel actions for ${channel.channel}`}
+        aria-expanded={open}
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen((current) => !current)
+        }}
+        type="button"
+      >
+        <span className="hero-ellipsis-horizontal size-4" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          ref={refs.setFloating}
+          style={floatingStyles}
+          role="menu"
+          aria-label={`${channel.channel} actions`}
+          className="z-40 min-w-44 rounded-lg border border-slate-700 bg-[#121722] p-1 text-sm shadow-2xl shadow-black/40"
+        >
+          <button className="w-full rounded-md px-3 py-2 text-left text-slate-200 transition hover:bg-slate-800" onClick={() => run(onMarkRead)} role="menuitem" type="button">
+            Mark read
+          </button>
+          <button className="w-full rounded-md px-3 py-2 text-left text-slate-200 transition hover:bg-slate-800" onClick={() => run(onCopyChannel)} role="menuitem" type="button">
+            Copy channel name
+          </button>
+          <button className="w-full rounded-md px-3 py-2 text-left text-rose-200 transition hover:bg-rose-950/50" onClick={() => run(onLeaveChannel)} role="menuitem" type="button">
+            Leave channel
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 

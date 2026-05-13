@@ -787,6 +787,58 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByRole("button", {name: "Show users"})).not.toBeInTheDocument()
   })
 
+  test("uses the channel action menu for read, copy, and leave actions", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const originalClipboard = navigator.clipboard
+    Object.defineProperty(navigator, "clipboard", {value: {writeText}, configurable: true})
+    const push = vi.fn((event) => {
+      if (event === "channel:leave") {
+        return Promise.resolve({
+          type: "buffer:left",
+          buffer_id: "channel:7",
+          server_connection_id: 42,
+          channel_membership_id: 7,
+        })
+      }
+
+      return Promise.resolve({ok: true})
+    })
+    const client = fakeRealtimeClient(push)
+
+    try {
+      render(
+        <IrcpipeApp
+          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+          developerOauth={true}
+          realtimeClientFactory={() => client}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+      await user.click(screen.getByRole("button", {name: "Channel actions for #testing"}))
+      await user.click(screen.getByRole("menuitem", {name: "Mark read"}))
+
+      expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"})
+
+      await user.click(screen.getByRole("button", {name: "Channel actions for #testing"}))
+      await user.click(screen.getByRole("menuitem", {name: "Copy channel name"}))
+
+      expect(writeText).toHaveBeenCalledWith("#testing")
+
+      await user.click(screen.getByRole("button", {name: "Channel actions for #testing"}))
+      await user.click(screen.getByRole("menuitem", {name: "Leave channel"}))
+
+      expect(push).toHaveBeenCalledWith("channel:leave", {buffer_id: "channel:7"})
+      expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
+      expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {value: originalClipboard, configurable: true})
+    }
+  })
+
   test("shows slash command suggestions from the chat composer", async () => {
     const user = userEvent.setup()
     mockTopicsFetch()
