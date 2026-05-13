@@ -69,7 +69,8 @@ defmodule Ircpipe.Irc.Session do
        registered?: false,
        pending_joins: persisted_channels(connection),
        joined_channels: MapSet.new(),
-       names_buffers: %{}
+       names_buffers: %{},
+       pending_echoes: []
      }}
   end
 
@@ -158,9 +159,11 @@ defmodule Ircpipe.Irc.Session do
          {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body, ctcp: ctcp} = payload}},
         state
       ) do
-    unless self_echo?(payload, state.connection) do
-      case action_body(ctcp) do
-        {:ok, action} ->
+    case action_body(ctcp) do
+      {:ok, action} ->
+        {echo?, state} = pop_pending_echo(state, channel, action, "action", payload)
+
+        unless echo? do
           Chat.record_inbound_message(
             state.connection,
             channel,
@@ -169,8 +172,12 @@ defmodule Ircpipe.Irc.Session do
             "action",
             sender_metadata(payload)
           )
+        end
 
-        :error ->
+      :error ->
+        {echo?, state} = pop_pending_echo(state, channel, body, "message", payload)
+
+        unless echo? do
           Chat.record_inbound_message(
             state.connection,
             channel,
@@ -179,7 +186,7 @@ defmodule Ircpipe.Irc.Session do
             "message",
             sender_metadata(payload)
           )
-      end
+        end
     end
 
     {:noreply, state}
@@ -189,7 +196,9 @@ defmodule Ircpipe.Irc.Session do
         {:ircxd, {:privmsg, %{target: "#" <> _ = channel, nick: nick, body: body} = payload}},
         state
       ) do
-    unless self_echo?(payload, state.connection) do
+    {echo?, state} = pop_pending_echo(state, channel, body, "message", payload)
+
+    unless echo? do
       Chat.record_inbound_message(
         state.connection,
         channel,
@@ -444,7 +453,7 @@ defmodule Ircpipe.Irc.Session do
     with {:ok, client} <- fetch_joined_client(state, channel),
          :ok <- Ircxd.Client.privmsg(client, channel, body) do
       Chat.record_inbound_message(state.connection, channel, state.connection.nickname, body)
-      {:reply, :ok, state}
+      {:reply, :ok, remember_pending_echo(state, channel, body, "message")}
     else
       error -> {:reply, error, state}
     end
@@ -461,7 +470,7 @@ defmodule Ircpipe.Irc.Session do
         "action"
       )
 
-      {:reply, :ok, state}
+      {:reply, :ok, remember_pending_echo(state, channel, body, "action")}
     else
       error -> {:reply, error, state}
     end
@@ -659,11 +668,40 @@ defmodule Ircpipe.Irc.Session do
 
   defp same_nick?(_left, _right), do: false
 
-  defp self_echo?(%{nick: nick}, %ServerConnection{nickname: nickname}) do
-    same_nick?(nick, nickname)
+  defp remember_pending_echo(state, channel, body, kind) do
+    pending_echo = %{
+      channel: Chat.normalize_channel(channel),
+      body: body,
+      kind: kind
+    }
+
+    Map.update(state, :pending_echoes, [pending_echo], fn pending_echoes ->
+      [pending_echo | pending_echoes] |> Enum.take(50)
+    end)
   end
 
-  defp self_echo?(_payload, _connection), do: false
+  defp pop_pending_echo(state, channel, body, kind, %{nick: nick}) do
+    if same_nick?(nick, state.connection.nickname) do
+      pending_echoes = Map.get(state, :pending_echoes, [])
+
+      case Enum.split_while(pending_echoes, &(not pending_echo?(&1, channel, body, kind))) do
+        {_before, []} ->
+          {false, state}
+
+        {before, [_matched | after_matched]} ->
+          {true, Map.put(state, :pending_echoes, before ++ after_matched)}
+      end
+    else
+      {false, state}
+    end
+  end
+
+  defp pop_pending_echo(state, _channel, _body, _kind, _payload), do: {false, state}
+
+  defp pending_echo?(pending_echo, channel, body, kind) do
+    pending_echo.channel == Chat.normalize_channel(channel) and pending_echo.body == body and
+      pending_echo.kind == kind
+  end
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error

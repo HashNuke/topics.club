@@ -107,7 +107,7 @@ defmodule Ircpipe.Irc.SessionTest do
            ]
   end
 
-  test "ignores echoed channel messages from the current connection nick" do
+  test "consumes matching echoed channel messages from the current connection nick" do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
@@ -123,9 +123,14 @@ defmodule Ircpipe.Irc.SessionTest do
 
     Chat.record_inbound_message(connection, "#pipe", "mira", "hello from app")
 
-    state = %{connection: connection}
+    state = %{
+      connection: connection,
+      pending_echoes: [
+        %{channel: "#pipe", body: "hello from app", kind: "message"}
+      ]
+    }
 
-    assert {:noreply, ^state} =
+    assert {:noreply, state} =
              Session.handle_info(
                {:ircxd,
                 {:privmsg,
@@ -139,6 +144,40 @@ defmodule Ircpipe.Irc.SessionTest do
              )
 
     assert [%{body: "hello from app", nick: "mira"}] = Chat.list_messages(user, membership.id)
+    assert state.pending_echoes == []
+  end
+
+  test "records unmatched same-nick channel messages" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+
+    state = %{connection: connection, pending_echoes: []}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:privmsg,
+                 %{
+                   target: "#pipe",
+                   nick: "Mira",
+                   raw_source: "mira!user@test",
+                   body: "message from another source"
+                 }}},
+               state
+             )
+
+    assert [%{body: "message from another source", nick: "Mira"}] =
+             Chat.list_messages(user, membership.id)
   end
 
   test "accumulates IRC names chunks until names end before syncing presence" do
