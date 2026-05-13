@@ -204,8 +204,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [x] Initial message fetch returns latest 150 messages for the active buffer.
 - [ ] Fetch older history in pages of 50 when scrolling near the top.
-- [ ] Keep a soft client-side cap of 300-500 messages per open buffer.
-- [ ] Do not trim messages while the user is scrolled up reading older history.
+- [x] Keep a soft client-side render cap of 300-500 messages per open buffer.
+- [x] Do not trim rendered messages while the user is scrolled up reading older history.
 - [ ] If the user is near the bottom:
   - [ ] append incoming messages
   - [ ] auto-scroll

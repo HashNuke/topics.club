@@ -3,6 +3,7 @@ import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/rea
 import {createApiClient} from "./api_client.js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
+export const MESSAGE_RENDER_LIMIT = 400
 
 export const demoTopics = [
   {
@@ -980,13 +981,14 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
 }
 
 function ChatPane({activeChannel, draft, messages, onSendMessage, onUpdateDraft}) {
-  const scrollRef = useChatScroll(messages)
+  const {readingOlder, scrollRef} = useChatScroll(messages)
+  const visibleMessages = visibleTimelineMessages(messages, readingOlder)
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-4xl space-y-1">
-          <MessageTimeline messages={messages} />
+          <MessageTimeline messages={visibleMessages} />
         </div>
       </div>
       <ChatComposer
@@ -1067,7 +1069,8 @@ function DiscoverPane({topics, onSelectTopic}) {
 }
 
 function ServerBufferPane({draft, messages, server, onSendMessage, onUpdateDraft}) {
-  const scrollRef = useChatScroll(messages)
+  const {readingOlder, scrollRef} = useChatScroll(messages)
+  const visibleMessages = visibleTimelineMessages(messages, readingOlder)
 
   if (!server) return null
 
@@ -1082,7 +1085,7 @@ function ServerBufferPane({draft, messages, server, onSendMessage, onUpdateDraft
               Notices, connection logs, service replies, and server-level commands live here.
             </p>
           </div>
-          <MessageTimeline messages={messages} />
+          <MessageTimeline messages={visibleMessages} />
         </div>
       </div>
       <ChatComposer
@@ -1493,6 +1496,11 @@ function normalizeMessage(message) {
   }
 }
 
+export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
+  if (readingOlder || messages.length <= limit) return messages
+  return messages.slice(-limit)
+}
+
 function applyUserDiff(users, diff) {
   if (!diff) return users
 
@@ -1539,14 +1547,29 @@ function notificationLabel(state) {
 
 function useChatScroll(messages) {
   const scrollRef = React.useRef(null)
+  const [readingOlder, setReadingOlder] = useState(false)
 
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
-    node.scrollTop = node.scrollHeight
-  }, [messages.length])
+    const updateReadingState = () => {
+      const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
+      setReadingOlder(distanceFromBottom > 96)
+    }
 
-  return scrollRef
+    updateReadingState()
+    node.addEventListener("scroll", updateReadingState)
+
+    return () => node.removeEventListener("scroll", updateReadingState)
+  }, [])
+
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node || readingOlder) return
+    node.scrollTop = node.scrollHeight
+  }, [messages.length, readingOlder])
+
+  return {readingOlder, scrollRef}
 }
 
 function minutesBetween(previous, current) {

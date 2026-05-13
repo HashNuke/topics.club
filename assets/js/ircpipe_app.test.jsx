@@ -2,7 +2,7 @@ import React from "react"
 import {describe, expect, test, vi} from "vitest"
 import {render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import IrcpipeApp, {demoTopics} from "./ircpipe_app.jsx"
+import IrcpipeApp, {demoTopics, visibleTimelineMessages} from "./ircpipe_app.jsx"
 
 function mockTopicsFetch() {
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
@@ -157,6 +157,13 @@ function fakeRealtimeClient(pushImpl) {
 }
 
 describe("IrcpipeApp UI prototype", () => {
+  test("caps rendered messages only while the reader is near the bottom", () => {
+    const messages = Array.from({length: 6}, (_, index) => ({id: index + 1, body: `message ${index + 1}`}))
+
+    expect(visibleTimelineMessages(messages, false, 3).map((message) => message.id)).toEqual([4, 5, 6])
+    expect(visibleTimelineMessages(messages, true, 3).map((message) => message.id)).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
   test("shows topic-first landing cards with channel and server labels", async () => {
     mockTopicsFetch()
 
