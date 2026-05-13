@@ -124,6 +124,17 @@ defmodule Ircpipe.Chat do
     |> Repo.one!()
   end
 
+  def get_membership_by_channel!(%User{id: user_id}, %ServerConnection{} = connection, channel) do
+    ChannelMembership
+    |> where(
+      [m],
+      m.user_id == ^user_id and m.server_connection_id == ^connection.id and
+        m.channel == ^normalize_channel(channel)
+    )
+    |> preload(:server_connection)
+    |> Repo.one!()
+  end
+
   def list_messages(%User{id: user_id}, membership_id, limit \\ 200) do
     Message
     |> where([m], m.user_id == ^user_id and m.channel_membership_id == ^membership_id)

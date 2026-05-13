@@ -64,6 +64,95 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_reply ref, :ok, %{command: %{name: "join", args: ["#elixir"]}}
   end
 
+  test "runs join slash commands through the IRC session and records a server outcome" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    socket = join_user_channel(user)
+
+    ref =
+      push(socket, "command:run", %{
+        "input" => "/join #ops",
+        "buffer_id" => "server:#{connection.id}"
+      })
+
+    assert_reply ref, :ok, %{command: %{name: "join", args: ["#ops"]}, buffer_id: buffer_id}
+    assert_receive {:irc_server_line, "JOIN #ops"}, 1_000
+
+    assert_push "buffer:joined", %{
+      type: "buffer:joined",
+      buffer: %{buffer_id: ^buffer_id, title: "#ops"}
+    }
+
+    assert_push "buffer:system", %{
+      type: "buffer:system",
+      buffer_id: "server:" <> _,
+      kind: "command",
+      body: "Joining #ops."
+    }
+
+    assert Enum.any?(
+             Chat.list_buffer_messages(user, "server:#{connection.id}"),
+             &(&1.kind == "command" and &1.body == "Joining #ops.")
+           )
+
+    assert :ok = Session.quit(connection)
+  end
+
+  test "runs me slash commands as channel actions" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    socket = join_user_channel(user)
+
+    ref =
+      push(socket, "command:run", %{
+        "input" => "/me waves",
+        "buffer_id" => "channel:#{membership.id}"
+      })
+
+    assert_reply ref, :ok, %{
+      command: %{name: "me", args: ["waves"]},
+      message: %{kind: "action", body: "waves", buffer_id: "channel:" <> _}
+    }
+
+    assert_receive {:irc_server_line, "PRIVMSG #elixir :\x01ACTION waves\x01"}, 1_000
+
+    assert [%{kind: "action", body: "waves", nick: "mira"}] =
+             Chat.list_messages(user, membership.id)
+
+    assert :ok = Session.quit(connection)
+  end
+
   test "rejects unknown slash commands over the user channel" do
     user = AccountsFixtures.user_fixture()
     socket = join_user_channel(user)

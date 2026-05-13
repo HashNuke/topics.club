@@ -83,8 +83,17 @@ defmodule IrcpipeWeb.UserChannel do
     reply_with_command(input, socket)
   end
 
-  def handle_in("command:run", %{"input" => input}, socket) do
-    reply_with_command(input, socket)
+  def handle_in("command:run", %{"input" => input} = payload, socket) do
+    case Commands.parse(input) do
+      {:ok, command} ->
+        run_command(command, socket.assigns.current_user, Map.get(payload, "buffer_id"), socket)
+
+      {:error, :not_a_command} ->
+        {:reply, {:error, %{reason: "not_a_command"}}, socket}
+
+      {:error, {:unknown_command, command}} ->
+        {:reply, {:error, %{reason: "unknown_command", command: command}}, socket}
+    end
   end
 
   def handle_in(
@@ -224,10 +233,161 @@ defmodule IrcpipeWeb.UserChannel do
     end
   end
 
+  defp run_command(command, _user, nil, socket) do
+    {:reply, {:ok, %{command: command}}, socket}
+  end
+
+  defp run_command(%{name: "join", args: [channel]} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         {:ok, membership} <- Chat.join_channel(user, connection, channel),
+         :ok <- Session.join(connection, channel) do
+      Chat.record_server_message(connection, "Joining #{membership.channel}.", "command")
+      {:reply, {:ok, %{command: command, buffer_id: "channel:#{membership.id}"}}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason), command: command}}, socket}
+    end
+  end
+
+  defp run_command(%{name: name, args: args} = command, user, buffer_id, socket)
+       when name in ["part", "leave"] do
+    with {:ok, membership} <- membership_from_part_command(user, buffer_id, args),
+         :ok <- part(membership, "leaving"),
+         :ok <- Chat.leave_channel(user, membership) do
+      Chat.record_server_message(
+        membership.server_connection,
+        "Leaving #{membership.channel}.",
+        "command"
+      )
+
+      {:reply, {:ok, %{command: command, buffer_id: "channel:#{membership.id}"}}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason), command: command}}, socket}
+    end
+  end
+
+  defp run_command(
+         %{name: "me", args: [body]} = command,
+         user,
+         "channel:" <> membership_id,
+         socket
+       ) do
+    with {:ok, membership} <- fetch_membership(user, membership_id),
+         :ok <- Session.action(membership.server_connection, membership.channel, body),
+         message <- latest_message(user, membership) do
+      {:reply,
+       {:ok,
+        %{
+          command: command,
+          message: Event.message(message, "channel:#{membership.id}")
+        }}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason), command: command}}, socket}
+    end
+  end
+
+  defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         :ok <- Session.privmsg(connection, target, body) do
+      Chat.record_server_message(connection, "Sent message to #{target}.", "command")
+      {:reply, {:ok, %{command: command}}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason), command: command}}, socket}
+    end
+  end
+
+  defp run_command(%{name: "nick", args: [nick]} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         :ok <- Session.nick(connection, nick) do
+      Chat.record_server_message(connection, "Requested nickname change to #{nick}.", "command")
+      {:reply, {:ok, %{command: command}}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason), command: command}}, socket}
+    end
+  end
+
+  defp run_command(%{name: "topic", args: [channel, topic]} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         {:ok, membership} <- membership_for_channel(user, connection, channel),
+         :ok <- Session.topic(connection, membership.channel, topic) do
+      Chat.record_channel_system_message(
+        connection,
+        membership.channel,
+        "command",
+        connection.nickname,
+        "Requested topic change: #{topic}"
+      )
+
+      {:reply, {:ok, %{command: command, buffer_id: "channel:#{membership.id}"}}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason), command: command}}, socket}
+    end
+  end
+
+  defp run_command(%{name: "quote", args: [line]} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         {:ok, raw_command, params} <- parse_raw_command(line),
+         :ok <- Session.raw(connection, raw_command, params) do
+      Chat.record_server_message(connection, "Sent raw IRC command: #{line}.", "command")
+      {:reply, {:ok, %{command: command}}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, %{reason: error_reason(reason), command: command}}, socket}
+    end
+  end
+
+  defp run_command(command, _user, _buffer_id, socket) do
+    {:reply, {:error, %{reason: "invalid_command_args", command: command}}, socket}
+  end
+
   defp fetch_membership(user, membership_id) do
     {:ok, Chat.get_membership!(user, membership_id)}
   rescue
     Ecto.NoResultsError -> {:error, :invalid_buffer}
+  end
+
+  defp connection_from_buffer(user, "channel:" <> membership_id) do
+    with {:ok, membership} <- fetch_membership(user, membership_id) do
+      {:ok, membership.server_connection}
+    end
+  end
+
+  defp connection_from_buffer(user, "server:" <> connection_id) do
+    {:ok, Chat.get_connection!(user, connection_id)}
+  rescue
+    Ecto.NoResultsError -> {:error, :invalid_server}
+  end
+
+  defp connection_from_buffer(_user, _buffer_id), do: {:error, :invalid_buffer}
+
+  defp membership_from_part_command(user, "channel:" <> membership_id, []) do
+    fetch_membership(user, membership_id)
+  end
+
+  defp membership_from_part_command(user, buffer_id, [channel]) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id) do
+      membership_for_channel(user, connection, channel)
+    end
+  end
+
+  defp membership_from_part_command(_user, _buffer_id, _args), do: {:error, :invalid_command_args}
+
+  defp membership_for_channel(user, connection, channel) do
+    {:ok, Chat.get_membership_by_channel!(user, connection, channel)}
+  rescue
+    Ecto.NoResultsError -> {:error, :invalid_buffer}
+  end
+
+  defp parse_raw_command(line) do
+    case String.split(String.trim(line), ~r/\s+/, trim: true) do
+      [] -> {:error, :invalid_command_args}
+      [command | params] -> {:ok, String.upcase(command), params}
+    end
   end
 
   defp say(membership, body) do
@@ -249,6 +409,8 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp error_reason(:invalid_buffer), do: "invalid_buffer"
+  defp error_reason(:invalid_server), do: "invalid_server"
+  defp error_reason(:invalid_command_args), do: "invalid_command_args"
   defp error_reason(:not_connected), do: "not_connected"
   defp error_reason(_reason), do: "send_failed"
 end

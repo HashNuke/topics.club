@@ -26,6 +26,26 @@ defmodule Ircpipe.Irc.Session do
     GenServer.call(via(connection), {:say, Chat.normalize_channel(channel), body})
   end
 
+  def action(%ServerConnection{} = connection, channel, body) do
+    GenServer.call(via(connection), {:action, Chat.normalize_channel(channel), body})
+  end
+
+  def privmsg(%ServerConnection{} = connection, target, body) do
+    GenServer.call(via(connection), {:privmsg, target, body})
+  end
+
+  def nick(%ServerConnection{} = connection, nick) do
+    GenServer.call(via(connection), {:nick, nick})
+  end
+
+  def topic(%ServerConnection{} = connection, channel, topic) do
+    GenServer.call(via(connection), {:topic, Chat.normalize_channel(channel), topic})
+  end
+
+  def raw(%ServerConnection{} = connection, command, params \\ []) do
+    GenServer.call(via(connection), {:raw, command, params})
+  end
+
   def part(%ServerConnection{} = connection, channel, reason \\ "") do
     GenServer.call(via(connection), {:part, Chat.normalize_channel(channel), reason})
   end
@@ -361,6 +381,59 @@ defmodule Ircpipe.Irc.Session do
     with {:ok, client} <- fetch_client(state),
          :ok <- Ircxd.Client.privmsg(client, channel, body) do
       Chat.record_inbound_message(state.connection, channel, state.connection.nickname, body)
+      {:reply, :ok, state}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:action, channel, body}, _from, state) do
+    with {:ok, client} <- fetch_client(state),
+         :ok <- Ircxd.Client.privmsg(client, channel, <<1, "ACTION ", body::binary, 1>>) do
+      Chat.record_inbound_message(
+        state.connection,
+        channel,
+        state.connection.nickname,
+        body,
+        "action"
+      )
+
+      {:reply, :ok, state}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:privmsg, target, body}, _from, state) do
+    with {:ok, client} <- fetch_client(state),
+         :ok <- Ircxd.Client.privmsg(client, target, body) do
+      {:reply, :ok, state}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:nick, nick}, _from, state) do
+    with {:ok, client} <- fetch_client(state),
+         :ok <- Ircxd.Client.nick(client, nick) do
+      {:reply, :ok, state}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:topic, channel, topic}, _from, state) do
+    with {:ok, client} <- fetch_client(state),
+         :ok <- Ircxd.Client.topic(client, channel, topic) do
+      {:reply, :ok, state}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:raw, command, params}, _from, state) do
+    with {:ok, client} <- fetch_client(state),
+         :ok <- Ircxd.Client.raw(client, command, params) do
       {:reply, :ok, state}
     else
       error -> {:reply, error, state}
