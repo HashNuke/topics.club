@@ -1,6 +1,6 @@
 import React from "react"
 import {describe, expect, test, vi} from "vitest"
-import {render, screen, waitFor, within} from "@testing-library/react"
+import {fireEvent, render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import IrcpipeApp, {demoTopics, visibleTimelineMessages} from "./ircpipe_app.jsx"
 
@@ -13,6 +13,25 @@ function mockTopicsFetch() {
 
 function mockBootstrapFetch() {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
+    if (String(path).startsWith("/api/buffers/channel%3A7/messages")) {
+      return {
+        ok: true,
+        json: async () => ({
+          messages: [
+            {
+              id: 50,
+              buffer_id: "channel:7",
+              nick: "mira",
+              body: "older from history",
+              kind: "message",
+              mentioned: false,
+              occurred_at: "2026-05-13T09:30:00Z",
+            },
+          ],
+        }),
+      }
+    }
+
     if (path === "/api/bootstrap") {
       return {
         ok: true,
@@ -162,6 +181,27 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(visibleTimelineMessages(messages, false, 3).map((message) => message.id)).toEqual([4, 5, 6])
     expect(visibleTimelineMessages(messages, true, 3).map((message) => message.id)).toEqual([1, 2, 3, 4, 5, 6])
+  })
+
+  test("loads older channel history when scrolling near the top", async () => {
+    mockBootstrapFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
+
+    const scrollback = document.getElementById("chat-scrollback")
+    Object.defineProperty(scrollback, "scrollHeight", {value: 1000, configurable: true})
+    Object.defineProperty(scrollback, "clientHeight", {value: 500, configurable: true})
+    Object.defineProperty(scrollback, "scrollTop", {value: 40, writable: true, configurable: true})
+
+    fireEvent.scroll(scrollback)
+
+    expect(await screen.findByText("older from history")).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/buffers/channel%3A7/messages?limit=50&before=99",
+      expect.objectContaining({credentials: "same-origin"})
+    )
   })
 
   test("shows topic-first landing cards with channel and server labels", async () => {

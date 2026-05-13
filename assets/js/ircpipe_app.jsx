@@ -149,6 +149,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   )
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
+  const loadingOlderRef = useRef(new Set())
   const activeChannelIdRef = useRef(activeChannelId)
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
@@ -502,6 +503,40 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }))
   }
 
+  async function loadOlderMessages(bufferId) {
+    if (!bufferId || loadingOlderRef.current.has(bufferId)) return
+
+    const currentMessages = bufferId.startsWith("server:")
+      ? messagesByServer[bufferId] || []
+      : messagesByChannel[bufferId] || []
+    const oldest = currentMessages[0]
+    if (!oldest?.id || String(oldest.id).startsWith("client-")) return
+
+    loadingOlderRef.current.add(bufferId)
+
+    try {
+      const {messages = []} = await apiClient.bufferMessages(bufferId, {before: oldest.id, limit: 50})
+      const normalized = messages.map(normalizeMessage)
+      if (normalized.length === 0) return
+
+      if (bufferId.startsWith("server:")) {
+        setMessagesByServer((current) => ({
+          ...current,
+          [bufferId]: mergeOlderMessages(normalized, current[bufferId] || []),
+        }))
+      } else {
+        setMessagesByChannel((current) => ({
+          ...current,
+          [bufferId]: mergeOlderMessages(normalized, current[bufferId] || []),
+        }))
+      }
+    } catch (_error) {
+      // Keep the current scrollback stable if history pagination fails.
+    } finally {
+      loadingOlderRef.current.delete(bufferId)
+    }
+  }
+
   async function requestNotifications() {
     if (!("Notification" in window)) {
       setNotificationState("unsupported")
@@ -725,6 +760,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onSelectTopic={selectTopic}
       onRetryMessage={retryMessage}
       onSendMessage={sendMessage}
+      onLoadOlderMessages={loadOlderMessages}
       onShowChat={() => setView("chat")}
       onUpdateDraft={setDraft}
       connectionHealth={connectionHealth}
@@ -800,6 +836,7 @@ function AppShell(props) {
             <ServerBufferPane
               draft={props.draft}
               messages={props.serverMessages}
+              onLoadOlderMessages={props.onLoadOlderMessages}
               server={props.activeServer}
               onSendMessage={props.onSendMessage}
               onUpdateDraft={props.onUpdateDraft}
@@ -1067,14 +1104,16 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
   }
 }
 
-function ChatPane({activeChannel, connectionHealth, draft, messages, onRetryMessage, onSendMessage, onUpdateDraft}) {
-  const {readingOlder, scrollRef} = useChatScroll(messages)
+function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlderMessages, onRetryMessage, onSendMessage, onUpdateDraft}) {
+  const {readingOlder, scrollRef} = useChatScroll(messages, {
+    onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
+  })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
   const sendDisabled = isRealtimeChannel(activeChannel) && connectionHealth !== "connected"
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
+      <div id="chat-scrollback" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-4xl space-y-1">
           <MessageTimeline messages={visibleMessages} onRetryMessage={onRetryMessage} />
         </div>
@@ -1165,15 +1204,17 @@ function DiscoverPane({topics, onSelectTopic}) {
   )
 }
 
-function ServerBufferPane({draft, messages, server, onSendMessage, onUpdateDraft}) {
-  const {readingOlder, scrollRef} = useChatScroll(messages)
+function ServerBufferPane({draft, messages, onLoadOlderMessages, server, onSendMessage, onUpdateDraft}) {
+  const {readingOlder, scrollRef} = useChatScroll(messages, {
+    onNearTop: () => onLoadOlderMessages?.(server?.id),
+  })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
 
   if (!server) return null
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
+      <div id="server-scrollback" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-4xl">
           <div className="mb-4 rounded-lg border border-slate-800 bg-[#121722] p-4">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Server buffer</div>
@@ -1606,6 +1647,11 @@ export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_
   return messages.slice(-limit)
 }
 
+function mergeOlderMessages(olderMessages, currentMessages) {
+  const currentIds = new Set(currentMessages.map((message) => message.id))
+  return [...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages]
+}
+
 function applyUserDiff(users, diff) {
   if (!diff) return users
 
@@ -1650,28 +1696,43 @@ function notificationLabel(state) {
   return "Enable browser notifications for mentions."
 }
 
-function useChatScroll(messages) {
+function useChatScroll(messages, {onNearTop} = {}) {
   const scrollRef = React.useRef(null)
+  const previousScrollHeightRef = React.useRef(0)
   const [readingOlder, setReadingOlder] = useState(false)
 
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
-    const updateReadingState = () => {
+    const updateReadingState = ({loadOlder = false} = {}) => {
       const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
       setReadingOlder(distanceFromBottom > 96)
+      if (loadOlder && node.scrollTop <= 80 && node.scrollHeight > node.clientHeight) onNearTop?.()
     }
 
     updateReadingState()
-    node.addEventListener("scroll", updateReadingState)
+    const handleScroll = () => updateReadingState({loadOlder: true})
+    node.addEventListener("scroll", handleScroll)
 
-    return () => node.removeEventListener("scroll", updateReadingState)
-  }, [])
+    return () => node.removeEventListener("scroll", handleScroll)
+  }, [onNearTop])
 
   useEffect(() => {
     const node = scrollRef.current
     if (!node || readingOlder) return
     node.scrollTop = node.scrollHeight
+  }, [messages.length, readingOlder])
+
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node || !readingOlder) return
+
+    const previousScrollHeight = previousScrollHeightRef.current
+    if (previousScrollHeight > 0 && node.scrollHeight > previousScrollHeight) {
+      node.scrollTop += node.scrollHeight - previousScrollHeight
+    }
+
+    previousScrollHeightRef.current = node.scrollHeight
   }, [messages.length, readingOlder])
 
   return {readingOlder, scrollRef}

@@ -203,7 +203,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Message history and rendering limits
 
 - [x] Initial message fetch returns latest 150 messages for the active buffer.
-- [ ] Fetch older history in pages of 50 when scrolling near the top.
+- [x] Fetch older history in pages of 50 when scrolling near the top.
 - [x] Keep a soft client-side render cap of 300-500 messages per open buffer.
 - [x] Do not trim rendered messages while the user is scrolled up reading older history.
 - [ ] If the user is near the bottom:
@@ -219,7 +219,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `GET /api/buffers/:id/messages?limit=150`
   - [x] `GET /api/buffers/:id/messages?before=<message_cursor>&limit=50`
   - [x] server buffers use the same message history API
-- [ ] Preserve scroll offset when prepending older messages.
+- [x] Preserve scroll offset when prepending older messages.
 
 ## Notifications
 
