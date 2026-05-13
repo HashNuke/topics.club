@@ -22,7 +22,7 @@ export const demoTopics = [
     name: "#elixir",
     description: "Phoenix, OTP, releases, and production Elixir help.",
     server_host: "127.0.0.1",
-    server_port: 6667,
+    server_port: 6669,
     use_tls: false,
     channel: "#elixir",
     members: 426,
@@ -33,7 +33,7 @@ export const demoTopics = [
     name: "#phoenix",
     description: "LiveView patterns, web UI questions, and framework support.",
     server_host: "127.0.0.1",
-    server_port: 6667,
+    server_port: 6669,
     use_tls: false,
     channel: "#phoenix",
     members: 188,
@@ -44,7 +44,7 @@ export const demoTopics = [
     name: "#linux",
     description: "Daily Linux discussion, troubleshooting, and desktop setups.",
     server_host: "127.0.0.1",
-    server_port: 6667,
+    server_port: 6669,
     use_tls: false,
     channel: "#linux",
     members: 931,
@@ -55,7 +55,7 @@ export const demoTopics = [
     name: "#rust",
     description: "Rust language help, async crates, and compiler talk.",
     server_host: "127.0.0.1",
-    server_port: 6667,
+    server_port: 6669,
     use_tls: false,
     channel: "#rust",
     members: 812,
@@ -66,7 +66,7 @@ export const demoTopics = [
     name: "#gamedev",
     description: "Indie games, engines, shaders, and release feedback.",
     server_host: "127.0.0.1",
-    server_port: 6667,
+    server_port: 6669,
     use_tls: false,
     channel: "#gamedev",
     members: 147,
@@ -77,7 +77,7 @@ export const demoTopics = [
     name: "#homelab",
     description: "Self-hosting, small servers, storage, and network projects.",
     server_host: "127.0.0.1",
-    server_port: 6667,
+    server_port: 6669,
     use_tls: false,
     channel: "#homelab",
     members: 269,
@@ -422,7 +422,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       const {connection} = await apiClient.createConnection({
         name: host,
         host,
-        port: Number(form.port) || 6667,
+        port: Number(form.port) || 6669,
         use_tls: form.useTls,
         nickname: currentUser?.email?.split("@")[0] || "topics_user",
       })
@@ -1087,7 +1087,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       const {connection} = await apiClient.updateConnection(server.server_connection_id, {
         name: server.name || host,
         host,
-        port: Number(form.port) || 6667,
+        port: Number(form.port) || 6669,
         use_tls: form.useTls,
         nickname,
       })
@@ -2051,7 +2051,7 @@ function AuthPrompt({developerOauth, topic, onClose}) {
 }
 
 function ManualJoinDialog({onClose, onJoin}) {
-  const [form, setForm] = useState({host: "127.0.0.1", port: "6667", channels: "#elixir, #phoenix", useTls: false})
+  const [form, setForm] = useState({host: "127.0.0.1", port: "6669", channels: "#elixir, #phoenix", useTls: false})
 
   function submit(event) {
     event.preventDefault()
@@ -2103,7 +2103,7 @@ function ManualJoinDialog({onClose, onJoin}) {
 function EditServerDialog({onClose, onSave, server}) {
   const [form, setForm] = useState({
     host: server.host || "",
-    port: String(server.port || 6667),
+    port: String(server.port || 6669),
     nickname: server.nickname || "",
     useTls: Boolean(server.use_tls || server.useTls),
   })
@@ -2346,7 +2346,7 @@ function backendTopicFor(topic, topics) {
       numericId(normalized.id) &&
       normalized.channel === topic.channel &&
       normalized.server_host === topic.server_host &&
-      Number(normalized.server_port || 6667) === Number(topic.server_port || 6667)
+      Number(normalized.server_port || 6669) === Number(topic.server_port || 6669)
     )
   })
 }

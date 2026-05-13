@@ -1,0 +1,14 @@
+[Unit]
+Description=Ircpipe development IRC server
+After=network.target
+
+[Service]
+Type=simple
+User=irc
+Group=irc
+ExecStart=/usr/sbin/inspircd --nofork --nopid --nolog --config /etc/inspircd/ircpipe-dev.conf
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

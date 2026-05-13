@@ -3,7 +3,7 @@ if System.get_env("IRCPIPE_LOCAL_IRC_INTEGRATION") == "1" do
     use Ircpipe.DataCase
 
     @host "127.0.0.1"
-    @port 6667
+    @port 6669
 
     test "local InspIRCd relays messages between IRC clients and irssi is available" do
       assert System.find_executable("irssi")

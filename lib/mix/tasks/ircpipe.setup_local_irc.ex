@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Ircpipe.SetupLocalIrc do
     nick = "topics_setup_#{System.unique_integer([:positive])}"
     first = hd(topics)
 
-    case Ircxd.Client.start_link(
+    case Ircxd.start_link(
            host: first.server_host,
            port: first.server_port,
            tls: false,
@@ -66,7 +66,7 @@ defmodule Mix.Tasks.Ircpipe.SetupLocalIrc do
       {:ircxd, {:error, reason}} -> {:error, reason}
       {:ircxd, :disconnected} -> {:error, :disconnected}
     after
-      3_000 -> {:error, :timeout}
+      10_000 -> {:error, :timeout}
     end
   end
 

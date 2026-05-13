@@ -520,6 +520,7 @@ defmodule Ircpipe.Irc.Session do
     Chat.record_server_message(connection, body, kind, nil, metadata)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
+    Ecto.ConstraintError -> {:ok, nil}
     Ecto.NoResultsError -> {:ok, nil}
     Ecto.StaleEntryError -> {:ok, nil}
     DBConnection.OwnershipError -> {:ok, nil}
@@ -531,6 +532,7 @@ defmodule Ircpipe.Irc.Session do
     Chat.record_channel_system_message(connection, channel, kind, nick, body)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
+    Ecto.ConstraintError -> {:ok, nil}
     Ecto.NoResultsError -> {:ok, nil}
     Ecto.StaleEntryError -> {:ok, nil}
     DBConnection.OwnershipError -> {:ok, nil}
@@ -542,6 +544,7 @@ defmodule Ircpipe.Irc.Session do
     Chat.record_channel_system_message_all(connection, kind, nick, body_fun)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
+    Ecto.ConstraintError -> {:ok, nil}
     Ecto.NoResultsError -> {:ok, nil}
     Ecto.StaleEntryError -> {:ok, nil}
     DBConnection.OwnershipError -> {:ok, nil}
@@ -553,6 +556,7 @@ defmodule Ircpipe.Irc.Session do
     Chat.record_channel_system_message(connection, channel, "error", nil, irc_error_body(payload))
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
+    Ecto.ConstraintError -> {:ok, nil}
     Ecto.NoResultsError -> record_server_line(connection, irc_error_body(payload), "error")
     Ecto.StaleEntryError -> {:ok, nil}
     DBConnection.OwnershipError -> {:ok, nil}

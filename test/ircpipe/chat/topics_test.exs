@@ -11,7 +11,7 @@ defmodule Ircpipe.Chat.TopicsTest do
         name: "#elixir",
         description: "Local Elixir discussion.",
         server_host: "127.0.0.1",
-        server_port: 6667,
+        server_port: 6669,
         use_tls: false,
         channel: "#elixir",
         sort_order: 10
@@ -20,7 +20,7 @@ defmodule Ircpipe.Chat.TopicsTest do
         name: "#phoenix",
         description: "Local Phoenix discussion.",
         server_host: "127.0.0.1",
-        server_port: 6667,
+        server_port: 6669,
         use_tls: false,
         channel: "#phoenix",
         sort_order: 20

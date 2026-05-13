@@ -42,10 +42,24 @@ mix setup
 mix phx.server
 ```
 
-`mix setup` also seeds suggested topics for the local InspIRCd server at
-`127.0.0.1:6667` and then tries to join those channels once with `ircxd` so they
-are ready for manual testing. If InspIRCd is not running yet, setup continues and
-the channels will still be created when users join them from the app.
+`mix setup` also seeds suggested topics for the local development InspIRCd server
+at `127.0.0.1:6669` and then tries to join those channels once with `ircxd` so
+they are ready for manual testing. If InspIRCd is not running yet, setup
+continues and the channels will still be created when users join them from the
+app.
+
+The repo includes a systemd unit for this development IRC server:
+
+```bash
+sudo install -m 0644 dev/systemd/irc-server-dev.service /etc/systemd/system/irc-server-dev.service
+sudo install -m 0644 tmp/inspircd/inspircd.conf /etc/inspircd/ircpipe-dev.conf
+sudo install -m 0644 tmp/inspircd/inspircd.motd /etc/inspircd/ircpipe-dev.motd
+sudo systemctl daemon-reload
+sudo systemctl enable --now irc-server-dev.service
+```
+
+This intentionally avoids the default IRC port `6667`, which is left free for
+`ircxd` builds and tests.
 
 Ready to run in production? Please [check our deployment guides](https://hexdocs.pm/phoenix/deployment.html).
 
