@@ -117,6 +117,17 @@ const demoMessages = [
   },
 ]
 
+export const slashCommands = [
+  {name: "/join", usage: "/join #channel", description: "Join a channel"},
+  {name: "/part", usage: "/part #channel", description: "Leave a channel"},
+  {name: "/leave", usage: "/leave #channel", description: "Leave a channel"},
+  {name: "/msg", usage: "/msg nick message", description: "Send a private message"},
+  {name: "/me", usage: "/me action", description: "Send an action message"},
+  {name: "/nick", usage: "/nick newnick", description: "Change nickname"},
+  {name: "/topic", usage: "/topic #channel text", description: "Set or view a topic"},
+  {name: "/quote", usage: "/quote RAW COMMAND", description: "Send a raw IRC command"},
+]
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -359,22 +370,9 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
           </h1>
           <p className="mt-5 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">IRC, made easy</p>
           <div className="mt-8 flex flex-wrap gap-3">
-            {currentUser ? (
-              <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" href="/chat">
-                Open chat
-              </a>
-            ) : (
-              <>
-                <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" href="/auth/google">
-                  Continue with Google
-                </a>
-                {developerOauth && (
-                  <a className="rounded-md border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:text-white" href="/auth/developer">
-                    Developer OAuth
-                  </a>
-                )}
-              </>
-            )}
+            <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" href="/chat">
+              Open chat
+            </a>
           </div>
         </div>
         <section aria-label="Suggested topics" className="self-center">
@@ -671,20 +669,13 @@ function ChatPane({activeChannel, draft, messages, onSendMessage, onUpdateDraft}
           <MessageTimeline messages={messages} />
         </div>
       </div>
-      <form className="border-t border-slate-800/80 bg-[#0f131b] p-3 sm:p-4" onSubmit={onSendMessage}>
-        <div className="mx-auto flex max-w-4xl items-center gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 transition focus-within:border-cyan-300">
-          <input
-            id="chat-message-input"
-            className="min-w-0 flex-1 bg-transparent py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
-            value={draft}
-            onChange={(event) => onUpdateDraft(event.target.value)}
-            placeholder={activeChannel ? "Write a message" : "Choose a topic first"}
-          />
-          <button className="rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white">
-            Send
-          </button>
-        </div>
-      </form>
+      <ChatComposer
+        inputId="chat-message-input"
+        draft={draft}
+        onSendMessage={onSendMessage}
+        onUpdateDraft={onUpdateDraft}
+        placeholder={activeChannel ? "Write a message" : "Choose a topic first"}
+      />
     </section>
   )
 }
@@ -772,21 +763,72 @@ function ServerBufferPane({draft, messages, server, onSendMessage, onUpdateDraft
           <MessageTimeline messages={messages} />
         </div>
       </div>
-      <form className="border-t border-slate-800/80 bg-[#0f131b] p-3 sm:p-4" onSubmit={onSendMessage}>
-        <div className="mx-auto flex max-w-4xl items-center gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 transition focus-within:border-cyan-300">
-          <input
-            id="server-command-input"
-            className="min-w-0 flex-1 bg-transparent py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
-            value={draft}
-            onChange={(event) => onUpdateDraft(event.target.value)}
-            placeholder="Message a service or type a server command"
-          />
-          <button className="rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white">
-            Send
-          </button>
-        </div>
-      </form>
+      <ChatComposer
+        inputId="server-command-input"
+        draft={draft}
+        onSendMessage={onSendMessage}
+        onUpdateDraft={onUpdateDraft}
+        placeholder="Message a service or type a server command"
+      />
     </section>
+  )
+}
+
+function ChatComposer({draft, inputId, onSendMessage, onUpdateDraft, placeholder}) {
+  const suggestions = commandSuggestionsFor(draft)
+  const {refs, floatingStyles} = useFloating({
+    placement: "top-start",
+    middleware: [offset(8), shift({padding: 12})],
+  })
+
+  return (
+    <form className="relative border-t border-slate-800/80 bg-[#0f131b] p-3 sm:p-4" onSubmit={onSendMessage}>
+      {suggestions.length > 0 && (
+        <div
+          ref={refs.setFloating}
+          style={floatingStyles}
+          role="listbox"
+          aria-label="Slash command suggestions"
+          className="z-30 w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-slate-700 bg-[#121722] p-1 shadow-2xl shadow-black/40"
+        >
+          {suggestions.map((command) => (
+            <button
+              key={command.name}
+              type="button"
+              role="option"
+              aria-selected="false"
+              className="grid w-full grid-cols-[4.5rem_1fr] gap-3 rounded-md px-3 py-2 text-left text-sm transition hover:bg-slate-800/80"
+              onMouseDown={(event) => {
+                event.preventDefault()
+                onUpdateDraft(`${command.name} `)
+              }}
+            >
+              <span className="font-semibold text-cyan-200">{command.name}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-slate-300">{command.description}</span>
+                <span className="block truncate text-xs text-slate-500">{command.usage}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        ref={refs.setReference}
+        className="mx-auto flex max-w-4xl items-center gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 transition focus-within:border-cyan-300"
+      >
+        <input
+          id={inputId}
+          aria-label="Message composer"
+          className="min-w-0 flex-1 bg-transparent py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
+          value={draft}
+          onChange={(event) => onUpdateDraft(event.target.value)}
+          placeholder={placeholder}
+        />
+        <button className="rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white">
+          Send
+        </button>
+      </div>
+    </form>
   )
 }
 
@@ -1125,6 +1167,14 @@ function normalizeTopic(topic) {
 function normalizeChannel(channel) {
   if (!channel) return "#general"
   return channel.startsWith("#") ? channel : `#${channel}`
+}
+
+function commandSuggestionsFor(value) {
+  const trimmedStart = value.trimStart()
+  if (!trimmedStart.startsWith("/") || trimmedStart.includes(" ")) return []
+
+  const prefix = trimmedStart.slice(1).toLowerCase()
+  return slashCommands.filter((command) => command.name.slice(1).startsWith(prefix))
 }
 
 function notificationPermission() {

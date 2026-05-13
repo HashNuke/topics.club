@@ -19,7 +19,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "Community chat"})).toBeInTheDocument()
     expect(screen.getByRole("button", {name: /#elixir/i})).toHaveTextContent("on 127.0.0.1")
-    expect(screen.getByRole("link", {name: "Developer OAuth"})).toHaveAttribute("href", "/auth/developer")
+    expect(screen.getByRole("link", {name: "Open chat"})).toHaveAttribute("href", "/chat")
   })
 
   test("asks unauthenticated users to sign in before joining a topic", async () => {
@@ -87,6 +87,29 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByText("Server buffer")).toBeInTheDocument()
     expect(screen.getByText(/NickServ/i)).toBeInTheDocument()
     expect(screen.getByText(/ChanServ/i)).toBeInTheDocument()
+  })
+
+  test("shows slash command suggestions from the chat composer", async () => {
+    const user = userEvent.setup()
+    mockTopicsFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    await user.type(screen.getByLabelText("Message composer"), "/jo")
+
+    const suggestions = screen.getByRole("listbox", {name: "Slash command suggestions"})
+    expect(within(suggestions).getByRole("option", {name: /\/join/i})).toBeInTheDocument()
+  })
+
+  test("keeps slash command suggestions hidden for normal messages", async () => {
+    const user = userEvent.setup()
+    mockTopicsFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    await user.type(screen.getByLabelText("Message composer"), "hello /join")
+
+    expect(screen.queryByRole("listbox", {name: "Slash command suggestions"})).not.toBeInTheDocument()
   })
 
   test("keeps signed-in users on the public landing page unless they open chat", async () => {

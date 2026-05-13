@@ -112,28 +112,28 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Slash commands
 
-- [ ] React detects a leading `/` only to open a Floating UI command popover.
-- [ ] React never treats slash commands as authoritative client-only behavior.
+- [x] React detects a leading `/` only to open a Floating UI command popover.
+- [x] React never treats slash commands as authoritative client-only behavior.
 - [ ] React sends slash-command submissions to the backend as `command:run`.
-- [ ] Backend parses and validates slash commands.
-- [ ] Backend returns structured command results.
+- [x] Backend parses and validates slash commands.
+- [x] Backend returns structured command results.
 - [ ] Backend emits system messages for command outcomes that should remain in the buffer.
-- [ ] Add command suggestions endpoint or channel event:
-  - [ ] `/join`
-  - [ ] `/part`
-  - [ ] `/leave`
-  - [ ] `/msg`
-  - [ ] `/nick`
-  - [ ] `/me`
-  - [ ] `/topic`
-  - [ ] `/quote` for advanced/raw IRC commands, if allowed
+- [x] Add command suggestions endpoint or channel event:
+  - [x] `/join`
+  - [x] `/part`
+  - [x] `/leave`
+  - [x] `/msg`
+  - [x] `/nick`
+  - [x] `/me`
+  - [x] `/topic`
+  - [x] `/quote` for advanced/raw IRC commands, if allowed
 - [ ] Backend returns completion metadata:
-  - [ ] command name
-  - [ ] usage
-  - [ ] description
+  - [x] command name
+  - [x] usage
+  - [x] description
   - [ ] required permission
   - [ ] examples
-- [ ] React uses Floating UI for the slash-command popover.
+- [x] React uses Floating UI for the slash-command popover.
 - [ ] Tests cover command detection, completion display, backend parsing, and error feedback.
 
 ## Leaving channels and servers
@@ -317,13 +317,13 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Testing checklist
 
 - [ ] Backend context tests for buffer ownership and scoping.
-- [ ] Backend channel tests for `UserChannel`.
+- [x] Backend channel tests for `UserChannel`.
 - [ ] Backend API tests for bootstrap, history, join, leave, and settings.
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [ ] Frontend reducer tests for realtime event application.
 - [x] Frontend component tests for the chat shell.
-- [ ] Frontend tests for slash command completion.
+- [x] Frontend tests for slash command completion.
 - [ ] Frontend tests for notification permission states.
 - [ ] Frontend tests for socket/backend failure states.
 - [x] Headless Chromium tests for local-only landing topics and auth-protected chat route.
@@ -335,7 +335,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [ ] Phase 1: Stabilize frontend shell contracts.
   - [ ] Add leave buttons and popover menus.
-  - [ ] Add slash command popover UI.
+  - [x] Add slash command popover UI.
   - [ ] Add connection health indicator UI.
   - [ ] Add reducer-level state model.
 - [ ] Phase 2: Build backend buffer model.
