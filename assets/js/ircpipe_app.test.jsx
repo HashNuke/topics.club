@@ -420,6 +420,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
     expect(screen.getByText("loaded from bootstrap")).toBeInTheDocument()
+    expect(screen.getByLabelText("Message composer").tagName).toBe("TEXTAREA")
 
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
     expect(within(nav).getByText("local")).toBeInTheDocument()

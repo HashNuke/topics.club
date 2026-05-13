@@ -67,7 +67,8 @@ defmodule Ircpipe.Irc.Session do
        connection: connection,
        client: nil,
        registered?: false,
-       pending_joins: persisted_channels(connection)
+       pending_joins: persisted_channels(connection),
+       joined_channels: MapSet.new()
      }}
   end
 
@@ -268,6 +269,17 @@ defmodule Ircpipe.Irc.Session do
 
   def handle_info({:ircxd, {:names, %{channel: channel, names: names}}}, state) do
     Chat.broadcast_presence_sync(state.connection, channel, names)
+
+    normalized = Chat.normalize_channel(channel)
+
+    state =
+      if MapSet.member?(state.pending_joins, normalized) or
+           names_include_nick?(names, state.connection.nickname) do
+        mark_channel_joined(state, channel)
+      else
+        state
+      end
+
     {:noreply, state}
   end
 
@@ -278,12 +290,31 @@ defmodule Ircpipe.Irc.Session do
     })
 
     record_channel_line(state.connection, channel, "join", nick, "#{nick} joined #{channel}.")
+
+    state =
+      if same_nick?(nick, state.connection.nickname) do
+        mark_channel_joined(state, channel)
+      else
+        state
+      end
+
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:part, %{channel: channel, nick: nick}}}, state) do
     Chat.broadcast_presence_diff(state.connection, channel, %{action: "part", nick: nick})
     record_channel_line(state.connection, channel, "part", nick, "#{nick} left #{channel}.")
+
+    state =
+      if same_nick?(nick, state.connection.nickname) do
+        %{
+          state
+          | joined_channels: MapSet.delete(state.joined_channels, Chat.normalize_channel(channel))
+        }
+      else
+        state
+      end
+
     {:noreply, state}
   end
 
@@ -386,7 +417,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_call({:say, channel, body}, _from, state) do
-    with {:ok, client} <- fetch_client(state),
+    with {:ok, client} <- fetch_joined_client(state, channel),
          :ok <- Ircxd.Client.privmsg(client, channel, body) do
       Chat.record_inbound_message(state.connection, channel, state.connection.nickname, body)
       {:reply, :ok, state}
@@ -396,7 +427,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_call({:action, channel, body}, _from, state) do
-    with {:ok, client} <- fetch_client(state),
+    with {:ok, client} <- fetch_joined_client(state, channel),
          :ok <- Ircxd.Client.privmsg(client, channel, <<1, "ACTION ", body::binary, 1>>) do
       Chat.record_inbound_message(
         state.connection,
@@ -530,6 +561,51 @@ defmodule Ircpipe.Irc.Session do
 
   defp fetch_client(%{client: nil}), do: {:error, :not_connected}
   defp fetch_client(%{client: client}), do: {:ok, client}
+
+  defp fetch_joined_client(state, channel) do
+    normalized = Chat.normalize_channel(channel)
+
+    cond do
+      state.client == nil ->
+        {:error, :not_connected}
+
+      MapSet.member?(state.joined_channels, normalized) ->
+        {:ok, state.client}
+
+      MapSet.member?(state.pending_joins, normalized) ->
+        {:error, :joining_channel}
+
+      true ->
+        {:error, :not_joined}
+    end
+  end
+
+  defp mark_channel_joined(state, channel) do
+    normalized = Chat.normalize_channel(channel)
+
+    %{
+      state
+      | pending_joins: MapSet.delete(state.pending_joins, normalized),
+        joined_channels: MapSet.put(state.joined_channels, normalized)
+    }
+  end
+
+  defp names_include_nick?(names, nick) when is_list(names) do
+    Enum.any?(names, fn
+      %{nick: listed_nick} -> same_nick?(listed_nick, nick)
+      %{"nick" => listed_nick} -> same_nick?(listed_nick, nick)
+      listed_nick when is_binary(listed_nick) -> same_nick?(listed_nick, nick)
+      _other -> false
+    end)
+  end
+
+  defp names_include_nick?(_names, _nick), do: false
+
+  defp same_nick?(left, right) when is_binary(left) and is_binary(right) do
+    String.downcase(left) == String.downcase(right)
+  end
+
+  defp same_nick?(_left, _right), do: false
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error

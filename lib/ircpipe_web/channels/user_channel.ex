@@ -424,8 +424,15 @@ defmodule IrcpipeWeb.UserChannel do
   defp error_reason(:invalid_command_args), do: "invalid_command_args"
   defp error_reason(:invalid_connection), do: "invalid_connection"
   defp error_reason(:not_connected), do: "not_connected"
+  defp error_reason(:joining_channel), do: "joining_channel"
+  defp error_reason(:not_joined), do: "not_joined"
   defp error_reason(_reason), do: "send_failed"
 
   defp send_error_body(:not_connected), do: "Message could not be sent: not connected."
+
+  defp send_error_body(:joining_channel),
+    do: "Message could not be sent: still joining the channel."
+
+  defp send_error_body(:not_joined), do: "Message could not be sent: not joined to the channel."
   defp send_error_body(_reason), do: "Message could not be sent."
 end

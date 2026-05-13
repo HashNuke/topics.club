@@ -1200,10 +1200,10 @@ function AppShell(props) {
   const showsUserSidebar = props.view === "chat"
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#0a0d12] text-slate-100">
+    <main className="min-h-dvh overflow-hidden bg-[#0a0d12] text-slate-100">
       <div
         className={[
-          "grid h-screen grid-cols-1",
+          "grid h-dvh grid-cols-1",
           showsUserSidebar
             ? "lg:grid-cols-[260px_minmax(0,1fr)_220px]"
             : "lg:grid-cols-[260px_minmax(0,1fr)]",
@@ -1837,7 +1837,10 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
   })
 
   return (
-    <form className="relative border-t border-slate-800/80 bg-[#0f131b] p-3 sm:p-4" onSubmit={onSendMessage}>
+    <form
+      className="relative border-t border-slate-800/80 bg-[#0f131b] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:p-4"
+      onSubmit={onSendMessage}
+    >
       {suggestions.length > 0 && (
         <div
           ref={refs.setFloating}
@@ -1869,22 +1872,24 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
       )}
       <div
         ref={refs.setReference}
-        className="mx-auto flex max-w-4xl items-center gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 transition focus-within:border-cyan-300"
+        className="mx-auto flex max-w-4xl flex-col items-stretch gap-2 rounded-md border border-slate-700 bg-slate-950 p-2 transition focus-within:border-cyan-300 sm:flex-row sm:items-center sm:px-3"
       >
-        <input
-          id={inputId}
-          aria-label="Message composer"
-          className="min-w-0 flex-1 bg-transparent py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
-          value={draft}
-          onChange={(event) => onUpdateDraft(event.target.value)}
-          placeholder={placeholder}
-        />
         <button
-          className="rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+          className="order-1 self-end rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 sm:order-2"
           disabled={disabled}
         >
           Send
         </button>
+        <textarea
+          id={inputId}
+          aria-label="Message composer"
+          className="order-2 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 sm:order-1 sm:min-h-0 sm:py-2 sm:text-sm"
+          value={draft}
+          onChange={(event) => onUpdateDraft(event.target.value)}
+          onFocus={() => requestAnimationFrame(scrollFocusedComposerIntoView)}
+          placeholder={placeholder}
+          rows={1}
+        />
       </div>
     </form>
   )
@@ -2375,6 +2380,7 @@ function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) {
   const readingOlderRef = React.useRef(false)
   const [readingOlder, setReadingOlder] = useState(false)
   const [newMessageCount, setNewMessageCount] = useState(0)
+  const [viewportRevision, setViewportRevision] = useState(0)
 
   useEffect(() => {
     const node = scrollRef.current
@@ -2402,7 +2408,28 @@ function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) {
     const node = scrollRef.current
     if (!node || readingOlder) return
     node.scrollTop = node.scrollHeight
-  }, [messages.length, readingOlder])
+  }, [messages.length, readingOlder, viewportRevision])
+
+  useEffect(() => {
+    const viewport = window.visualViewport
+    let frame = null
+
+    const handleViewportChange = () => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => setViewportRevision((current) => current + 1))
+    }
+
+    viewport?.addEventListener("resize", handleViewportChange)
+    viewport?.addEventListener("scroll", handleViewportChange)
+    window.addEventListener("resize", handleViewportChange)
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      viewport?.removeEventListener("resize", handleViewportChange)
+      viewport?.removeEventListener("scroll", handleViewportChange)
+      window.removeEventListener("resize", handleViewportChange)
+    }
+  }, [])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -2444,6 +2471,14 @@ function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) {
   }
 
   return {newMessageCount, readingOlder, scrollRef, scrollToBottom}
+}
+
+function scrollFocusedComposerIntoView() {
+  const active = document.activeElement
+  if (!active?.matches?.("[aria-label='Message composer']")) return
+  if (typeof active.scrollIntoView !== "function") return
+
+  active.scrollIntoView({block: "nearest", inline: "nearest"})
 }
 
 function minutesBetween(previous, current) {

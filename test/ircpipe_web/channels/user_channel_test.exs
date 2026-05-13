@@ -133,8 +133,10 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
-
     socket = join_user_channel(user)
+    assert :ok = Session.join(connection, "#elixir")
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+    assert_push "presence:sync", %{buffer_id: "channel:" <> _}
 
     ref =
       push(socket, "command:run", %{
@@ -149,8 +151,10 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert_receive {:irc_server_line, "PRIVMSG #elixir :\x01ACTION waves\x01"}, 1_000
 
-    assert [%{kind: "action", body: "waves", nick: "mira"}] =
-             Chat.list_messages(user, membership.id)
+    assert Enum.any?(
+             Chat.list_messages(user, membership.id),
+             &(&1.kind == "action" and &1.body == "waves" and &1.nick == "mira")
+           )
 
     assert :ok = Session.quit(connection)
   end
@@ -184,6 +188,9 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
 
     socket = join_user_channel(user)
+    assert :ok = Session.join(connection, "#elixir")
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+    assert_push "presence:sync", %{buffer_id: "channel:" <> _}
 
     ref =
       push(socket, "message:send", %{
@@ -204,8 +211,52 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert membership_id == membership.id
     assert_receive {:irc_server_line, "PRIVMSG #elixir :hello from channel"}, 1_000
-    assert [%{body: "hello from channel", nick: "mira"}] = Chat.list_messages(user, membership.id)
 
+    assert Enum.any?(
+             Chat.list_messages(user, membership.id),
+             &(&1.body == "hello from channel" and &1.nick == "mira")
+           )
+
+    assert :ok = Session.quit(connection)
+  end
+
+  test "broadcasts sent channel messages to every browser socket for the user" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    first_socket = join_user_channel(user)
+    _second_socket = join_user_channel(user)
+    assert :ok = Session.join(connection, "#elixir")
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+    assert_push "presence:sync", %{buffer_id: "channel:" <> _}
+
+    ref =
+      push(first_socket, "message:send", %{
+        "client_message_id" => "client-broadcast",
+        "buffer_id" => "channel:#{membership.id}",
+        "body" => "hello every tab"
+      })
+
+    assert_reply ref, :ok, %{client_message_id: "client-broadcast"}
+
+    assert_push "buffer:message", %{buffer_id: buffer_id, body: "hello every tab", nick: "mira"}
+    assert_push "buffer:message", %{buffer_id: ^buffer_id, body: "hello every tab", nick: "mira"}
+
+    assert buffer_id == "channel:#{membership.id}"
     assert :ok = Session.quit(connection)
   end
 
