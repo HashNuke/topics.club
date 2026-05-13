@@ -386,6 +386,33 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("button", {name: "Retry"})).toBeInTheDocument()
   })
 
+  test("marks realtime channel send timeouts in the timeline", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const client = fakeRealtimeClient(vi.fn().mockRejectedValue({reason: "timeout"}))
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+
+    await user.type(screen.getByLabelText("Message composer"), "will timeout")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(await screen.findByRole("button", {name: "Retry"})).toBeInTheDocument()
+    expect(screen.getByText("will timeout")).toBeInTheDocument()
+  })
+
   test("retries failed realtime channel messages", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()

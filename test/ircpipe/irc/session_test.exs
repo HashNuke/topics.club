@@ -333,6 +333,46 @@ defmodule Ircpipe.Irc.SessionTest do
     assert buffer_id == "server:#{connection.id}"
   end
 
+  test "records IRC session connection errors as server buffer errors" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    state = %{connection: connection}
+
+    assert {:noreply, ^state} =
+             Session.handle_info({:ircxd, {:connect_error, :econnrefused}}, state)
+
+    assert_receive {:buffer_error,
+                    %{
+                      type: "buffer:error",
+                      buffer_id: buffer_id,
+                      server_connection_id: connection_id,
+                      channel_membership_id: nil,
+                      kind: "error",
+                      body: "Connection error for localhost: :econnrefused."
+                    }}
+
+    assert_receive {:server_status,
+                    %{
+                      type: "server:status",
+                      server_connection_id: ^connection_id,
+                      status: "errored"
+                    }}
+
+    assert buffer_id == "server:#{connection.id}"
+    assert connection_id == connection.id
+    assert Chat.get_connection!(user, connection.id).status == "errored"
+  end
+
   test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do
     user = AccountsFixtures.user_fixture()
 

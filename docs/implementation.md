@@ -185,9 +185,12 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] reconnect backend socket
   - [x] reconnect IRC server
   - [x] retry failed message
-- [ ] Add tests for socket close, channel timeout, and IRC session error states.
+- [x] Add tests for socket close, channel timeout, and IRC session error states.
   - [x] realtime join error shows degraded status
+  - [x] socket close shows reconnecting status
   - [x] channel send error shows failed status
+  - [x] channel send timeout shows failed status
+  - [x] IRC session connection error emits `server:status` and `buffer:error`
 
 ## User list flow
 
