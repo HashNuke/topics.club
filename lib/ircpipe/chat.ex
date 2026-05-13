@@ -193,6 +193,13 @@ defmodule Ircpipe.Chat do
     :ok
   end
 
+  def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
+    from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
+    |> Repo.delete_all()
+
+    :ok
+  end
+
   def update_retention_days(%User{} = user, days) do
     days =
       days

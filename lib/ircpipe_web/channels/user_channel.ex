@@ -93,6 +93,30 @@ defmodule IrcpipeWeb.UserChannel do
     {:reply, {:error, %{reason: "invalid_buffer"}}, socket}
   end
 
+  def handle_in("channel:leave", %{"buffer_id" => "channel:" <> membership_id} = payload, socket) do
+    user = socket.assigns.current_user
+    reason = Map.get(payload, "reason", "leaving")
+
+    with {:ok, membership} <- fetch_membership(user, membership_id),
+         :ok <- part(membership, reason),
+         :ok <- Chat.leave_channel(user, membership) do
+      {:reply,
+       {:ok,
+        %{
+          type: "buffer:left",
+          buffer_id: "channel:#{membership.id}",
+          server_connection_id: membership.server_connection_id,
+          channel_membership_id: membership.id
+        }}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+    end
+  end
+
+  def handle_in("channel:leave", _payload, socket) do
+    {:reply, {:error, %{reason: "invalid_buffer"}}, socket}
+  end
+
   defp reply_with_command(input, socket) do
     case Commands.parse(input) do
       {:ok, command} ->
@@ -116,6 +140,12 @@ defmodule IrcpipeWeb.UserChannel do
     Session.say(membership.server_connection, membership.channel, body)
   catch
     :exit, _reason -> {:error, :not_connected}
+  end
+
+  defp part(membership, reason) do
+    Session.part(membership.server_connection, membership.channel, reason)
+  catch
+    :exit, _reason -> :ok
   end
 
   defp latest_message(user, membership) do

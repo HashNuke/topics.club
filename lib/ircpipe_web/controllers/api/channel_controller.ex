@@ -24,6 +24,23 @@ defmodule IrcpipeWeb.Api.ChannelController do
     json(conn, %{ok: true})
   end
 
+  def leave(conn, %{"id" => id}) do
+    user = conn.assigns.current_scope.user
+    membership = Chat.get_membership!(user, id)
+
+    try_part(membership)
+    :ok = Chat.leave_channel(user, membership)
+
+    json(conn, %{
+      left: %{
+        type: "buffer:left",
+        buffer_id: "channel:#{membership.id}",
+        server_connection_id: membership.server_connection_id,
+        channel_membership_id: membership.id
+      }
+    })
+  end
+
   defp channel_json(channel) do
     %{
       id: channel.id,
@@ -36,6 +53,15 @@ defmodule IrcpipeWeb.Api.ChannelController do
 
   defp try_join(connection, channel) do
     case Session.join(connection, channel) do
+      :ok -> :ok
+      _ -> :ok
+    end
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp try_part(membership) do
+    case Session.part(membership.server_connection, membership.channel) do
       :ok -> :ok
       _ -> :ok
     end

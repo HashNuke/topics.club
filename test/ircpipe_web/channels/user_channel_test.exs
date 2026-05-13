@@ -147,6 +147,41 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert reloaded.mention_count == 0
   end
 
+  test "leaves a channel buffer through the IRC session" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    socket = join_user_channel(user)
+    ref = push(socket, "channel:leave", %{"buffer_id" => "channel:#{membership.id}"})
+
+    assert_reply ref, :ok, %{
+      type: "buffer:left",
+      buffer_id: "channel:" <> _,
+      channel_membership_id: membership_id
+    }
+
+    assert membership_id == membership.id
+    assert_receive {:irc_server_line, "PART #elixir leaving"}, 1_000
+
+    assert_raise Ecto.NoResultsError, fn -> Chat.get_membership!(user, membership.id) end
+    assert :ok = Session.quit(connection)
+  end
+
   defp join_user_channel(user) do
     assert {:ok, _reply, socket} =
              UserSocket

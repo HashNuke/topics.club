@@ -151,9 +151,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] Edit connection
   - [ ] Leave server
 - [ ] Backend channel leave flow:
-  - [ ] authorize membership
-  - [ ] send IRC `PART`
-  - [ ] mark channel membership as left or delete it
+  - [x] authorize membership
+  - [x] send IRC `PART`
+  - [x] mark channel membership as left or delete it
   - [ ] broadcast `buffer:left`
 - [ ] Backend server leave flow:
   - [ ] authorize server connection
@@ -241,7 +241,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] `POST /api/connections/:id/connect`
 - [ ] `POST /api/connections/:id/disconnect`
 - [ ] `DELETE /api/connections/:id`
-- [ ] `POST /api/channel_memberships/:id/leave`
+- [x] `POST /api/channel_memberships/:id/leave`
 - [ ] `PUT /api/settings`
 - [ ] Keep all authenticated endpoints under pipelines that assign `current_scope`.
 - [ ] Pass `current_scope` or `current_scope.user` into context functions for user-scoped data.
@@ -254,7 +254,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `message:send`
   - [x] `command:run`
   - [x] `buffer:read`
-  - [ ] `channel:leave`
+  - [x] `channel:leave`
   - [ ] `server:disconnect`
   - [ ] `server:reconnect`
 - [ ] Add typed reply payloads for every handler:
@@ -266,6 +266,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `message:send` ownership, reply, IRC send, and persistence
   - [x] `command:run` reply
   - [x] `buffer:read` counter reset reply
+  - [x] `channel:leave` ownership, reply, IRC part, and deletion
 
 ## IRC runtime checklist
 
@@ -325,6 +326,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] bootstrap
   - [x] history
   - [x] topic join
+  - [x] channel leave
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [x] Frontend reducer tests for realtime event application.
