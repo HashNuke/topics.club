@@ -229,17 +229,23 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
 
   function joinManualServer(form) {
     const host = form.host.trim()
-    const channel = normalizeChannel(form.channel)
-    if (!host || !channel) return
+    const channels = String(form.channels || "")
+      .split(",")
+      .map((channel) => normalizeChannel(channel.trim()))
+      .filter(Boolean)
 
-    joinTopic({
-      id: `${host}-${channel}`,
-      name: channel,
-      description: `A channel you joined directly on ${host}.`,
-      server_host: host,
-      server_port: Number(form.port) || 6697,
-      use_tls: form.useTls,
-      channel,
+    if (!host || channels.length === 0) return
+
+    channels.forEach((channel) => {
+      joinTopic({
+        id: `${host}-${channel}`,
+        name: channel,
+        description: `A channel you joined directly on ${host}.`,
+        server_host: host,
+        server_port: Number(form.port) || 6697,
+        use_tls: form.useTls,
+        channel,
+      })
     })
   }
 
@@ -315,6 +321,7 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
       draft={draft}
       messages={messages}
       notificationState={notificationState}
+      serverMessages={serverMessages}
       topics={topics}
       users={demoUsers}
       view={view}
@@ -419,7 +426,7 @@ function AppShell(props) {
           ) : props.view === "server" ? (
             <ServerBufferPane
               draft={props.draft}
-              messages={serverMessages}
+              messages={props.serverMessages}
               server={props.activeServer}
               onSendMessage={props.onSendMessage}
               onUpdateDraft={props.onUpdateDraft}
@@ -539,10 +546,10 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
                 <button
                   key={channel.id}
                   className={[
-                    "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition",
+                    "flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm outline-none transition focus-visible:border-cyan-300/50",
                     activeChannel?.id === channel.id
-                      ? "bg-cyan-400 text-slate-950"
-                      : "text-slate-300 hover:bg-slate-800/80 hover:text-white",
+                      ? "border border-cyan-300/30 bg-cyan-300/10 text-cyan-100"
+                      : "border-transparent text-slate-300 hover:bg-slate-800/80 hover:text-white",
                   ].join(" ")}
                   onClick={() => onSelectChannel(channel)}
                 >
@@ -925,7 +932,7 @@ function AuthPrompt({developerOauth, topic, onClose}) {
 }
 
 function ManualJoinDialog({onClose, onJoin}) {
-  const [form, setForm] = useState({host: "irc.libera.chat", port: "6697", channel: "#elixir", useTls: true})
+  const [form, setForm] = useState({host: "irc.libera.chat", port: "6697", channels: "#elixir, #phoenix", useTls: true})
 
   function submit(event) {
     event.preventDefault()
@@ -938,7 +945,7 @@ function ManualJoinDialog({onClose, onJoin}) {
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-lg font-semibold">Join another server</h2>
-            <p className="mt-1 text-sm text-slate-500">Use this for your own networks and channels.</p>
+            <p className="mt-1 text-sm text-slate-500">Specify connection details to connect to a new server.</p>
           </div>
           <button type="button" className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-800 hover:text-white" onClick={onClose}>
             x
@@ -953,8 +960,13 @@ function ManualJoinDialog({onClose, onJoin}) {
               <span>TLS</span>
             </label>
           </div>
-          <LabeledInput id="server-channel" label="Channel" value={form.channel} onChange={(channel) => setForm({...form, channel})} />
-          <p className="text-xs leading-5 text-slate-500">This channel is autojoined after the server connects.</p>
+          <LabeledInput
+            id="server-channels"
+            label="Auto-join channels"
+            value={form.channels}
+            onChange={(channels) => setForm({...form, channels})}
+          />
+          <p className="text-xs leading-5 text-slate-500">Comma separated. These channels are joined after the server connects.</p>
         </div>
         <div className="mt-5 flex gap-3">
           <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>

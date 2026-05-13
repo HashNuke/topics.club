@@ -64,14 +64,29 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(screen.getByLabelText("Join another server"))
     await user.clear(screen.getByLabelText("Server"))
     await user.type(screen.getByLabelText("Server"), "irc.example.net")
-    await user.clear(screen.getByLabelText("Channel"))
-    await user.type(screen.getByLabelText("Channel"), "#music")
+    await user.clear(screen.getByLabelText("Auto-join channels"))
+    await user.type(screen.getByLabelText("Auto-join channels"), "#music, ##deep")
     await user.click(screen.getByRole("button", {name: "Join"}))
 
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
     expect(within(nav).getByText("irc.example.net")).toBeInTheDocument()
     expect(within(nav).getByText("#music")).toBeInTheDocument()
-    expect(screen.getByRole("heading", {name: "#music"})).toBeInTheDocument()
+    expect(within(nav).getByText("##deep")).toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "##deep"})).toBeInTheDocument()
+  })
+
+  test("opens a server buffer from the sidebar", async () => {
+    const user = userEvent.setup()
+    mockTopicsFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    await user.click(screen.getByRole("button", {name: /libera/i}))
+
+    expect(screen.getByRole("heading", {name: "irc.libera.chat", level: 2})).toBeInTheDocument()
+    expect(screen.getByText("Server buffer")).toBeInTheDocument()
+    expect(screen.getByText(/NickServ/i)).toBeInTheDocument()
+    expect(screen.getByText(/ChanServ/i)).toBeInTheDocument()
   })
 
   test("keeps signed-in users on the public landing page unless they open chat", async () => {
