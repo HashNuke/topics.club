@@ -11,7 +11,7 @@ function mockTopicsFetch() {
   })
 }
 
-function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected"} = {}) {
+function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected", messageCursorsByBuffer = {"channel:7": 99}} = {}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/connections/42" && options.method === "PUT") {
       return {
@@ -120,7 +120,7 @@ function mockBootstrapFetch({afterMessages = [], connectionStatus = "connected"}
               },
             ],
           },
-          message_cursors_by_buffer: {"channel:7": 99},
+          message_cursors_by_buffer: messageCursorsByBuffer,
           users_by_buffer: {"channel:7": []},
           topics: demoTopics,
         }),
@@ -706,6 +706,63 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByRole("button", {name: "Send"})).toBeDisabled()
     expect(push).not.toHaveBeenCalled()
     expect(composer).toHaveValue("wait for irc")
+    expect(screen.getByText("Reconnecting...")).toBeInTheDocument()
+  })
+
+  test("reconciles missed messages in order when an IRC server reconnects", async () => {
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    mockBootstrapFetch({
+      connectionStatus: "connecting",
+      messageCursorsByBuffer: {},
+      afterMessages: [
+        {
+          id: 101,
+          buffer_id: "channel:7",
+          nick: "akash",
+          body: "second missed",
+          kind: "message",
+          mentioned: false,
+          occurred_at: "2026-05-13T10:02:00Z",
+        },
+        {
+          id: 100,
+          buffer_id: "channel:7",
+          nick: "mira",
+          body: "first missed",
+          kind: "message",
+          mentioned: false,
+          occurred_at: "2026-05-13T10:01:00Z",
+        },
+      ],
+    })
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
+    realtimeHandlers.onServerStatus({server_connection_id: 42, status: "connected"})
+
+    expect(await screen.findByText("first missed")).toBeInTheDocument()
+    expect(await screen.findByText("second missed")).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/buffers/channel:7/messages?limit=50&after=99",
+      expect.objectContaining({credentials: "same-origin"})
+    )
+
+    const bootstrapMessage = screen.getByText("loaded from bootstrap")
+    const firstMissed = screen.getByText("first missed")
+    const secondMissed = screen.getByText("second missed")
+    expect(Boolean(bootstrapMessage.compareDocumentPosition(firstMissed) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    expect(Boolean(firstMissed.compareDocumentPosition(secondMissed) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
 
   test("shows degraded connection health when the realtime join fails", async () => {

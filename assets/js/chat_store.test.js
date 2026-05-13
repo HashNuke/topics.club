@@ -4,6 +4,7 @@ import {
   chatReducer,
   emptyChatState,
   hydrateBootstrap,
+  latestBackendMessageId,
   mergeNewerMessages,
   mergeOlderMessages,
   normalizeMessage,
@@ -163,5 +164,20 @@ describe("chat store", () => {
       4,
     ])
     expect(appendTimelineMessage(current, {id: 3, body: "three"}, false).map((message) => message.id)).toEqual([2, 3])
+  })
+
+  test("keeps merged messages ordered and tracks only persisted cursors", () => {
+    const current = [
+      {id: 10, body: "ten", occurredAt: "2026-05-13T10:10:00Z"},
+      {id: "client-1", body: "pending", occurredAt: "2026-05-13T10:12:00Z"},
+    ]
+
+    const merged = mergeNewerMessages(current, [
+      {id: 11, body: "eleven", occurredAt: "2026-05-13T10:11:00Z"},
+      {id: 10, body: "ten duplicate", occurredAt: "2026-05-13T10:10:00Z"},
+    ])
+
+    expect(merged.map((message) => message.id)).toEqual([10, 11, "client-1"])
+    expect(latestBackendMessageId(merged)).toBe(11)
   })
 })

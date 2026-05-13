@@ -4,6 +4,7 @@ import {createApiClient} from "./api_client.js"
 import {
   applyUserDiff,
   appendTimelineMessage,
+  latestBackendMessageId,
   mergeNewerMessages,
   mergeOlderMessages,
   normalizeChannel,
@@ -164,6 +165,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef(connections)
+  const messagesByChannelRef = useRef(messagesByChannel)
+  const messagesByServerRef = useRef(messagesByServer)
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
@@ -171,6 +174,14 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   useEffect(() => {
     connectionsRef.current = connections
   }, [connections])
+
+  useEffect(() => {
+    messagesByChannelRef.current = messagesByChannel
+  }, [messagesByChannel])
+
+  useEffect(() => {
+    messagesByServerRef.current = messagesByServer
+  }, [messagesByServer])
 
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId
@@ -722,11 +733,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function applyServerStatus(payload) {
+    const previous = connectionsRef.current.find((connection) => connection.server_connection_id === payload.server_connection_id)
+    const reconnected = payload.status === "connected" && previous?.status && previous.status !== "connected"
+
     setConnections((current) =>
       current.map((connection) =>
         connection.server_connection_id === payload.server_connection_id ? {...connection, status: payload.status} : connection
       )
     )
+
+    if (reconnected) {
+      defer(() => reconcileServerBuffers(payload.server_connection_id))
+    }
   }
 
   function applyPresenceSync(payload) {
@@ -997,28 +1015,48 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   function reconcileBootstrapCursors(cursorsByBuffer) {
     Object.entries(cursorsByBuffer).forEach(([bufferId, cursor]) => {
-      if (!isBackendBufferId(bufferId)) return
-
-      apiClient
-        .bufferMessages(bufferId, cursor ? {after: cursor, limit: 50} : {limit: 50})
-        .then(({messages = []}) => {
-          const normalized = messages.map(normalizeMessage)
-          if (normalized.length === 0) return
-
-          if (bufferId.startsWith("server:")) {
-            setMessagesByServer((current) => ({
-              ...current,
-              [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
-            }))
-          } else {
-            setMessagesByChannel((current) => ({
-              ...current,
-              [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
-            }))
-          }
-        })
-        .catch(() => {})
+      reconcileBufferMessages(bufferId, cursor)
     })
+  }
+
+  function reconcileServerBuffers(serverConnectionId) {
+    const server = connectionsRef.current.find((connection) => connection.server_connection_id === serverConnectionId)
+    if (!server) return
+
+    const bufferIds = [server.id, ...server.channels.map((channel) => channel.id)]
+    bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId, latestCursorForBuffer(bufferId)))
+  }
+
+  function reconcileBufferMessages(bufferId, cursor) {
+    if (!isBackendBufferId(bufferId)) return
+
+    apiClient
+      .bufferMessages(bufferId, cursor ? {after: cursor, limit: 50} : {limit: 50})
+      .then(({messages = []}) => {
+        const normalized = messages.map(normalizeMessage)
+        if (normalized.length === 0) return
+
+        if (bufferId.startsWith("server:")) {
+          setMessagesByServer((current) => ({
+            ...current,
+            [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
+          }))
+        } else {
+          setMessagesByChannel((current) => ({
+            ...current,
+            [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
+          }))
+        }
+      })
+      .catch(() => {})
+  }
+
+  function latestCursorForBuffer(bufferId) {
+    const messages = bufferId.startsWith("server:")
+      ? messagesByServerRef.current[bufferId] || []
+      : messagesByChannelRef.current[bufferId] || []
+
+    return latestBackendMessageId(messages)
   }
 
   function retryRealtimeConnection() {
@@ -1249,6 +1287,7 @@ function AppShell(props) {
               server={props.activeServer}
               onSendMessage={props.onSendMessage}
               onUpdateDraft={props.onUpdateDraft}
+              connectionHealth={props.connectionHealth}
             />
           ) : (
             <ChatPane {...props} />
@@ -1688,6 +1727,7 @@ function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlder
         inputId="chat-message-input"
         draft={draft}
         disabled={sendDisabled}
+        statusLabel={composerStatusLabel(activeChannel?.connection?.status, connectionHealth)}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
         placeholder={activeChannel ? "Write a message" : "Choose a topic first"}
@@ -1784,7 +1824,7 @@ function DiscoverPane({topics, onSelectTopic}) {
   )
 }
 
-function ServerBufferPane({draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}) {
+function ServerBufferPane({connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(server?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(server?.id, nextReadingOlder),
@@ -1813,6 +1853,7 @@ function ServerBufferPane({draft, messages, onLoadOlderMessages, onReadingStateC
         inputId="server-command-input"
         draft={draft}
         disabled={false}
+        statusLabel={composerStatusLabel(server.status, connectionHealth)}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
         placeholder="Message a service or type a server command"
@@ -1849,7 +1890,7 @@ function ServerStatusBanner({onReconnectServer, server}) {
   )
 }
 
-function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdateDraft, placeholder}) {
+function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdateDraft, placeholder, statusLabel}) {
   const suggestions = commandSuggestionsFor(draft)
   const {refs, floatingStyles} = useFloating({
     placement: "top-start",
@@ -1888,6 +1929,14 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
               </span>
             </button>
           ))}
+        </div>
+      )}
+      {statusLabel && (
+        <div className="mx-auto mb-2 flex max-w-4xl justify-end">
+          <div className="inline-flex items-center gap-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100" role="status">
+            <span className="size-1.5 rounded-full bg-amber-300" />
+            {statusLabel}
+          </div>
         </div>
       )}
       <div
@@ -2331,6 +2380,24 @@ function isBackendBufferId(bufferId) {
 
 function realtimeReadyFor(channel, connectionHealth) {
   return Boolean(isRealtimeChannel(channel) && connectionHealth === "connected" && channel.connection?.status === "connected")
+}
+
+function composerStatusLabel(serverStatus, connectionHealth) {
+  if (serverStatus === "connecting" || serverStatus === "reconnecting") return "Reconnecting..."
+  if (serverStatus === "disconnected") return "Disconnected. Messages will resume after reconnect."
+  if (serverStatus === "errored") return "Connection error. Reconnect to resume messages."
+  if (connectionHealth === "reconnecting") return "Reconnecting..."
+  if (connectionHealth === "degraded") return "Realtime connection degraded."
+  return null
+}
+
+function defer(callback) {
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(callback)
+    return
+  }
+
+  Promise.resolve().then(callback)
 }
 
 function numericId(value) {

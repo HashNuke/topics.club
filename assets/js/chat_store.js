@@ -167,18 +167,39 @@ export function trimMessagesToLimit(messages, limit = MESSAGE_RENDER_LIMIT) {
 export function appendTimelineMessage(messages, message, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
   if (message.id && messages.some((current) => current.id === message.id)) return messages
 
-  const nextMessages = [...messages, message]
+  const nextMessages = sortTimelineMessages([...messages, message])
   return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
 }
 
 export function mergeOlderMessages(olderMessages, currentMessages) {
   const currentIds = new Set(currentMessages.map((message) => message.id))
-  return [...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages]
+  return sortTimelineMessages([...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages])
 }
 
 export function mergeNewerMessages(currentMessages, newerMessages) {
   const currentIds = new Set(currentMessages.map((message) => message.id))
-  return trimMessagesToLimit([...currentMessages, ...newerMessages.filter((message) => !currentIds.has(message.id))])
+  return trimMessagesToLimit(sortTimelineMessages([...currentMessages, ...newerMessages.filter((message) => !currentIds.has(message.id))]))
+}
+
+export function latestBackendMessageId(messages) {
+  return messages.reduce((latest, message) => {
+    const id = Number(message.id)
+    if (!Number.isInteger(id)) return latest
+    return Math.max(latest, id)
+  }, 0)
+}
+
+function sortTimelineMessages(messages) {
+  return [...messages].sort((left, right) => {
+    const timeDiff = Date.parse(left.occurredAt || left.occurred_at || 0) - Date.parse(right.occurredAt || right.occurred_at || 0)
+    if (timeDiff !== 0 && Number.isFinite(timeDiff)) return timeDiff
+
+    const leftId = Number(left.id)
+    const rightId = Number(right.id)
+    if (Number.isInteger(leftId) && Number.isInteger(rightId)) return leftId - rightId
+
+    return 0
+  })
 }
 
 export function normalizeChannel(channel) {
