@@ -131,6 +131,35 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, state}
   end
 
+  def handle_info({:ircxd, {:join, %{channel: channel, nick: nick}}}, state) do
+    Chat.broadcast_presence_diff(state.connection, channel, %{
+      action: "join",
+      user: %{nick: nick, role: "user", status: "online"}
+    })
+
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:part, %{channel: channel, nick: nick}}}, state) do
+    Chat.broadcast_presence_diff(state.connection, channel, %{action: "part", nick: nick})
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:quit, %{nick: nick}}}, state) do
+    Chat.broadcast_presence_diff(state.connection, nil, %{action: "quit", nick: nick})
+    {:noreply, state}
+  end
+
+  def handle_info({:ircxd, {:nick, %{old_nick: old_nick, new_nick: new_nick}}}, state) do
+    Chat.broadcast_presence_diff(state.connection, nil, %{
+      action: "nick",
+      old_nick: old_nick,
+      new_nick: new_nick
+    })
+
+    {:noreply, state}
+  end
+
   def handle_info({:ircxd, _event}, state), do: {:noreply, state}
 
   @impl true

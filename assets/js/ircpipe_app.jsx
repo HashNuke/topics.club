@@ -181,6 +181,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         onMessage: applyRealtimeMessage,
         onMention: handleMentionNotification,
         onBufferMessage: applyRealtimeMessage,
+        onPresenceDiff: applyPresenceDiff,
         onPresenceSync: applyPresenceSync,
         onServerStatus: applyServerStatus,
         onNotificationMention: handleMentionNotification,
@@ -442,6 +443,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setUsersByChannel((current) => ({
       ...current,
       [payload.buffer_id]: payload.users || [],
+    }))
+  }
+
+  function applyPresenceDiff(payload) {
+    setUsersByChannel((current) => ({
+      ...current,
+      [payload.buffer_id]: applyUserDiff(current[payload.buffer_id] || [], payload.diff),
     }))
   }
 
@@ -1434,6 +1442,25 @@ function normalizeMessage(message) {
     ...message,
     occurredAt: message.occurredAt || message.occurred_at,
   }
+}
+
+function applyUserDiff(users, diff) {
+  if (!diff) return users
+
+  if (diff.action === "join" && diff.user?.nick) {
+    if (users.some((user) => user.nick === diff.user.nick)) return users
+    return [...users, diff.user]
+  }
+
+  if ((diff.action === "part" || diff.action === "quit") && diff.nick) {
+    return users.filter((user) => user.nick !== diff.nick)
+  }
+
+  if (diff.action === "nick" && diff.old_nick && diff.new_nick) {
+    return users.map((user) => (user.nick === diff.old_nick ? {...user, nick: diff.new_nick} : user))
+  }
+
+  return users
 }
 
 function normalizeChannel(channel) {

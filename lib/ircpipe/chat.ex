@@ -222,6 +222,26 @@ defmodule Ircpipe.Chat do
     end
   end
 
+  def broadcast_presence_diff(%ServerConnection{} = connection, channel, diff) do
+    connection
+    |> presence_memberships(channel)
+    |> Enum.each(fn membership ->
+      Phoenix.PubSub.broadcast(
+        Ircpipe.PubSub,
+        "user:#{connection.user_id}",
+        {:presence_diff,
+         %{
+           type: "presence:diff",
+           buffer_id: "channel:#{membership.id}",
+           server_connection_id: connection.id,
+           channel_membership_id: membership.id,
+           diff: diff,
+           occurred_at: DateTime.utc_now(:second)
+         }}
+      )
+    end)
+  end
+
   def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
     from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
     |> Repo.delete_all()
@@ -347,6 +367,22 @@ defmodule Ircpipe.Chat do
       hostmask: Map.get(name, :raw_source),
       last_observed_at: DateTime.utc_now(:second)
     }
+  end
+
+  defp presence_memberships(connection, nil) do
+    ChannelMembership
+    |> where([m], m.server_connection_id == ^connection.id)
+    |> Repo.all()
+  end
+
+  defp presence_memberships(connection, channel) do
+    case Repo.get_by(ChannelMembership,
+           server_connection_id: connection.id,
+           channel: normalize_channel(channel)
+         ) do
+      %ChannelMembership{} = membership -> [membership]
+      nil -> []
+    end
   end
 
   defp role_for_prefixes(prefixes) do

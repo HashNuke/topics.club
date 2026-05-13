@@ -348,6 +348,43 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(people).getByText("mira")).toBeInTheDocument()
   })
 
+  test("applies incremental presence diff events to the user sidebar", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onPresenceSync({
+      buffer_id: "channel:7",
+      users: [{nick: "mira", role: "op", status: "online"}],
+    })
+    realtimeHandlers.onPresenceDiff({
+      buffer_id: "channel:7",
+      diff: {action: "join", user: {nick: "akash", role: "user", status: "online"}},
+    })
+
+    const people = screen.getByRole("complementary", {name: "People here"})
+    await waitFor(() => expect(within(people).getByText("akash")).toBeInTheDocument())
+
+    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "nick", old_nick: "akash", new_nick: "ak"}})
+    await waitFor(() => expect(within(people).getByText("ak")).toBeInTheDocument())
+
+    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "part", nick: "ak"}})
+    await waitFor(() => expect(within(people).queryByText("ak")).not.toBeInTheDocument())
+  })
+
   test("shows browser notifications for hidden-tab mention events", async () => {
     mockBootstrapFetch()
     let realtimeHandlers

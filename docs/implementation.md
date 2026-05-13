@@ -190,10 +190,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [ ] Backend parses IRC names replies and membership changes through `ircxd`.
   - [x] names replies
-  - [ ] membership changes
+  - [x] membership changes
 - [x] Backend normalizes roles into a stable role enum.
 - [x] UserChannel pushes `presence:sync` after join and reconnect.
-- [ ] UserChannel pushes `presence:diff` for incremental changes.
+- [x] UserChannel pushes `presence:diff` for incremental changes.
 - [x] React stores user lists per channel buffer.
 - [ ] React groups users by role and status.
 - [ ] React caps each group visually and allows expansion.
@@ -299,9 +299,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] quits
   - [ ] nick changes
   - [ ] topic changes
-- [ ] Track channel user lists from IRC names and membership events.
+- [x] Track channel user lists from IRC names and membership events.
   - [x] IRC names replies
-  - [ ] membership events
+  - [x] membership events
 - [ ] Handle reconnect by rejoining persisted channels.
 - [ ] Broadcast normalized events through `Ircpipe.Chat` or a dedicated realtime boundary.
 
