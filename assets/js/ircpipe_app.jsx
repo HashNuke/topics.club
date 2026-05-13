@@ -155,7 +155,7 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
   useEffect(() => {
     api("/api/topics")
       .then(({topics}) => {
-        if (topics?.length) setTopics(topics.map(normalizeTopic))
+        if (topics?.length >= demoTopics.length) setTopics(topics.map(normalizeTopic))
       })
       .catch(() => setTopics(demoTopics))
   }, [])
