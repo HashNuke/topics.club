@@ -10,8 +10,9 @@
 # We recommend using the bang functions (`insert!`, `update!`
 # and so on) as they will fail if something goes wrong.
 
-alias Ircpipe.Chat.Topic
+alias Ircpipe.Chat.{ServerConnection, Topic}
 alias Ircpipe.Repo
+import Ecto.Query
 
 topics = [
   %{
@@ -79,9 +80,14 @@ topics = [
   }
 ]
 
+if Mix.env() in [:dev, :test] do
+  ServerConnection
+  |> where([connection], connection.host == "irc.libera.chat")
+  |> Repo.delete_all()
+end
+
+Repo.delete_all(Topic)
+
 Enum.each(topics, fn attrs ->
-  case Repo.get_by(Topic, server_host: attrs.server_host, channel: attrs.channel) do
-    nil -> Repo.insert!(Topic.changeset(%Topic{}, attrs))
-    topic -> topic |> Topic.changeset(attrs) |> Repo.update!()
-  end
+  Repo.insert!(Topic.changeset(%Topic{}, attrs))
 end)
