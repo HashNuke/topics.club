@@ -53,6 +53,7 @@ defmodule IrcpipeWeb.Router do
     get "/connections", ConnectionController, :index
     post "/connections", ConnectionController, :create
     post "/connections/:id/connect", ConnectionController, :connect
+    post "/connections/:id/disconnect", ConnectionController, :disconnect
 
     post "/connections/:connection_id/channels", ChannelController, :create
     post "/channels/:id/read", ChannelController, :mark_read

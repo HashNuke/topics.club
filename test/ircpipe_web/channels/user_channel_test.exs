@@ -182,6 +182,44 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert :ok = Session.quit(connection)
   end
 
+  test "disconnects and reconnects an owned server over the user channel" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    socket = join_user_channel(user)
+    reconnect_ref = push(socket, "server:reconnect", %{"server_connection_id" => connection.id})
+
+    assert_reply reconnect_ref, :ok, %{
+      type: "server:status",
+      server_connection_id: server_connection_id,
+      status: "connecting"
+    }
+
+    assert server_connection_id == connection.id
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    disconnect_ref = push(socket, "server:disconnect", %{"server_connection_id" => connection.id})
+
+    assert_reply disconnect_ref, :ok, %{
+      type: "server:status",
+      server_connection_id: ^server_connection_id,
+      status: "disconnected"
+    }
+
+    reloaded = Chat.get_connection!(user, connection.id)
+    assert reloaded.status == "disconnected"
+  end
+
   defp join_user_channel(user) do
     assert {:ok, _reply, socket} =
              UserSocket

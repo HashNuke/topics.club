@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionSupervisor
 
   @impl true
   def join("user:" <> user_id, _payload, socket) do
@@ -115,6 +116,43 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in("channel:leave", _payload, socket) do
     {:reply, {:error, %{reason: "invalid_buffer"}}, socket}
+  end
+
+  def handle_in("server:disconnect", %{"server_connection_id" => connection_id}, socket) do
+    user = socket.assigns.current_user
+    connection = Chat.get_connection!(user, connection_id)
+
+    :ok = SessionSupervisor.stop_session(connection)
+    {:ok, connection} = Chat.update_connection_status(connection, "disconnected")
+
+    {:reply,
+     {:ok,
+      %{
+        type: "server:status",
+        server_connection_id: connection.id,
+        status: connection.status
+      }}, socket}
+  rescue
+    Ecto.NoResultsError -> {:reply, {:error, %{reason: "invalid_server"}}, socket}
+  end
+
+  def handle_in("server:reconnect", %{"server_connection_id" => connection_id}, socket) do
+    user = socket.assigns.current_user
+    connection = Chat.get_connection!(user, connection_id)
+
+    with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
+      {:reply,
+       {:ok,
+        %{
+          type: "server:status",
+          server_connection_id: connection.id,
+          status: "connecting"
+        }}, socket}
+    else
+      _error -> {:reply, {:error, %{reason: "reconnect_failed"}}, socket}
+    end
+  rescue
+    Ecto.NoResultsError -> {:reply, {:error, %{reason: "invalid_server"}}, socket}
   end
 
   defp reply_with_command(input, socket) do

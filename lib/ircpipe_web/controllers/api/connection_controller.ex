@@ -30,6 +30,16 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     end
   end
 
+  def disconnect(conn, %{"id" => id}) do
+    user = conn.assigns.current_scope.user
+    connection = Chat.get_connection!(user, id)
+
+    :ok = SessionSupervisor.stop_session(connection)
+    {:ok, connection} = Chat.update_connection_status(connection, "disconnected")
+
+    json(conn, %{connection: connection_json(connection)})
+  end
+
   defp connection_json(connection) do
     %{
       id: connection.id,

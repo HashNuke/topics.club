@@ -156,9 +156,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] mark channel membership as left or delete it
   - [ ] broadcast `buffer:left`
 - [ ] Backend server leave flow:
-  - [ ] authorize server connection
-  - [ ] send IRC `QUIT` or close session
-  - [ ] stop the session process
+  - [x] authorize server connection
+  - [x] send IRC `QUIT` or close session
+  - [x] stop the session process
   - [ ] mark all buffers as left or archived
   - [ ] broadcast `server:status` and `buffer:left`
 - [ ] UI confirms destructive server removal.
@@ -239,7 +239,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] `POST /api/connections`
 - [ ] `PUT /api/connections/:id`
 - [ ] `POST /api/connections/:id/connect`
-- [ ] `POST /api/connections/:id/disconnect`
+- [x] `POST /api/connections/:id/disconnect`
 - [ ] `DELETE /api/connections/:id`
 - [x] `POST /api/channel_memberships/:id/leave`
 - [ ] `PUT /api/settings`
@@ -255,8 +255,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `command:run`
   - [x] `buffer:read`
   - [x] `channel:leave`
-  - [ ] `server:disconnect`
-  - [ ] `server:reconnect`
+  - [x] `server:disconnect`
+  - [x] `server:reconnect`
 - [ ] Add typed reply payloads for every handler:
   - [ ] `ok`
   - [ ] `error`
@@ -267,6 +267,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `command:run` reply
   - [x] `buffer:read` counter reset reply
   - [x] `channel:leave` ownership, reply, IRC part, and deletion
+  - [x] `server:disconnect` and `server:reconnect` ownership and replies
 
 ## IRC runtime checklist
 
@@ -327,6 +328,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] history
   - [x] topic join
   - [x] channel leave
+  - [x] server disconnect
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [x] Frontend reducer tests for realtime event application.
