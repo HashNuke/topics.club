@@ -325,6 +325,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           server_connection_id: connection.id,
           name: connection.name,
           host: connection.host,
+          port: connection.port,
+          use_tls: connection.use_tls,
+          nickname: connection.nickname,
           status: connection.status,
           channels: [channel],
         },
@@ -660,6 +663,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         server_connection_id: connection.id,
         name: connection.name,
         host: connection.host,
+        port: connection.port,
+        use_tls: connection.use_tls,
+        nickname: connection.nickname,
         status: connection.status,
         channels: channelBuffers.map((buffer) => ({
           id: buffer.buffer_id,
@@ -752,6 +758,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onRequestNotifications={requestNotifications}
       onDisconnectServer={disconnectServer}
       onReconnectServer={reconnectServer}
+      onUpdateServer={updateServerConnection}
       onSelectChannel={(channel) => {
         setActiveServerId(channel.connection?.id || activeServerId)
         setActiveChannelId(channel.id)
@@ -826,6 +833,51 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     } catch (_error) {
       // Keep the current server status if disconnect fails.
     }
+  }
+
+  async function updateServerConnection(server, form) {
+    if (!server?.server_connection_id) return
+
+    const host = form.host.trim()
+    const nickname = form.nickname.trim()
+    if (!host || !nickname) return
+
+    try {
+      const {connection} = await apiClient.updateConnection(server.server_connection_id, {
+        name: server.name || host,
+        host,
+        port: Number(form.port) || 6667,
+        use_tls: form.useTls,
+        nickname,
+      })
+      applyUpdatedConnection(connection)
+    } catch (_error) {
+      // Leave the current connection details visible if the backend rejects the edit.
+    }
+  }
+
+  function applyUpdatedConnection(connection) {
+    if (!connection?.id) return
+
+    setConnections((current) =>
+      current.map((server) =>
+        server.server_connection_id === connection.id
+          ? {
+              ...server,
+              name: connection.name,
+              host: connection.host,
+              port: connection.port,
+              use_tls: connection.use_tls,
+              nickname: connection.nickname,
+              status: connection.status,
+              channels: server.channels.map((channel) => ({
+                ...channel,
+                topic: channel.topic === `on ${server.host}` ? `on ${connection.host}` : channel.topic,
+              })),
+            }
+          : server
+      )
+    )
   }
 }
 
@@ -965,8 +1017,9 @@ function MobileDrawerHeader({title, onClose}) {
   )
 }
 
-function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onMarkChannelRead, onReconnectServer, onSelectChannel, onSelectServer, onShowChat}) {
+function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onMarkChannelRead, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer}) {
   const [manualOpen, setManualOpen] = useState(false)
+  const [editingServer, setEditingServer] = useState(null)
 
   return (
     <aside className={[
@@ -1015,6 +1068,7 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
               <ServerActionMenu
                 server={connection}
                 onDisconnect={() => onDisconnectServer?.(connection)}
+                onEdit={() => setEditingServer(connection)}
                 onReconnect={() => onReconnectServer?.(connection)}
               />
             </div>
@@ -1067,6 +1121,16 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
           onJoin={(form) => {
             onJoinManualServer(form)
             setManualOpen(false)
+          }}
+        />
+      )}
+      {editingServer && (
+        <EditServerDialog
+          server={editingServer}
+          onClose={() => setEditingServer(null)}
+          onSave={(form) => {
+            onUpdateServer?.(editingServer, form)
+            setEditingServer(null)
           }}
         />
       )}
@@ -1124,7 +1188,7 @@ function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMarkRead})
   )
 }
 
-function ServerActionMenu({server, onDisconnect, onReconnect}) {
+function ServerActionMenu({server, onDisconnect, onEdit, onReconnect}) {
   const [open, setOpen] = useState(false)
   const {refs, floatingStyles} = useFloating({
     placement: "bottom-end",
@@ -1161,6 +1225,9 @@ function ServerActionMenu({server, onDisconnect, onReconnect}) {
         >
           <button className="w-full rounded-md px-3 py-2 text-left text-slate-200 transition hover:bg-slate-800" onClick={() => run(onReconnect)} role="menuitem" type="button">
             Connect or reconnect
+          </button>
+          <button className="w-full rounded-md px-3 py-2 text-left text-slate-200 transition hover:bg-slate-800" onClick={() => run(onEdit)} role="menuitem" type="button">
+            Edit connection
           </button>
           <button className="w-full rounded-md px-3 py-2 text-left text-rose-200 transition hover:bg-rose-950/50" onClick={() => run(onDisconnect)} role="menuitem" type="button">
             Disconnect
@@ -1667,6 +1734,60 @@ function ManualJoinDialog({onClose, onJoin}) {
           </button>
           <button className="flex-1 rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white">
             Join
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function EditServerDialog({onClose, onSave, server}) {
+  const [form, setForm] = useState({
+    host: server.host || "",
+    port: String(server.port || 6667),
+    nickname: server.nickname || "",
+    useTls: Boolean(server.use_tls || server.useTls),
+  })
+
+  function submit(event) {
+    event.preventDefault()
+    onSave(form)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
+      <form
+        aria-label="Edit server"
+        className="w-full max-w-md rounded-lg border border-slate-700 bg-[#101620] p-5 shadow-2xl"
+        onSubmit={submit}
+        role="dialog"
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Edit connection</h2>
+            <p className="mt-1 text-sm text-slate-500">Update the server details used for this connection.</p>
+          </div>
+          <button type="button" className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-800 hover:text-white" onClick={onClose}>
+            x
+          </button>
+        </div>
+        <div className="mt-5 space-y-3">
+          <LabeledInput id="edit-server-host" label="Server" value={form.host} onChange={(host) => setForm({...form, host})} />
+          <div className="grid grid-cols-[1fr_auto] items-end gap-3">
+            <LabeledInput id="edit-server-port" label="Port" value={form.port} onChange={(port) => setForm({...form, port})} />
+            <label className="flex h-[42px] items-center gap-2 rounded-md border border-slate-800 bg-slate-950 px-3 text-sm text-slate-300">
+              <input type="checkbox" checked={form.useTls} onChange={(event) => setForm({...form, useTls: event.target.checked})} />
+              <span>TLS</span>
+            </label>
+          </div>
+          <LabeledInput id="edit-server-nickname" label="Nickname" value={form.nickname} onChange={(nickname) => setForm({...form, nickname})} />
+        </div>
+        <div className="mt-5 flex gap-3">
+          <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="flex-1 rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white">
+            Save
           </button>
         </div>
       </form>

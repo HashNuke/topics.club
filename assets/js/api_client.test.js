@@ -35,4 +35,22 @@ describe("api client", () => {
       expect.objectContaining({credentials: "same-origin"})
     )
   })
+
+  test("updates a server connection", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({connection: {id: 42}})})
+    const api = createApiClient({csrfToken: "csrf", fetchImpl})
+
+    await api.updateConnection(42, {name: "local", host: "127.0.0.1", port: 6697, use_tls: true, nickname: "mira"})
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/connections/42",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          connection: {name: "local", host: "127.0.0.1", port: 6697, use_tls: true, nickname: "mira"},
+        }),
+        headers: expect.objectContaining({"x-csrf-token": "csrf"}),
+      })
+    )
+  })
 })

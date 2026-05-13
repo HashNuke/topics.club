@@ -12,7 +12,25 @@ function mockTopicsFetch() {
 }
 
 function mockBootstrapFetch() {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
+    if (path === "/api/connections/42" && options.method === "PUT") {
+      return {
+        ok: true,
+        json: async () => ({
+          connection: {
+            id: 42,
+            name: "edited",
+            host: "irc.edited.test",
+            port: 6697,
+            use_tls: true,
+            nickname: "mira2",
+            status: "connected",
+            channels: [{id: 7, channel: "#testing", unread_count: 1, mention_count: 0}],
+          },
+        }),
+      }
+    }
+
     if (String(path).startsWith("/api/buffers/channel%3A7/messages")) {
       return {
         ok: true,
@@ -911,6 +929,43 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(screen.getByRole("menuitem", {name: "Disconnect"}))
 
     expect(push).toHaveBeenCalledWith("server:disconnect", {server_connection_id: 42})
+  })
+
+  test("edits a server connection from the server action menu", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", {name: "Server actions for local"}))
+    await user.click(screen.getByRole("menuitem", {name: "Edit connection"}))
+
+    const dialog = screen.getByRole("dialog", {name: "Edit server"})
+    await user.clear(within(dialog).getByLabelText("Server"))
+    await user.type(within(dialog).getByLabelText("Server"), "irc.edited.test")
+    await user.clear(within(dialog).getByLabelText("Port"))
+    await user.type(within(dialog).getByLabelText("Port"), "6697")
+    await user.click(within(dialog).getByLabelText("TLS"))
+    await user.clear(within(dialog).getByLabelText("Nickname"))
+    await user.type(within(dialog).getByLabelText("Nickname"), "mira2")
+    await user.click(within(dialog).getByRole("button", {name: "Save"}))
+
+    await waitFor(() =>
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/connections/42",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            connection: {name: "local", host: "irc.edited.test", port: 6697, use_tls: true, nickname: "mira2"},
+          }),
+        })
+      )
+    )
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    expect(within(nav).getByText("edited")).toBeInTheDocument()
+    expect(screen.getAllByText("on irc.edited.test").length).toBeGreaterThan(0)
   })
 
   test("shows slash command suggestions from the chat composer", async () => {

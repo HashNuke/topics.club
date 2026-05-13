@@ -142,7 +142,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [x] Add channel overflow menu in the UI.
 - [x] Add server overflow menu in the UI.
-- [ ] Use Floating UI for both popover menus.
+- [x] Use Floating UI for both popover menus.
   - [x] channel menu
   - [x] server menu
 - [ ] Channel menu actions:
@@ -152,7 +152,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Server menu actions:
   - [x] Connect or reconnect
   - [x] Disconnect
-  - [ ] Edit connection
+  - [x] Edit connection
   - [ ] Leave server
 - [ ] Backend channel leave flow:
   - [x] authorize membership
@@ -329,6 +329,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [ ] leaving channel/server menus
     - [x] channel menu
     - [x] server menu
+    - [x] edit connection from server menu
   - [ ] slash command popover
   - [ ] backend connection failure banner
   - [x] send failure and retry

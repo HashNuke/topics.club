@@ -25,6 +25,8 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
     bootstrap: () => request("/api/bootstrap"),
     topics: () => request("/api/topics"),
     joinTopic: (topicId) => request(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
+    updateConnection: (connectionId, connection) =>
+      request(`/api/connections/${connectionId}`, {method: "PUT", body: JSON.stringify({connection})}),
     bufferMessages: (bufferId, params = {}) => {
       const search = new URLSearchParams()
       if (params.limit) search.set("limit", String(params.limit))
