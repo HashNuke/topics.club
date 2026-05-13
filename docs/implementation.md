@@ -271,8 +271,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `server:disconnect`
   - [x] `server:reconnect`
 - [ ] Add typed reply payloads for every handler:
-  - [ ] `ok`
-  - [ ] `error`
+  - [x] `ok`
+  - [x] `error`
   - [ ] `timeout`
 - [x] Add event serialization helpers so REST and realtime payloads match.
 - [x] Add channel tests for authorization, replies, broadcasts, and failure payloads.

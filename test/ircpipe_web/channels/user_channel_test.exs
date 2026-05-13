@@ -28,6 +28,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     ref = push(socket, "command:suggest", %{"input" => "/jo"})
 
     assert_reply ref, :ok, %{
+      reply: "ok",
       commands: [
         %{
           name: "/join",
@@ -46,6 +47,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     ref = push(socket, "command:parse", %{"input" => "/msg NickServ help"})
 
     assert_reply ref, :ok, %{
+      reply: "ok",
       command: %{
         name: "msg",
         args: ["NickServ", "help"],
@@ -159,7 +161,7 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     ref = push(socket, "command:parse", %{"input" => "/wat"})
 
-    assert_reply ref, :error, %{reason: "unknown_command", command: "wat"}
+    assert_reply ref, :error, %{reply: "error", reason: "unknown_command", command: "wat"}
   end
 
   test "sends channel messages through the IRC session and replies with canonical message" do
