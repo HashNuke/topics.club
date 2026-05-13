@@ -29,15 +29,15 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Data model checklist
 
 - [ ] Add a first-class buffer concept in API payloads:
-  - [ ] `buffer_id`
+  - [x] `buffer_id`
   - [ ] `buffer_type`: `server`, `channel`, `service`, or `dm`
-  - [ ] `server_connection_id`
-  - [ ] `channel_membership_id` when applicable
-  - [ ] `title`
-  - [ ] `subtitle`
-  - [ ] `status`
-- [ ] Represent server buffers for server logs, MOTD, connection lifecycle, numeric replies, and service notices.
-- [ ] Represent channel buffers for IRC channel messages and channel-local system events.
+  - [x] `server_connection_id`
+  - [x] `channel_membership_id` when applicable
+  - [x] `title`
+  - [x] `subtitle`
+  - [x] `status`
+- [x] Represent server buffers for server logs, MOTD, connection lifecycle, numeric replies, and service notices.
+- [x] Represent channel buffers for IRC channel messages and channel-local system events.
 - [ ] Represent service buffers or service-tagged messages for `NickServ`, `ChanServ`, and similar services.
 - [ ] Store message `kind` values:
   - [ ] `message`
@@ -62,17 +62,17 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Initial load flow
 
 - [x] React loads `/chat`.
-- [ ] Server-rendered root passes `current_user`, CSRF token, and app mode.
-- [ ] React fetches `/api/bootstrap`.
-- [ ] `/api/bootstrap` returns:
-  - [ ] current user profile
-  - [ ] notification preference state
-  - [ ] server connections
-  - [ ] buffers ordered for the sidebar
-  - [ ] active or last-opened buffer
-  - [ ] recent messages for visible buffers
-  - [ ] current channel user lists
-  - [ ] suggested topics for Discover
+- [x] Server-rendered root passes `current_user`, CSRF token, and app mode.
+- [x] React fetches `/api/bootstrap`.
+- [x] `/api/bootstrap` returns:
+  - [x] current user profile
+  - [x] notification preference state
+  - [x] server connections
+  - [x] buffers ordered for the sidebar
+  - [x] active or last-opened buffer
+  - [x] recent messages for visible buffers
+  - [x] current channel user lists
+  - [x] suggested topics for Discover
 - [ ] React opens one Phoenix socket.
 - [ ] React joins `user:{user_id}`.
 - [ ] UserChannel join reply includes server time and optional missed event cursor.
@@ -231,7 +231,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## API checklist
 
-- [ ] `GET /api/bootstrap`
+- [x] `GET /api/bootstrap`
 - [ ] `GET /api/topics`
 - [ ] `POST /api/topics/:id/join`
 - [ ] `GET /api/buffers/:id/messages`
@@ -319,6 +319,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Backend context tests for buffer ownership and scoping.
 - [x] Backend channel tests for `UserChannel`.
 - [ ] Backend API tests for bootstrap, history, join, leave, and settings.
+  - [x] bootstrap
 - [x] IRC runtime tests using local test server.
 - [ ] Integration tests using local InspIRCd and irssi where useful.
 - [ ] Frontend reducer tests for realtime event application.

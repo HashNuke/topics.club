@@ -171,6 +171,14 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
       .catch(() => setTopics(demoTopics))
   }, [])
 
+  useEffect(() => {
+    if (!currentUser || mode === "landing") return
+
+    api("/api/bootstrap")
+      .then((bootstrap) => applyBootstrap(bootstrap))
+      .catch(() => {})
+  }, [currentUser?.id, mode])
+
   const channels = useMemo(
     () => connections.flatMap((connection) => connection.channels.map((channel) => ({...channel, connection}))),
     [connections]
@@ -295,6 +303,62 @@ export default function IrcpipeApp({appMode, currentUser, developerOauth}) {
 
     const permission = await Notification.requestPermission()
     setNotificationState(permission)
+  }
+
+  function applyBootstrap(bootstrap) {
+    if (!bootstrap?.buffers || !bootstrap?.connections) return
+
+    if (bootstrap.topics?.length) setTopics(bootstrap.topics.map(normalizeTopic))
+    if (bootstrap.notification_state) setNotificationState(bootstrap.notification_state)
+
+    const nextConnections = bootstrap.connections.map((connection) => {
+      const channelBuffers = bootstrap.buffers.filter(
+        (buffer) => buffer.buffer_type === "channel" && buffer.server_connection_id === connection.id
+      )
+
+      return {
+        id: `server:${connection.id}`,
+        server_connection_id: connection.id,
+        name: connection.name,
+        host: connection.host,
+        status: connection.status,
+        channels: channelBuffers.map((buffer) => ({
+          id: buffer.buffer_id,
+          channel_membership_id: buffer.channel_membership_id,
+          channel: buffer.title,
+          topic: buffer.subtitle,
+          unread_count: buffer.unread_count,
+          mention_count: buffer.mention_count,
+        })),
+      }
+    })
+
+    if (nextConnections.length > 0) {
+      setConnections(nextConnections)
+      setMessagesByServer(
+        Object.fromEntries(nextConnections.map((connection) => [connection.id, serverBufferMessages(connection)]))
+      )
+    }
+
+    setMessagesByChannel(
+      Object.fromEntries(
+        Object.entries(bootstrap.messages_by_buffer || {}).map(([bufferId, messages]) => [
+          bufferId,
+          messages.map(normalizeMessage),
+        ])
+      )
+    )
+
+    if (bootstrap.active_buffer_id?.startsWith("channel:")) {
+      setActiveChannelId(bootstrap.active_buffer_id)
+      const activeConnection = nextConnections.find((connection) =>
+        connection.channels.some((channel) => channel.id === bootstrap.active_buffer_id)
+      )
+      if (activeConnection) setActiveServerId(activeConnection.id)
+    } else if (bootstrap.active_buffer_id?.startsWith("server:")) {
+      setActiveServerId(bootstrap.active_buffer_id)
+      setView("server")
+    }
   }
 
   if (mode === "landing") {
@@ -1161,6 +1225,13 @@ function normalizeTopic(topic) {
     description: topic.description || "A live topic you can join.",
     members: topic.members || topic.member_count,
     vibe: topic.vibe || "topic",
+  }
+}
+
+function normalizeMessage(message) {
+  return {
+    ...message,
+    occurredAt: message.occurredAt || message.occurred_at,
   }
 }
 

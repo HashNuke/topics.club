@@ -20,6 +20,7 @@ defmodule IrcpipeWeb.Router do
   pipeline :authenticated_api do
     plug :accepts, ["json"]
     plug :fetch_session
+    plug :fetch_flash
     plug :protect_from_forgery
     plug :fetch_current_scope_for_user
     plug :require_authenticated_user
@@ -47,6 +48,7 @@ defmodule IrcpipeWeb.Router do
   scope "/api", IrcpipeWeb.Api do
     pipe_through :authenticated_api
 
+    get "/bootstrap", BootstrapController, :show
     get "/connections", ConnectionController, :index
     post "/connections", ConnectionController, :create
     post "/connections/:id/connect", ConnectionController, :connect
