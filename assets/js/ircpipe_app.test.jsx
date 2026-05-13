@@ -839,6 +839,39 @@ describe("IrcpipeApp UI prototype", () => {
     }
   })
 
+  test("uses the server action menu for reconnect and disconnect actions", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn((event) => {
+      if (event === "server:reconnect") {
+        return Promise.resolve({type: "server:status", server_connection_id: 42, status: "connecting"})
+      }
+
+      return Promise.resolve({type: "server:status", server_connection_id: 42, status: "disconnected"})
+    })
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", {name: "Server actions for local"}))
+    await user.click(screen.getByRole("menuitem", {name: "Connect or reconnect"}))
+
+    expect(push).toHaveBeenCalledWith("server:reconnect", {server_connection_id: 42})
+
+    await user.click(screen.getByRole("button", {name: "Server actions for local"}))
+    await user.click(screen.getByRole("menuitem", {name: "Disconnect"}))
+
+    expect(push).toHaveBeenCalledWith("server:disconnect", {server_connection_id: 42})
+  })
+
   test("shows slash command suggestions from the chat composer", async () => {
     const user = userEvent.setup()
     mockTopicsFetch()

@@ -141,16 +141,17 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 ## Leaving channels and servers
 
 - [x] Add channel overflow menu in the UI.
-- [ ] Add server overflow menu in the UI.
+- [x] Add server overflow menu in the UI.
 - [ ] Use Floating UI for both popover menus.
   - [x] channel menu
+  - [x] server menu
 - [ ] Channel menu actions:
   - [x] Mark read
   - [x] Copy channel name
   - [x] Leave channel
 - [ ] Server menu actions:
-  - [ ] Connect or reconnect
-  - [ ] Disconnect
+  - [x] Connect or reconnect
+  - [x] Disconnect
   - [ ] Edit connection
   - [ ] Leave server
 - [ ] Backend channel leave flow:
@@ -327,6 +328,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [ ] Add React component tests for:
   - [ ] leaving channel/server menus
     - [x] channel menu
+    - [x] server menu
   - [ ] slash command popover
   - [ ] backend connection failure banner
   - [x] send failure and retry

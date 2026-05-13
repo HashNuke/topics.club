@@ -750,6 +750,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onLeaveChannel={leaveChannel}
       onMarkChannelRead={markChannelRead}
       onRequestNotifications={requestNotifications}
+      onDisconnectServer={disconnectServer}
+      onReconnectServer={reconnectServer}
       onSelectChannel={(channel) => {
         setActiveServerId(channel.connection?.id || activeServerId)
         setActiveChannelId(channel.id)
@@ -797,6 +799,32 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       applyBufferLeft(left)
     } catch (_error) {
       // The channel remains visible if the backend cannot leave it.
+    }
+  }
+
+  async function reconnectServer(server) {
+    if (!server?.server_connection_id || !realtimeClientRef.current) return
+
+    try {
+      const status = await realtimeClientRef.current.push("server:reconnect", {
+        server_connection_id: server.server_connection_id,
+      })
+      applyServerStatus(status)
+    } catch (_error) {
+      // Keep the current server status if reconnect fails.
+    }
+  }
+
+  async function disconnectServer(server) {
+    if (!server?.server_connection_id || !realtimeClientRef.current) return
+
+    try {
+      const status = await realtimeClientRef.current.push("server:disconnect", {
+        server_connection_id: server.server_connection_id,
+      })
+      applyServerStatus(status)
+    } catch (_error) {
+      // Keep the current server status if disconnect fails.
     }
   }
 }
@@ -937,7 +965,7 @@ function MobileDrawerHeader({title, onClose}) {
   )
 }
 
-function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onJoinManualServer, onLeaveChannel, onMarkChannelRead, onSelectChannel, onSelectServer, onShowChat}) {
+function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onMarkChannelRead, onReconnectServer, onSelectChannel, onSelectServer, onShowChat}) {
   const [manualOpen, setManualOpen] = useState(false)
 
   return (
@@ -972,18 +1000,24 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-3" aria-label="Joined topics">
         {connections.map((connection) => (
           <section key={connection.id} className="mb-5">
-            <button
+            <div
               className={[
-                "mb-2 flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-semibold uppercase tracking-[0.16em] transition",
+                "mb-2 flex w-full items-center gap-1 rounded-md pr-1 text-xs font-semibold uppercase tracking-[0.16em] transition",
                 activeServer?.id === connection.id && view === "server"
                   ? "bg-slate-800 text-cyan-200"
                   : "text-slate-500 hover:bg-slate-800/70 hover:text-slate-300",
               ].join(" ")}
-              onClick={() => onSelectServer(connection)}
             >
-              <span className="size-1.5 rounded-full bg-emerald-400" />
-              <span className="truncate">{connection.name}</span>
-            </button>
+              <button className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left" onClick={() => onSelectServer(connection)}>
+                <span className="size-1.5 rounded-full bg-emerald-400" />
+                <span className="truncate">{connection.name}</span>
+              </button>
+              <ServerActionMenu
+                server={connection}
+                onDisconnect={() => onDisconnectServer?.(connection)}
+                onReconnect={() => onReconnectServer?.(connection)}
+              />
+            </div>
             <div className="space-y-1">
               {connection.channels.map((channel) => (
                 <div
@@ -1083,6 +1117,53 @@ function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMarkRead})
           </button>
           <button className="w-full rounded-md px-3 py-2 text-left text-rose-200 transition hover:bg-rose-950/50" onClick={() => run(onLeaveChannel)} role="menuitem" type="button">
             Leave channel
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ServerActionMenu({server, onDisconnect, onReconnect}) {
+  const [open, setOpen] = useState(false)
+  const {refs, floatingStyles} = useFloating({
+    placement: "bottom-end",
+    middleware: [offset(6), shift({padding: 8})],
+  })
+
+  function run(action) {
+    action?.()
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative">
+      <button
+        ref={refs.setReference}
+        className="grid size-6 place-items-center rounded-md text-slate-500 transition hover:bg-slate-700 hover:text-white"
+        aria-label={`Server actions for ${server.name}`}
+        aria-expanded={open}
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen((current) => !current)
+        }}
+        type="button"
+      >
+        <span className="hero-ellipsis-horizontal size-4" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          ref={refs.setFloating}
+          style={floatingStyles}
+          role="menu"
+          aria-label={`${server.name} actions`}
+          className="z-40 min-w-44 rounded-lg border border-slate-700 bg-[#121722] p-1 text-sm normal-case tracking-normal shadow-2xl shadow-black/40"
+        >
+          <button className="w-full rounded-md px-3 py-2 text-left text-slate-200 transition hover:bg-slate-800" onClick={() => run(onReconnect)} role="menuitem" type="button">
+            Connect or reconnect
+          </button>
+          <button className="w-full rounded-md px-3 py-2 text-left text-rose-200 transition hover:bg-rose-950/50" onClick={() => run(onDisconnect)} role="menuitem" type="button">
+            Disconnect
           </button>
         </div>
       )}
