@@ -28,9 +28,9 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Data model checklist
 
-- [ ] Add a first-class buffer concept in API payloads:
+- [x] Add a first-class buffer concept in API payloads:
   - [x] `buffer_id`
-  - [ ] `buffer_type`: `server`, `channel`, `service`, or `dm`
+  - [x] `buffer_type`: `server` or `channel` for first implementation payloads; service replies are tagged in server buffers and `dm` remains a later buffer type.
   - [x] `server_connection_id`
   - [x] `channel_membership_id` when applicable
   - [x] `title`
@@ -328,7 +328,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] unread counters
   - [x] connection health
   - [x] notification state
-- [ ] Keep React components UI-focused.
+- [x] Keep React components UI-focused.
 - [x] Keep transport/event normalization out of components.
 - [x] Add tests for reducers and event application.
 - [x] Add React component tests for:
