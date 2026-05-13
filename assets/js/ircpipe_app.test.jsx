@@ -765,6 +765,45 @@ describe("IrcpipeApp UI prototype", () => {
     expect(Boolean(firstMissed.compareDocumentPosition(secondMissed) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
 
+  test("reconciles missed messages when the browser realtime socket reopens", async () => {
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    mockBootstrapFetch({
+      messageCursorsByBuffer: {},
+      afterMessages: [
+        {
+          id: 100,
+          buffer_id: "channel:7",
+          nick: "akash",
+          body: "missed while socket was away",
+          kind: "message",
+          mentioned: false,
+          occurred_at: "2026-05-13T10:01:00Z",
+        },
+      ],
+    })
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+
+    expect(await screen.findByText("missed while socket was away")).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/buffers/channel:7/messages?limit=50&after=99",
+      expect.objectContaining({credentials: "same-origin"})
+    )
+  })
+
   test("shows degraded connection health when the realtime join fails", async () => {
     mockBootstrapFetch()
     let realtimeHandlers

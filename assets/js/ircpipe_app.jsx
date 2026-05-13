@@ -167,6 +167,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const connectionsRef = useRef(connections)
   const messagesByChannelRef = useRef(messagesByChannel)
   const messagesByServerRef = useRef(messagesByServer)
+  const reconcilingBuffersRef = useRef(new Set())
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
@@ -266,10 +267,16 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         onPresenceSync: applyPresenceSync,
         onServerStatus: applyServerStatus,
         onNotificationMention: handleMentionNotification,
-        onOpen: () => setConnectionHealth("connected"),
+        onOpen: () => {
+          setConnectionHealth("connected")
+          defer(reconcileAllBuffers)
+        },
         onClose: () => setConnectionHealth("reconnecting"),
         onError: () => setConnectionHealth("degraded"),
-        onJoinOk: () => setConnectionHealth("connected"),
+        onJoinOk: () => {
+          setConnectionHealth("connected")
+          defer(reconcileAllBuffers)
+        },
         onJoinError: () => setConnectionHealth("degraded"),
         onJoinTimeout: () => setConnectionHealth("degraded"),
       },
@@ -733,16 +740,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function applyServerStatus(payload) {
-    const previous = connectionsRef.current.find((connection) => connection.server_connection_id === payload.server_connection_id)
-    const reconnected = payload.status === "connected" && previous?.status && previous.status !== "connected"
-
     setConnections((current) =>
       current.map((connection) =>
         connection.server_connection_id === payload.server_connection_id ? {...connection, status: payload.status} : connection
       )
     )
 
-    if (reconnected) {
+    if (payload.status === "connected") {
       defer(() => reconcileServerBuffers(payload.server_connection_id))
     }
   }
@@ -1027,8 +1031,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId, latestCursorForBuffer(bufferId)))
   }
 
+  function reconcileAllBuffers() {
+    connectionsRef.current.forEach((server) => {
+      const bufferIds = [server.id, ...server.channels.map((channel) => channel.id)]
+      bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId, latestCursorForBuffer(bufferId)))
+    })
+  }
+
   function reconcileBufferMessages(bufferId, cursor) {
     if (!isBackendBufferId(bufferId)) return
+    if (reconcilingBuffersRef.current.has(bufferId)) return
+
+    reconcilingBuffersRef.current.add(bufferId)
 
     apiClient
       .bufferMessages(bufferId, cursor ? {after: cursor, limit: 50} : {limit: 50})
@@ -1049,6 +1063,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         }
       })
       .catch(() => {})
+      .finally(() => {
+        reconcilingBuffersRef.current.delete(bufferId)
+      })
   }
 
   function latestCursorForBuffer(bufferId) {
