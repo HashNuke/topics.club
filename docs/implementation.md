@@ -181,8 +181,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Surface channel push timeouts as "Still trying" or "Send failed".
 - [x] Show server-specific IRC connection failures in the server buffer.
 - [x] Push backend IRC session failures as `server:status` and `buffer:error`.
-- [ ] Add retry actions for:
-  - [ ] reconnect backend socket
+- [x] Add retry actions for:
+  - [x] reconnect backend socket
   - [x] reconnect IRC server
   - [x] retry failed message
 - [ ] Add tests for socket close, channel timeout, and IRC session error states.

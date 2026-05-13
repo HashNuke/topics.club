@@ -855,6 +855,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       }}
       onSelectTopic={selectTopic}
       onRetryMessage={retryMessage}
+      onRetryRealtime={retryRealtimeConnection}
       onSendMessage={sendMessage}
       onLoadOlderMessages={loadOlderMessages}
       onReadingStateChange={updateBufferReadingState}
@@ -882,6 +883,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     } catch (_error) {
       // Keep counters as-is if the backend rejects the read marker.
     }
+  }
+
+  function retryRealtimeConnection() {
+    if (!realtimeClientRef.current?.reconnect) return
+
+    setConnectionHealth("reconnecting")
+    realtimeClientRef.current.reconnect()
   }
 
   async function leaveChannel(channel) {
@@ -1397,7 +1405,7 @@ function ServerActionMenu({server, onDisconnect, onEdit, onLeave, onReconnect}) 
   )
 }
 
-function TopBar({activeChannel, activeServer, connectionHealth, notificationState, showsUserSidebar, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications}) {
+function TopBar({activeChannel, activeServer, connectionHealth, notificationState, showsUserSidebar, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications, onRetryRealtime}) {
   const topBarCopy = topBarCopyFor({activeChannel, activeServer, view})
 
   return (
@@ -1421,7 +1429,7 @@ function TopBar({activeChannel, activeServer, connectionHealth, notificationStat
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <ConnectionHealthIndicator status={connectionHealth} />
+        <ConnectionHealthIndicator status={connectionHealth} onRetry={onRetryRealtime} />
         {showsUserSidebar && (
           <button
             className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden"
@@ -1451,7 +1459,7 @@ function TopBar({activeChannel, activeServer, connectionHealth, notificationStat
   )
 }
 
-function ConnectionHealthIndicator({status}) {
+function ConnectionHealthIndicator({status, onRetry}) {
   const labels = {
     connected: "connected",
     degraded: "degraded",
@@ -1459,6 +1467,7 @@ function ConnectionHealthIndicator({status}) {
     reconnecting: "reconnecting",
   }
   const label = labels[status] || "offline"
+  const canRetry = status === "degraded" || status === "disconnected" || status === "reconnecting"
 
   return (
     <div
@@ -1476,6 +1485,17 @@ function ConnectionHealthIndicator({status}) {
         ].join(" ")}
       />
       <span>{label}</span>
+      {canRetry && (
+        <Tooltip label="Reconnect realtime socket">
+          <button
+            className="ml-1 grid size-5 place-items-center rounded text-slate-300 transition hover:bg-slate-800 hover:text-white"
+            onClick={onRetry}
+            aria-label="Retry realtime connection"
+          >
+            <span className="hero-arrow-path size-3.5" aria-hidden="true" />
+          </button>
+        </Tooltip>
+      )}
     </div>
   )
 }

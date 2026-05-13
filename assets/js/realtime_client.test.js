@@ -46,6 +46,7 @@ class FakeChannel {
   constructor() {
     this.handlers = {}
     this.left = false
+    this.joinCount = 0
   }
 
   on(event, callback) {
@@ -53,6 +54,7 @@ class FakeChannel {
   }
 
   join() {
+    this.joinCount += 1
     return receiver()
   }
 
@@ -184,5 +186,17 @@ describe("realtime client", () => {
 
     expect(client.channel.left).toBe(true)
     expect(client.socket.disconnected).toBe(true)
+  })
+
+  test("reconnects by leaving the channel and joining again", () => {
+    const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7})
+
+    client.connect()
+    client.reconnect()
+
+    expect(client.channel.left).toBe(true)
+    expect(client.socket.disconnected).toBe(true)
+    expect(client.socket.connected).toBe(true)
+    expect(client.channel.joinCount).toBe(2)
   })
 })

@@ -30,14 +30,17 @@ export function createRealtimeClient({
 
   function connect() {
     socket.connect()
+    joinChannel()
 
+    return client
+  }
+
+  function joinChannel() {
     channel
       .join()
       .receive("ok", (payload) => handlers.onJoinOk?.(payload))
       .receive("error", (payload) => handlers.onJoinError?.(payload))
       .receive("timeout", () => handlers.onJoinTimeout?.())
-
-    return client
   }
 
   function push(event, payload = {}, timeout = pushTimeout) {
@@ -55,10 +58,15 @@ export function createRealtimeClient({
     socket.disconnect()
   }
 
+  function reconnect() {
+    disconnect()
+    return connect()
+  }
+
   function connectionState() {
     return typeof socket.connectionState === "function" ? socket.connectionState() : "unknown"
   }
 
-  const client = {connect, push, disconnect, connectionState, socket, channel}
+  const client = {connect, push, disconnect, reconnect, connectionState, socket, channel}
   return client
 }

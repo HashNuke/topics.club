@@ -194,6 +194,7 @@ function fakeRealtimeClient(pushImpl) {
   const client = {
     connect: vi.fn(() => client),
     disconnect: vi.fn(),
+    reconnect: vi.fn(() => client),
     push: pushImpl,
   }
 
@@ -509,6 +510,32 @@ describe("IrcpipeApp UI prototype", () => {
 
     realtimeHandlers.onError()
     await waitFor(() => expect(screen.getByLabelText("Connection degraded")).toBeInTheDocument())
+  })
+
+  test("offers a retry action when the realtime socket is degraded", async () => {
+    mockBootstrapFetch()
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    const user = userEvent.setup()
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    realtimeHandlers.onError()
+    await user.click(await screen.findByRole("button", {name: "Retry realtime connection"}))
+
+    expect(client.reconnect).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText("Connection reconnecting")).toBeInTheDocument()
   })
 
   test("updates the user sidebar from presence sync events", async () => {
