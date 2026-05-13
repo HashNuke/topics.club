@@ -197,6 +197,31 @@ defmodule Ircpipe.Chat do
     :ok
   end
 
+  def broadcast_presence_sync(%ServerConnection{} = connection, channel, names) do
+    case Repo.get_by(ChannelMembership,
+           server_connection_id: connection.id,
+           channel: normalize_channel(channel)
+         ) do
+      %ChannelMembership{} = membership ->
+        Phoenix.PubSub.broadcast(
+          Ircpipe.PubSub,
+          "user:#{connection.user_id}",
+          {:presence_sync,
+           %{
+             type: "presence:sync",
+             buffer_id: "channel:#{membership.id}",
+             server_connection_id: connection.id,
+             channel_membership_id: membership.id,
+             users: Enum.map(names, &presence_user/1),
+             occurred_at: DateTime.utc_now(:second)
+           }}
+        )
+
+      nil ->
+        :ok
+    end
+  end
+
   def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
     from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
     |> Repo.delete_all()
@@ -312,6 +337,27 @@ defmodule Ircpipe.Chat do
          occurred_at: DateTime.utc_now(:second)
        }}
     )
+  end
+
+  defp presence_user(name) do
+    %{
+      nick: name.nick,
+      role: role_for_prefixes(Map.get(name, :prefixes, [])),
+      status: "online",
+      hostmask: Map.get(name, :raw_source),
+      last_observed_at: DateTime.utc_now(:second)
+    }
+  end
+
+  defp role_for_prefixes(prefixes) do
+    cond do
+      "~" in prefixes -> "owner"
+      "&" in prefixes -> "admin"
+      "@" in prefixes -> "op"
+      "%" in prefixes -> "halfop"
+      "+" in prefixes -> "voice"
+      true -> "user"
+    end
   end
 
   defp to_int(value, _default) when is_integer(value), do: value

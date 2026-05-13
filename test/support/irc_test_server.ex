@@ -94,7 +94,11 @@ defmodule Ircpipe.IrcTestServer do
   end
 
   defp reply("JOIN " <> channel) do
-    [":ircpipe!user@test JOIN :#{channel}"]
+    [
+      ":ircpipe!user@test JOIN :#{channel}",
+      ":ircpipe-test 353 ircpipe = #{channel} :@ircpipe akash +mira",
+      ":ircpipe-test 366 ircpipe #{channel} :End of /NAMES list"
+    ]
   end
 
   defp reply(_line), do: []

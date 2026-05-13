@@ -30,6 +30,17 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
     assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000
 
+    assert_receive {:presence_sync,
+                    %{
+                      buffer_id: "channel:" <> _,
+                      users: [
+                        %{nick: "ircpipe", role: "op"},
+                        %{nick: "akash", role: "user"},
+                        %{nick: "mira", role: "voice"}
+                      ]
+                    }},
+                   1_000
+
     assert :ok = Session.say(connection, "#pipe", "hello from app")
     assert_receive {:irc_server_line, "PRIVMSG #pipe :hello from app"}, 1_000
 

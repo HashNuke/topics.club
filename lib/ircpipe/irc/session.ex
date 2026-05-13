@@ -126,6 +126,11 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, state}
   end
 
+  def handle_info({:ircxd, {:names, %{channel: channel, names: names}}}, state) do
+    Chat.broadcast_presence_sync(state.connection, channel, names)
+    {:noreply, state}
+  end
+
   def handle_info({:ircxd, _event}, state), do: {:noreply, state}
 
   @impl true

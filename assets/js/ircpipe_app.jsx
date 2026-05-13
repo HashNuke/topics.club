@@ -146,6 +146,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [messagesByServer, setMessagesByServer] = useState(() =>
     Object.fromEntries(initialConnections().map((connection) => [connection.id, serverBufferMessages(connection)]))
   )
+  const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
@@ -180,6 +181,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         onMessage: applyRealtimeMessage,
         onMention: handleMentionNotification,
         onBufferMessage: applyRealtimeMessage,
+        onPresenceSync: applyPresenceSync,
         onServerStatus: applyServerStatus,
         onNotificationMention: handleMentionNotification,
         onJoinOk: () => setConnectionHealth("connected"),
@@ -206,6 +208,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const activeServer = connections.find((connection) => connection.id === activeServerId) || connections[0]
   const messages = activeChannel ? messagesByChannel[activeChannel.id] || [] : []
   const serverMessages = activeServer ? messagesByServer[activeServer.id] || serverBufferMessages(activeServer) : []
+  const users = activeChannel ? usersByChannel[activeChannel.id] || demoUsers : []
 
   function selectTopic(topic) {
     if (mode === "landing" && currentUser) {
@@ -435,6 +438,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     )
   }
 
+  function applyPresenceSync(payload) {
+    setUsersByChannel((current) => ({
+      ...current,
+      [payload.buffer_id]: payload.users || [],
+    }))
+  }
+
   function handleMentionNotification(message) {
     if (!("Notification" in window)) return
     if (document.visibilityState !== "hidden") return
@@ -505,6 +515,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         ])
       )
     )
+    setUsersByChannel(bootstrap.users_by_buffer || {})
 
     if (bootstrap.active_buffer_id?.startsWith("channel:")) {
       setActiveChannelId(bootstrap.active_buffer_id)
@@ -555,7 +566,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       notificationState={notificationState}
       serverMessages={serverMessages}
       topics={topics}
-      users={demoUsers}
+      users={users}
       view={view}
       onDiscover={() => setView("discover")}
       onJoinManualServer={joinManualServer}
@@ -1091,7 +1102,7 @@ function RightSidebar({activeChannel, users, mobile = false}) {
   const groupedUsers = [
     {label: "Mods", users: users.filter((user) => user.role === "op")},
     {label: "Voiced", users: users.filter((user) => user.role === "voice")},
-    {label: "Online", users: users.filter((user) => !user.role && user.status !== "away")},
+    {label: "Online", users: users.filter((user) => (!user.role || user.role === "user") && user.status !== "away")},
     {label: "Away", users: users.filter((user) => user.status === "away")},
   ].filter((group) => group.users.length > 0)
 
@@ -1099,7 +1110,7 @@ function RightSidebar({activeChannel, users, mobile = false}) {
     <aside className={[
       "min-h-0 border-l border-slate-800/80 bg-[#0f131b]",
       mobile ? "block min-h-0 flex-1 border-l-0" : "hidden lg:block",
-    ].join(" ")}>
+    ].join(" ")} aria-label="People here">
       <div className="border-b border-slate-800/80 px-4 py-4">
         <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">People here</h2>
         <p className="mt-1 text-sm text-slate-300">{activeChannel?.channel || "#elixir"}</p>
