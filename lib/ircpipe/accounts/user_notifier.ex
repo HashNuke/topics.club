@@ -6,10 +6,12 @@ defmodule Ircpipe.Accounts.UserNotifier do
 
   # Delivers the email using the application mailer.
   defp deliver(recipient, subject, body) do
+    from = Application.fetch_env!(:ircpipe, :email_from)
+
     email =
       new()
       |> to(recipient)
-      |> from({"Ircpipe", "contact@example.com"})
+      |> from({from[:name], from[:address]})
       |> subject(subject)
       |> text_body(body)
 

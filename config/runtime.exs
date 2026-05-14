@@ -24,6 +24,33 @@ config :ueberauth, Ueberauth.Strategy.Google.OAuth,
   client_id: System.get_env("GOOGLE_CLIENT_ID"),
   client_secret: System.get_env("GOOGLE_CLIENT_SECRET")
 
+smtp_relay = System.get_env("SMTP_RELAY")
+smtp_username = System.get_env("SMTP_USERNAME")
+smtp_password = System.get_env("SMTP_PASSWORD")
+
+smtp_tls =
+  case System.get_env("SMTP_TLS") || "if_available" do
+    "always" -> :always
+    "never" -> :never
+    _ -> :if_available
+  end
+
+if smtp_relay && smtp_username && smtp_password do
+  config :ircpipe, Ircpipe.Mailer,
+    adapter: Swoosh.Adapters.SMTP,
+    relay: smtp_relay,
+    port: String.to_integer(System.get_env("SMTP_PORT") || "587"),
+    username: smtp_username,
+    password: smtp_password,
+    ssl: System.get_env("SMTP_SSL") in ~w(true 1),
+    tls: smtp_tls,
+    auth: :always
+end
+
+config :ircpipe, :email_from,
+  name: System.get_env("EMAIL_FROM_NAME") || "Ircpipe",
+  address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

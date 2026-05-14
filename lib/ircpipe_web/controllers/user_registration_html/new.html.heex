@@ -13,9 +13,9 @@
       </.header>
     </div>
 
-    <.form :let={f} for={@changeset} action={~p"/users/register"}>
+    <.form for={@form} id="registration-form" action={~p"/users/register"}>
       <.input
-        field={f[:email]}
+        field={@form[:email]}
         type="email"
         label="Email"
         autocomplete="username"

@@ -32,6 +32,73 @@ http://localhost:4100/auth/google/callback
 
 For development and test, Ircpipe also exposes `/auth/developer`, a local Ueberauth strategy similar to OmniAuth's developer strategy. It presents a simple name/email form and signs in without calling an external provider. This provider is not configured in production.
 
+In production, the Google sign-in button is shown only when both `GOOGLE_CLIENT_ID`
+and `GOOGLE_CLIENT_SECRET` are set. Email registration and magic-link login need
+SMTP configuration so the app can deliver confirmation and login links.
+
+## Self-hosting with Docker
+
+Ircpipe ships a Phoenix release Dockerfile and a production Compose file. The app
+uses PostgreSQL in production; SQLite is not a runtime option because the repo is
+compiled with `Ecto.Adapters.Postgres` and the dependency set includes `postgrex`.
+Adding SQLite later would mean adding a second adapter dependency, changing repo
+configuration, and testing migrations and queries against both databases.
+
+Create a `.env` file from the example and set the required values:
+
+```bash
+cp .env.example .env
+mix phx.gen.secret
+```
+
+At minimum, set:
+
+```text
+PHX_HOST=your-host.example.com
+IRCPIPE_POSTGRES_DATA=/srv/ircpipe/postgres
+POSTGRES_PASSWORD=use-a-long-random-password
+SECRET_KEY_BASE=the-value-from-mix-phx-gen-secret
+```
+
+`IRCPIPE_POSTGRES_DATA` is a host directory that you choose. Compose bind-mounts
+it to `/var/lib/postgresql/data`, so that directory is where all database data is
+stored.
+
+Start the production stack:
+
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml up -d --build
+```
+
+The app container waits for Postgres, runs migrations, and then starts Phoenix on
+container port `4000`. Set `IRCPIPE_PORT` to choose the host port.
+
+Because `ircpipe` currently depends on the sibling `../ircxd` package, the
+Dockerfile is built with the parent directory as context. Compose handles this
+automatically. For a manual image build, run this from the parent directory:
+
+```bash
+docker build -f ircpipe/Dockerfile .
+```
+
+### Self-hosted auth
+
+For a private self-hosted instance, the simplest production setup is:
+
+```text
+SMTP_RELAY=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=...
+SMTP_PASSWORD=...
+SMTP_TLS=if_available
+EMAIL_FROM_ADDRESS=ircpipe@example.com
+```
+
+With SMTP configured, users can register and log in by email magic link, then set
+a password from account settings. If you prefer OAuth-only sign-in, configure
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` instead. The development-only
+`/auth/developer` provider is intentionally not enabled in production.
+
 ## Local database
 
 The generated dev/test config expects PostgreSQL on `localhost:5432` with username/password `postgres`/`postgres`. A `docker-compose.yml` is included for that database:

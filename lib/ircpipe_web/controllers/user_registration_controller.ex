@@ -6,7 +6,7 @@ defmodule IrcpipeWeb.UserRegistrationController do
 
   def new(conn, _params) do
     changeset = Accounts.change_user_email(%User{})
-    render(conn, :new, changeset: changeset)
+    render(conn, :new, form: Phoenix.Component.to_form(changeset))
   end
 
   def create(conn, %{"user" => user_params}) do
@@ -26,7 +26,7 @@ defmodule IrcpipeWeb.UserRegistrationController do
         |> redirect(to: ~p"/users/log-in")
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        render(conn, :new, changeset: changeset)
+        render(conn, :new, form: Phoenix.Component.to_form(changeset))
     end
   end
 end

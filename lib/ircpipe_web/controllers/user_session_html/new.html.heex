@@ -17,8 +17,8 @@
       </.header>
     </div>
 
-    <div class="space-y-2">
-      <.link href={~p"/auth/google"} class="btn btn-primary w-full">
+    <div :if={oauth_enabled?()} class="space-y-2">
+      <.link :if={google_oauth_enabled?()} href={~p"/auth/google"} class="btn btn-primary w-full">
         Continue with Google
       </.link>
       <.link
@@ -30,7 +30,7 @@
       </.link>
     </div>
 
-    <div class="divider">or</div>
+    <div :if={oauth_enabled?()} class="divider">or</div>
 
     <div :if={local_mail_adapter?()} class="alert alert-info">
       <.icon name="hero-information-circle" class="size-6 shrink-0" />
@@ -42,10 +42,11 @@
       </div>
     </div>
 
-    <.form :let={f} for={@form} as={:user} id="login_form_magic" action={~p"/users/log-in"}>
+    <.form for={@form} as={:user} id="login_form_magic" action={~p"/users/log-in"}>
       <.input
         readonly={!!@current_scope}
-        field={f[:email]}
+        field={@form[:email]}
+        id="login_form_magic_email"
         type="email"
         label="Email"
         autocomplete="username"
@@ -60,10 +61,11 @@
 
     <div class="divider">or</div>
 
-    <.form :let={f} for={@form} as={:user} id="login_form_password" action={~p"/users/log-in"}>
+    <.form for={@form} as={:user} id="login_form_password" action={~p"/users/log-in"}>
       <.input
         readonly={!!@current_scope}
-        field={f[:email]}
+        field={@form[:email]}
+        id="login_form_password_email"
         type="email"
         label="Email"
         autocomplete="username"
@@ -71,7 +73,8 @@
         required
       />
       <.input
-        field={f[:password]}
+        field={@form[:password]}
+        id="login_form_password_password"
         type="password"
         label="Password"
         autocomplete="current-password"

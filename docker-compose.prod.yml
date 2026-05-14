@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: ircpipe/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ecto://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres/ircpipe_prod
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in .env}
+      PHX_HOST: ${PHX_HOST:?Set PHX_HOST in .env}
+      PORT: 4000
+      POOL_SIZE: ${POOL_SIZE:-10}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      SMTP_RELAY: ${SMTP_RELAY:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_TLS: ${SMTP_TLS:-if_available}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Ircpipe}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-contact@example.com}
+    ports:
+      - "${IRCPIPE_PORT:-4000}:4000"
+    command: sh -c "/app/bin/migrate && /app/bin/server"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ircpipe_prod
+    volumes:
+      - ${IRCPIPE_POSTGRES_DATA:?Set IRCPIPE_POSTGRES_DATA to a host directory for database data}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ircpipe_prod"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
