@@ -10,6 +10,7 @@ import LeftSidebar from "./components/left_sidebar.jsx"
 import RightSidebar from "./components/right_sidebar.jsx"
 import ServerBufferPane from "./components/server_buffer_pane.jsx"
 import TopBar from "./components/top_bar.jsx"
+import TopicGrid from "./components/topic_grid.jsx"
 import {
   applyUserDiff,
   appendTimelineMessage,
@@ -22,6 +23,7 @@ import {
 } from "./chat_store.js"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
+export {default as TopicGrid} from "./components/topic_grid.jsx"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 
@@ -1583,36 +1585,6 @@ function DiscoverPane({topics, onSelectTopic}) {
         <TopicGrid topics={topics} onSelectTopic={onSelectTopic} />
       </div>
     </section>
-  )
-}
-
-export function TopicGrid({topics, onSelectTopic}) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      {topics.map((topic) => {
-        const normalized = normalizeTopic(topic)
-
-        return (
-          <button
-            key={normalized.id}
-            className="group rounded-lg border border-slate-800 bg-[#121722] p-3 text-left transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-[#161d2a]"
-            onClick={() => onSelectTopic(normalized)}
-          >
-            <div className="min-w-0">
-              <div className="min-w-0 flex-1">
-                <div className="break-words text-lg font-semibold tracking-tight text-white">{normalized.channel}</div>
-                <div className="mt-0.5 truncate text-xs text-slate-500">on {normalized.server_host}</div>
-              </div>
-            </div>
-            <p className="mt-3 min-h-10 text-sm leading-5 text-slate-400">{normalized.description}</p>
-            <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-              <span>{normalized.members || "many"} online</span>
-              <span className="font-semibold text-cyan-200 transition group-hover:text-white">Join</span>
-            </div>
-          </button>
-        )
-      })}
-    </div>
   )
 }
 
