@@ -16,6 +16,7 @@ import {
   normalizeTopic,
   trimMessagesToLimit,
 } from "./chat_store.js"
+import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
 export {default as TopicGrid} from "./components/topic_grid.jsx"
@@ -1248,28 +1249,6 @@ function defer(callback) {
   Promise.resolve().then(callback)
 }
 
-function numericId(value) {
-  const parsed = Number(value)
-  return Number.isInteger(parsed) ? parsed : null
-}
-
-function backendTopicFor(topic, topics) {
-  return topics.find((candidate) => {
-    const normalized = normalizeTopic(candidate)
-
-    return (
-      numericId(normalized.id) &&
-      normalized.channel === topic.channel &&
-      normalized.server_host === topic.server_host &&
-      Number(normalized.server_port || 6669) === Number(topic.server_port || 6669)
-    )
-  })
-}
-
-function topicForRequestedId(requestedId, topics) {
-  return topics.find((topic) => String(topic.id) === String(requestedId)) || null
-}
-
 function defaultIrcNick(currentUser) {
   const localPart = currentUser?.email?.split("@")[0] || ""
   let nick = localPart.replace(/[^A-Za-z0-9_\-[\]`^{}\\]/g, "_").replace(/^[_-]+|[_-]+$/g, "")
@@ -1278,12 +1257,6 @@ function defaultIrcNick(currentUser) {
   if (!/^[A-Za-z_\-[\]`^{}\\]/.test(nick)) nick = `u_${nick}`
 
   return nick.slice(0, 24)
-}
-
-function requestedTopicId() {
-  if (typeof window === "undefined") return null
-
-  return new URLSearchParams(window.location.search).get("topic")
 }
 
 function commandErrorMessage(error) {
