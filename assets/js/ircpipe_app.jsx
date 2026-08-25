@@ -3,7 +3,7 @@ import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/rea
 import {createApiClient} from "./api_client.js"
 import AppMark from "./components/app_mark.jsx"
 import ChatComposer from "./components/chat_composer.jsx"
-import MessageRow from "./components/message_row.jsx"
+import MessageTimeline from "./components/message_timeline.jsx"
 import {
   applyUserDiff,
   appendTimelineMessage,
@@ -1985,34 +1985,6 @@ function NewMessagesButton({count, onClick}) {
   )
 }
 
-function MessageTimeline({messages, onRetryMessage}) {
-  return (
-    <>
-      {messages.map((message, index) => {
-        const previous = messages[index - 1]
-        const showSeparator = !previous || minutesBetween(previous.occurredAt, message.occurredAt) >= 30
-
-        return (
-          <React.Fragment key={message.id}>
-            {showSeparator && <TimeSeparator value={message.occurredAt} />}
-            <MessageRow message={message} onRetryMessage={onRetryMessage} />
-          </React.Fragment>
-        )
-      })}
-    </>
-  )
-}
-
-function TimeSeparator({value}) {
-  return (
-    <div className="my-4 flex items-center justify-center gap-3 text-xs text-slate-600">
-      <span className="h-px flex-1 bg-slate-800/80" />
-      <time dateTime={value}>{formatTimestamp(value)}</time>
-      <span className="h-px flex-1 bg-slate-800/80" />
-    </div>
-  )
-}
-
 function ChannelDirectoryPane({directory, onJoinChannel, onRefresh, server}) {
   const [query, setQuery] = useState("")
   const [manualChannel, setManualChannel] = useState("")
@@ -2861,17 +2833,4 @@ function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) {
   }
 
   return {newMessageCount, readingOlder, scrollRef, scrollToBottom}
-}
-
-function minutesBetween(previous, current) {
-  return Math.abs(new Date(current).getTime() - new Date(previous).getTime()) / 60_000
-}
-
-function formatTimestamp(value) {
-  return new Intl.DateTimeFormat([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value))
 }
