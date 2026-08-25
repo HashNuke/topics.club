@@ -1,5 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from "react"
-import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/react"
+import {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
 import AppMark from "./components/app_mark.jsx"
 import ChannelDirectoryPane from "./components/channel_directory_pane.jsx"
@@ -10,6 +9,7 @@ import ChatPane, {
 import LeftSidebar from "./components/left_sidebar.jsx"
 import RightSidebar from "./components/right_sidebar.jsx"
 import ServerBufferPane from "./components/server_buffer_pane.jsx"
+import TopBar from "./components/top_bar.jsx"
 import {
   applyUserDiff,
   appendTimelineMessage,
@@ -1570,133 +1570,6 @@ function MobileDrawerHeader({title, onClose}) {
   )
 }
 
-function TopBar({activeChannel, activeServer, connectionHealth, notificationState, showsUserSidebar, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications, onRetryRealtime}) {
-  const topBarCopy = topBarCopyFor({activeChannel, activeServer, view})
-
-  return (
-    <header className="flex h-14 items-center justify-between border-b border-slate-800/80 bg-[#0d1118] px-4">
-      <div className="flex min-w-0 items-center gap-3">
-        <button
-          className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden"
-          onClick={onOpenMobileMenu}
-          aria-label="Show channels"
-        >
-          <span className="hero-bars-3 size-5" aria-hidden="true" />
-        </button>
-        <div className="min-w-0">
-          <div className="flex items-baseline gap-2">
-          <h1 className="truncate text-base font-semibold">{topBarCopy.title}</h1>
-          {view !== "server" && (
-            topBarCopy.context && <span className="hidden text-xs text-slate-500 sm:inline">{topBarCopy.context}</span>
-          )}
-          </div>
-          <p className="truncate text-xs text-slate-500">{topBarCopy.subtitle}</p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <ConnectionHealthIndicator status={connectionHealth} onRetry={onRetryRealtime} />
-        {showsUserSidebar && (
-          <button
-            className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden"
-            onClick={onOpenMobileUsers}
-            aria-label="Show users"
-          >
-            <span className="hero-users size-5" aria-hidden="true" />
-          </button>
-        )}
-        <Tooltip label={notificationLabel(notificationState)}>
-          <button
-            id="notification-bell"
-            className={[
-              "grid size-9 place-items-center rounded-md border transition",
-              notificationState === "granted"
-                ? "border-emerald-400 bg-emerald-400/10 text-emerald-200"
-                : "border-slate-700 text-slate-300 hover:border-cyan-300 hover:text-white",
-            ].join(" ")}
-            onClick={onRequestNotifications}
-            aria-label="Enable browser notifications"
-          >
-            <span className="hero-bell size-4" aria-hidden="true" />
-          </button>
-        </Tooltip>
-      </div>
-    </header>
-  )
-}
-
-function ConnectionHealthIndicator({status, onRetry}) {
-  const labels = {
-    connected: "connected",
-    degraded: "degraded",
-    disconnected: "offline",
-    reconnecting: "reconnecting",
-  }
-  const label = labels[status] || "offline"
-  const canRetry = status === "degraded" || status === "disconnected" || status === "reconnecting"
-
-  return (
-    <div
-      className="hidden items-center gap-1.5 rounded-md border border-slate-800 px-2 py-1 text-xs text-slate-400 sm:flex"
-      aria-label={`Connection ${label}`}
-    >
-      <span
-        className={[
-          "size-1.5 rounded-full",
-          status === "connected"
-            ? "bg-emerald-300"
-            : status === "degraded" || status === "reconnecting"
-              ? "bg-amber-300"
-              : "bg-slate-500",
-        ].join(" ")}
-      />
-      <span>{label}</span>
-      {canRetry && (
-        <Tooltip label="Reconnect realtime socket">
-          <button
-            className="ml-1 grid size-5 place-items-center rounded text-slate-300 transition hover:bg-slate-800 hover:text-white"
-            onClick={onRetry}
-            aria-label="Retry realtime connection"
-          >
-            <span className="hero-arrow-path size-3.5" aria-hidden="true" />
-          </button>
-        </Tooltip>
-      )}
-    </div>
-  )
-}
-
-function topBarCopyFor({activeChannel, activeServer, view}) {
-  if (view === "discover") {
-    return {
-      title: "Discover",
-      context: null,
-      subtitle: "Find more topics to join.",
-    }
-  }
-
-  if (view === "directory") {
-    return {
-      title: `Channels on ${activeServer?.name || "server"}`,
-      context: null,
-      subtitle: "Browse public conversations and join with one click.",
-    }
-  }
-
-  if (view === "server") {
-    return {
-      title: activeServer?.host || "Server",
-      context: null,
-      subtitle: "Server notices, services, and connection details.",
-    }
-  }
-
-  return {
-    title: activeChannel?.channel || "Chat",
-    context: activeChannel?.connection?.host ? `on ${activeChannel.connection.host}` : null,
-    subtitle: activeChannel?.topic || "Pick a topic from the sidebar or discover view.",
-  }
-}
-
 function DiscoverPane({topics, onSelectTopic}) {
   return (
     <section className="min-h-0 flex-1 overflow-y-auto bg-[#090b10] p-4 sm:p-6">
@@ -1777,40 +1650,6 @@ function AuthPrompt({developerOauth, topic, onClose}) {
         </div>
       </section>
     </div>
-  )
-}
-
-function Tooltip({children, label}) {
-  const [open, setOpen] = useState(false)
-  const [arrowEl, setArrowEl] = useState(null)
-  const {refs, floatingStyles, context} = useFloating({
-    open,
-    onOpenChange: setOpen,
-    placement: "bottom-end",
-    middleware: [offset(8), shift(), arrow({element: arrowEl})],
-  })
-
-  return (
-    <>
-      {React.cloneElement(children, {
-        ref: refs.setReference,
-        onMouseEnter: () => setOpen(true),
-        onMouseLeave: () => setOpen(false),
-        onFocus: () => setOpen(true),
-        onBlur: () => setOpen(false),
-      })}
-      {open && (
-        <div
-          ref={refs.setFloating}
-          style={floatingStyles}
-          className="z-50 max-w-56 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 shadow-xl"
-          role="tooltip"
-        >
-          {label}
-          <FloatingArrow ref={setArrowEl} context={context} className="fill-slate-950" />
-        </div>
-      )}
-    </>
   )
 }
 
@@ -1978,11 +1817,4 @@ function channelDirectoryError(reason) {
 function notificationPermission() {
   if (!("Notification" in window)) return "default"
   return Notification.permission
-}
-
-function notificationLabel(state) {
-  if (state === "granted") return "Browser notifications are enabled for mentions while this tab is hidden."
-  if (state === "denied") return "Notifications are blocked in your browser settings."
-  if (state === "unsupported") return "This browser does not support notifications."
-  return "Enable browser notifications for mentions."
 }
