@@ -92,63 +92,6 @@ export const demoTopics = [
   },
 ]
 
-const demoUsers = [
-  {nick: "mira", role: "op", status: "online"},
-  {nick: "patch", role: "voice", status: "online"},
-  {nick: "samir", status: "online"},
-  {nick: "lena", status: "away"},
-  {nick: "jo", status: "online"},
-  {nick: "rootless", status: "online"},
-  {nick: "nora", status: "away"},
-  {nick: "kai", status: "online"},
-]
-
-const demoMessages = [
-  {
-    id: 1,
-    occurredAt: "2026-05-13T09:41:00Z",
-    nick: "mira",
-    body: "The trick is to keep the process boundary boring and let the UI stay optimistic.",
-  },
-  {
-    id: 2,
-    occurredAt: "2026-05-13T09:42:00Z",
-    nick: "patch",
-    body: "That sounds right. A reconnect should replay the joined rooms, not ask the user again.",
-  },
-  {
-    id: 3,
-    occurredAt: "2026-05-13T09:44:00Z",
-    nick: "samir",
-    body: "Can we surface server state without making people learn network details on day one?",
-  },
-  {
-    id: 4,
-    occurredAt: "2026-05-13T09:45:00Z",
-    nick: "topics.club",
-    body: "mira joined from the web client",
-    kind: "system",
-  },
-  {
-    id: 5,
-    occurredAt: "2026-05-13T10:17:00Z",
-    nick: "lena",
-    body: "Two-line topic names help a lot. The channel is obvious, and the server stays quiet.",
-  },
-]
-
-const demoSlashCommands = [
-  {name: "/join", usage: "/join #channel", description: "Join a channel"},
-  {name: "/list", usage: "/list", description: "Browse channels on this server"},
-  {name: "/part", usage: "/part #channel", description: "Leave a channel"},
-  {name: "/leave", usage: "/leave #channel", description: "Leave a channel"},
-  {name: "/msg", usage: "/msg nick message", description: "Send a private message"},
-  {name: "/me", usage: "/me action", description: "Send an action message"},
-  {name: "/nick", usage: "/nick newnick", description: "Change nickname"},
-  {name: "/topic", usage: "/topic #channel text", description: "Set or view a topic"},
-  {name: "/quote", usage: "/quote RAW COMMAND", description: "Send a raw IRC command"},
-]
-
 export default function IrcpipeApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}) {
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
@@ -158,17 +101,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [view, setView] = useState("chat")
   const [notificationState, setNotificationState] = useState(notificationPermission())
   const [connectionHealth, setConnectionHealth] = useState("disconnected")
-  const [connections, setConnections] = useState(() => (currentUser ? [] : initialConnections()))
-  const [activeChannelId, setActiveChannelId] = useState(() => (currentUser ? null : "chan-elixir"))
-  const [activeServerId, setActiveServerId] = useState(() => (currentUser ? null : "server-local"))
-  const [messagesByChannel, setMessagesByChannel] = useState(() => (currentUser ? {} : {"chan-elixir": demoMessages}))
-  const [messagesByServer, setMessagesByServer] = useState(() =>
-    currentUser ? {} : Object.fromEntries(initialConnections().map((connection) => [connection.id, serverBufferMessages(connection)]))
-  )
+  const [connections, setConnections] = useState([])
+  const [activeChannelId, setActiveChannelId] = useState(null)
+  const [activeServerId, setActiveServerId] = useState(null)
+  const [messagesByChannel, setMessagesByChannel] = useState({})
+  const [messagesByServer, setMessagesByServer] = useState({})
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
   const [composerError, setComposerError] = useState(null)
-  const [commandCatalog, setCommandCatalog] = useState(() => (currentUser ? [] : demoSlashCommands))
+  const [commandCatalog, setCommandCatalog] = useState([])
   const [channelDirectory, setChannelDirectory] = useState({serverId: null, channels: [], status: "idle", error: null, joinError: null, joiningChannel: null})
   const channelDirectoryRequestRef = useRef(0)
   const loadingOlderRef = useRef(new Set())
@@ -358,51 +299,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       }
     }
 
-    if (currentUser) return
-
-    joinTopicLocally(normalized)
-  }
-
-  function joinTopicLocally(normalized) {
-    const connectionKey = normalized.server_host
-    const channelId = `${connectionKey}-${normalized.channel}`.replace(/[^a-z0-9]+/gi, "-").toLowerCase()
-
-    setConnections((current) => {
-      const existingConnection = current.find((connection) => connection.host === connectionKey)
-      const newChannel = {
-        id: channelId,
-        channel: normalized.channel,
-        topic: normalized.description,
-        unread_count: 0,
-        mention_count: 0,
-      }
-
-      if (existingConnection) {
-        return current.map((connection) => {
-          if (connection.id !== existingConnection.id) return connection
-          if (connection.channels.some((channel) => channel.channel === normalized.channel)) return connection
-          return {...connection, channels: [...connection.channels, newChannel]}
-        })
-      }
-
-      return [
-        ...current,
-        {
-          id: `server-${connectionKey}`,
-          name: normalized.server_host,
-          host: normalized.server_host,
-          status: "connected",
-          channels: [newChannel],
-        },
-      ]
-    })
-
-    setMessagesByChannel((current) => ({
-      ...current,
-      [channelId]: current[channelId] || seededMessagesFor(normalized),
-    }))
-    setActiveChannelId(channelId)
-    setView("chat")
   }
 
   function applyAuthoritativeJoinedTopic(payload) {
@@ -689,7 +585,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (view === "server" && activeServer) {
       setMessagesByServer((current) => ({
         ...current,
-        [activeServer.id]: [...(current[activeServer.id] || serverBufferMessages(activeServer)), nextMessage],
+        [activeServer.id]: [...(current[activeServer.id] || []), nextMessage],
       }))
       setDraft("")
       return
@@ -778,7 +674,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setMessagesByServer((current) => ({
         ...current,
         [activeServer.id]: appendTimelineMessage(
-          current[activeServer.id] || serverBufferMessages(activeServer),
+          current[activeServer.id] || [],
           message,
           readingBuffersRef.current.has(activeServer.id)
         ),
@@ -1406,85 +1302,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       }
     }
   }
-}
-
-function initialConnections() {
-  return [
-    {
-      id: "server-local",
-      name: "local",
-      host: "127.0.0.1",
-      status: "connected",
-      channels: [
-        {id: "chan-elixir", channel: "#elixir", topic: "Phoenix, OTP, releases, and production Elixir help.", unread_count: 0, mention_count: 1},
-        {id: "chan-phoenix", channel: "#phoenix", topic: "LiveView patterns and framework support.", unread_count: 2, mention_count: 0},
-      ],
-    },
-    {
-      id: "server-local-testing",
-      name: "local testing",
-      host: "127.0.0.1",
-      status: "connected",
-      channels: [
-        {id: "chan-linux", channel: "#linux", topic: "Linux systems and troubleshooting.", unread_count: 0, mention_count: 0},
-      ],
-    },
-  ]
-}
-
-function seededMessagesFor(topic) {
-  return [
-    {
-      id: `${topic.id}-1`,
-      occurredAt: new Date().toISOString(),
-      nick: "topics.club",
-      body: `Joined ${topic.channel} on ${topic.server_host}.`,
-      kind: "system",
-    },
-    {
-      id: `${topic.id}-2`,
-      occurredAt: new Date().toISOString(),
-      nick: "mira",
-      body: `Welcome to ${topic.channel}. This is placeholder chat until the IRC backend is wired.`,
-    },
-  ]
-}
-
-function serverBufferMessages(server) {
-  return [
-    {
-      id: `${server.id}-connected`,
-      occurredAt: "2026-05-13T09:30:00Z",
-      nick: server.host,
-      body: `Connected to ${server.host} using TLS.`,
-      kind: "system",
-    },
-    {
-      id: `${server.id}-welcome`,
-      occurredAt: "2026-05-13T09:30:01Z",
-      nick: server.host,
-      body: "Welcome to the network. This is the server buffer for notices and connection logs.",
-    },
-    {
-      id: `${server.id}-nickserv`,
-      occurredAt: "2026-05-13T09:30:03Z",
-      nick: "NickServ",
-      body: "This nickname is registered. Use IDENTIFY if you own it.",
-    },
-    {
-      id: `${server.id}-chanserv`,
-      occurredAt: "2026-05-13T09:33:00Z",
-      nick: "ChanServ",
-      body: "Channel service replies and registration notices can appear here.",
-    },
-    {
-      id: `${server.id}-joined`,
-      occurredAt: "2026-05-13T09:35:00Z",
-      nick: server.host,
-      body: `Joined ${server.channels.map((channel) => channel.channel).join(", ")}.`,
-      kind: "system",
-    },
-  ]
 }
 
 function isBackendBufferId(bufferId) {
