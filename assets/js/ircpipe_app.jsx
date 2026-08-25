@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
 import AppMark from "./components/app_mark.jsx"
+import AuthPrompt from "./components/auth_prompt.jsx"
 import ChannelDirectoryPane from "./components/channel_directory_pane.jsx"
 import ChatPane, {
   isRealtimeChannel,
@@ -1585,43 +1586,6 @@ function DiscoverPane({topics, onSelectTopic}) {
         <TopicGrid topics={topics} onSelectTopic={onSelectTopic} />
       </div>
     </section>
-  )
-}
-
-function AuthPrompt({developerOauth, topic, onClose}) {
-  const topicParam = encodeURIComponent(topic.id)
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
-      <section
-        aria-label="Sign in to join"
-        className="w-full max-w-md rounded-lg border border-slate-700 bg-[#101620] p-5 shadow-2xl"
-        role="dialog"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">Sign in to join</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              {topic.channel}
-              <span className="block text-xs text-slate-500">on {topic.server_host}</span>
-            </p>
-          </div>
-          <button className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-800 hover:text-white" onClick={onClose} aria-label="Close">
-            x
-          </button>
-        </div>
-        <div className="mt-5 space-y-3">
-          <a className="block rounded-md bg-white px-4 py-2.5 text-center text-sm font-semibold text-cyan-950 hover:bg-cyan-100" href={`/auth/google?topic=${topicParam}`}>
-            Continue with Google
-          </a>
-          {developerOauth && (
-            <a className="block rounded-md border border-slate-700 px-4 py-2.5 text-center text-sm font-semibold text-slate-200 hover:border-cyan-300" href={`/auth/developer?topic=${topicParam}`}>
-              Developer OAuth
-            </a>
-          )}
-        </div>
-      </section>
-    </div>
   )
 }
 
