@@ -9,6 +9,10 @@ export const ManualJoin = {
   render: () => <ManualJoinDialog onClose={() => {}} onJoin={() => {}} />,
 }
 
+export const ManualJoinAdvanced = {
+  render: () => <ManualJoinDialog initialAdvancedOpen onClose={() => {}} onJoin={() => {}} />,
+}
+
 export const EditServer = {
   render: () => (
     <EditServerDialog

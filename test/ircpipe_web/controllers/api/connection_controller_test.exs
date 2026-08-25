@@ -36,6 +36,31 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
     assert :ok = Session.quit(connection)
   end
 
+  test "defaults an omitted nickname", %{conn: conn, user: user} do
+    server = start_supervised!({IrcTestServer, self()})
+
+    create_conn =
+      post(conn, ~p"/api/connections", %{
+        "connection" => %{
+          "name" => "authenticated-local",
+          "host" => "127.0.0.1",
+          "port" => IrcTestServer.port(server),
+          "use_tls" => false,
+          "nickname" => ""
+        }
+      })
+
+    expected_nickname = user.email |> String.split("@") |> List.first()
+
+    assert %{"connection" => %{"id" => connection_id, "nickname" => ^expected_nickname}} =
+             json_response(create_conn, 201)
+
+    connection = Chat.get_connection!(user, connection_id)
+    assert connection.nickname == expected_nickname
+    assert_receive {:irc_server_line, "NICK " <> ^expected_nickname}, 1_000
+    assert :ok = Session.quit(connection)
+  end
+
   test "connects an owned server connection", %{conn: conn, user: user} do
     server = start_supervised!({IrcTestServer, self()})
 

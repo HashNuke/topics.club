@@ -26,6 +26,24 @@ defmodule Ircpipe.ChatTest do
     assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(other_user, connection.id) end
   end
 
+  test "defaults nickname and SASL account while retaining connection credentials" do
+    user = AccountsFixtures.user_fixture(%{email: "mira@example.com"})
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "authenticated",
+        "host" => "irc.example.com",
+        "nickname" => " ",
+        "sasl_password" => "account-secret",
+        "server_password" => "network-secret"
+      })
+
+    assert connection.nickname == "mira"
+    assert connection.sasl_username == "mira"
+    assert connection.sasl_password == "account-secret"
+    assert connection.server_password == "network-secret"
+  end
+
   test "lists bouncer connections by user activity" do
     active_user = AccountsFixtures.user_fixture()
     inactive_user = AccountsFixtures.user_fixture()

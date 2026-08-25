@@ -138,6 +138,13 @@ defmodule Ircpipe.Irc.Session do
     ]
 
     opts =
+      if present?(connection.server_password) do
+        Keyword.put(opts, :password, connection.server_password)
+      else
+        opts
+      end
+
+    opts =
       if present?(connection.sasl_username) and present?(connection.sasl_password) do
         Keyword.put(opts, :sasl, {:plain, connection.sasl_username, connection.sasl_password})
       else

@@ -1,12 +1,15 @@
 import {useState} from "react"
 
-export function LabeledInput({id, label, value, onChange}) {
+export function LabeledInput({autoComplete, id, label, onChange, placeholder, type = "text", value}) {
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</span>
       <input
         id={id}
         className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 outline-none transition focus:border-cyan-300"
+        autoComplete={autoComplete}
+        placeholder={placeholder}
+        type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -14,8 +17,17 @@ export function LabeledInput({id, label, value, onChange}) {
   )
 }
 
-export function ManualJoinDialog({onClose, onJoin}) {
-  const [form, setForm] = useState({host: "127.0.0.1", port: "6669", channels: "#elixir, #phoenix", useTls: false})
+export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin}) {
+  const [advancedOpen, setAdvancedOpen] = useState(initialAdvancedOpen)
+  const [form, setForm] = useState({
+    host: "127.0.0.1",
+    port: "6669",
+    channels: "#elixir, #phoenix",
+    nickname: "",
+    saslPassword: "",
+    serverPassword: "",
+    useTls: false,
+  })
 
   function submit(event) {
     event.preventDefault()
@@ -34,6 +46,16 @@ export function ManualJoinDialog({onClose, onJoin}) {
           </div>
           <LabeledInput id="server-channels" label="Auto-join channels" value={form.channels} onChange={(channels) => setForm({...form, channels})} />
           <p className="text-xs leading-5 text-slate-500">Comma separated. These channels are joined after the server connects.</p>
+          <details className="rounded-md border border-slate-800 bg-slate-950/50" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+            <summary className="cursor-pointer select-none px-3 py-2.5 text-sm font-semibold text-slate-300 transition hover:text-white">Advanced connection options</summary>
+            <div className="space-y-3 border-t border-slate-800 px-3 py-3">
+              <LabeledInput id="server-nickname" label="Nickname (optional)" placeholder="Generated from your account if blank" value={form.nickname} onChange={(nickname) => setForm({...form, nickname})} />
+              <LabeledInput autoComplete="new-password" id="sasl-password" label="Account password (SASL, optional)" type="password" value={form.saslPassword} onChange={(saslPassword) => setForm({...form, saslPassword})} />
+              <p className="text-xs leading-5 text-slate-500">Authenticates your IRC account. Your nickname is used as the SASL account name.</p>
+              <LabeledInput autoComplete="new-password" id="server-password" label="Server password (optional)" type="password" value={form.serverPassword} onChange={(serverPassword) => setForm({...form, serverPassword})} />
+              <p className="text-xs leading-5 text-slate-500">Unlocks a password-protected network using IRC PASS. Keep TLS enabled when using passwords.</p>
+            </div>
+          </details>
         </div>
         <DialogActions confirmLabel="Join" onClose={onClose} />
       </form>

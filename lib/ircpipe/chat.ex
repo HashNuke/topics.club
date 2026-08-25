@@ -67,6 +67,8 @@ defmodule Ircpipe.Chat do
   end
 
   def create_connection(%User{} = user, attrs) do
+    attrs = connection_defaults(user, attrs)
+
     %ServerConnection{user_id: user.id}
     |> ServerConnection.changeset(attrs)
     |> Repo.insert()
@@ -894,6 +896,35 @@ defmodule Ircpipe.Chat do
       end
 
     String.slice(base, 0, 24)
+  end
+
+  defp connection_defaults(user, attrs) do
+    nickname = present_attr(attrs, :nickname) || default_nick(user)
+
+    attrs
+    |> put_attr(:nickname, nickname)
+    |> maybe_put_sasl_username(nickname)
+  end
+
+  defp maybe_put_sasl_username(attrs, nickname) do
+    if present_attr(attrs, :sasl_password) && !present_attr(attrs, :sasl_username) do
+      put_attr(attrs, :sasl_username, nickname)
+    else
+      attrs
+    end
+  end
+
+  defp present_attr(attrs, key) do
+    value = Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+    if is_binary(value) && String.trim(value) != "", do: String.trim(value)
+  end
+
+  defp put_attr(attrs, key, value) do
+    if Map.has_key?(attrs, key) do
+      Map.put(attrs, key, value)
+    else
+      Map.put(attrs, Atom.to_string(key), value)
+    end
   end
 
   defp ensure_valid_nick(%ServerConnection{} = connection, %User{} = user) do

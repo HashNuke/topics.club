@@ -315,7 +315,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         host,
         port: Number(form.port) || 6669,
         use_tls: form.useTls,
-        nickname: defaultIrcNick(currentUser),
+        nickname: form.nickname.trim(),
+        sasl_password: form.saslPassword,
+        server_password: form.serverPassword,
       })
 
       for (const channel of channels) {
@@ -1247,16 +1249,6 @@ function defer(callback) {
   }
 
   Promise.resolve().then(callback)
-}
-
-function defaultIrcNick(currentUser) {
-  const localPart = currentUser?.email?.split("@")[0] || ""
-  let nick = localPart.replace(/[^A-Za-z0-9_\-[\]`^{}\\]/g, "_").replace(/^[_-]+|[_-]+$/g, "")
-
-  if (!nick) nick = "topics_user"
-  if (!/^[A-Za-z_\-[\]`^{}\\]/.test(nick)) nick = `u_${nick}`
-
-  return nick.slice(0, 24)
 }
 
 function commandErrorMessage(error) {

@@ -1528,6 +1528,10 @@ describe("IrcpipeApp UI prototype", () => {
     await user.type(screen.getByLabelText("Server"), "irc.example.net")
     await user.clear(screen.getByLabelText("Auto-join channels"))
     await user.type(screen.getByLabelText("Auto-join channels"), "#music, ##deep")
+    await user.click(screen.getByText("Advanced connection options"))
+    await user.type(screen.getByLabelText("Nickname (optional)"), "mira")
+    await user.type(screen.getByLabelText("Account password (SASL, optional)"), "account-secret")
+    await user.type(screen.getByLabelText("Server password (optional)"), "network-secret")
     await user.click(screen.getByRole("button", {name: "Join"}))
 
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
@@ -1537,7 +1541,20 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "##deep"})).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/connections",
-      expect.objectContaining({method: "POST", body: expect.stringContaining("irc.example.net")})
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          connection: {
+            name: "irc.example.net",
+            host: "irc.example.net",
+            port: 6669,
+            use_tls: false,
+            nickname: "mira",
+            sasl_password: "account-secret",
+            server_password: "network-secret",
+          },
+        }),
+      })
     )
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/connections/90/channels",
