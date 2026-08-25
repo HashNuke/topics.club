@@ -16,6 +16,7 @@ defmodule Ircpipe.Realtime.Event do
       hostmask: message.hostmask,
       sender_role: message.sender_role,
       service: message.service,
+      metadata: message.metadata || %{},
       body: message.body,
       kind: message.kind,
       mentioned: message.mentioned,
@@ -40,6 +41,7 @@ defmodule Ircpipe.Realtime.Event do
       version: @version,
       event_id: "server_status:#{connection.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
       server_connection_id: connection.id,
+      nickname: connection.nickname,
       status: connection.status,
       occurred_at: occurred_at
     }
@@ -101,6 +103,7 @@ defmodule Ircpipe.Realtime.Event do
         title: membership.channel,
         subtitle: "on #{connection.host}",
         status: connection.status,
+        membership_status: membership.status,
         unread_count: membership.unread_count,
         mention_count: membership.mention_count
       },

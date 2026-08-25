@@ -37,6 +37,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch} = {}) 
       if (params.limit) search.set("limit", String(params.limit))
       if (params.before) search.set("before", String(params.before))
       if (params.after) search.set("after", String(params.after))
+      if (params.commandIds?.length) search.set("command_ids", params.commandIds.join(","))
       search.set("buffer_id", bufferId)
 
       const query = search.toString()

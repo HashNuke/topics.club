@@ -1,7 +1,11 @@
 defmodule Ircpipe.IrcTestServer do
   use GenServer
 
-  def start_link(test_pid) do
+  def start_link({test_pid, opts}) when is_list(opts) do
+    GenServer.start_link(__MODULE__, {test_pid, opts})
+  end
+
+  def start_link(test_pid) when is_pid(test_pid) do
     GenServer.start_link(__MODULE__, test_pid)
   end
 
@@ -10,11 +14,35 @@ defmodule Ircpipe.IrcTestServer do
   def broadcast(pid, channel, nick, body),
     do: GenServer.call(pid, {:broadcast, channel, nick, body})
 
+  def send_line(pid, line), do: GenServer.call(pid, {:send_line, line})
+
   @impl true
+  def init({test_pid, opts}) when is_list(opts) do
+    start_listener(test_pid, opts)
+  end
+
   def init(test_pid) do
+    start_listener(test_pid, [])
+  end
+
+  defp start_listener(test_pid, opts) do
     {:ok, listener} = :gen_tcp.listen(0, [:binary, packet: :line, active: false, reuseaddr: true])
     {:ok, {_address, port}} = :inet.sockname(listener)
-    state = %{listener: listener, socket: nil, test_pid: test_pid, port: port}
+
+    state = %{
+      listener: listener,
+      socket: nil,
+      test_pid: test_pid,
+      port: port,
+      labeled_responses?: Keyword.get(opts, :labeled_responses?, false),
+      join_replies?: Keyword.get(opts, :join_replies?, true),
+      motd_end?: Keyword.get(opts, :motd_end?, true),
+      isupport_lines:
+        Keyword.get(opts, :isupport_lines, [
+          ":ircpipe-test 005 ircpipe CHANTYPES=# PREFIX=(ov)@+ :are supported"
+        ])
+    }
+
     parent = self()
 
     Task.start_link(fn ->
@@ -44,6 +72,16 @@ defmodule Ircpipe.IrcTestServer do
     {:reply, {:error, :not_connected}, state}
   end
 
+  def handle_call({:send_line, line}, _from, %{socket: socket} = state)
+      when not is_nil(socket) do
+    :ok = :gen_tcp.send(socket, [line, "\r\n"])
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:send_line, _line}, _from, state) do
+    {:reply, {:error, :not_connected}, state}
+  end
+
   @impl true
   def handle_info({:accepted, {:ok, socket}}, state) do
     send(self(), :read)
@@ -57,7 +95,7 @@ defmodule Ircpipe.IrcTestServer do
       {:ok, line} ->
         line = String.trim(line)
         send(test_pid, {:irc_server_line, line})
-        Enum.each(reply(line), &:gen_tcp.send(socket, [&1, "\r\n"]))
+        Enum.each(reply(line, state), &:gen_tcp.send(socket, [&1, "\r\n"]))
 
         if String.starts_with?(line, "PING ") do
           :ok = :gen_tcp.send(socket, "PONG :ircpipe-test\r\n")
@@ -82,18 +120,48 @@ defmodule Ircpipe.IrcTestServer do
     :ok
   end
 
-  defp reply("CAP LS" <> _rest) do
+  defp reply("CAP LS" <> _rest, %{labeled_responses?: true}) do
+    [":ircpipe-test CAP * LS :message-tags labeled-response batch"]
+  end
+
+  defp reply("CAP REQ :" <> capabilities, %{labeled_responses?: true}) do
+    [":ircpipe-test CAP * ACK :#{capabilities}"]
+  end
+
+  defp reply("USER " <> _rest, %{labeled_responses?: true}), do: []
+
+  defp reply("CAP END", %{labeled_responses?: true} = state) do
+    registration_lines(state)
+  end
+
+  defp reply("@label=" <> tagged_command, %{labeled_responses?: true}) do
+    [label, command] = String.split(tagged_command, " ", parts: 2)
+
+    case command do
+      "WHOIS " <> nick ->
+        [
+          "@label=#{label} :ircpipe-test BATCH +whois-batch labeled-response",
+          "@batch=whois-batch :ircpipe-test 311 ircpipe #{nick} user example.test * :Mira Example",
+          "@batch=whois-batch :ircpipe-test NOTE WHOIS CACHED #{nick} :Result served from cache.",
+          ":ircpipe-test BATCH -whois-batch"
+        ]
+
+      _command ->
+        []
+    end
+  end
+
+  defp reply("CAP LS" <> _rest, _state) do
     [":ircpipe-test CAP * LS :server-time echo-message multi-prefix userhost-in-names"]
   end
 
-  defp reply("USER " <> _rest) do
-    [
-      ":ircpipe-test 001 ircpipe :Welcome to the test server",
-      ":ircpipe-test 005 ircpipe CHANTYPES=# PREFIX=(ov)@+ :are supported"
-    ]
+  defp reply("USER " <> _rest, state) do
+    registration_lines(state)
   end
 
-  defp reply("JOIN " <> channel) do
+  defp reply("JOIN " <> _channel, %{join_replies?: false}), do: []
+
+  defp reply("JOIN " <> channel, _state) do
     [
       ":ircpipe!user@test JOIN :#{channel}",
       ":ircpipe-test 353 ircpipe = #{channel} :@ircpipe akash +mira",
@@ -101,7 +169,17 @@ defmodule Ircpipe.IrcTestServer do
     ]
   end
 
-  defp reply("LIST") do
+  defp reply("PART " <> rest, _state) do
+    [channel | reason] = String.split(rest, " ", parts: 2)
+    suffix = if reason == [], do: "", else: " :#{List.first(reason)}"
+    [":ircpipe!user@test PART #{channel}#{suffix}"]
+  end
+
+  defp reply("NICK " <> nick, _state) do
+    [":ircpipe!user@test NICK :#{nick}"]
+  end
+
+  defp reply("LIST", _state) do
     [
       ":ircpipe-test 321 ircpipe Channel :Users Name",
       ":ircpipe-test 322 ircpipe #quiet 4 :A smaller conversation",
@@ -111,5 +189,23 @@ defmodule Ircpipe.IrcTestServer do
     ]
   end
 
-  defp reply(_line), do: []
+  defp reply("WHOIS " <> nick, _state) do
+    [
+      ":ircpipe-test 311 ircpipe #{nick} user example.test * :Mira Example",
+      ":ircpipe-test 312 ircpipe #{nick} ircpipe-test :Test server",
+      ":ircpipe-test 318 ircpipe #{nick} :End of /WHOIS list"
+    ]
+  end
+
+  defp reply(_line, _state), do: []
+
+  defp registration_lines(state) do
+    lines = [":ircpipe-test 001 ircpipe :Welcome to the test server" | state.isupport_lines]
+
+    if state.motd_end? do
+      lines ++ [":ircpipe-test 376 ircpipe :End of /MOTD command"]
+    else
+      lines
+    end
+  end
 end

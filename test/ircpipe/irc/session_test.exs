@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
 
   test "connects, joins, sends messages, and persists inbound messages" do
@@ -137,7 +137,7 @@ defmodule Ircpipe.Irc.SessionTest do
       ]
     }
 
-    assert {:noreply, state} =
+    assert {:noreply, updated_state} =
              Session.handle_info(
                {:ircxd,
                 {:privmsg,
@@ -151,7 +151,7 @@ defmodule Ircpipe.Irc.SessionTest do
              )
 
     assert [%{body: "hello from app", nick: "mira"}] = Chat.list_messages(user, membership.id)
-    assert state.pending_echoes == []
+    assert updated_state.pending_echoes == []
   end
 
   test "records unmatched same-nick channel messages" do
@@ -185,6 +185,69 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert [%{body: "message from another source", nick: "Mira"}] =
              Chat.list_messages(user, membership.id)
+  end
+
+  test "persists direct messages and routes non-hash channel targets" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "&local")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    state = %{connection: connection, pending_echoes: []}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:privmsg,
+                 %{
+                   target: "mira",
+                   nick: "akash",
+                   raw_source: "akash!user@example.test",
+                   body: "hello privately"
+                 }}},
+               state
+             )
+
+    assert_receive {:buffer_message,
+                    %{
+                      buffer_id: "server:" <> _,
+                      nick: "akash",
+                      body: "hello privately",
+                      metadata: %{
+                        "direction" => "incoming",
+                        "peer_nick" => "akash",
+                        "target" => "mira"
+                      }
+                    }}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:privmsg,
+                 %{
+                   target: "&local",
+                   nick: "akash",
+                   raw_source: "akash!user@example.test",
+                   body: "hello local channel"
+                 }}},
+               state
+             )
+
+    assert_receive {:irc_message,
+                    %{
+                      buffer_id: "channel:" <> _,
+                      body: "hello local channel"
+                    }}
+
+    assert [%{body: "hello local channel"}] = Chat.list_messages(user, membership.id)
   end
 
   test "accumulates IRC names chunks until names end before syncing presence" do
@@ -359,6 +422,45 @@ defmodule Ircpipe.Irc.SessionTest do
                     %{kind: "mode", body: "server set mode +b-o *!*@example.test akash."}}
   end
 
+  test "persists and broadcasts a confirmed self nickname change" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local-test",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    state = %{connection: connection, client_info: nil}
+
+    assert {:noreply, updated_state} =
+             Session.handle_info(
+               {:ircxd, {:nick, %{old_nick: "mira", new_nick: "mira_", source_self?: true}}},
+               state
+             )
+
+    assert updated_state.connection.nickname == "mira_"
+    assert Chat.get_connection!(user, connection.id).nickname == "mira_"
+
+    assert_receive {:server_status, %{server_connection_id: connection_id, nickname: "mira_"}}
+    assert connection_id == connection.id
+
+    assert_receive {:presence_diff,
+                    %{diff: %{action: "nick", old_nick: "mira", new_nick: "mira_"}}}
+
+    Chat.record_inbound_message(updated_state.connection, "#pipe", "mira_", "after nick")
+
+    assert Enum.any?(
+             Chat.list_messages(user, membership.id),
+             &(&1.nick == "mira_" and &1.body == "after nick")
+           )
+  end
+
   test "records kicks as channel system lines and removes kicked users from presence" do
     user = AccountsFixtures.user_fixture()
 
@@ -485,6 +587,147 @@ defmodule Ircpipe.Irc.SessionTest do
     assert buffer_id == "server:#{connection.id}"
   end
 
+  test "does not treat a PART 403 as a rejected JOIN" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "part-error",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, _pending} = Chat.request_channel_join(user, connection, "#room")
+    {:ok, membership} = Chat.confirm_channel_join(connection, "#room")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{
+      connection: connection,
+      pending_joins: MapSet.new(),
+      pending_commands: %{
+        "part-room" => %{command: "PART", targets: ["#room"]}
+      }
+    }
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd, {:irc_error, %{code: "403", target: "#room", reason: "No such channel"}}},
+               state
+             )
+
+    unchanged = Chat.get_membership!(user, membership.id)
+    assert unchanged.status == "joined"
+    assert unchanged.auto_join
+    refute_receive {:buffer_left, _event}
+  end
+
+  test "part cancels an unsent queued JOIN durably" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "cancel-queued-join",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.request_channel_join(user, connection, "#queued")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      isupport_received?: false,
+      pending_joins: MapSet.new(["#queued"]),
+      sent_joins: MapSet.new(),
+      joined_channels: MapSet.new()
+    }
+
+    assert {:reply, :ok, returned} =
+             Session.handle_call({:part, "#queued", "leaving"}, self(), state)
+
+    refute MapSet.member?(returned.pending_joins, "#queued")
+    assert Chat.get_membership!(user, membership.id).status == "left"
+    assert_receive {:buffer_left, %{channel_membership_id: membership_id}}
+    assert membership_id == membership.id
+  end
+
+  test "client-info refresh does not make a confirmed channel rejectable as a pending JOIN" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "refresh-join-state",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#room")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "JOIN #room"}, 1_000
+    assert :ok = Session.nick(connection, "ircpipe2")
+    assert_receive {:irc_server_line, "NICK ircpipe2"}, 1_000
+
+    assert :ok =
+             IrcTestServer.send_line(server, ":ircpipe-test 403 ircpipe2 #room :No such channel")
+
+    assert_receive {:buffer_error, %{body: "No such channel"}}, 1_000
+
+    assert Chat.get_membership!(user, membership.id).status == "joined"
+    membership_id = membership.id
+    refute_receive {:buffer_left, %{channel_membership_id: ^membership_id}}
+  end
+
+  test "removes a visible auto-join buffer when reconnect JOIN is rejected" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "reconnect-error",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, _pending} = Chat.request_channel_join(user, connection, "#returning")
+    {:ok, membership} = Chat.confirm_channel_join(connection, "#returning")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{
+      connection: connection,
+      pending_joins: MapSet.new(["#returning"]),
+      pending_commands: %{}
+    }
+
+    event =
+      Ircxd.Client.Event.from_legacy!(
+        {:irc_error, %{code: "473", target: "#returning", reason: "Invite only"}}
+      )
+
+    assert {:noreply, returned_state} = Session.handle_info({:ircxd, event}, state)
+
+    refute MapSet.member?(returned_state.pending_joins, "#returning")
+
+    assert_receive {:buffer_left,
+                    %{buffer_id: "channel:" <> _, channel_membership_id: membership_id}}
+
+    assert membership_id == membership.id
+    rejected = Chat.get_membership!(user, membership.id)
+    assert rejected.status == "error"
+    refute rejected.auto_join
+  end
+
   test "records IRC session connection errors as server buffer errors" do
     user = AccountsFixtures.user_fixture()
 
@@ -560,7 +803,17 @@ defmodule Ircpipe.Irc.SessionTest do
              )
 
     assert_receive {:buffer_message,
-                    %{kind: "notice", body: "NickServ: identify please", service: "NickServ"}}
+                    %{
+                      kind: "notice",
+                      body: "identify please",
+                      nick: "NickServ",
+                      service: "NickServ",
+                      metadata: %{
+                        "direction" => "incoming",
+                        "peer_nick" => "NickServ",
+                        "target" => "ircpipe"
+                      }
+                    }}
 
     assert {:noreply, ^state} =
              Session.handle_info(
@@ -608,8 +861,705 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert Enum.any?(
              server_messages,
-             &(&1.body == "NickServ: identify please" and &1.service == "NickServ")
+             &(&1.body == "identify please" and &1.nick == "NickServ" and
+                 &1.service == "NickServ")
            )
+  end
+
+  test "records a safe readable fallback for an unrecognized numeric" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "numeric-fallback",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    state = %{connection: connection}
+
+    message = %Ircxd.Message{
+      source: "irc.example",
+      command: "799",
+      params: ["ircpipe", "opaque context", "A future server reply"]
+    }
+
+    assert {:noreply, ^state} = Session.handle_info({:ircxd, {:raw, message}}, state)
+
+    assert_receive {:buffer_message,
+                    %{
+                      kind: "notice",
+                      body: "IRC reply 799: A future server reply",
+                      metadata: %{"irc_event" => "raw", "numeric" => "799"}
+                    }}
+
+    [persisted] =
+      user
+      |> Chat.list_buffer_messages("server:#{connection.id}")
+      |> Enum.filter(&(&1.body == "IRC reply 799: A future server reply"))
+
+    assert persisted.metadata == %{"irc_event" => "raw", "numeric" => "799"}
+    refute persisted.body =~ "opaque context"
+  end
+
+  test "persists canonical labeled results once and ignores the derivative batch" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "labeled-results",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    buffer_id = "server:#{connection.id}"
+
+    {:ok, invocation} =
+      Chat.record_command_message(connection, buffer_id, "WHOIS mira", %{
+        command_id: "whois-batch-1",
+        command: "WHOIS",
+        command_status: "sent"
+      })
+
+    timer = Process.send_after(self(), :unused_command_timeout, 60_000)
+
+    pending = %{
+      command_id: "whois-batch-1",
+      command: "WHOIS",
+      invocation: invocation,
+      buffer_id: buffer_id,
+      spec: Ircxd.CommandSpec.get("WHOIS"),
+      labeled?: true,
+      timer: timer
+    }
+
+    legacy_event =
+      {:labeled_response,
+       %{
+         label: "whois-batch-1",
+         event:
+           {:batch,
+            %{
+              events: [
+                {:whois_user,
+                 %{
+                   nick: "mira",
+                   username: "user",
+                   host: "example.test",
+                   realname: "Mira Example"
+                 }},
+                {:standard_reply,
+                 %{
+                   type: :note,
+                   command: "WHOIS",
+                   code: "CACHED",
+                   context: [],
+                   description: "Result served from cache."
+                 }}
+              ]
+            }}
+       }}
+
+    event = Ircxd.Client.Event.from_legacy!(legacy_event)
+
+    {:labeled_response, %{label: label, event: {:batch, %{events: canonical_legacy_events}}}} =
+      legacy_event
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      pending_commands: %{"whois-batch-1" => pending},
+      ignored_event_logs: %{}
+    }
+
+    returned_state =
+      Enum.reduce(canonical_legacy_events, state, fn legacy_event, current_state ->
+        canonical_event = %{Ircxd.Client.Event.from_legacy!(legacy_event) | label: label}
+
+        assert {:noreply, next_state} =
+                 Session.handle_info({:ircxd, canonical_event}, current_state)
+
+        next_state
+      end)
+
+    assert {:noreply, returned_state} = Session.handle_info({:ircxd, event}, returned_state)
+    Process.cancel_timer(timer)
+
+    assert returned_state.pending_commands == state.pending_commands
+
+    results =
+      user
+      |> Chat.list_buffer_messages(buffer_id)
+      |> Enum.filter(&(&1.metadata["command_status"] == "result"))
+
+    assert length(results) == 2
+
+    assert Enum.all?(results, &(&1.metadata["command_id"] == "whois-batch-1"))
+    assert Enum.any?(results, &(&1.metadata["irc_event"] == "whois_user"))
+
+    assert Enum.any?(results, fn result ->
+             result.metadata["irc_event"] == "standard_reply" and
+               result.body =~ "description=Result served from cache."
+           end)
+  end
+
+  test "persists each result from a real labeled-response batch exactly once" do
+    server = start_supervised!({IrcTestServer, {self(), labeled_responses?: true}})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "labeled-pipeline",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
+    assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
+    assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
+    _ = :sys.get_state(Session.via(connection))
+
+    {:ok, client_info} = Session.connection_info(connection)
+    {:ok, intent} = CommandRegistry.resolve("WHOIS mira", client_info)
+    command_id = "whois-real-batch-1"
+    buffer_id = "server:#{connection.id}"
+
+    assert {:ok, %{status: "sent"}} =
+             Session.execute(connection, intent, command_id, buffer_id)
+
+    expected_line = "@label=#{command_id} WHOIS mira"
+    assert_receive {:irc_server_line, ^expected_line}, 1_000
+
+    assert_receive {:buffer_system,
+                    %{
+                      metadata: %{
+                        "command_id" => ^command_id,
+                        "command_status" => "result"
+                      }
+                    }},
+                   1_000
+
+    assert_receive {:buffer_system,
+                    %{
+                      metadata: %{
+                        "command_id" => ^command_id,
+                        "command_status" => "result"
+                      }
+                    }},
+                   1_000
+
+    assert_receive {:buffer_system,
+                    %{
+                      metadata: %{
+                        "command_id" => ^command_id,
+                        "command_status" => "completed"
+                      }
+                    }},
+                   1_000
+
+    _ = :sys.get_state(Session.via(connection))
+
+    results =
+      user
+      |> Chat.list_buffer_messages(buffer_id)
+      |> Enum.filter(fn message ->
+        message.metadata["command_id"] == command_id and
+          message.metadata["command_status"] == "result"
+      end)
+
+    assert length(results) == 2
+
+    assert Enum.sort(Enum.map(results, & &1.metadata["irc_event"])) == [
+             "standard_reply",
+             "whois_user"
+           ]
+
+    assert :ok = Session.quit(connection)
+  end
+
+  test "fails only the unlabeled query matched by standard reply context" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "standard-fail-correlation",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    buffer_id = "server:#{connection.id}"
+
+    {:ok, alice_invocation} =
+      Chat.record_command_message(connection, buffer_id, "WHOIS alice", %{
+        command_id: "whois-alice",
+        command: "WHOIS",
+        command_status: "sent"
+      })
+
+    {:ok, bob_invocation} =
+      Chat.record_command_message(connection, buffer_id, "WHOIS bob", %{
+        command_id: "whois-bob",
+        command: "WHOIS",
+        command_status: "sent"
+      })
+
+    alice_timer = Process.send_after(self(), :unused_alice_timeout, 60_000)
+    bob_timer = Process.send_after(self(), :unused_bob_timeout, 60_000)
+    spec = Ircxd.CommandSpec.get("WHOIS")
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      pending_commands: %{
+        "whois-alice" => %{
+          command_id: "whois-alice",
+          command: "WHOIS",
+          targets: ["alice"],
+          invocation: alice_invocation,
+          buffer_id: buffer_id,
+          spec: spec,
+          labeled?: false,
+          timer: alice_timer
+        },
+        "whois-bob" => %{
+          command_id: "whois-bob",
+          command: "WHOIS",
+          targets: ["bob"],
+          invocation: bob_invocation,
+          buffer_id: buffer_id,
+          spec: spec,
+          labeled?: false,
+          timer: bob_timer
+        }
+      },
+      ignored_event_logs: %{}
+    }
+
+    event =
+      Ircxd.Client.Event.from_legacy!(
+        {:standard_reply,
+         %{
+           type: :fail,
+           command: "WHOIS",
+           code: "NO_SUCH_NICK",
+           context: ["bob"],
+           description: "No such nick"
+         }}
+      )
+
+    assert {:noreply, returned_state} = Session.handle_info({:ircxd, event}, state)
+    assert Map.has_key?(returned_state.pending_commands, "whois-alice")
+    refute Map.has_key?(returned_state.pending_commands, "whois-bob")
+
+    assert Repo.get!(Ircpipe.Chat.Message, alice_invocation.id).metadata["command_status"] ==
+             "sent"
+
+    assert Repo.get!(Ircpipe.Chat.Message, bob_invocation.id).metadata["command_status"] ==
+             "failed"
+
+    Process.cancel_timer(alice_timer)
+  end
+
+  test "does not complete an unlabeled JOIN from another user's event and rejects its failure" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "join-correlation",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.request_channel_join(user, connection, "#wanted")
+    buffer_id = "server:#{connection.id}"
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    {:ok, invocation} =
+      Chat.record_command_message(connection, buffer_id, "JOIN #wanted", %{
+        command_id: "join-wanted-1",
+        command: "JOIN",
+        command_status: "sent"
+      })
+
+    timer = Process.send_after(self(), :unused_join_timeout, 60_000)
+    spec = Ircxd.CommandSpec.classify("JOIN", ["#wanted"], %{isupport: %{}})
+
+    {:ok, nick_invocation} =
+      Chat.record_command_message(connection, buffer_id, "NICK ircpipe_", %{
+        command_id: "nick-self-1",
+        command: "NICK",
+        command_status: "sent"
+      })
+
+    nick_timer = Process.send_after(self(), :unused_nick_timeout, 60_000)
+    nick_spec = Ircxd.CommandSpec.classify("NICK", ["ircpipe_"], %{isupport: %{}})
+
+    pending = %{
+      command_id: "join-wanted-1",
+      command: "JOIN",
+      targets: ["#wanted"],
+      invocation: invocation,
+      buffer_id: buffer_id,
+      spec: Map.put(spec, :terminal_events, [:join]),
+      labeled?: false,
+      timer: timer
+    }
+
+    nick_pending = %{
+      command_id: "nick-self-1",
+      command: "NICK",
+      targets: ["ircpipe_"],
+      invocation: nick_invocation,
+      buffer_id: buffer_id,
+      spec: Map.put(nick_spec, :terminal_events, [:nick]),
+      labeled?: false,
+      timer: nick_timer
+    }
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      joined_channels: MapSet.new(),
+      pending_joins: MapSet.new(["#wanted"]),
+      pending_commands: %{"join-wanted-1" => pending, "nick-self-1" => nick_pending},
+      ignored_event_logs: %{}
+    }
+
+    unrelated_join =
+      Ircxd.Client.Event.from_legacy!(
+        {:join,
+         %{
+           channel: "#wanted",
+           nick: "someone-else",
+           source_self?: false
+         }}
+      )
+
+    assert {:noreply, state} = Session.handle_info({:ircxd, unrelated_join}, state)
+    assert Map.has_key?(state.pending_commands, "join-wanted-1")
+    assert Chat.get_membership!(user, membership.id).status == "pending"
+
+    unrelated_nick =
+      Ircxd.Client.Event.from_legacy!(
+        {:nick,
+         %{
+           old_nick: "someone-else",
+           new_nick: "someone-new",
+           source_self?: false
+         }}
+      )
+
+    assert {:noreply, state} = Session.handle_info({:ircxd, unrelated_nick}, state)
+    assert Map.has_key?(state.pending_commands, "nick-self-1")
+
+    unrelated_need_more_params =
+      Ircxd.Client.Event.from_legacy!(
+        {:irc_error,
+         %{
+           code: "461",
+           target: "WHO",
+           reason: "Not enough parameters"
+         }}
+      )
+
+    assert {:noreply, state} =
+             Session.handle_info({:ircxd, unrelated_need_more_params}, state)
+
+    assert Map.has_key?(state.pending_commands, "join-wanted-1")
+    assert MapSet.member?(state.pending_joins, "#wanted")
+    assert Chat.get_membership!(user, membership.id).status == "pending"
+
+    join_error =
+      Ircxd.Client.Event.from_legacy!(
+        {:irc_error,
+         %{
+           code: "403",
+           target: "#wanted",
+           reason: "No such channel"
+         }}
+      )
+
+    assert {:noreply, failed_state} = Session.handle_info({:ircxd, join_error}, state)
+    refute Map.has_key?(failed_state.pending_commands, "join-wanted-1")
+    refute MapSet.member?(failed_state.pending_joins, "#wanted")
+
+    assert_receive {:buffer_left, %{buffer_id: "channel:" <> _}}
+
+    rejected = Chat.get_membership!(user, membership.id)
+    assert rejected.status == "error"
+    refute rejected.auto_join
+
+    failed_invocation = Ircpipe.Repo.get!(Ircpipe.Chat.Message, invocation.id)
+    assert failed_invocation.metadata["command_status"] == "failed"
+    Process.cancel_timer(nick_timer)
+  end
+
+  test "recomputes pre-005 self identity with the stored ASCII casemapping" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "ascii-self-identity",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "Nick["
+      })
+
+    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, membership} = Chat.request_channel_join(user, connection, "#room", :ascii)
+
+    state = %{
+      connection: connection,
+      client_info: nil,
+      isupport_received?: false,
+      pending_joins: MapSet.new(["#room"]),
+      joined_channels: MapSet.new(),
+      sent_joins: MapSet.new(),
+      pending_commands: %{},
+      names_buffers: %{}
+    }
+
+    assert {:noreply, returned} =
+             Session.handle_info(
+               {:ircxd,
+                {:join, %{channel: "#room", nick: "Nick{", source_self?: true, account: nil}}},
+               state
+             )
+
+    assert Chat.get_membership!(user, membership.id).status == "pending"
+    refute MapSet.member?(returned.joined_channels, "#room")
+  end
+
+  test "does not duplicate correlated MOTD rows through legacy handlers" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "motd-results",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    buffer_id = "server:#{connection.id}"
+
+    {:ok, invocation} =
+      Chat.record_command_message(connection, buffer_id, "MOTD", %{
+        command_id: "motd-1",
+        command: "MOTD",
+        command_status: "sent"
+      })
+
+    timer = Process.send_after(self(), :unused_motd_timeout, 60_000)
+    spec = Ircxd.CommandSpec.classify("MOTD", [], %{isupport: %{}})
+
+    pending = %{
+      command_id: "motd-1",
+      command: "MOTD",
+      targets: [],
+      invocation: invocation,
+      buffer_id: buffer_id,
+      spec: spec,
+      labeled?: false,
+      timer: timer
+    }
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      pending_commands: %{"motd-1" => pending},
+      ignored_event_logs: %{}
+    }
+
+    events = [
+      Ircxd.Client.Event.from_legacy!({:motd_start, %{text: "Message of the day"}}),
+      Ircxd.Client.Event.from_legacy!({:motd, %{text: "Be kind"}})
+    ]
+
+    returned_state =
+      Enum.reduce(events, state, fn event, state ->
+        assert {:noreply, state} = Session.handle_info({:ircxd, event}, state)
+        state
+      end)
+
+    Process.cancel_timer(returned_state.pending_commands["motd-1"].timer)
+
+    messages = Chat.list_buffer_messages(user, buffer_id)
+    results = Enum.filter(messages, &(&1.metadata["command_status"] == "result"))
+
+    assert Enum.count(results, &(&1.body =~ "Message of the day")) == 1
+    assert Enum.count(results, &(&1.body =~ "Be kind")) == 1
+
+    refute Enum.any?(
+             messages,
+             &(&1.kind == "notice" and &1.body in ["Message of the day", "Be kind"])
+           )
+  end
+
+  test "matches WHO nickname results when the reply channel is star" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "who-target",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    buffer_id = "server:#{connection.id}"
+
+    {:ok, invocation} =
+      Chat.record_command_message(connection, buffer_id, "WHO alice", %{
+        command_id: "who-alice-1",
+        command: "WHO",
+        command_status: "sent"
+      })
+
+    timer = Process.send_after(self(), :unused_who_timeout, 60_000)
+
+    pending = %{
+      command_id: "who-alice-1",
+      command: "WHO",
+      targets: ["alice"],
+      invocation: invocation,
+      buffer_id: buffer_id,
+      spec: Ircxd.CommandSpec.classify("WHO", ["alice"], %{isupport: %{}}),
+      labeled?: false,
+      timer: timer
+    }
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      pending_commands: %{"who-alice-1" => pending},
+      ignored_event_logs: %{}
+    }
+
+    event =
+      Ircxd.Client.Event.from_legacy!(
+        {:who_reply,
+         %{
+           channel: "*",
+           nick: "alice",
+           username: "user",
+           host: "example.test",
+           realname: "Alice Example"
+         }}
+      )
+
+    assert {:noreply, returned_state} = Session.handle_info({:ircxd, event}, state)
+    Process.cancel_timer(returned_state.pending_commands["who-alice-1"].timer)
+
+    assert Enum.any?(Chat.list_buffer_messages(user, buffer_id), fn message ->
+             message.metadata["command_id"] == "who-alice-1" and
+               message.metadata["irc_event"] == "who_reply"
+           end)
+  end
+
+  test "does not let an older PART intent shadow a matching JOIN event" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "cross-family",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, _membership} = Chat.join_channel(user, connection, "#same")
+    buffer_id = "server:#{connection.id}"
+
+    {:ok, part_invocation} =
+      Chat.record_command_message(connection, buffer_id, "PART #same", %{
+        command_id: "part-same-1",
+        command: "PART",
+        command_status: "sent"
+      })
+
+    {:ok, join_invocation} =
+      Chat.record_command_message(connection, buffer_id, "JOIN #same", %{
+        command_id: "join-same-1",
+        command: "JOIN",
+        command_status: "sent"
+      })
+
+    part_timer = Process.send_after(self(), :unused_part_timeout, 60_000)
+    join_timer = Process.send_after(self(), :unused_join_timeout, 60_000)
+
+    part_spec =
+      Ircxd.CommandSpec.classify("PART", ["#same"], %{isupport: %{}})
+      |> Map.put(:terminal_events, [:part])
+
+    join_spec =
+      Ircxd.CommandSpec.classify("JOIN", ["#same"], %{isupport: %{}})
+      |> Map.put(:terminal_events, [:join])
+
+    pending_commands = %{
+      "part-same-1" => %{
+        command_id: "part-same-1",
+        command: "PART",
+        targets: ["#same"],
+        invocation: part_invocation,
+        buffer_id: buffer_id,
+        spec: part_spec,
+        labeled?: false,
+        timer: part_timer
+      },
+      "join-same-1" => %{
+        command_id: "join-same-1",
+        command: "JOIN",
+        targets: ["#same"],
+        invocation: join_invocation,
+        buffer_id: buffer_id,
+        spec: join_spec,
+        labeled?: false,
+        timer: join_timer
+      }
+    }
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      joined_channels: MapSet.new(["#same"]),
+      pending_commands: pending_commands,
+      ignored_event_logs: %{}
+    }
+
+    event =
+      Ircxd.Client.Event.from_legacy!(
+        {:join, %{channel: "#same", nick: "ircpipe", source_self?: true}}
+      )
+
+    assert {:noreply, returned_state} = Session.handle_info({:ircxd, event}, state)
+    refute Map.has_key?(returned_state.pending_commands, "join-same-1")
+    assert Map.has_key?(returned_state.pending_commands, "part-same-1")
+    Process.cancel_timer(part_timer)
   end
 
   test "lists advertised server channels by visible users" do
@@ -661,12 +1611,458 @@ defmodule Ircpipe.Irc.SessionTest do
 
     {:ok, _membership} = Chat.join_channel(user, connection, "#persisted")
     connection = Chat.get_connection!(user, connection.id)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     {:ok, _pid} = SessionSupervisor.start_session(connection)
 
     assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
     assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
     assert_receive {:irc_server_line, "JOIN #persisted"}, 1_000
+    assert_receive {:presence_sync, %{buffer_id: "channel:" <> _}}, 1_000
+
+    state = :sys.get_state(Session.via(connection))
+    assert MapSet.member?(state.joined_channels, "#persisted")
+
+    assert :ok = Session.join(connection, "#persisted")
+    refute_receive {:irc_server_line, "JOIN #persisted"}
+
+    {:ok, client_info} = Session.connection_info(connection)
+    {:ok, intent} = CommandRegistry.resolve("JOIN #persisted", client_info)
+
+    assert {:error, %{code: "already_joined"}} =
+             Session.execute(
+               connection,
+               intent,
+               "join-persisted-again",
+               "server:#{connection.id}"
+             )
+
+    refute_receive {:irc_server_line, "JOIN #persisted"}
+
+    assert :ok = Session.quit(connection)
+  end
+
+  test "flushes queued joins when a server omits 005" do
+    assert_queued_join_flush("no-isupport", [], "#fallback", nil)
+  end
+
+  test "waits for split ISUPPORT lines before flushing queued joins" do
+    assert_queued_join_flush(
+      "split-isupport",
+      [
+        ":ircpipe-test 005 ircpipe PREFIX=(ov)@+ :are supported",
+        ":ircpipe-test 005 ircpipe CHANTYPES=~ CASEMAPPING=ascii :are supported"
+      ],
+      "~custom",
+      "ascii"
+    )
+  end
+
+  test "does not trust a partial ISUPPORT line before MOTD end" do
+    server =
+      start_supervised!(
+        {IrcTestServer,
+         {self(),
+          motd_end?: false,
+          isupport_lines: [":ircpipe-test 005 ircpipe PREFIX=(ov)@+ :are supported"]}}
+      )
+
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "delayed-split-isupport",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.request_channel_join(user, connection, "~custom", :ascii)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
+    assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
+
+    state = :sys.get_state(Session.via(connection))
+    refute state.isupport_received?
+    assert Chat.get_connection!(user, connection.id).casemapping == nil
+    refute Chat.get_membership!(user, membership.id).status == "error"
+
+    assert :ok =
+             IrcTestServer.send_line(
+               server,
+               ":ircpipe-test 005 ircpipe CHANTYPES=~ CASEMAPPING=ascii :are supported"
+             )
+
+    assert :ok =
+             IrcTestServer.send_line(server, ":ircpipe-test 376 ircpipe :End of /MOTD command")
+
+    assert_receive {:buffer_message, %{body: "End of /MOTD command"}}, 1_000
+    assert :sys.get_state(Session.via(connection)).isupport_received?
+    assert Chat.get_connection!(user, connection.id).casemapping == "ascii"
+    assert :ok = Session.quit(connection)
+  end
+
+  test "accepts authoritative ISUPPORT that arrives after the fallback boundary" do
+    server = start_supervised!({IrcTestServer, {self(), isupport_lines: []}})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "late-isupport",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.request_channel_join(user, connection, "~custom", :ascii)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
+    assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
+
+    assert :ok =
+             IrcTestServer.send_line(
+               server,
+               ":ircpipe-test 005 ircpipe CHANTYPES=~ CASEMAPPING=ascii :are supported"
+             )
+
+    _ = :sys.get_state(Session.via(connection))
+    refute_receive {:irc_server_line, "JOIN ~custom"}, 200
+    assert Chat.get_membership!(user, membership.id).status == "joined"
+    assert Chat.get_connection!(user, connection.id).casemapping == "ascii"
+    assert :ok = Session.quit(connection)
+  end
+
+  test "rekeys sent JOIN tracking when late ISUPPORT changes casemapping" do
+    server =
+      start_supervised!({IrcTestServer, {self(), isupport_lines: [], join_replies?: false}})
+
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "late-casemapping-rekey",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, _membership} = Chat.request_channel_join(user, connection, "#[room", :ascii)
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "JOIN #[room"}, 1_000
+
+    assert :ok =
+             IrcTestServer.send_line(
+               server,
+               ":ircpipe-test 005 ircpipe CHANTYPES=# CASEMAPPING=rfc1459 :are supported"
+             )
+
+    refute_receive {:irc_server_line, "JOIN #[room"}, 200
+    state = :sys.get_state(Session.via(connection))
+    assert MapSet.member?(state.sent_joins, ~S(#{room))
+    refute MapSet.member?(state.sent_joins, "#[room")
+    assert :ok = Session.quit(connection)
+  end
+
+  test "ignores a stale queued-join timer token" do
+    current_token = make_ref()
+
+    state = %{
+      registered?: true,
+      join_flush_timer: {make_ref(), current_token},
+      marker: :unchanged
+    }
+
+    assert {:noreply, ^state} =
+             Session.handle_info({:flush_pending_joins, make_ref()}, state)
+  end
+
+  test "tracks a transmitted managed JOIN and rejects a duplicate before confirmation" do
+    server = start_supervised!({IrcTestServer, {self(), join_replies?: false}})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "managed-join-tracking",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
+    {:ok, info} = Session.connection_info(connection)
+    {:ok, intent} = CommandRegistry.resolve("JOIN #pending", info)
+
+    assert {:ok, %{status: "sent"}} =
+             Session.execute(connection, intent, "managed-join-1", "server:#{connection.id}")
+
+    assert_receive {:irc_server_line, "JOIN #pending"}, 1_000
+
+    assert {:error, %{code: "already_pending"}} =
+             Session.execute(connection, intent, "managed-join-2", "server:#{connection.id}")
+
+    assert :ok = Session.part(connection, "#pending")
+    assert_receive {:irc_server_line, "PART #pending :"}, 1_000
+    assert :ok = Session.quit(connection)
+  end
+
+  test "sends messages and actions to a negotiated custom channel without rewriting it" do
+    server =
+      start_supervised!(
+        {IrcTestServer,
+         {self(),
+          isupport_lines: [
+            ":ircpipe-test 005 ircpipe CHANTYPES=~ CASEMAPPING=ascii :are supported"
+          ]}}
+      )
+
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "custom-channel-send",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, _membership} = Chat.request_channel_join(user, connection, "~custom", :ascii)
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
+    _ = :sys.get_state(Session.via(connection))
+
+    assert :ok = Session.say(connection, "~custom", "hello")
+    assert_receive {:irc_server_line, "PRIVMSG ~custom hello"}, 1_000
+
+    assert :ok = Session.action(connection, "~custom", "waves")
+    action = <<1, "ACTION waves", 1>>
+    assert_receive {:irc_server_line, "PRIVMSG ~custom :" <> ^action}, 1_000
+    assert :ok = Session.quit(connection)
+  end
+
+  test "an envelope JOIN failure rejects only its correlated pending invocation" do
+    Enum.each([:unlabeled_461, :labeled_461, :contextless_fail], fn scenario ->
+      {user, connection, state, first, second} = two_pending_joins(scenario)
+
+      event =
+        case scenario do
+          :unlabeled_461 ->
+            Ircxd.Client.Event.from_legacy!(
+              {:irc_error, %{code: "461", target: "JOIN", reason: "Need more params"}}
+            )
+
+          :labeled_461 ->
+            event =
+              Ircxd.Client.Event.from_legacy!(
+                {:irc_error, %{code: "461", target: "JOIN", reason: "Need more params"}}
+              )
+
+            %{event | label: "join-b"}
+
+          :contextless_fail ->
+            Ircxd.Client.Event.from_legacy!(
+              {:standard_reply,
+               %{
+                 type: :fail,
+                 command: "JOIN",
+                 code: "INVALID_PARAMS",
+                 context: [],
+                 description: "JOIN failed"
+               }}
+            )
+        end
+
+      assert {:noreply, returned} = Session.handle_info({:ircxd, event}, state)
+
+      {failed_id, pending_id} =
+        if scenario == :labeled_461, do: {second.id, first.id}, else: {first.id, second.id}
+
+      assert Repo.get!(Ircpipe.Chat.Message, failed_id).metadata["command_status"] == "failed"
+      assert Repo.get!(Ircpipe.Chat.Message, pending_id).metadata["command_status"] == "sent"
+
+      expected_pending = if scenario == :labeled_461, do: "join-a", else: "join-b"
+      assert Map.has_key?(returned.pending_commands, expected_pending)
+      assert Enum.count(returned.pending_commands) == 1
+
+      Enum.each(returned.pending_commands, fn {_id, pending} ->
+        Process.cancel_timer(pending.timer)
+      end)
+
+      assert Chat.get_connection!(user, connection.id)
+    end)
+  end
+
+  test "reconciles only an unambiguous unlabeled native JOIN failure" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "native-join-failure",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.request_channel_join(user, connection, "#native")
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      isupport_received?: false,
+      joined_channels: MapSet.new(),
+      pending_joins: MapSet.new(["#native"]),
+      sent_joins: MapSet.new(["#native"]),
+      pending_commands: %{},
+      ignored_event_logs: %{}
+    }
+
+    event =
+      Ircxd.Client.Event.from_legacy!(
+        {:standard_reply,
+         %{
+           type: :fail,
+           command: "JOIN",
+           code: "INVALID_PARAMS",
+           context: [],
+           description: "JOIN failed"
+         }}
+      )
+
+    assert {:noreply, returned} = Session.handle_info({:ircxd, event}, state)
+    refute MapSet.member?(returned.pending_joins, "#native")
+    assert Chat.get_membership!(user, membership.id).status == "error"
+  end
+
+  test "does not let an unknown labeled failure reject a newer native JOIN" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "late-labeled-join-failure",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.request_channel_join(user, connection, "#new")
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      isupport_received?: false,
+      joined_channels: MapSet.new(),
+      pending_joins: MapSet.new(["#new"]),
+      sent_joins: MapSet.new(["#new"]),
+      pending_commands: %{},
+      ignored_event_logs: %{}
+    }
+
+    event =
+      Ircxd.Client.Event.from_legacy!(
+        {:standard_reply,
+         %{
+           type: :fail,
+           command: "JOIN",
+           code: "INVALID_PARAMS",
+           context: ["#new"],
+           description: "old JOIN failed"
+         }}
+      )
+
+    assert {:noreply, returned} =
+             Session.handle_info({:ircxd, %{event | label: "old-command"}}, state)
+
+    assert MapSet.member?(returned.pending_joins, "#new")
+    assert Chat.get_membership!(user, membership.id).status == "pending"
+  end
+
+  defp two_pending_joins(scenario) do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "join-failure-#{scenario}",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    buffer_id = "server:#{connection.id}"
+
+    pending =
+      Map.new([{"join-a", "#a", false}, {"join-b", "#b", scenario == :labeled_461}], fn
+        {command_id, target, labeled?} ->
+          {:ok, invocation} =
+            Chat.record_command_message(connection, buffer_id, "JOIN #{target}", %{
+              command_id: command_id,
+              command: "JOIN",
+              command_status: "sent"
+            })
+
+          timer = Process.send_after(self(), {:unused_join_timeout, command_id}, 60_000)
+          spec = Ircxd.CommandSpec.classify("JOIN", [target], %{isupport: %{}})
+
+          {command_id,
+           %{
+             command_id: command_id,
+             command: "JOIN",
+             targets: [target],
+             invocation: invocation,
+             buffer_id: buffer_id,
+             spec: Map.put(spec, :terminal_events, [:join]),
+             labeled?: labeled?,
+             timer: timer
+           }}
+      end)
+
+    state = %{
+      connection: connection,
+      client: nil,
+      client_info: nil,
+      isupport_received?: false,
+      joined_channels: MapSet.new(),
+      pending_joins: MapSet.new(["#a", "#b"]),
+      pending_commands: pending,
+      ignored_event_logs: %{}
+    }
+
+    {user, connection, state, pending["join-a"].invocation, pending["join-b"].invocation}
+  end
+
+  defp assert_queued_join_flush(name, lines, channel, expected_mapping) do
+    server = start_supervised!({IrcTestServer, {self(), isupport_lines: lines}})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => name,
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, _pending} = Chat.request_channel_join(user, connection, channel, :ascii)
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "JOIN " <> ^channel}, 1_000
+    assert Chat.get_connection!(user, connection.id).casemapping == expected_mapping
+
+    state = :sys.get_state(Session.via(connection))
+    assert state.isupport_received? == (lines != [])
 
     assert :ok = Session.quit(connection)
   end

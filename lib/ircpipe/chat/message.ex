@@ -13,6 +13,7 @@ defmodule Ircpipe.Chat.Message do
     field :hostmask, :string
     field :sender_role, :string
     field :service, :string
+    field :metadata, :map, default: %{}
     field :body, :string
     field :mentioned, :boolean, default: false
     field :occurred_at, :utc_datetime
@@ -32,6 +33,7 @@ defmodule Ircpipe.Chat.Message do
       :hostmask,
       :sender_role,
       :service,
+      :metadata,
       :body,
       :mentioned,
       :occurred_at

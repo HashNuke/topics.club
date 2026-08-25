@@ -7,7 +7,11 @@ defmodule Ircpipe.Chat.ChannelMembership do
 
   schema "channel_memberships" do
     field :channel, :string
+    field :status, :string, default: "pending"
+    field :auto_join, :boolean, default: false
     field :joined_at, :utc_datetime
+    field :left_at, :utc_datetime
+    field :last_error, :string
     field :last_read_at, :utc_datetime
     field :unread_count, :integer, default: 0
     field :mention_count, :integer, default: 0
@@ -22,8 +26,19 @@ defmodule Ircpipe.Chat.ChannelMembership do
 
   def changeset(membership, attrs) do
     membership
-    |> cast(attrs, [:channel, :joined_at, :last_read_at, :unread_count, :mention_count])
+    |> cast(attrs, [
+      :channel,
+      :status,
+      :auto_join,
+      :joined_at,
+      :left_at,
+      :last_error,
+      :last_read_at,
+      :unread_count,
+      :mention_count
+    ])
     |> validate_required([:channel])
+    |> validate_inclusion(:status, ~w(pending joined left error))
     |> unique_constraint([:server_connection_id, :channel])
   end
 end

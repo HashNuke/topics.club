@@ -1,11 +1,44 @@
 defmodule IrcpipeWeb.Api.MessageControllerTest do
-  use IrcpipeWeb.ConnCase, async: true
+  use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Message
+  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
 
   setup :register_and_log_in_user
+
+  test "rejects DCC payloads through the REST message endpoint without transmission", %{
+    conn: conn,
+    user: user
+  } do
+    server = start_supervised!({IrcTestServer, self()})
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "rest-policy",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert :ok = Session.join(connection, "#elixir")
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+    _ = :sys.get_state(Session.via(connection))
+
+    dcc_body = <<1, "DCC SEND secret.txt 127001 1234 99", 1>>
+    conn = post(conn, ~p"/api/channels/#{membership.id}/messages", %{body: dcc_body})
+
+    assert %{"error" => "unsupported_ctcp"} = json_response(conn, 422)
+    refute_receive {:irc_server_line, "PRIVMSG #elixir :" <> ^dcc_body}
+    assert :ok = Session.quit(connection)
+  end
 
   test "returns latest channel buffer messages with a capped limit", %{conn: conn, user: user} do
     {_connection, membership} = joined_channel(user)
@@ -82,6 +115,45 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
              json_response(conn, 200)
 
     assert buffer_id == "server:#{connection.id}"
+  end
+
+  test "returns requested command updates outside the recent tail", %{conn: conn, user: user} do
+    {connection, _membership} = joined_channel(user)
+    buffer_id = "server:#{connection.id}"
+
+    {:ok, command} =
+      Chat.record_command_message(connection, buffer_id, "LIST", %{
+        command_id: "list-old-1",
+        command: "LIST",
+        command_status: "sent"
+      })
+
+    {:ok, _updated} =
+      Chat.update_command_message(command, %{command_status: "completed"})
+
+    {:ok, _result} =
+      Chat.record_command_message(connection, buffer_id, "result row", %{
+        command_id: "list-old-1",
+        command: "LIST",
+        command_status: "result"
+      })
+
+    conn =
+      get(
+        conn,
+        ~p"/api/buffer_messages?buffer_id=#{buffer_id}&command_ids=list-old-1"
+      )
+
+    assert %{"messages" => [%{"id" => id, "metadata" => metadata}]} =
+             json_response(conn, 200)
+
+    assert id == command.id
+    assert metadata["command_status"] == "completed"
+  end
+
+  test "returns an empty command repair result for an invalid buffer", %{conn: conn} do
+    conn = get(conn, ~p"/api/buffer_messages?buffer_id=invalid&command_ids=list-1")
+    assert %{"messages" => []} = json_response(conn, 200)
   end
 
   defp joined_channel(user) do

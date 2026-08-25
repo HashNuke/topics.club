@@ -14,6 +14,7 @@ defmodule Ircpipe.Chat do
 
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
+  alias Ircxd.Casemapping
 
   def list_topics do
     Topic
@@ -24,11 +25,19 @@ defmodule Ircpipe.Chat do
   def get_topic!(id), do: Repo.get!(Topic, id)
 
   def list_connections(%User{id: user_id}) do
-    ServerConnection
-    |> where([c], c.user_id == ^user_id)
-    |> preload(:channel_memberships)
-    |> order_by([c], asc: c.name)
-    |> Repo.all()
+    connections =
+      ServerConnection
+      |> where([c], c.user_id == ^user_id)
+      |> order_by([c], asc: c.name)
+      |> Repo.all()
+
+    Enum.each(connections, fn connection ->
+      if mapping = stored_casemapping(connection) do
+        reconcile_channel_memberships(connection, mapping)
+      end
+    end)
+
+    Repo.preload(connections, :channel_memberships, force: true)
   end
 
   def list_recently_seen_connections(cutoff) do
@@ -115,9 +124,7 @@ defmodule Ircpipe.Chat do
         })
 
       connection = ensure_valid_nick(connection, user)
-      {:ok, membership} = join_channel(user, connection, topic.channel)
-
-      %{connection: connection, membership: membership, topic: topic}
+      %{connection: connection, topic: topic}
     end)
   end
 
@@ -134,42 +141,211 @@ defmodule Ircpipe.Chat do
     end)
   end
 
-  def join_channel(
+  def update_connection_nickname(%ServerConnection{} = connection, nickname) do
+    connection
+    |> ServerConnection.changeset(%{nickname: nickname})
+    |> Repo.update()
+    |> tap(fn
+      {:ok, updated} -> broadcast_server_status(updated)
+      _other -> :ok
+    end)
+  end
+
+  def update_connection_casemapping(%ServerConnection{} = connection, casemapping) do
+    mapping = Atom.to_string(casemapping)
+
+    connection
+    |> Ecto.Changeset.change(casemapping: mapping)
+    |> Repo.update()
+  end
+
+  def request_channel_join(user, %ServerConnection{} = connection, channel),
+    do: request_channel_join(user, connection, channel, stored_casemapping(connection) || :ascii)
+
+  def request_channel_join(
         %User{id: user_id} = user,
         %ServerConnection{user_id: user_id} = connection,
-        channel
+        channel,
+        casemapping
       ) do
-    attrs = %{channel: normalize_channel(channel), joined_at: DateTime.utc_now(:second)}
+    channel = String.trim(channel)
 
-    result =
-      case Repo.get_by(ChannelMembership,
-             server_connection_id: connection.id,
-             channel: attrs.channel
-           ) do
-        %ChannelMembership{} = membership ->
-          membership
-          |> ChannelMembership.changeset(%{joined_at: attrs.joined_at})
-          |> Repo.update()
+    case Repo.transaction(fn ->
+           lock_memberships(connection)
+           losers = reconcile_channel_memberships_locked(connection, casemapping)
 
-        nil ->
-          result =
-            %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
-            |> ChannelMembership.changeset(attrs)
-            |> Repo.insert()
+           membership =
+             case channel_membership(connection, channel, casemapping) do
+               %ChannelMembership{} = membership ->
+                 attrs =
+                   if membership.status == "joined" do
+                     %{auto_join: true, left_at: nil, last_error: nil}
+                   else
+                     %{status: "pending", auto_join: true, left_at: nil, last_error: nil}
+                   end
 
-          with {:ok, membership} <- result do
-            broadcast_buffer_joined(connection, membership)
-          end
+                 membership
+                 |> ChannelMembership.changeset(attrs)
+                 |> Repo.update!()
 
-          result
-      end
+               nil ->
+                 %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
+                 |> ChannelMembership.changeset(%{
+                   channel: channel,
+                   status: "pending",
+                   auto_join: true
+                 })
+                 |> Repo.insert!()
+             end
 
-    with {:ok, membership} <- result do
+           {membership, losers}
+         end) do
+      {:ok, {membership, losers}} ->
+        Enum.each(losers, &broadcast_reconciled_membership(&1, connection))
+        {:ok, membership}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def request_channel_join(%User{}, %ServerConnection{}, _channel, _casemapping),
+    do: {:error, :invalid_connection}
+
+  def join_channel(%User{} = user, %ServerConnection{} = connection, channel) do
+    with {:ok, pending} <- request_channel_join(user, connection, channel),
+         {:ok, membership} <- confirm_channel_join(connection, pending.channel) do
       {:ok, membership}
     end
   end
 
-  def join_channel(%User{}, %ServerConnection{}, _channel), do: {:error, :invalid_connection}
+  def confirm_channel_join(%ServerConnection{} = connection, channel, casemapping \\ :rfc1459) do
+    now = DateTime.utc_now(:second)
+
+    {result, broadcast?} =
+      case channel_membership(connection, channel, casemapping) do
+        %ChannelMembership{} = membership ->
+          result =
+            membership
+            |> ChannelMembership.changeset(%{
+              status: "joined",
+              auto_join: membership.auto_join,
+              joined_at: if(membership.status == "joined", do: membership.joined_at, else: now),
+              left_at: nil,
+              last_error: nil
+            })
+            |> Repo.update()
+
+          {result, membership.status != "joined"}
+
+        nil ->
+          result =
+            %ChannelMembership{user_id: connection.user_id, server_connection_id: connection.id}
+            |> ChannelMembership.changeset(%{
+              channel: channel,
+              status: "joined",
+              auto_join: false,
+              joined_at: now
+            })
+            |> Repo.insert()
+
+          {result, true}
+      end
+
+    with {:ok, membership} <- result do
+      if broadcast?, do: broadcast_buffer_joined(connection, membership)
+      {:ok, membership}
+    end
+  end
+
+  def reject_channel_join(
+        %ServerConnection{} = connection,
+        channel,
+        reason,
+        casemapping \\ :rfc1459
+      ) do
+    case channel_membership(connection, channel, casemapping) do
+      %ChannelMembership{} = membership ->
+        result =
+          membership
+          |> ChannelMembership.changeset(%{
+            status: "error",
+            auto_join: false,
+            last_error: reason_text(reason)
+          })
+          |> Repo.update()
+
+        with {:ok, rejected} <- result do
+          broadcast_buffer_left(%{
+            user_id: connection.user_id,
+            buffer_id: "channel:#{rejected.id}",
+            server_connection_id: connection.id,
+            channel_membership_id: rejected.id,
+            channel: rejected.channel
+          })
+
+          {:ok, rejected}
+        end
+
+      nil ->
+        {:error, :invalid_buffer}
+    end
+  end
+
+  def confirm_channel_left(%ServerConnection{} = connection, channel, casemapping \\ :rfc1459) do
+    case channel_membership(connection, channel, casemapping) do
+      %ChannelMembership{} = membership ->
+        result =
+          membership
+          |> ChannelMembership.changeset(%{
+            status: "left",
+            auto_join: false,
+            left_at:
+              if(membership.status == "left",
+                do: membership.left_at,
+                else: DateTime.utc_now(:second)
+              ),
+            last_error: nil
+          })
+          |> Repo.update()
+
+        with {:ok, updated} <- result do
+          from(u in ChannelUser, where: u.channel_membership_id == ^updated.id)
+          |> Repo.delete_all()
+
+          if membership.status != "left" do
+            broadcast_buffer_left(%{
+              user_id: connection.user_id,
+              buffer_id: "channel:#{updated.id}",
+              server_connection_id: connection.id,
+              channel_membership_id: updated.id
+            })
+          end
+
+          {:ok, updated}
+        end
+
+      nil ->
+        {:error, :invalid_buffer}
+    end
+  end
+
+  def reject_channel_part(
+        %ServerConnection{} = connection,
+        channel,
+        reason,
+        casemapping \\ :rfc1459
+      ) do
+    case channel_membership(connection, channel, casemapping, "joined") do
+      %ChannelMembership{} = membership ->
+        membership
+        |> ChannelMembership.changeset(%{last_error: reason_text(reason)})
+        |> Repo.update()
+
+      nil ->
+        {:error, :invalid_buffer}
+    end
+  end
 
   def get_membership!(%User{id: user_id}, id) do
     ChannelMembership
@@ -178,15 +354,24 @@ defmodule Ircpipe.Chat do
     |> Repo.one!()
   end
 
-  def get_membership_by_channel!(%User{id: user_id}, %ServerConnection{} = connection, channel) do
-    ChannelMembership
-    |> where(
-      [m],
-      m.user_id == ^user_id and m.server_connection_id == ^connection.id and
-        m.channel == ^normalize_channel(channel)
-    )
-    |> preload(:server_connection)
-    |> Repo.one!()
+  def get_channel_membership(%ServerConnection{} = connection, channel, casemapping \\ :rfc1459),
+    do: channel_membership(connection, channel, casemapping)
+
+  def get_membership_by_channel!(
+        %User{id: user_id},
+        %ServerConnection{} = connection,
+        channel,
+        casemapping \\ nil
+      ) do
+    mapping = casemapping || stored_casemapping(connection) || :ascii
+
+    case channel_membership(connection, channel, mapping) do
+      %ChannelMembership{user_id: ^user_id} = membership ->
+        Repo.preload(membership, :server_connection)
+
+      _membership ->
+        raise Ecto.NoResultsError, queryable: ChannelMembership
+    end
   end
 
   def list_messages(%User{id: user_id}, membership_id, limit \\ 200) do
@@ -238,19 +423,59 @@ defmodule Ircpipe.Chat do
 
   def list_buffer_messages(%User{}, _buffer_id, _opts), do: []
 
+  def list_buffer_command_messages(%User{} = user, buffer_id, command_ids)
+      when is_list(command_ids) do
+    ids = command_ids |> Enum.filter(&is_binary/1) |> Enum.uniq() |> Enum.take(50)
+
+    query =
+      case buffer_id do
+        "channel:" <> membership_id ->
+          membership = get_membership!(user, membership_id)
+
+          from(message in Message,
+            where:
+              message.user_id == ^user.id and
+                message.channel_membership_id == ^membership.id
+          )
+
+        "server:" <> connection_id ->
+          connection = get_connection!(user, connection_id)
+
+          from(message in Message,
+            where:
+              message.user_id == ^user.id and
+                message.server_connection_id == ^connection.id and
+                is_nil(message.channel_membership_id)
+          )
+
+        _invalid_buffer ->
+          from(message in Message, where: false)
+      end
+
+    query
+    |> where(
+      [message],
+      message.kind == "command" and
+        fragment("?->>'command_id'", message.metadata) in ^ids and
+        fragment("?->>'command_status'", message.metadata) != "result"
+    )
+    |> order_by([message], asc: message.occurred_at, asc: message.id)
+    |> limit(50)
+    |> Repo.all()
+  end
+
   def record_inbound_message(
         %ServerConnection{} = connection,
         channel,
         nick,
         body,
         kind \\ "message",
-        metadata \\ %{}
+        metadata \\ %{},
+        casemapping \\ :rfc1459
       ) do
     membership =
-      Repo.get_by!(ChannelMembership,
-        server_connection_id: connection.id,
-        channel: normalize_channel(channel)
-      )
+      channel_membership(connection, channel, casemapping, "joined") ||
+        raise(Ecto.NoResultsError, queryable: ChannelMembership)
 
     user = Repo.get!(User, connection.user_id)
     mentioned = mention?(body, connection.nickname)
@@ -267,6 +492,8 @@ defmodule Ircpipe.Chat do
           nick: nick,
           hostmask: metadata_value(metadata, :hostmask),
           sender_role: metadata_value(metadata, :sender_role),
+          service: metadata_value(metadata, :service),
+          metadata: stringify_metadata(metadata),
           body: body,
           mentioned: mentioned,
           occurred_at: DateTime.utc_now(:second)
@@ -322,6 +549,7 @@ defmodule Ircpipe.Chat do
           kind: kind,
           nick: nick || connection.host,
           service: metadata_value(metadata, :service),
+          metadata: stringify_metadata(metadata),
           body: body,
           mentioned: false,
           occurred_at: DateTime.utc_now(:second)
@@ -340,12 +568,16 @@ defmodule Ircpipe.Chat do
     end)
   end
 
-  def record_channel_system_message(%ServerConnection{} = connection, channel, kind, nick, body) do
-    membership =
-      Repo.get_by!(ChannelMembership,
-        server_connection_id: connection.id,
-        channel: normalize_channel(channel)
-      )
+  def record_channel_system_message(
+        %ServerConnection{} = connection,
+        channel,
+        kind,
+        nick,
+        body,
+        metadata \\ %{},
+        casemapping \\ :rfc1459
+      ) do
+    membership = channel_membership(connection, channel, casemapping)
 
     user = Repo.get!(User, connection.user_id)
 
@@ -359,6 +591,7 @@ defmodule Ircpipe.Chat do
         |> Message.changeset(%{
           kind: kind,
           nick: nick,
+          metadata: stringify_metadata(metadata),
           body: body,
           mentioned: false,
           occurred_at: DateTime.utc_now(:second)
@@ -367,6 +600,54 @@ defmodule Ircpipe.Chat do
 
       prune_old_messages(user)
       broadcast_message(message, membership, connection, nil)
+      message
+    end)
+  end
+
+  def record_command_message(
+        %ServerConnection{} = connection,
+        buffer_id,
+        body,
+        metadata
+      ) do
+    membership = command_membership(connection, buffer_id)
+    user = Repo.get!(User, connection.user_id)
+
+    Repo.transaction(fn ->
+      {:ok, message} =
+        %Message{
+          user_id: connection.user_id,
+          server_connection_id: connection.id,
+          channel_membership_id: membership && membership.id
+        }
+        |> Message.changeset(%{
+          kind: "command",
+          nick: connection.nickname,
+          metadata: stringify_metadata(metadata),
+          body: body,
+          mentioned: false,
+          occurred_at: DateTime.utc_now(:second)
+        })
+        |> Repo.insert()
+
+      prune_old_messages(user)
+      broadcast_command_message(message, membership, connection)
+      message
+    end)
+  end
+
+  def update_command_message(%Message{} = message, metadata) when is_map(metadata) do
+    merged_metadata = Map.merge(message.metadata || %{}, stringify_metadata(metadata))
+
+    Repo.transaction(fn ->
+      {:ok, message} =
+        message
+        |> Message.changeset(%{metadata: merged_metadata})
+        |> Repo.update()
+
+      connection = Repo.get!(ServerConnection, message.server_connection_id)
+      membership = membership_for_message(message)
+      broadcast_command_message(message, membership, connection)
       message
     end)
   end
@@ -455,11 +736,13 @@ defmodule Ircpipe.Chat do
     :ok
   end
 
-  def broadcast_presence_sync(%ServerConnection{} = connection, channel, names) do
-    case Repo.get_by(ChannelMembership,
-           server_connection_id: connection.id,
-           channel: normalize_channel(channel)
-         ) do
+  def broadcast_presence_sync(
+        %ServerConnection{} = connection,
+        channel,
+        names,
+        casemapping \\ :rfc1459
+      ) do
+    case channel_membership(connection, channel, casemapping) do
       %ChannelMembership{} = membership ->
         users = Enum.map(names, &presence_user/1)
         sync_channel_users(membership, users)
@@ -483,9 +766,14 @@ defmodule Ircpipe.Chat do
     end
   end
 
-  def broadcast_presence_diff(%ServerConnection{} = connection, channel, diff) do
+  def broadcast_presence_diff(
+        %ServerConnection{} = connection,
+        channel,
+        diff,
+        casemapping \\ :rfc1459
+      ) do
     connection
-    |> presence_memberships(channel)
+    |> presence_memberships(channel, casemapping)
     |> Enum.each(fn membership ->
       apply_presence_diff(membership, diff)
 
@@ -506,17 +794,16 @@ defmodule Ircpipe.Chat do
   end
 
   def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
-    broadcast_buffer_left(%{
-      user_id: user_id,
-      buffer_id: "channel:#{membership.id}",
-      server_connection_id: membership.server_connection_id,
-      channel_membership_id: membership.id
-    })
+    if membership.user_id == user_id do
+      connection = Repo.get!(ServerConnection, membership.server_connection_id)
 
-    from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
-    |> Repo.delete_all()
-
-    :ok
+      case confirm_channel_left(connection, membership.channel) do
+        {:ok, _membership} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :invalid_buffer}
+    end
   end
 
   def broadcast_buffer_left(payload) do
@@ -580,6 +867,10 @@ defmodule Ircpipe.Chat do
     do: channel
 
   def normalize_channel(channel), do: "##{channel}"
+
+  def channel_key(channel, casemapping \\ :rfc1459) do
+    Casemapping.normalize(channel, casemapping)
+  end
 
   def valid_nick?(nick) when is_binary(nick) do
     String.match?(nick, ~r/^[A-Za-z_\[\]\\`^{}][A-Za-z0-9_\-\[\]\\`^{}]{0,23}$/)
@@ -707,6 +998,15 @@ defmodule Ircpipe.Chat do
     Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
   end
 
+  defp stringify_metadata(metadata) when is_map(metadata) do
+    Map.new(metadata, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp stringify_metadata(_metadata), do: %{}
+
+  defp reason_text(reason) when is_binary(reason), do: reason
+  defp reason_text(reason), do: inspect(reason)
+
   defp broadcast_message(message, membership, connection, notification) do
     payload = Event.message(message, "channel:#{membership.id}", %{channel: membership.channel})
 
@@ -740,6 +1040,31 @@ defmodule Ircpipe.Chat do
       {pubsub_event(event), event}
     )
   end
+
+  defp broadcast_command_message(message, nil, connection),
+    do: broadcast_server_message(message, connection)
+
+  defp broadcast_command_message(message, membership, connection),
+    do: broadcast_message(message, membership, connection, nil)
+
+  defp command_membership(%ServerConnection{id: connection_id}, "channel:" <> membership_id) do
+    Repo.get_by!(ChannelMembership, id: membership_id, server_connection_id: connection_id)
+  end
+
+  defp command_membership(%ServerConnection{id: connection_id}, "server:" <> connection_id_text)
+       when is_binary(connection_id_text) do
+    if Integer.to_string(connection_id) == connection_id_text,
+      do: nil,
+      else: raise(Ecto.NoResultsError, queryable: ServerConnection)
+  end
+
+  defp command_membership(%ServerConnection{}, _buffer_id),
+    do: raise(Ecto.NoResultsError, queryable: ChannelMembership)
+
+  defp membership_for_message(%Message{channel_membership_id: nil}), do: nil
+
+  defp membership_for_message(%Message{channel_membership_id: membership_id}),
+    do: Repo.get!(ChannelMembership, membership_id)
 
   defp broadcast_server_status(connection) do
     Phoenix.PubSub.broadcast(
@@ -883,17 +1208,146 @@ defmodule Ircpipe.Chat do
   defp pubsub_event(%{type: "buffer:system"}), do: :buffer_system
   defp pubsub_event(_event), do: :buffer_message
 
-  defp presence_memberships(connection, nil) do
+  defp channel_membership(connection, channel, casemapping, status \\ nil) do
+    query =
+      from(m in ChannelMembership,
+        where: m.server_connection_id == ^connection.id
+      )
+
+    query = if status, do: where(query, [m], m.status == ^status), else: query
+    key = channel_key(channel, casemapping)
+
+    query
+    |> Repo.all()
+    |> Enum.find(&(channel_key(&1.channel, casemapping) == key))
+  end
+
+  def reconcile_channel_memberships(%ServerConnection{} = connection, casemapping) do
+    case Repo.transaction(fn ->
+           lock_memberships(connection)
+           reconcile_channel_memberships_locked(connection, casemapping)
+         end) do
+      {:ok, losers} ->
+        Enum.each(losers, &broadcast_reconciled_membership(&1, connection))
+        {:ok, losers}
+
+      error ->
+        error
+    end
+  end
+
+  defp lock_memberships(connection) do
+    ServerConnection
+    |> where([server], server.id == ^connection.id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
+
     ChannelMembership
-    |> where([m], m.server_connection_id == ^connection.id)
+    |> where([membership], membership.server_connection_id == ^connection.id)
+    |> lock("FOR UPDATE")
     |> Repo.all()
   end
 
-  defp presence_memberships(connection, channel) do
-    case Repo.get_by(ChannelMembership,
-           server_connection_id: connection.id,
-           channel: normalize_channel(channel)
-         ) do
+  defp reconcile_channel_memberships_locked(connection, casemapping) do
+    losers =
+      connection
+      |> all_channel_memberships()
+      |> Enum.group_by(&channel_key(&1.channel, casemapping))
+      |> Enum.flat_map(fn {_key, memberships} -> merge_equivalent_memberships(memberships) end)
+
+    losers
+  end
+
+  defp all_channel_memberships(connection) do
+    ChannelMembership
+    |> where([membership], membership.server_connection_id == ^connection.id)
+    |> order_by([membership], asc: membership.id)
+    |> Repo.all()
+  end
+
+  defp merge_equivalent_memberships([_membership]), do: []
+
+  defp merge_equivalent_memberships(memberships) do
+    winner = Enum.min_by(memberships, &{membership_status_rank(&1.status), &1.id})
+    losers = Enum.reject(memberships, &(&1.id == winner.id))
+
+    Enum.each(losers, fn loser ->
+      from(message in Message, where: message.channel_membership_id == ^loser.id)
+      |> Repo.update_all(set: [channel_membership_id: winner.id])
+
+      from(notification in Notification, where: notification.channel_membership_id == ^loser.id)
+      |> Repo.update_all(set: [channel_membership_id: winner.id])
+
+      loser
+      |> list_channel_users()
+      |> Enum.each(&upsert_channel_user(winner, &1))
+
+      Repo.delete!(loser)
+    end)
+
+    merged_status = winner.status
+
+    winner
+    |> ChannelMembership.changeset(%{
+      auto_join: Enum.any?(memberships, & &1.auto_join),
+      unread_count: Enum.reduce(memberships, 0, &(&1.unread_count + &2)),
+      mention_count: Enum.reduce(memberships, 0, &(&1.mention_count + &2)),
+      joined_at:
+        memberships
+        |> Enum.map(& &1.joined_at)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.min(fn -> nil end),
+      left_at:
+        if(merged_status in ["joined", "pending"],
+          do: nil,
+          else:
+            memberships
+            |> Enum.map(& &1.left_at)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.max(fn -> nil end)
+        )
+    })
+    |> Repo.update!()
+
+    losers
+  end
+
+  defp broadcast_reconciled_membership(loser, connection) do
+    broadcast_buffer_left(%{
+      user_id: connection.user_id,
+      buffer_id: "channel:#{loser.id}",
+      server_connection_id: connection.id,
+      channel_membership_id: loser.id,
+      channel: loser.channel
+    })
+  end
+
+  defp membership_status_rank("joined"), do: 0
+  defp membership_status_rank("pending"), do: 1
+  defp membership_status_rank("left"), do: 2
+  defp membership_status_rank("error"), do: 3
+
+  defp stored_casemapping(%ServerConnection{casemapping: mapping}) when is_binary(mapping) do
+    case mapping do
+      "ascii" -> :ascii
+      "strict_rfc1459" -> :strict_rfc1459
+      _mapping -> :rfc1459
+    end
+  end
+
+  defp stored_casemapping(%ServerConnection{}), do: nil
+
+  defp presence_memberships(connection, channel),
+    do: presence_memberships(connection, channel, :rfc1459)
+
+  defp presence_memberships(connection, nil, _casemapping) do
+    ChannelMembership
+    |> where([m], m.server_connection_id == ^connection.id and m.status == "joined")
+    |> Repo.all()
+  end
+
+  defp presence_memberships(connection, channel, casemapping) do
+    case channel_membership(connection, channel, casemapping, "joined") do
       %ChannelMembership{} = membership -> [membership]
       nil -> []
     end
@@ -904,7 +1358,7 @@ defmodule Ircpipe.Chat do
     |> join(:inner, [m], u in ChannelUser, on: u.channel_membership_id == m.id)
     |> where(
       [m, u],
-      m.server_connection_id == ^connection.id and
+      m.server_connection_id == ^connection.id and m.status == "joined" and
         fragment("lower(?)", u.nick) == fragment("lower(?)", ^nick)
     )
     |> Repo.all()

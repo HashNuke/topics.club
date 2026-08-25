@@ -19,6 +19,7 @@ defmodule Ircpipe.Chat.ServerConnection do
     field :sasl_username, :string
     field :sasl_password, :string, redact: true
     field :status, :string, default: "disconnected"
+    field :casemapping, :string
     field :last_connected_at, :utc_datetime
     field :last_read_at, :utc_datetime
     field :unread_count, :integer, default: 0

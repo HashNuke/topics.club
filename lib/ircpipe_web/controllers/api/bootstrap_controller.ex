@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
 
@@ -25,6 +26,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       messages_by_buffer: messages_by_buffer,
       message_cursors_by_buffer: message_cursors_by_buffer(messages_by_buffer),
       users_by_buffer: users_by_buffer(connections),
+      command_catalog: Commands.all(),
       topics: Enum.map(topics, &topic_json/1)
     }
 
@@ -42,6 +44,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   end
 
   defp connection_json(connection) do
+    memberships = visible_memberships(connection)
+
     %{
       id: connection.id,
       name: connection.name,
@@ -52,7 +56,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       status: connection.status,
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
-      channels: Enum.map(connection.channel_memberships, & &1.id)
+      channels: Enum.map(memberships, & &1.id)
     }
   end
 
@@ -69,7 +73,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         unread_count: connection.unread_count,
         mention_count: connection.mention_count
       }
-      | Enum.map(connection.channel_memberships, &channel_buffer(&1, connection))
+      | Enum.map(visible_memberships(connection), &channel_buffer(&1, connection))
     ]
   end
 
@@ -82,6 +86,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       title: membership.channel,
       subtitle: "on #{connection.host}",
       status: connection.status,
+      membership_status: membership.status,
       unread_count: membership.unread_count,
       mention_count: membership.mention_count
     }
@@ -96,7 +101,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   defp messages_by_buffer(user, connections) do
     channel_messages =
       connections
-      |> Enum.flat_map(& &1.channel_memberships)
+      |> Enum.flat_map(&visible_memberships/1)
       |> Map.new(fn membership ->
         messages =
           user
@@ -138,7 +143,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   defp users_by_buffer(connections) do
     connections
-    |> Enum.flat_map(& &1.channel_memberships)
+    |> Enum.flat_map(&visible_memberships/1)
     |> Map.new(&{channel_buffer_id(&1), Chat.list_channel_users(&1)})
   end
 
@@ -156,6 +161,10 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   defp server_buffer_id(connection), do: "server:#{connection.id}"
   defp channel_buffer_id(membership), do: "channel:#{membership.id}"
+
+  defp visible_memberships(connection) do
+    Enum.filter(connection.channel_memberships, &(&1.status in ["pending", "joined"]))
+  end
 
   defp start_session(connection) do
     SessionSupervisor.start_session(connection)

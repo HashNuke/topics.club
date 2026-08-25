@@ -12,16 +12,29 @@ defmodule IrcpipeWeb.Api.TopicController do
     user = conn.assigns.current_scope.user
     topic = Chat.get_topic!(id)
 
-    with {:ok, %{connection: connection, membership: membership, topic: topic}} <-
-           Chat.join_topic(user, topic) do
-      SessionSupervisor.start_session(connection)
-      try_join(connection, membership.channel)
+    with {:ok, %{connection: connection, topic: topic}} <- Chat.join_topic(user, topic),
+         :ok <- start_session(connection) do
+      case try_join(connection, user, topic.channel) do
+        {:ok, membership, status} ->
+          conn
+          |> maybe_accept_queued(status)
+          |> json(%{
+            topic: topic_json(topic),
+            connection: connection_json(connection),
+            buffer: channel_buffer_json(connection, membership),
+            status: Atom.to_string(status)
+          })
 
-      json(conn, %{
-        topic: topic_json(topic),
-        connection: connection_json(connection),
-        buffer: channel_buffer_json(connection, membership)
-      })
+        {:error, reason} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: join_error(reason)})
+      end
+    else
+      {:error, reason} ->
+        conn
+        |> put_status(join_status(reason))
+        |> json(%{error: join_error(reason)})
     end
   end
 
@@ -63,12 +76,27 @@ defmodule IrcpipeWeb.Api.TopicController do
     }
   end
 
-  defp try_join(connection, channel) do
-    case Session.join(connection, channel) do
-      :ok -> :ok
-      _ -> :ok
-    end
+  defp try_join(connection, user, channel) do
+    Session.request_join(connection, user, channel)
   catch
-    :exit, _ -> :ok
+    :exit, _ -> {:error, :not_connected}
   end
+
+  defp start_session(connection) do
+    case SessionSupervisor.start_session(connection) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_accept_queued(conn, :queued), do: put_status(conn, :accepted)
+  defp maybe_accept_queued(conn, :sent), do: conn
+
+  defp join_status(:not_connected), do: :service_unavailable
+  defp join_status(_reason), do: :unprocessable_entity
+
+  defp join_error(%{code: code}), do: code
+  defp join_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp join_error(reason), do: inspect(reason)
 end

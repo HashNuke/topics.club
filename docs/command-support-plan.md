@@ -34,7 +34,15 @@ Research used for this plan:
 - [IRCv3 labeled-response](https://ircv3.net/specs/extensions/labeled-response) and [batch](https://ircv3.net/specs/extensions/batch) for request correlation, logical response boundaries, and `ACK` behavior.
 - [IRCv3 standard replies](https://ircv3.net/specs/extensions/standard-replies) for command-aware `FAIL`, `WARN`, and `NOTE` handling.
 - [IRCv3 capability negotiation](https://ircv3.net/specs/extensions/capability-negotiation) for why raw `CAP` changes cannot bypass ircxd's capability state machine.
-- The checked-out `../ircxd/lib/ircxd/client.ex`, `message.ex`, and supporting modules for the exact typed APIs, validation, capabilities, events, and terminal events available to topics.club.
+- The checked-out ircxd client at commit `6a14084`, especially `Ircxd.ClientCommand`, `Ircxd.CommandSpec`, `Ircxd.Client.Event`, and `Ircxd.Client.Info`, for the protocol-owned parsing, validation, command metadata, event metadata, and cached connection state available to topics.club.
+
+The August 25 ircxd integration update moved several responsibilities out of this application. This plan assumes topics.club will consume these APIs rather than duplicate them:
+
+- `Ircxd.ClientCommand.parse/2` owns `/quote` wire parsing and the default rejection of tags, source prefixes, numerics, injection characters, excess parameters, and oversized lines. `Ircxd.Client.transmit/2` applies live capability, transport-security, and `UTF8ONLY` validation.
+- `Ircxd.CommandSpec` owns reusable command syntax, broad family, required capabilities, relevant ISUPPORT tokens, sensitive parameter positions, result events, terminal events, partial-success hints, and argument-aware `MODE`/`TOPIC` classification. The topics.club registry adds product policy, execution, routing, persistence, and reconciliation only.
+- `Ircxd.Client.Event` envelopes own label, batch, raw-message, server-time, terminal, derivative, and duplicate-message metadata. `Ircxd.Client.Event.names/0` is the canonical event catalog.
+- `Ircxd.Client.Info`, adapter callback context, normalized `source_self?`/`target_self?` flags, and `Ircxd.ISupport` own cached protocol state, casemapping-aware identity, and channel-type interpretation.
+- ircxd now preserves the confirmed nickname after a rejected post-registration `NICK` and treats helper, raw, and transmitted `QUIT` commands as intentional disconnects.
 
 The researched constraints that drive the action items are:
 
@@ -105,7 +113,7 @@ The researched constraints that drive the action items are:
 
 **Impact:** Messages and modes for channels such as `&local` can be discarded or misrouted to the server buffer.
 
-**Resolution:** Centralize channel-target detection. Prefer the server's `CHANTYPES` ISUPPORT value; at minimum, consistently support the channel prefixes already accepted by the domain.
+**Resolution:** Centralize channel-target detection around `Ircxd.ISupport.channel?/2` using ircxd's cached connection info, and align domain validation with the same negotiated `CHANTYPES` behavior and fallback.
 
 ### CMD-07 — Command definitions are duplicated and errors are generic
 
@@ -145,13 +153,13 @@ The researched constraints that drive the action items are:
 
 **Impact:** Valid lines such as `/quote PRIVMSG Nick :hello there`, `/quote PART #room :good night`, and `/quote TOPIC #room :new topic` are transmitted with the wrong parameter shape. The application also cannot reliably decide whether a `MODE` or `TOPIC` line is a query or mutation.
 
-**Resolution:** Parse the raw body with IRC message grammar, reject client source prefixes and uncontrolled tags/numerics, and pass a typed command intent through a command registry before transmission.
+**Resolution:** Parse the raw body with `Ircxd.ClientCommand.parse/2`, combine `Ircxd.CommandSpec` with topics.club product policy, and pass the resulting managed intent through the application command registry before transmission.
 
 ### CMD-11 — Server-confirmed raw state changes are not reconciled durably
 
 **Priority:** P0
 
-**Current behavior:** ircxd already emits self `JOIN`, `PART`, `NICK`, `KICK`, `QUIT`, `MODE`, and `TOPIC` feedback, but the session handlers update only part of the in-memory presence state. A raw self `JOIN` does not create a `ChannelMembership`; a raw self `PART` or self-targeted `KICK` does not remove it; a self `NICK` does not update the owned connection; and raw `QUIT` is not distinguished from a transient disconnect.
+**Current behavior:** ircxd emits casemapping-aware self `JOIN`, `PART`, `NICK`, `KICK`, `QUIT`, `MODE`, and `TOPIC` feedback and distinguishes an intentional `QUIT` from transport loss, but the session handlers update only part of the application state. A raw self `JOIN` does not create a `ChannelMembership`; a raw self `PART` or self-targeted `KICK` does not remove it; and a self `NICK` does not update the owned connection.
 
 **Impact:** IRC may accept the command while persistence, reconnect behavior, available buffers, and the React UI retain a conflicting state.
 
@@ -173,48 +181,44 @@ Decisions marked complete below define the agreed implementation direction. Open
 
 - [x] **DEC-01:** Use the server buffer as the first-release destination for inbound and outbound private messages, with explicit sender, target, direction, and peer metadata.
   - First-class query buffers keyed by `{server_connection_id, normalized_nick}` remain the complete follow-up solution.
-- [x] **DEC-02:** Parse known `/quote` commands into managed command intents and route them through the same execution/reconciliation paths as native slash commands.
+- [x] **DEC-02:** Parse `/quote` with `Ircxd.ClientCommand`, classify it with `Ircxd.CommandSpec`, then route known commands into managed command intents that share the same execution/reconciliation paths as native slash commands.
   - Keep each stateful command denied at the raw transport boundary until its managed handler and server-confirmation tests are complete; enable commands one at a time from the registry.
   - Support stateful commands such as `JOIN`, `PART`, `NICK`, `QUIT`, `MODE`, `TOPIC`, `KICK`, `INVITE`, `AWAY`, `PRIVMSG`, and `NOTICE` through shared handlers rather than unrestricted `Session.raw/3` calls.
   - Keep classification argument-aware. For example, `MODE #room` is a query, `MODE #room +o Nick` is a mutation, `MODE #room +b` without a mask is commonly a list query, `TOPIC #room` is a query, and `TOPIC #room :` is a mutation that clears the topic.
   - Keep credential-bearing, registration, protocol-owned, destructive operator, numeric, and client-prefixed lines denied by default even when they are syntactically valid.
   - Safe query families include `WHO`, `WHOIS`, `WHOWAS`, `NAMES`, `LIST`, `MODE` queries, `TOPIC` queries, `MOTD`, `VERSION`, `ADMIN`, `LUSERS`, `TIME`, `INFO`, `HELP`, `STATS`, `LINKS`, `TRACE`, `USERHOST`, and `ISON`.
-- [ ] **DEC-03:** Decide whether `advanced_user` is a real account capability, an opt-in preference, or metadata that should be removed.
+- [x] **DEC-03:** Remove the decorative `advanced_user` label. `/quote` availability is determined per command by the backend registry; unknown/vendor passthrough remains denied.
 - [x] **DEC-04:** Use existing timeline rows for first-release command output.
-  - Use `command` rows for invocations/status, `notice` rows for results and private/service replies, and `error` rows for failures.
+  - Use one updatable `command` row for invocation/status and additional `command` rows for structured results. Keep private/service replies in their ordinary message/notice rows and expose failures through invocation status metadata plus the inline composer error.
   - Defer grouped/collapsible transcript cards and specialized result renderers until the durable data pipeline is stable.
 - [x] **DEC-05:** Preserve structured command and private-message metadata from the first release even when the simple timeline renderer only displays `body`.
   - Candidate fields include `command_id`, `command`, `result_type`, `sequence`, `target`, raw numeric code, `direction`, and `peer_nick`.
-- [ ] **DEC-06:** Choose the database representation for the structured metadata required by DEC-05, such as a JSON/map message field or normalized storage.
-- [x] **DEC-07:** Define terminal events per query family so `completed` has a precise meaning.
-  - Examples include `who_end`, `whois_end`, `whowas_end`, `help_end`, `info_end`, `stats_end`, and `links_end`.
+- [x] **DEC-06:** Store the structured metadata required by DEC-05 in a JSON/map `messages.metadata` field; do not add normalized result tables unless later query needs justify them.
+- [x] **DEC-07:** Consume ircxd's result and terminal-event metadata per query family so `completed` has a precise meaning; retain application timeouts for incomplete or unlabeled responses.
 - [x] **DEC-08:** Treat ircxd `labeled_response` as correlation/lifecycle metadata for the underlying structured event, never as a second persisted result row.
-- [x] **DEC-09:** Maintain an exhaustive ircxd event-disposition inventory. Every event must be classified as one or more of display, persist, state update, correlate, internal, or intentionally ignored.
+- [x] **DEC-09:** Use `Ircxd.Client.Event.names/0` as ircxd's canonical event catalog. Explicitly handle the events topics.club consumes and send everything else through a safe, redacted, rate-limited fallback rather than duplicating ircxd's full inventory.
 - [x] **DEC-10:** Build and review the larger deferred UI work with Storybook stories after the correctness and persistence pipeline is stable.
 - [x] **DEC-11:** Treat the server event as the source of truth for durable IRC state, regardless of whether the initiating command came from a native slash command, `/quote`, reconnect auto-join, another attached client, or a server-forced action.
   - Record a pending intent after local validation and successful transmission, but do not create/remove memberships or persist a new nick merely because the socket write succeeded.
   - Reconciliation must be idempotent because a command may be observed through structured, generic, labeled, replayed, or reconnect-derived events.
-- [x] **DEC-12:** Use a command registry as the single executable specification for `/quote` support.
-  - Each entry records syntax/arity, command class, sensitivity, required IRCv3 capability or ISUPPORT token, target expansion, execution adapter, expected success/error events, terminal rule, state reconciliation, output destination, redaction rule, and enabled status.
+- [x] **DEC-12:** Use a topics.club command registry as the single product-policy and execution layer for `/quote`, composed with `Ircxd.CommandSpec` as the protocol specification.
+  - ircxd supplies syntax, command family, sensitivity, capability/ISUPPORT requirements, and result/terminal hints. The application supplies enabled status, product permission, target expansion, execution adapter, application-specific errors/timeouts, state reconciliation, output destination, and any stricter redaction rule.
   - Known standard commands never fall through to an unclassified raw send.
   - Unknown vendor commands remain blocked until DEC-03 defines who may use advanced passthrough and what state-consistency guarantee the UI communicates.
-- [ ] **DEC-13:** Decide whether service-authentication messages sent through `PRIVMSG`/`NOTICE` may be retained as ordinary message bodies or must use a dedicated non-persisted secret workflow.
-  - Command-level redaction can reliably protect `PASS`, `OPER`, channel keys, `REGISTER`, and `VERIFY`; it cannot safely infer every network's NickServ/service syntax from arbitrary chat text.
-- [ ] **DEC-14:** Confirm the channel-membership lifecycle representation required by CMD-12.
-  - Recommended: keep `ChannelMembership` as the stable buffer/history identity, add separate auto-join intent plus pending/joined/left/error state and timestamps, reuse the row on rejoin, and stop cascading message deletion merely because IRC confirmed a PART/KICK.
-  - If deletion-on-part is intentionally retained, explicitly accept history loss and define how late/replayed events avoid targeting a deleted buffer.
+- [x] **DEC-13:** Retain `PRIVMSG`/`NOTICE` service messages as ordinary private-message history. Do not claim generic service-secret detection; explicitly warn that `/msg` is retained and keep known credential commands such as `PASS`, `OPER`, `REGISTER`, and `VERIFY` denied.
+- [x] **DEC-14:** Keep `ChannelMembership` as the stable buffer/history identity, with separate auto-join intent plus pending/joined/left/error state and timestamps. Reuse the row on rejoin and never cascade message deletion merely because IRC confirmed a PART/KICK.
 
 ## Agreed release boundary
 
 ### First release: correctness using the existing timeline
 
 - [ ] Complete the P0 correctness fixes and P1 command-result pipeline.
-- [ ] Reuse existing timeline rows for all command invocations, results, private/service replies, and errors.
-- [ ] Route private messages to the server buffer without losing their structured peer/direction metadata.
-- [ ] Keep command output durable across refresh, reconnect, pagination, and retention pruning.
-- [ ] Make the backend command catalog authoritative and expose actionable typed errors.
-- [ ] Ship the managed `/quote` parser, registry, interim deny-by-default policy, and server-authoritative state reconciliation before enabling stateful raw command families.
-- [ ] Limit first-release UI work to necessary correctness changes: composer behavior, statuses, errors, catalog data, and ordinary result rows.
+- [x] Reuse existing timeline rows for all command invocations, results, private/service replies, and errors.
+- [x] Route private messages to the server buffer without losing their structured peer/direction metadata.
+- [x] Keep command output durable across refresh, reconnect, pagination, and retention pruning.
+- [x] Make the backend command catalog authoritative and expose actionable typed errors.
+- [x] Ship the managed `/quote` parser, registry, interim deny-by-default policy, and server-authoritative state reconciliation before enabling stateful raw command families.
+- [x] Limit first-release UI work to necessary correctness changes: composer behavior, statuses, errors, catalog data, and ordinary result rows.
 
 ### Deferred UI release: Storybook-reviewed components
 
@@ -228,40 +232,40 @@ Decisions marked complete below define the agreed implementation direction. Open
 
 ### Server composer
 
-- [ ] Remove the local-only server-message branch.
-- [ ] Reject non-slash server-buffer submissions without mutating the timeline.
-- [ ] Change the placeholder to accurate command examples such as `/msg NickServ help` and `/quote WHOIS nick`.
-- [ ] Disable submission when there is no valid server or channel context.
-- [ ] Add a visible explanation that normal conversation belongs in a channel or private-message buffer.
-- [ ] Add frontend tests proving plain server text is neither displayed as sent nor submitted.
+- [x] Remove the local-only server-message branch.
+- [x] Reject non-slash server-buffer submissions without mutating the timeline.
+- [x] Change the placeholder to accurate command examples such as `/msg NickServ help` and `/quote WHOIS nick`.
+- [x] Disable submission when there is no valid server or channel context.
+- [x] Add a visible explanation that normal conversation belongs in a channel or private-message buffer.
+- [x] Add frontend tests proving plain server text is neither displayed as sent nor submitted.
 
 ### Command context and acknowledgement semantics
 
-- [ ] Remove the successful no-op for a missing `buffer_id`.
-- [ ] Return a typed `invalid_buffer` error for commands requiring context.
+- [x] Remove the successful no-op for a missing `buffer_id`.
+- [x] Return a typed `invalid_buffer` error for commands requiring context.
 - [ ] Distinguish these states in replies and UI copy:
   - [ ] parsed
   - [ ] accepted for transmission
   - [ ] sent to IRC
   - [ ] completed successfully, when completion can be known
   - [ ] failed or timed out
-- [ ] Stop using the unconditional `Command accepted.` message as a completion indicator.
-- [ ] Add backend and frontend tests for missing context and acknowledgement wording.
+- [x] Stop using the unconditional `Command accepted.` message as a completion indicator.
+- [x] Add backend and frontend tests for missing context and acknowledgement wording.
 
 ### Backend-owned command catalog
 
-- [ ] Remove the hardcoded React command catalog.
-- [ ] Include the authoritative command catalog in bootstrap or fetch it through one backend-owned API/channel contract.
-- [ ] Filter or annotate commands by buffer context and user capability.
-- [ ] Include name, usage, description, examples, availability, and permission policy.
-- [ ] Keep autocomplete responsive by caching catalog data client-side rather than requiring a push for every keystroke.
+- [x] Remove the hardcoded React command catalog.
+- [x] Include the authoritative command catalog in bootstrap or fetch it through one backend-owned API/channel contract.
+- [x] Filter or annotate commands by buffer context and user capability.
+- [x] Include name, usage, description, examples, availability, and permission policy.
+- [x] Keep autocomplete responsive by caching catalog data client-side rather than requiring a push for every keystroke.
 - [ ] Add a discoverable command-help surface beyond prefix autocomplete.
 - [ ] Add a contract test proving the UI catalog matches backend definitions.
 
 ### Typed errors and recovery
 
-- [ ] Define stable backend command error codes.
-- [ ] Include human-readable copy, usage, and recoverability metadata where appropriate.
+- [x] Define stable backend command error codes.
+- [x] Include human-readable copy, usage, and recoverability metadata where appropriate.
 - [ ] Map at least these errors in React:
   - [ ] unknown command
   - [ ] invalid arguments
@@ -273,87 +277,66 @@ Decisions marked complete below define the agreed implementation direction. Open
   - [ ] permission denied by IRC server
   - [ ] command timeout
   - [ ] list already in progress
-- [ ] Preserve the submitted command in the error presentation without exposing secrets.
+- [x] Preserve the submitted command in the error presentation without exposing secrets.
 - [ ] Offer reconnect, retry, or corrected-usage actions where appropriate.
 
 ### Managed `/quote` parser and registry
 
-- [ ] Replace `String.split/3` parsing with a dedicated `Ircpipe.Irc.RawCommand` parser built on, or behaviorally equivalent to, `Ircxd.Message.parse/1`.
-- [ ] Parse and preserve the IRC command plus at most 15 parameters, including one final trailing parameter containing spaces or an empty string.
-- [ ] Normalize command names case-insensitively while preserving parameter bytes and display text.
-- [ ] Reject empty input, invalid command tokens, embedded `NUL`, `CR`, or `LF`, too many parameters, invalid UTF-8 when `UTF8ONLY` applies, and lines over ircxd's outbound wire limit.
-- [ ] Reject a client-supplied source prefix and three-digit numeric command; numerics are server replies, not client commands.
-- [ ] Reject message tags in the first release. Add tagged raw input only through a later explicit parser/policy that validates tag names, byte limits, active capabilities, and forbidden spoofable tags.
-- [ ] Do not strip the leading colon from an empty or multiword final parameter. Verify these distinct meanings:
-  - [ ] `TOPIC #room` queries the topic.
-  - [ ] `TOPIC #room :` clears the topic.
-  - [ ] `PART #room :good night` carries one reason parameter.
-  - [ ] `PRIVMSG Nick :hello there` carries one body parameter.
-- [ ] Add an `Ircpipe.Irc.CommandRegistry` entry for every command in the command-family inventory below.
-- [ ] Require every registry entry to declare `managed_stateful`, `managed_message`, `query`, `protocol_owned`, `sensitive`, `operator`, `deprecated`, or `unsupported` classification.
-- [ ] Make the registry select a typed ircxd API/executor for known commands; do not call unrestricted `Session.raw/3` for commands with application-managed effects.
-- [ ] Deny registry entries by default and enable a command only after its parser, policy, feedback, reconciliation, error, timeout, persistence, and fake-server tests are complete.
-- [ ] Return a typed policy error that states whether the command is not yet managed, protocol-owned, credential-bearing, operator-only, obsolete, or unknown; point to a native slash command when one exists.
-- [ ] Never transmit a command rejected by parsing, registry policy, ownership checks, required capability checks, or connection state.
-- [ ] Never persist or echo secret parameters. Store a registry-provided redacted display form rather than redacting an already-persisted raw line.
+- [x] Replace `String.split/3` parsing with `Ircxd.ClientCommand.parse/2` using its default tag, source-prefix, and numeric rejection policy; pass the returned `%Ircxd.Message{}` unchanged into policy resolution.
+- [x] Map stable `Ircxd.ClientCommand` parse errors and live `Ircxd.Client.transmit/2` validation errors to typed, actionable application errors without duplicating ircxd's wire parser or validator.
+- [x] Resolve `Ircxd.CommandSpec.classify/3` with the current cached `Ircxd.Client.Info` from `connection_info/1` (or adapter context inside callbacks), then merge it with the topics.club registry's product classification and policy.
+- [x] Validate command-specific arity and parameter shape in the application policy before execution; `Ircxd.ClientCommand` validates IRC wire grammar and `Ircxd.CommandSpec.syntax` is descriptive, not an executable arity validator.
+- [x] Give every command returned by `Ircxd.CommandSpec.commands/0` an application disposition such as managed, enabled query, protocol-owned, denied-sensitive, denied-operator, or unsupported.
+- [x] Make the registry produce a policy-validated `%Ircxd.Message{}` and send it through `Ircxd.Client.transmit/2`; do not retain an unrestricted `Session.raw/3` bypass for application-managed effects.
+- [ ] Enable each command only after its parser, policy, feedback, reconciliation, error, timeout, persistence, and representative fake-server tests are complete; the initial query allowlist still needs family-by-family coverage.
+- [x] Return a typed policy error that states whether the command is not yet managed, protocol-owned, credential-bearing, operator-only, or unknown; point to a native slash command when one exists.
+- [x] Never transmit a command rejected by parsing, registry policy, ownership checks, required capability checks, or connection state.
+- [x] Never persist or echo secret parameters. Build the redacted display form from `Ircxd.CommandSpec.sensitive_positions` plus any stricter application rules before storing the command.
 
-#### Command-registry coverage manifest
+#### Command-registry coverage
 
-Each checkbox means that every named command has an explicit registry entry and classification. It does not mean every command is enabled; denied commands must be represented just as deliberately as enabled commands.
-
-- [ ] **Managed state and moderation:** `JOIN`, `PART`, `NICK`, `QUIT`, `MODE`, `TOPIC`, `KICK`, `INVITE`, `AWAY`.
-- [ ] **Managed messaging:** `PRIVMSG`, `NOTICE`.
-- [ ] **Channel/user queries:** `NAMES`, `LIST`, `WHO`/WHOX, `WHOIS`, `WHOWAS`, `USERHOST`, `ISON`.
-- [ ] **Server queries:** `MOTD`, `VERSION`, `ADMIN`, `LUSERS`, `TIME`, `STATS`, `HELP`, `INFO`, `LINKS`, `TRACE`.
-- [ ] **Connection/registration/protocol-owned:** `PASS`, `USER`, `SERVICE`, `CAP`, `AUTHENTICATE`, `BATCH`, `PING`, `PONG`, `ERROR`, `STARTTLS`, `WEBIRC`.
-- [ ] **Credential-bearing/operator/destructive:** `OPER`, `KILL`, `CONNECT`, `SQUIT`, `REHASH`, `RESTART`, `DIE`, `WALLOPS`.
-- [ ] **Historical/optional service queries:** `SERVLIST`, `SQUERY`, `SUMMON`, `USERS`.
-- [ ] **IRCv3/ircxd extensions:** `SETNAME`, `RENAME`, `MONITOR`, `MARKREAD`, `METADATA`, `CHATHISTORY`, `TAGMSG`, `REGISTER`, `VERIFY`, `REDACT`.
-- [ ] **Unknown/vendor commands:** one deny-by-default classification with no transport fallback until the advanced-passthrough decision and consistency contract are complete.
+Do not maintain a second hand-written manifest or a tautological coverage test for ircxd's focused command surface. Resolve commands from `Ircxd.CommandSpec` at runtime, add only explicit denials for protocol commands not exposed there (such as `USER`, `SERVICE`, `PING`, `ERROR`, `STARTTLS`, `WEBIRC`, and `DIE`), and give every other known-but-disabled command the shared `not_yet_managed` disposition. Unknown/vendor commands use one deny-by-default disposition with no transport fallback.
 
 ### Shared command intents and server-authoritative reconciliation
 
-- [ ] Implement the membership lifecycle chosen in DEC-14 before converting native/raw JOIN and PART to server-authoritative confirmation.
-- [ ] If the recommended model is accepted, add explicit auto-join intent and pending/joined/left/error state, set `joined_at` only on confirmation, retain `left_at`/last error, and migrate existing rows as reconnect-enabled memberships without losing history.
-- [ ] Make bootstrap/sidebar queries return only the lifecycle states intended to be visible while still allowing a rejoin to reuse retained history and buffer identity.
+- [x] Implement the membership lifecycle chosen in DEC-14 before converting native/raw JOIN and PART to server-authoritative confirmation.
+- [x] If the recommended model is accepted, add explicit auto-join intent and pending/joined/left/error state, set `joined_at` only on confirmation, retain `left_at`/last error, and migrate existing rows as reconnect-enabled memberships without losing history.
+- [x] Make bootstrap/sidebar queries return only the lifecycle states intended to be visible while still allowing a rejoin to reuse retained history and buffer identity.
 - [ ] Add a pending-intent model keyed by `command_id` with command, parsed parameters, expanded targets, originating buffer, transmission time, sensitivity, expected events, terminal rule, and timeout.
 - [ ] Route native slash commands and equivalent `/quote` forms into the same intent/executor path; for example, `/join #a` and `/quote JOIN #a` must not maintain separate state logic.
-- [ ] Treat successful ircxd send calls as `sent`, not `completed`, and do not perform confirmed durable mutations at send time.
-- [ ] Reconcile state from self-authored or self-targeted server events even when no local pending intent exists. This covers server-forced actions, another attached client, reconnect state, and lost correlation.
-- [ ] Compare nicknames and channel names with the server's ISUPPORT `CASEMAPPING`, and detect channels using `CHANTYPES` rather than ASCII lowercasing or a `#`-only match.
+- [x] Treat successful ircxd send calls as `sent`, not `completed`, and do not perform confirmed durable mutations at send time.
+- [x] Reconcile state from self-authored or self-targeted server events even when no local pending intent exists. This covers server-forced actions, another attached client, reconnect state, and lost correlation.
+- [x] Consume ircxd's event-time `source_self?`/`target_self?` flags and `Info.self_nick?/2` for self decisions, use cached casemapping normalization for other identifier comparisons, and use `Ircxd.ISupport.channel?/2` for target routing.
 - [ ] Expand comma-separated targets before tracking intent and allow independent `completed`/`failed` outcomes per target.
 - [ ] Preserve the key-to-channel association for multi-target `JOIN` without persisting or displaying channel keys.
 - [ ] Make all reconciliation operations idempotent and transaction-safe so duplicate generic/labeled/replayed events do not duplicate memberships, removals, messages, or UI notifications.
-- [ ] Resolve an event destination only after reconciliation. A self `JOIN` must ensure the membership/buffer exists before trying to record the join, topic, names, or mode output there.
-- [ ] On disconnect, fail or suspend pending intents according to their command semantics, clear timers, and perform a full joined-channel/nick/capability reconciliation after registration resumes.
+- [x] Resolve an event destination only after reconciliation. A self `JOIN` must ensure the membership/buffer exists before trying to record the join, topic, names, or mode output there.
+- [ ] On disconnect, fail or suspend pending intents according to their command semantics, clear timers, and reconcile durable joined-channel state after registration resumes while consuming ircxd's reset/repopulated client-info snapshot for nick and capabilities.
 - [ ] Add redacted telemetry for unmatched success/error events and expired intents so missing mappings can be diagnosed without exposing message bodies, keys, or credentials.
 
 ### Core stateful `/quote` command reconciliation
 
 - [ ] **`JOIN`:** Parse `JOIN <channels> [<keys>]`, including comma-separated channels/keys and the special `JOIN 0` leave-all form.
   - [ ] Track one pending outcome per channel and validate targets against `CHANTYPES`, `CHANLIMIT`, and known client-side limits without treating local validation as server authorization.
-  - [ ] On a self `join` event, idempotently create/reactivate the `ChannelMembership`, emit `buffer:joined` when the UI does not already have it, update `joined_channels`, and then process topic/names/presence output.
+  - [x] On a self `join` event, idempotently create/reactivate the `ChannelMembership`, emit `buffer:joined` when the UI does not already have it, update `joined_channels`, and then process topic/names/presence output.
   - [ ] On `403`, `405`, `471`, `473`, `474`, `475`, `476`, `477`, `FAIL JOIN`, or another target-specific rejection, fail only the affected channel, clear its pending state, and leave no active membership behind.
   - [ ] For `JOIN 0`, wait for self `PART` events and reconcile every confirmed departure instead of deleting all memberships at transmission time.
-- [ ] **`PART`:** Parse `PART <channels> [<reason>]`, preserving a multiword or empty reason.
-  - [ ] On each self `part` event, remove/archive the matching membership, emit `buffer:left`, update `joined_channels`, and retain history according to the chosen buffer-retention semantics.
-  - [ ] Do not call `Chat.leave_channel/2` merely because `Ircxd.Client.part/3` accepted the write; fix the native `/part` path to use the same confirmation rule.
-  - [ ] On `403`, `442`, `461`, `FAIL PART`, disconnect, or timeout, keep the membership unless later server state proves the user left.
+- [x] **`PART`:** Parse `PART <channels> [<reason>]`, preserving a multiword or empty reason.
+  - [x] On each self `part` event, remove/archive the matching membership, emit `buffer:left`, update `joined_channels`, and retain history according to the chosen buffer-retention semantics.
+  - [x] Do not call `Chat.leave_channel/2` merely because `Ircxd.Client.part/3` accepted the write; fix the native `/part` path to use the same confirmation rule.
+  - [x] On `403`, `442`, `461`, `FAIL PART`, disconnect, or timeout, keep the membership unless later server state proves the user left.
 - [ ] **`NICK`:** Parse exactly one nickname and track the previous and requested nick.
-  - [ ] On a self `nick` event, update the persisted `ServerConnection.nickname`, replace the session's connection/current-nick state, update presence across every membership, and broadcast the connection change once.
+  - [x] On a self `nick` event, update the persisted `ServerConnection.nickname`, replace the application's session connection value, update presence across every membership, and broadcast the connection change once; ircxd already updates its confirmed current nick before delivery.
   - [ ] Treat `431`, `432`, `433`, `436`, `437`, `501`, `502`, or `FAIL NICK` as rejection and retain the confirmed nick.
-  - [ ] Ensure ircxd's registration-time nick retry does not silently choose a fallback nick for a user-initiated post-registration `NICK`; surface the rejection instead or explicitly reconcile any retry it performs.
 - [ ] **`QUIT`:** Parse zero or one optional trailing reason and model it as an intentional connection stop.
-  - [ ] Distinguish a requested quit from network loss so supervision/reconnect does not immediately reconnect against the user's intent.
-  - [ ] Use server `ERROR`, transport close, or process termination as the terminal signal; set connection status, clear presence and pending intents, and preserve memberships/history according to the explicit manual-disconnect policy.
+  - [ ] Consume ircxd's intentional disconnect lifecycle event; set application connection status, clear presence and pending intents, and preserve memberships/history according to the explicit manual-disconnect policy.
   - [ ] Redact or normalize quit reasons only if the product's message policy requires it; do not mislabel local send acceptance as completion.
-- [ ] **`MODE`:** Classify using target type, parameter count, mode signs, and ISUPPORT `CHANMODES`, `PREFIX`, and list-mode tokens.
-  - [ ] Support user/channel mode queries (`MODE <nick-or-channel>`) and list queries such as a ban/exception/invite list request without misclassifying them as mutations.
+- [ ] **`MODE`:** Use `Ircxd.CommandSpec.classify/3` with the cached client info to distinguish user/channel queries, list queries, and mutations.
   - [ ] On confirmed channel mode events, update member prefixes/roles and any modeled channel state; on self user mode events/replies, update modeled operator/away/visibility state.
-  - [ ] Complete a user query on `221`, a channel mode query on `324` plus optional creation time `329`, a ban list on `ban_list_end` (`368`), an invite-exception list on `invite_exception_list_end` (`347`), and an exception list on `exception_list_end` (`349`); use the labeled boundary when optional follow-up rows make a numeric boundary ambiguous.
+  - [ ] Complete queries from the command spec's terminal hints or a labeled boundary; define only the application fallback for query shapes whose spec has no terminal event.
   - [ ] Surface `472`, `481`, `482`, `501`, `502`, `696`, and standard failures without applying speculative changes.
-  - [ ] Treat channel keys and other server-declared sensitive mode parameters as secrets in command display, persistence, telemetry, and logs.
-- [ ] **`TOPIC`:** Distinguish query, set, and clear from the presence and value of the second parameter.
+  - [ ] Redact the mode parameters identified by `Ircxd.CommandSpec.sensitive_positions` from command display, persistence, telemetry, and logs.
+- [ ] **`TOPIC`:** Use `Ircxd.CommandSpec.classify/3` to distinguish query from mutation while preserving set versus clear from the parsed second parameter.
   - [ ] For queries, treat `331` as an empty terminal result; after `332`, include optional setter/time `333` and finish on the labeled boundary or a documented short fallback grace period. For mutations, update the channel only on the server `topic` event or equivalent confirmed reply.
   - [ ] Preserve a multiword topic exactly and surface `403`, `442`, `461`, `482`, and standard failures in the affected channel.
 - [ ] **`KICK`:** Parse channel, one or more targets supported by the server, and an optional reason.
@@ -366,114 +349,90 @@ Each checkbox means that every named command has an explicit registry entry and 
 
 ### `/topic`
 
-- [ ] Parse `/topic #channel New topic with spaces` as `["#channel", "New topic with spaces"]`.
-- [ ] Support `/topic #channel` as a query using `Ircxd.Client.topic/3` with no topic.
-- [ ] Continue to validate that the channel belongs to the current user's connection.
-- [ ] Route `topic_reply`, `topic_empty`, and `topic_who_time` to the relevant channel buffer.
-- [ ] Update command usage, description, and examples to match implemented behavior.
+- [x] Parse `/topic #channel New topic with spaces` as `["#channel", "New topic with spaces"]`.
+- [x] Support `/topic #channel` as a managed query with no topic parameter.
+- [x] Continue to validate that the channel belongs to the current user's connection.
+- [x] Route `topic_reply`, `topic_empty`, and `topic_who_time` to the relevant channel buffer.
+- [x] Update command usage, description, and examples to match implemented behavior.
 - [ ] Add parser, channel, session, and UI tests for query, multiword set, invalid arguments, and server rejection.
 
 ### Channel target detection
 
-- [ ] Add one shared channel-target predicate or target-routing function.
-- [ ] Capture and retain `CHANTYPES` from ircxd ISUPPORT when available.
-- [ ] Use the shared routing logic for inbound `PRIVMSG`, `NOTICE`, `MODE`, TOPIC, and related events.
-- [ ] Provide a safe fallback consistent with the domain's `#&+!` support.
-- [ ] Add tests using at least `#public` and `&local` targets.
+- [x] Add one shared target-routing function backed by `Ircxd.ISupport.channel?/2` and the cached `client_info.isupport` supplied by ircxd.
+- [x] Use the shared routing logic for inbound `PRIVMSG`, `NOTICE`, `MODE`, TOPIC, and related events.
+- [x] Align domain channel validation with ircxd's negotiated `CHANTYPES` behavior and `#`/`&` fallback.
+- [x] Add tests using hash-prefixed and `&local` targets.
 
 ### Nickname synchronization
 
-- [ ] Detect whether an ircxd nick event changes the current user's nick.
-- [ ] Persist the new nickname on the owned server connection.
-- [ ] Replace the connection value inside the running IRC session state.
-- [ ] Ensure outgoing persisted messages use the new nickname.
-- [ ] Broadcast a connection update that React applies to the relevant server and buffers.
-- [ ] Surface rejected nickname changes, including nick-in-use events, as actionable buffer errors.
+- [x] Use the nick event's ircxd-provided `source_self?` flag to identify a confirmed self change.
+- [x] Persist the new nickname on the owned server connection.
+- [x] Replace the connection value inside the running IRC session state.
+- [x] Ensure outgoing persisted messages use the new nickname.
+- [x] Broadcast a connection update that React applies to the relevant server and buffers.
+- [x] Surface rejected nickname changes, including nick-in-use events, as actionable buffer errors.
 - [ ] Add reconnect and post-change message tests.
 
 ### Immediate private-message safety
 
-- [ ] Stop discarding inbound direct `PRIVMSG` events.
-- [ ] Route inbound and outbound private messages to the owning server buffer for the first release, as chosen in DEC-01.
-- [ ] Persist outgoing `/msg` bodies, not only a generic `Sent message` line.
-- [ ] Preserve sender, target, service, hostmask, timestamp, and server connection metadata.
-- [ ] Preserve `direction` and `peer_nick` metadata so later query-buffer work does not require another message-contract redesign.
-- [ ] Route direct actions and notices consistently with direct messages.
+- [x] Stop discarding inbound direct `PRIVMSG` events.
+- [x] Route inbound and outbound private messages to the owning server buffer for the first release, as chosen in DEC-01.
+- [x] Persist outgoing `/msg` bodies, not only a generic `Sent message` line.
+- [x] Preserve sender, target, service, hostmask, timestamp, and server connection metadata.
+- [x] Preserve `direction` and `peer_nick` metadata so later query-buffer work does not require another message-contract redesign.
+- [x] Route direct actions and notices consistently with direct messages.
 - [ ] Add end-to-end tests for user and service replies.
 
 ### Managed `/quote` messaging commands
 
-- [ ] **`PRIVMSG`:** Parse one or more comma-separated targets plus exactly one trailing body and dispatch through the shared channel/private messaging path.
-  - [ ] Enforce joined-channel and owned-connection context, expand targets for routing, persist one canonical outgoing row per destination, and deduplicate `echo-message` feedback.
-  - [ ] Detect CTCP `ACTION` and supported CTCP requests without letting raw control characters bypass formatting, security, or DCC policy.
+- [x] **`PRIVMSG`:** Parse one or more comma-separated targets plus exactly one trailing body and dispatch through the shared channel/private messaging path.
+  - [x] Enforce joined-channel and owned-connection context, expand targets for routing, persist one canonical outgoing row per destination, and deduplicate `echo-message` feedback.
+  - [x] Detect CTCP `ACTION` and supported CTCP requests without letting raw control characters bypass formatting, security, or DCC policy.
   - [ ] Surface target-specific `401`, `404`, `407`, `411`, `412`, `413`, `414`, `415`, `417`, `482`, and standard failures; do not infer delivery merely from the absence of an error.
-  - [ ] Define `sent` as local transport acceptance and a labeled `ACK` as server command acceptance, not proof that a human recipient received or read the message.
-  - [ ] Define how service-authentication messages such as `PRIVMSG NickServ :IDENTIFY secret` are handled. Normal message bodies cannot be generically redacted, so any promise not to retain service credentials requires a dedicated secret-safe command flow and an explicit block on known credential forms.
-- [ ] **`NOTICE`:** Parse targets/body like `PRIVMSG`, route through the same persistence/destination rules, and respect IRC's rule that automated replies must not be generated in response to a notice.
-  - [ ] Represent server/service notices, channel notices, and direct notices consistently, and deduplicate echoed outbound notices when supported.
-  - [ ] Apply the same `sent` versus server-accepted distinction as `PRIVMSG`; the protocol does not provide recipient delivery/read confirmation.
-- [ ] Keep **`TAGMSG`** disabled in ordinary `/quote` until tagged input is deliberately supported; a tag-only message without validated client tags has no useful first-release behavior.
-- [ ] Keep DCC sends, CTCP commands other than explicitly supported actions, and client-only tag behaviors behind separate opt-in policies and tests.
+  - [x] Define `sent` as local transport acceptance and a labeled `ACK` as server command acceptance, not proof that a human recipient received or read the message.
+  - [x] Define how service-authentication messages such as `PRIVMSG NickServ :IDENTIFY secret` are handled. Normal message bodies cannot be generically redacted, so any promise not to retain service credentials requires a dedicated secret-safe command flow and an explicit block on known credential forms.
+- [x] **`NOTICE`:** Parse targets/body like `PRIVMSG`, route through the same persistence/destination rules, and respect IRC's rule that automated replies must not be generated in response to a notice.
+  - [x] Represent server/service notices, channel notices, and direct notices consistently, and deduplicate echoed outbound notices when supported.
+  - [x] Apply the same `sent` versus server-accepted distinction as `PRIVMSG`; the protocol does not provide recipient delivery/read confirmation.
+- [x] Keep **`TAGMSG`** disabled in ordinary `/quote` until tagged input is deliberately supported; a tag-only message without validated client tags has no useful first-release behavior.
+- [x] Keep DCC sends, CTCP commands other than explicitly supported actions, and client-only tag behaviors behind separate opt-in policies and tests.
 
 ## Phase 2 — P1 command-result pipeline
 
 ### Command identity and correlation
 
-- [ ] Generate a unique `command_id` in the client for every command submission.
-- [ ] Include `command_id`, `buffer_id`, and input in `command:run` payloads.
-- [ ] Return `command_id` in every success and error reply.
-- [ ] Request the IRCv3 `labeled-response` capability when supported.
-- [ ] Use ircxd labeled commands for correlatable raw/query commands.
-- [ ] Extract the label from the underlying structured event and associate it with `command_id`.
-- [ ] Use ircxd `labeled_response` only to update correlation, batching, or completion lifecycle state.
-- [ ] Never persist both a structured event and its `labeled_response` wrapper as separate result rows.
-- [ ] Define a chronological, ungrouped fallback for servers without labeled responses.
-- [ ] Prevent pending-command state from leaking after completion, timeout, disconnect, or process termination.
-- [ ] Add a query-family registry that defines expected result events and terminal events.
-- [ ] Mark a command completed only after its terminal event or labeled-response boundary is observed.
-- [ ] Mark a correlated IRC error as failed and an expired pending command as timed out.
-- [ ] Cover at least WHO, WHOIS, WHOWAS, HELP, INFO, STATS, LINKS, MODE query, and TOPIC query completion rules.
+- [x] Generate a unique `command_id` in the client for every command submission.
+- [x] Include `command_id`, `buffer_id`, and input in `command:run` payloads.
+- [x] Return `command_id` in every success and error reply.
+- [x] Request the IRCv3 `batch` and `labeled-response` capabilities when supported.
+- [x] Use ircxd labeled commands for correlatable raw/query commands.
+- [x] Start ircxd in `events: :envelope` mode and associate `Ircxd.Client.Event.label` with `command_id` without reparsing payloads or raw messages.
+- [x] Use envelope `derivative?` and ircxd's `labeled_response` lifecycle status for correlation/completion, while using `Ircxd.CommandSpec.terminal_events` as the command-specific terminal source; never persist a derivative wrapper as another result row.
+- [x] Define a chronological, ungrouped fallback for servers without labeled responses.
+- [x] Prevent pending-command state from leaking after completion, timeout, disconnect, or process termination.
+- [x] Use `Ircxd.CommandSpec.result_events` and `terminal_events` as the query lifecycle source; supplement them only with application timeout/fallback rules where ircxd declares no terminal event.
+- [x] Mark labeled commands completed or failed from ircxd's lifecycle result, and mark an application-expired pending command as timed out.
 
 ### Standard query `/quote` command inventory
 
-- [ ] Add registry syntax, routing, formatter, failure mapping, and terminal rules for channel/user queries:
-  - [ ] `NAMES [<channels>]`: `names` rows followed by `names_end` (`366`) per channel; for no-target or multi-target forms, aggregate per-channel endings under the labeled boundary or a documented fallback timeout.
-  - [ ] `LIST [<channels> [<server>]]`: `list_start`, `list_entry`, and `list_end` (`323`), integrated with the existing directory lifecycle.
-  - [ ] `WHO <mask> [<flags>]` and supported WHOX shape: `who_reply`/`whox_reply` followed by `who_end` (`315`).
-  - [ ] `WHOIS [<server>] <nicks>`: all structured WHOIS rows followed by `whois_end` (`318`) per requested nick/logical response.
-  - [ ] `WHOWAS <nick> [<count> [<server>]]`: WHOWAS rows followed by `whowas_end` (`369`).
-  - [ ] `USERHOST <nicks>`: one `userhost` (`302`) response or a correlated error.
-  - [ ] `ISON <nicks>`: one `ison` (`303`) response or a correlated error.
-- [ ] Add registry syntax, routing, formatter, failure mapping, and terminal rules for server queries:
-  - [ ] `MOTD [<server>]`: `motd_start`/`motd` followed by `motd_end` (`376`), with `motd_missing` (`422`) as a terminal failure/empty result.
-  - [ ] `VERSION [<server>]`: one `version` (`351`) response.
-  - [ ] `ADMIN [<server>]`: `admin_start`, location rows, and `admin_email` (`259`) as the legacy terminal row, or a labeled boundary/error.
-  - [ ] `LUSERS [<mask> [<server>]]`: all `lusers` rows, completed by the labeled boundary when available; define and test the numeric fallback boundary because networks vary after `255`/`265`/`266`.
-  - [ ] `TIME [<server>]`: one `time` (`391`) response.
-  - [ ] `STATS [<query> [<server>]]`: stats rows followed by `stats_end` (`219`).
-  - [ ] `HELP [<subject>]`: `help_start`/`help` followed by `help_end` (`706`), with `524` as a terminal failure.
-  - [ ] `INFO [<server>]`: info rows followed by `info_end` (`374`).
-  - [ ] `LINKS [[<remote-server>] <mask>]`: links rows followed by `links_end` (`365`).
-  - [ ] `TRACE [<target>]`: trace rows followed by `trace_end` (`262`) when supplied, otherwise a labeled boundary or documented timeout fallback.
-  - [ ] `USERS [<server>]`: users rows followed by `users_end` (`394`), with `users_disabled` (`395`) terminal.
+- [ ] Add application policy, routing, formatting, and failure mapping for enabled channel/user queries (`NAMES`, `LIST`, `WHO`, `WHOIS`, `WHOWAS`, `USERHOST`, and `ISON`), consuming syntax and lifecycle hints from `Ircxd.CommandSpec`.
+- [ ] Add application policy, routing, formatting, and failure mapping for enabled server queries (`MOTD`, `VERSION`, `ADMIN`, `LUSERS`, `TIME`, `STATS`, `HELP`, `INFO`, `LINKS`, `TRACE`, and `USERS`), consuming syntax and lifecycle hints from `Ircxd.CommandSpec`.
+- [ ] Define and test an application fallback boundary only for an enabled query whose command spec has no terminal event or whose server omits the expected terminal event.
 - [ ] Treat each multi-target query target as a separately trackable result where the protocol returns target-specific errors.
 - [ ] Complete a single-row query when its response arrives, but still consume a labeled boundary/ACK without persisting a duplicate row.
 - [ ] For a server without labeled responses, match by command family plus normalized target and keep overlapping indistinguishable requests chronological; document that correlation is best-effort in this fallback.
 
 ### ircxd event-disposition inventory
 
-- [ ] Add an explicit inventory covering every public ircxd client event used or emitted by the installed ircxd version.
-- [ ] Allow events to have multiple actions, such as `[:state, :display, :persist]` for a join.
-- [ ] Classify every event as one or more of display, persist, state update, correlate, internal, or intentionally ignored.
-- [ ] Document why every intentionally ignored event is not exposed by topics.club.
-- [ ] Replace silent unknown-event handling with redacted, rate-limited logging or telemetry.
-- [ ] Add or expose a canonical ircxd event-name catalog if needed to make coverage testable.
-- [ ] Add a contract test that fails when ircxd adds an event without a topics.club disposition.
+- [x] Keep `Ircxd.Client.Event.names/0` as the canonical inventory instead of maintaining a duplicate application manifest.
+- [x] Give explicitly consumed events whichever display, persistence, state, and correlation actions the product requires.
+- [x] Replace silent unknown-event handling with redacted, rate-limited logging or telemetry.
+- [x] Let new or intentionally unconsumed ircxd events use that safe fallback so an ircxd update does not create busywork or expose raw payloads.
 
 ### Event formatting and routing
 
-- [ ] Add a focused formatter/router module for ircxd events.
-- [ ] Have the formatter return a stable destination, message kind, human-readable body, and structured metadata.
+- [x] Add a focused formatter/router module for ircxd events.
+- [x] Have the formatter/router combination select a stable destination, message kind, human-readable body, and structured metadata.
 - [ ] Format and route these response families:
   - [ ] WHO and WHOX
   - [ ] WHOIS and WHOWAS
@@ -492,27 +451,26 @@ Each checkbox means that every named command has an explicit registry entry and 
   - [ ] exception lists
   - [ ] standard `FAIL`, `WARN`, and `NOTE` replies
   - [ ] supported miscellaneous numerics
-- [ ] Add a safe fallback for unrecognized `raw` events and numeric replies.
-- [ ] Continue ignoring ircxd's duplicate generic `message` notification when a structured event has already been handled.
-- [ ] Persist each structured event exactly once even when ircxd also emits generic and labeled wrappers.
-- [ ] Redact credentials and sensitive authentication material from commands and output before persistence or broadcast.
+- [x] Add a safe fallback for unrecognized numeric `raw` events that shows only the numeric and final description.
+- [x] Use event-envelope `derivative?` metadata to persist each server result exactly once while still consuming generic and labeled lifecycle views where needed.
+- [x] Redact credentials and sensitive authentication material from commands and output before persistence or broadcast.
 
 ### Persistence and realtime delivery
 
-- [ ] Persist command invocation rows in the originating buffer or explicitly selected server buffer.
-- [ ] Persist each result row with ordering and correlation metadata.
-- [ ] Preserve the DEC-05 metadata contract even though the first-release timeline uses only ordinary message rows.
-- [ ] Route channel-specific replies to their channel when a membership exists.
-- [ ] Route server-wide and unmatched replies to the owning server buffer.
-- [ ] Broadcast persisted output through the existing versioned buffer event contract.
-- [ ] Ensure history pagination returns command output after reconnect or refresh.
+- [x] Persist command invocation rows in the originating buffer or explicitly selected server buffer.
+- [x] Persist each result row with ordering and correlation metadata.
+- [x] Preserve the DEC-05 metadata contract even though the first-release timeline uses only ordinary message rows.
+- [x] Route channel-specific replies to their channel when a membership exists.
+- [x] Route server-wide and unmatched replies to the owning server buffer.
+- [x] Broadcast persisted output through the existing versioned buffer event contract.
+- [x] Ensure history pagination returns command output after reconnect or refresh.
 - [ ] Define unread-counter behavior for command results initiated by the current user.
-- [ ] Ensure retention pruning treats command output consistently with other messages.
+- [x] Ensure retention pruning treats command output consistently with other messages.
 
 ### `/list` integration
 
 - [ ] Preserve the existing dedicated channel-directory result and UI.
-- [ ] Add `command_id` correlation without duplicating list entries into the generic transcript unless intentionally desired.
+- [x] Add `command_id` correlation without duplicating list entries into the generic transcript unless intentionally desired.
 - [ ] Keep timeout, concurrent-list, navigation-away, and reconnect behavior covered.
 
 ## Phase 3 — P2 command UX and policy
@@ -533,12 +491,10 @@ Each checkbox means that every named command has an explicit registry entry and 
   - [ ] The connection configuration/ircxd registration flow remains the only owner of these commands; `PASS` values must never enter command rows, error echoes, telemetry, or logs.
   - [ ] Return a specific `registration_command_managed` policy error instead of allowing the server's `462` after the secret has already been exposed to the application pipeline.
 - [ ] **Capability/SASL state machine:** Keep raw `CAP`, `AUTHENTICATE`, and `BATCH` denied.
-  - [ ] Expose safe capability inspection through ircxd's managed `cap_list`/ISUPPORT state if desired.
   - [ ] Any future capability toggle must call ircxd's request/disable APIs and wait for complete `ACK`/`NAK`; it must never send raw `CAP REQ` behind ircxd's active-capability state.
   - [ ] SASL reauthentication, if added, must use a secret-safe dedicated flow rather than `/quote AUTHENTICATE`.
 - [ ] **Transport/registration extensions:** Keep raw `STARTTLS` and `WEBIRC` denied. TLS mode and trusted-proxy identity must be established by connection configuration before registration; they cannot be changed safely by an already-registered browser command.
 - [ ] **Transport keepalive:** Keep raw `PING`, `PONG`, and `ERROR` denied because ircxd owns keepalive and connection termination. If a user-facing latency check is desired, implement a managed command with a generated opaque token and matched `pong` event.
-- [ ] **Numerics and prefixes:** Reject client-sent numeric commands and source prefixes even if the generic message parser accepts their wire shape.
 - [ ] **Operator authentication:** Keep `/quote OPER <name> <password>` denied because it carries a credential. A future oper-login surface must require TLS, redact both fields, use a dedicated executor, and complete on `youre_oper` (`381`), user `MODE`, or an explicit error.
 - [ ] **Destructive/operator commands:** Default-deny `KILL`, `CONNECT`, `SQUIT`, `REHASH`, `RESTART`, `DIE`, and server-specific equivalents.
   - [ ] If the product later supports IRC operators, require an explicit account capability, per-command confirmation for destructive actions, typed ircxd APIs, redacted audit records, and server reply/error handling before enabling each command.
@@ -550,8 +506,8 @@ Each checkbox means that every named command has an explicit registry entry and 
 
 ### IRCv3 and ircxd-supported extension commands
 
-- [ ] Keep extension commands capability-gated and disabled until their application-state and output semantics are implemented; “ircxd can transmit it” is not sufficient.
-- [ ] **`SETNAME`:** Preserve the trailing realname, require/observe the `setname` capability, update shared presence only on the self `setname` event, and handle `FAIL SETNAME` without speculative state.
+- [ ] Keep extension commands disabled until their application-state and output semantics are implemented; use `Ircxd.CommandSpec.required_capabilities` for policy messaging and let ircxd enforce the live transport capability check.
+- [ ] **`SETNAME`:** Update shared presence only on the self `setname` event and handle `FAIL SETNAME` without speculative state.
 - [ ] **`RENAME`:** Require `draft/channel-rename`; on confirmed rename, atomically migrate the membership/buffer identity, history routing, pending intents, sidebar state, and presence from old channel to new channel. Reject raw use until this is tested.
 - [ ] **`MONITOR`:** Parse `+`, `-`, `C`, `L`, and `S` subcommands, enforce ISUPPORT limits, maintain a confirmed monitor set from online/offline/list/end events, and decide whether results are state-only or also displayed.
 - [ ] **`MARKREAD`:** Require `draft/read-marker`; distinguish get/set shapes and reconcile the server marker with local unread state without moving a local marker backward or marking unseen local history as read accidentally.
@@ -560,7 +516,6 @@ Each checkbox means that every named command has an explicit registry entry and 
 - [ ] **`TAGMSG`:** Require `message-tags`, validate allowed client-only tags, route each tag by its registered behavior, and do not render a blank chat row by default.
 - [ ] **Account registration `REGISTER`/`VERIFY`:** Keep denied in `/quote`; passwords, emails, and verification codes require a dedicated secret-safe workflow, TLS, capability checks, and standard-reply handling.
 - [ ] **`REDACT`:** Require the message-redaction capability and a local deletion/tombstone model before enabling; reconcile only confirmed redactions and preserve appropriate audit/history behavior.
-- [ ] Add registry entries for any other ircxd extension API introduced by dependency upgrades, with default status `unsupported` until all required fields and tests are supplied.
 
 ### Command transcript UI — deferred Storybook work
 
@@ -569,7 +524,7 @@ Each checkbox means that every named command has an explicit registry entry and 
 - [ ] Group correlated multiline output under its command.
 - [ ] Add collapsible presentation for verbose results such as WHOIS, HELP, and STATS.
 - [ ] Preserve plain accessible text for screen readers and copy/paste.
-- [ ] Keep unknown/raw numeric output readable even without a specialized renderer.
+- [x] Keep unknown/raw numeric output readable even without a specialized renderer.
 - [ ] Make command errors visually distinct and attach them to the originating command when possible.
 - [ ] Verify behavior on narrow/mobile layouts and with long unbroken IRC parameters.
 - [ ] Add Storybook stories for every status, result family, error, mobile layout, and long-content edge case before integrating the richer components.
@@ -633,7 +588,7 @@ Each checkbox means that every named command has an explicit registry entry and 
 
 ### `/quote`
 
-- [ ] Parses IRC trailing parameters, empty trailing values, limits, and invalid wire characters correctly.
+- [ ] Uses `Ircxd.ClientCommand.parse/2` with its safe defaults and maps its stable errors without maintaining a second IRC wire parser.
 - [ ] Resolves every known command through the registry; no known command reaches an unclassified raw fallback.
 - [ ] Routes managed stateful commands through the same intent/executor/reconciler used by native slash commands.
 - [ ] Reconciles `JOIN`, `PART`, `NICK`, `QUIT`, `MODE`, `TOPIC`, `KICK`, `INVITE`, and `AWAY` from authoritative server feedback.
@@ -652,15 +607,12 @@ Each checkbox means that every named command has an explicit registry entry and 
 - [ ] Test every advertised command's valid forms.
 - [ ] Test missing, excess, and multiword arguments.
 - [ ] Test context requirements.
-- [ ] Add table-driven round-trip fixtures for every command registry entry, including trailing parameters, empty trailing parameters, comma-separated target lists, maximum arity, mixed-case command names, and maximum wire length.
-- [ ] Test rejection of source prefixes, tags in the first release, numeric commands, `NUL`/`CR`/`LF`, too many parameters, oversized lines, and invalid `UTF8ONLY` payloads.
+- [ ] Add focused integration fixtures proving `/quote` passes `Ircxd.ClientCommand` results unchanged for trailing and empty trailing parameters and maps representative parser/transmit errors; leave exhaustive wire-parser and validator coverage in ircxd.
 - [ ] Test managed, protocol-owned, sensitive, operator, deprecated, unsupported, and unknown policy outcomes.
-- [ ] Test argument-aware `MODE` query, list query, and mutation classification using representative `CHANMODES`/`PREFIX` values.
-- [ ] Test `TOPIC` query versus set versus clear classification.
+- [ ] Add a contract test proving policy resolution consumes `Ircxd.CommandSpec.classify/3` without replacing its argument-aware `MODE`/`TOPIC`, sensitivity, or lifecycle metadata.
 - [ ] Test `JOIN`/`PART` target expansion, partial success, `JOIN 0`, and channel-key redaction.
 - [ ] Test that denied raw commands never reach the IRC transport.
 - [ ] Test that sensitive input is redacted before persistence, broadcast, telemetry, and logs.
-- [ ] Add a registry completeness test against the documented standard/modern command inventory so a known command cannot accidentally use an unknown-command fallback.
 
 ### IRC session integration tests
 
@@ -680,7 +632,7 @@ Each checkbox means that every named command has an explicit registry entry and 
 - [ ] Verify multi-channel `JOIN` can succeed for one target and fail for another without leaking keys or phantom buffers.
 - [ ] Verify raw and native `PART` retain membership until self `PART`, retain it on rejection/timeout, and remove/archive it once on confirmation.
 - [ ] Verify `JOIN 0`, self-targeted `KICK`, server-forced join/part, and replayed duplicate events reconcile idempotently.
-- [ ] Verify raw `NICK` updates the confirmed connection/session/UI nick only after self feedback and does not invoke registration fallback behavior on rejection.
+- [ ] Verify raw `NICK` updates the confirmed connection/session/UI nick only after `source_self?` feedback and leaves application state unchanged on ircxd's structured rejection event.
 - [ ] Verify raw `QUIT` is treated as intentional and does not trigger an unintended reconnect loop.
 - [ ] Verify MODE query/list/mutation, TOPIC query/set/clear, INVITE, and AWAY success and failure terminal rules.
 - [ ] Verify raw `PRIVMSG`/`NOTICE` trailing bodies, multi-target routing, direct-message destination, CTCP action handling, echo deduplication, and no false `delivered` status.
@@ -720,7 +672,7 @@ Each checkbox means that every named command has an explicit registry entry and 
 
 - [ ] All Phase 1 P0 correctness work and Phase 2 P1 command-result work is complete and covered by regression tests.
 - [ ] The backend command catalog is authoritative and typed errors give users actionable feedback.
-- [ ] `/quote` uses the IRC-aware parser and complete command registry before any transmission; source prefixes, numerics, uncontrolled tags, protocol-owned commands, secrets, unknown commands, and not-yet-managed stateful commands are denied.
+- [ ] `/quote` uses `Ircxd.ClientCommand` and the application registry composed with `Ircxd.CommandSpec` before any transmission; source prefixes, numerics, uncontrolled tags, protocol-owned commands, secrets, unknown commands, and not-yet-managed stateful commands are denied.
 - [ ] Enabled standard stateful `/quote` commands share native execution/reconciliation and update durable state only from server feedback, including multi-target partial outcomes.
 - [ ] Argument-aware `MODE` query/list/mutation and `TOPIC` query/set/clear behavior is implemented and tested.
 - [ ] Private messages are durably visible in the server buffer with metadata needed for future query buffers.

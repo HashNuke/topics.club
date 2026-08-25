@@ -165,20 +165,56 @@ export function trimMessagesToLimit(messages, limit = MESSAGE_RENDER_LIMIT) {
 }
 
 export function appendTimelineMessage(messages, message, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
-  if (message.id && messages.some((current) => current.id === message.id)) return messages
+  if (message.id && messages.some((current) => current.id === message.id)) {
+    return messages.map((current) => (current.id === message.id ? {...current, ...message} : current))
+  }
 
   const nextMessages = sortTimelineMessages([...messages, message])
   return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
 }
 
 export function mergeOlderMessages(olderMessages, currentMessages) {
+  const olderById = new Map(
+    olderMessages.filter((message) => message.id != null).map((message) => [message.id, message])
+  )
   const currentIds = new Set(currentMessages.map((message) => message.id))
-  return sortTimelineMessages([...olderMessages.filter((message) => !currentIds.has(message.id)), ...currentMessages])
+  const updatedCurrent = currentMessages.map((message) => {
+    const older = olderById.get(message.id)
+    if (!older || commandStatusRank(older) < commandStatusRank(message)) return message
+    return {...message, ...older}
+  })
+  const prepended = olderMessages.filter((message) => message.id == null || !currentIds.has(message.id))
+  return sortTimelineMessages([...prepended, ...updatedCurrent])
 }
 
 export function mergeNewerMessages(currentMessages, newerMessages) {
+  const updatesById = new Map(
+    newerMessages
+      .filter((message) => message.id != null)
+      .map((message) => [message.id, message])
+  )
   const currentIds = new Set(currentMessages.map((message) => message.id))
-  return trimMessagesToLimit(sortTimelineMessages([...currentMessages, ...newerMessages.filter((message) => !currentIds.has(message.id))]))
+  const updatedCurrent = currentMessages.map((message) => {
+    if (!updatesById.has(message.id)) return message
+
+    const update = updatesById.get(message.id)
+    return commandStatusRank(update) < commandStatusRank(message) ? message : {...message, ...update}
+  })
+  const appended = newerMessages.filter((message) => message.id == null || !currentIds.has(message.id))
+
+  return trimMessagesToLimit(sortTimelineMessages([...updatedCurrent, ...appended]))
+}
+
+function commandStatusRank(message) {
+  if (message?.kind !== "command") return 0
+
+  return {
+    sent: 1,
+    acknowledged: 2,
+    completed: 3,
+    failed: 3,
+    timed_out: 3,
+  }[message.metadata?.command_status] || 0
 }
 
 export function latestBackendMessageId(messages) {
@@ -204,5 +240,5 @@ function sortTimelineMessages(messages) {
 
 export function normalizeChannel(channel) {
   if (!channel) return "#general"
-  return "#&+!".includes(channel[0]) ? channel : "#" + channel
+  return /^[^A-Za-z0-9\s,:\u0000\u0007]/u.test(channel) ? channel : "#" + channel
 }

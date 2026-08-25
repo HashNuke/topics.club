@@ -2,19 +2,30 @@ defmodule IrcpipeWeb.Api.ChannelController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
-  alias Ircpipe.Realtime.Event
 
   def create(conn, %{"connection_id" => connection_id, "channel" => channel}) do
     user = conn.assigns.current_scope.user
     connection = Chat.get_connection!(user, connection_id)
 
-    with {:ok, membership} <- Chat.join_channel(user, connection, channel) do
-      SessionSupervisor.start_session(connection)
-      try_join(connection, membership.channel)
+    with :ok <- CommandRegistry.validate_join_channel_syntax(channel),
+         :ok <- start_session(connection),
+         {:ok, membership, status} <- try_join(connection, user, channel) do
+      conn
+      |> maybe_accept_queued(status)
+      |> json(%{channel: channel_json(membership), status: Atom.to_string(status)})
+    else
+      {:error, %{code: code}} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: code})
 
-      json(conn, %{channel: channel_json(membership)})
+      {:error, reason} ->
+        conn
+        |> put_status(join_status(reason))
+        |> json(%{error: join_error(reason)})
     end
   end
 
@@ -29,17 +40,18 @@ defmodule IrcpipeWeb.Api.ChannelController do
     user = conn.assigns.current_scope.user
     membership = Chat.get_membership!(user, id)
 
-    try_part(membership)
-    :ok = Chat.leave_channel(user, membership)
-
-    json(conn, %{
-      left:
-        Event.buffer_left(%{
-          buffer_id: "channel:#{membership.id}",
-          server_connection_id: membership.server_connection_id,
-          channel_membership_id: membership.id
+    case try_part(membership) do
+      :ok ->
+        json(conn, %{
+          status: "sent",
+          buffer_id: "channel:#{membership.id}"
         })
-    })
+
+      {:error, reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: to_string(reason)})
+    end
   end
 
   defp channel_json(channel) do
@@ -52,21 +64,32 @@ defmodule IrcpipeWeb.Api.ChannelController do
     }
   end
 
-  defp try_join(connection, channel) do
-    case Session.join(connection, channel) do
-      :ok -> :ok
-      _ -> :ok
-    end
+  defp try_join(connection, user, channel) do
+    Session.request_join(connection, user, channel)
   catch
-    :exit, _ -> :ok
+    :exit, _ -> {:error, :not_connected}
+  end
+
+  defp maybe_accept_queued(conn, :queued), do: put_status(conn, :accepted)
+  defp maybe_accept_queued(conn, :sent), do: conn
+
+  defp join_status(:not_connected), do: :service_unavailable
+  defp join_status(_reason), do: :unprocessable_entity
+
+  defp join_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp join_error(reason), do: inspect(reason)
+
+  defp start_session(connection) do
+    case SessionSupervisor.start_session(connection) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp try_part(membership) do
-    case Session.part(membership.server_connection, membership.channel) do
-      :ok -> :ok
-      _ -> :ok
-    end
+    Session.part(membership.server_connection, membership.channel)
   catch
-    :exit, _ -> :ok
+    :exit, _ -> {:error, :not_connected}
   end
 end

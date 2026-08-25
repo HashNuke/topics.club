@@ -55,7 +55,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
                "channel_membership_id" => membership_id,
                "title" => "#elixir"
              }
-           } = json_response(conn, 200)
+           } = json_response(conn, 202)
 
     assert topic_id == topic.id
     assert buffer_id == "channel:#{membership_id}"
@@ -86,8 +86,8 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
     first = post(conn, ~p"/api/topics/#{topic.id}/join")
     second = post(conn, ~p"/api/topics/#{topic.id}/join")
 
-    first_body = json_response(first, 200)
-    second_body = json_response(second, 200)
+    first_body = json_response(first, 202)
+    second_body = json_response(second, 202)
 
     assert first_body["connection"]["id"] == second_body["connection"]["id"]
 

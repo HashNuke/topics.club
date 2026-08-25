@@ -16,11 +16,17 @@ defmodule IrcpipeWeb.Api.MessageController do
     buffer_id = Map.get(params, "buffer_id") || Map.fetch!(params, "id")
 
     messages =
-      Chat.list_buffer_messages(user, buffer_id,
-        limit: Map.get(params, "limit", 150),
-        before: Map.get(params, "before"),
-        after: Map.get(params, "after")
-      )
+      case Map.get(params, "command_ids") do
+        command_ids when is_binary(command_ids) ->
+          Chat.list_buffer_command_messages(user, buffer_id, String.split(command_ids, ","))
+
+        _command_ids ->
+          Chat.list_buffer_messages(user, buffer_id,
+            limit: Map.get(params, "limit", 150),
+            before: Map.get(params, "before"),
+            after: Map.get(params, "after")
+          )
+      end
 
     json(conn, %{messages: Enum.map(messages, &message_json(&1, buffer_id))})
   end
@@ -29,8 +35,19 @@ defmodule IrcpipeWeb.Api.MessageController do
     user = conn.assigns.current_scope.user
     membership = Chat.get_membership!(user, channel_id)
 
-    with :ok <- Session.say(membership.server_connection, membership.channel, body) do
-      json(conn, %{ok: true})
+    case Session.say(membership.server_connection, membership.channel, body) do
+      :ok ->
+        json(conn, %{ok: true})
+
+      {:error, %{code: code, message: message}} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: code, message: message})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: to_string(reason)})
     end
   end
 

@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Accounts
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Commands
+  alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
@@ -91,16 +92,22 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   def handle_in("command:run", %{"input" => input} = payload, socket) do
-    case Commands.parse(input) do
-      {:ok, command} ->
-        run_command(command, socket.assigns.current_user, Map.get(payload, "buffer_id"), socket)
+    command_id = Map.get(payload, "command_id") || Ecto.UUID.generate()
+    socket = assign(socket, :command_id, command_id)
 
-      {:error, :not_a_command} ->
-        reply_error(socket, %{reason: "not_a_command"})
+    result =
+      case Commands.parse(input) do
+        {:ok, command} ->
+          run_command(command, socket.assigns.current_user, Map.get(payload, "buffer_id"), socket)
 
-      {:error, {:unknown_command, command}} ->
-        reply_error(socket, %{reason: "unknown_command", command: command})
-    end
+        {:error, :not_a_command} ->
+          reply_error(socket, %{reason: "not_a_command"})
+
+        {:error, {:unknown_command, command}} ->
+          reply_error(socket, %{reason: "unknown_command", command: command})
+      end
+
+    put_reply_command_id(result, command_id)
   end
 
   def handle_in(
@@ -183,15 +190,15 @@ defmodule IrcpipeWeb.UserChannel do
     reason = Map.get(payload, "reason", "leaving")
 
     with {:ok, membership} <- fetch_membership(user, membership_id),
-         :ok <- part(membership, reason),
-         :ok <- Chat.leave_channel(user, membership) do
+         :ok <- part(membership, reason) do
       reply_ok(
         socket,
-        Event.buffer_left(%{
+        %{
+          status: "sent",
           buffer_id: "channel:#{membership.id}",
           server_connection_id: membership.server_connection_id,
           channel_membership_id: membership.id
-        })
+        }
       )
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
@@ -259,17 +266,23 @@ defmodule IrcpipeWeb.UserChannel do
     end
   end
 
-  defp run_command(command, _user, nil, socket) do
-    reply_ok(socket, %{command: command})
-  end
+  defp run_command(command, _user, nil, socket),
+    do: reply_error(socket, %{reason: "invalid_buffer", command: command})
 
   defp run_command(%{name: "join", args: [channel]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- connection_from_buffer(user, buffer_id),
-         {:ok, membership} <- Chat.join_channel(user, connection, channel),
-         :ok <- Session.join(connection, channel) do
-      Chat.record_server_message(connection, "Joining #{membership.channel}.", "command")
-      reply_ok(socket, %{command: command, buffer_id: "channel:#{membership.id}"})
+         {:ok, result} <- execute_intent(connection, "JOIN #{channel}", buffer_id, socket),
+         {:ok, membership} <- membership_for_channel(user, connection, channel) do
+      reply_ok(
+        socket,
+        result
+        |> Map.put(:command, command)
+        |> Map.put(:buffer_id, "channel:#{membership.id}")
+      )
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -283,6 +296,9 @@ defmodule IrcpipeWeb.UserChannel do
         directory: channel_directory(connection, channels)
       })
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -291,16 +307,23 @@ defmodule IrcpipeWeb.UserChannel do
   defp run_command(%{name: name, args: args} = command, user, buffer_id, socket)
        when name in ["part", "leave"] do
     with {:ok, membership} <- membership_from_part_command(user, buffer_id, args),
-         :ok <- part(membership, "leaving"),
-         :ok <- Chat.leave_channel(user, membership) do
-      Chat.record_server_message(
-        membership.server_connection,
-        "Leaving #{membership.channel}.",
-        "command"
+         {:ok, result} <-
+           execute_intent(
+             membership.server_connection,
+             "PART #{membership.channel} :leaving",
+             "channel:#{membership.id}",
+             socket
+           ) do
+      reply_ok(
+        socket,
+        result
+        |> Map.put(:command, command)
+        |> Map.put(:buffer_id, "channel:#{membership.id}")
       )
-
-      reply_ok(socket, %{command: command, buffer_id: "channel:#{membership.id}"})
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -313,13 +336,24 @@ defmodule IrcpipeWeb.UserChannel do
          socket
        ) do
     with {:ok, membership} <- fetch_membership(user, membership_id),
-         :ok <- Session.action(membership.server_connection, membership.channel, body),
+         {:ok, result} <-
+           execute_intent(
+             membership.server_connection,
+             "PRIVMSG #{membership.channel} :\x01ACTION #{body}\x01",
+             "channel:#{membership.id}",
+             socket
+           ),
          message <- latest_message(user, membership) do
       reply_ok(socket, %{
         command: command,
+        command_id: result.command_id,
+        status: result.status,
         message: Event.message(message, "channel:#{membership.id}")
       })
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -327,10 +361,13 @@ defmodule IrcpipeWeb.UserChannel do
 
   defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- connection_from_buffer(user, buffer_id),
-         :ok <- Session.privmsg(connection, target, body) do
-      Chat.record_server_message(connection, "Sent message to #{target}.", "command")
-      reply_ok(socket, %{command: command})
+         {:ok, result} <-
+           execute_intent(connection, "PRIVMSG #{target} :#{body}", buffer_id, socket) do
+      reply_ok(socket, Map.put(result, :command, command))
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -338,10 +375,34 @@ defmodule IrcpipeWeb.UserChannel do
 
   defp run_command(%{name: "nick", args: [nick]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- connection_from_buffer(user, buffer_id),
-         :ok <- Session.nick(connection, nick) do
-      Chat.record_server_message(connection, "Requested nickname change to #{nick}.", "command")
-      reply_ok(socket, %{command: command})
+         {:ok, result} <- execute_intent(connection, "NICK #{nick}", buffer_id, socket) do
+      reply_ok(socket, Map.put(result, :command, command))
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
+      {:error, reason} ->
+        reply_error(socket, %{reason: error_reason(reason), command: command})
+    end
+  end
+
+  defp run_command(%{name: "topic", args: [channel]} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         {:ok, membership} <- membership_for_channel(user, connection, channel),
+         {:ok, client_info} <- session_connection_info(connection),
+         {:ok, intent} <- CommandRegistry.resolve("TOPIC #{membership.channel}", client_info),
+         {:ok, result} <-
+           Session.execute(
+             connection,
+             intent,
+             socket.assigns.command_id,
+             "channel:#{membership.id}"
+           ) do
+      reply_ok(socket, Map.put(result, :command, command))
+    else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -350,17 +411,23 @@ defmodule IrcpipeWeb.UserChannel do
   defp run_command(%{name: "topic", args: [channel, topic]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- connection_from_buffer(user, buffer_id),
          {:ok, membership} <- membership_for_channel(user, connection, channel),
-         :ok <- Session.topic(connection, membership.channel, topic) do
-      Chat.record_channel_system_message(
-        connection,
-        membership.channel,
-        "command",
-        connection.nickname,
-        "Requested topic change: #{topic}"
+         {:ok, result} <-
+           execute_intent(
+             connection,
+             "TOPIC #{membership.channel} :#{topic}",
+             "channel:#{membership.id}",
+             socket
+           ) do
+      reply_ok(
+        socket,
+        result
+        |> Map.put(:command, command)
+        |> Map.put(:buffer_id, "channel:#{membership.id}")
       )
-
-      reply_ok(socket, %{command: command, buffer_id: "channel:#{membership.id}"})
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -368,11 +435,15 @@ defmodule IrcpipeWeb.UserChannel do
 
   defp run_command(%{name: "quote", args: [line]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- connection_from_buffer(user, buffer_id),
-         {:ok, raw_command, params} <- parse_raw_command(line),
-         :ok <- Session.raw(connection, raw_command, params) do
-      Chat.record_server_message(connection, "Sent raw IRC command: #{line}.", "command")
-      reply_ok(socket, %{command: command})
+         {:ok, client_info} <- session_connection_info(connection),
+         {:ok, intent} <- CommandRegistry.resolve(line, client_info),
+         {:ok, result} <-
+           Session.execute(connection, intent, socket.assigns.command_id, buffer_id) do
+      reply_ok(socket, Map.put(result, :command, command))
     else
+      {:error, %{code: code} = error} ->
+        reply_error(socket, %{reason: code, error: error, command: command})
+
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
     end
@@ -391,7 +462,11 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp fetch_membership(user, membership_id) do
-    {:ok, Chat.get_membership!(user, membership_id)}
+    membership = Chat.get_membership!(user, membership_id)
+
+    if membership.status in ["pending", "joined"],
+      do: {:ok, membership},
+      else: {:error, :invalid_buffer}
   rescue
     Ecto.NoResultsError -> {:error, :invalid_buffer}
   end
@@ -423,16 +498,23 @@ defmodule IrcpipeWeb.UserChannel do
   defp membership_from_part_command(_user, _buffer_id, _args), do: {:error, :invalid_command_args}
 
   defp membership_for_channel(user, connection, channel) do
-    {:ok, Chat.get_membership_by_channel!(user, connection, channel)}
+    casemapping =
+      case session_connection_info(connection) do
+        {:ok, client_info} -> client_info.casemapping
+        {:error, _reason} -> nil
+      end
+
+    membership = Chat.get_membership_by_channel!(user, connection, channel, casemapping)
+
+    if membership.status in ["pending", "joined"],
+      do: {:ok, membership},
+      else: {:error, :invalid_buffer}
   rescue
     Ecto.NoResultsError -> {:error, :invalid_buffer}
   end
 
-  defp parse_raw_command(line) do
-    case String.split(String.trim(line), ~r/\s+/, trim: true) do
-      [] -> {:error, :invalid_command_args}
-      [command | params] -> {:ok, String.upcase(command), params}
-    end
+  defp put_reply_command_id({:reply, {status, payload}, socket}, command_id) do
+    {:reply, {status, Map.put(payload, :command_id, command_id)}, socket}
   end
 
   defp channel_directory(connection, channels) do
@@ -450,6 +532,19 @@ defmodule IrcpipeWeb.UserChannel do
     :exit, _reason -> {:error, :not_connected}
   end
 
+  defp session_connection_info(connection) do
+    Session.connection_info(connection)
+  catch
+    :exit, _reason -> {:error, :not_connected}
+  end
+
+  defp execute_intent(connection, line, buffer_id, socket) do
+    with {:ok, client_info} <- session_connection_info(connection),
+         {:ok, intent} <- CommandRegistry.resolve(line, client_info) do
+      Session.execute(connection, intent, socket.assigns.command_id, buffer_id)
+    end
+  end
+
   defp say(membership, body) do
     Session.say(membership.server_connection, membership.channel, body)
   catch
@@ -459,7 +554,7 @@ defmodule IrcpipeWeb.UserChannel do
   defp part(membership, reason) do
     Session.part(membership.server_connection, membership.channel, reason)
   catch
-    :exit, _reason -> :ok
+    :exit, _reason -> {:error, :not_connected}
   end
 
   defp latest_message(user, membership) do
@@ -477,6 +572,7 @@ defmodule IrcpipeWeb.UserChannel do
   defp error_reason(:list_timeout), do: "list_timeout"
   defp error_reason(:joining_channel), do: "joining_channel"
   defp error_reason(:not_joined), do: "not_joined"
+  defp error_reason(%{code: code}), do: code
   defp error_reason(_reason), do: "send_failed"
 
   defp send_error_body(:not_connected), do: "Message could not be sent: not connected."
@@ -485,5 +581,6 @@ defmodule IrcpipeWeb.UserChannel do
     do: "Message could not be sent: still joining the channel."
 
   defp send_error_body(:not_joined), do: "Message could not be sent: not joined to the channel."
+  defp send_error_body(%{message: message}), do: message
   defp send_error_body(_reason), do: "Message could not be sent."
 end

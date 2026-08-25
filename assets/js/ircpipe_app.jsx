@@ -4,7 +4,6 @@ import {createApiClient} from "./api_client.js"
 import {
   applyUserDiff,
   appendTimelineMessage,
-  latestBackendMessageId,
   mergeNewerMessages,
   mergeOlderMessages,
   normalizeChannel,
@@ -131,7 +130,7 @@ const demoMessages = [
   },
 ]
 
-export const slashCommands = [
+const demoSlashCommands = [
   {name: "/join", usage: "/join #channel", description: "Join a channel"},
   {name: "/list", usage: "/list", description: "Browse channels on this server"},
   {name: "/part", usage: "/part #channel", description: "Leave a channel"},
@@ -161,6 +160,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   )
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
+  const [composerError, setComposerError] = useState(null)
+  const [commandCatalog, setCommandCatalog] = useState(() => (currentUser ? [] : demoSlashCommands))
   const [channelDirectory, setChannelDirectory] = useState({serverId: null, channels: [], status: "idle", error: null, joinError: null, joiningChannel: null})
   const channelDirectoryRequestRef = useRef(0)
   const loadingOlderRef = useRef(new Set())
@@ -171,6 +172,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const messagesByChannelRef = useRef(messagesByChannel)
   const messagesByServerRef = useRef(messagesByServer)
   const reconcilingBuffersRef = useRef(new Set())
+  const rejectedBufferIdsRef = useRef(new Set())
+  const joinRejectionVersionsRef = useRef(new Map())
   const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
@@ -268,7 +271,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         onMessage: applyRealtimeMessage,
         onMention: handleMentionNotification,
         onBufferMessage: applyRealtimeMessage,
-        onBufferJoined: applyJoinedTopic,
+        onBufferJoined: applyAuthoritativeJoinedTopic,
         onBufferLeft: applyBufferLeft,
         onBufferRead: applyBufferRead,
         onPresenceDiff: applyPresenceDiff,
@@ -337,9 +340,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const topicId = numericId(normalized.id) || numericId(backendTopic?.id)
 
     if (currentUser && topicId) {
+      const rejectionVersions = new Map(joinRejectionVersionsRef.current)
+
       try {
         const joined = await apiClient.joinTopic(topicId)
-        applyJoinedTopic(joined)
+        applyJoinedTopic(joined, false, rejectionVersions)
         return
       } catch (_error) {
         return
@@ -393,8 +398,25 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setView("chat")
   }
 
-  function applyJoinedTopic({connection, buffer, topic}) {
+  function applyAuthoritativeJoinedTopic(payload) {
+    applyJoinedTopic(payload, true)
+  }
+
+  function applyJoinedTopic(
+    {connection, buffer, topic},
+    authoritative = false,
+    rejectionVersions = new Map(joinRejectionVersionsRef.current)
+  ) {
     if (!connection || !buffer) return
+
+    if (authoritative) {
+      rejectedBufferIdsRef.current.delete(buffer.buffer_id)
+    } else if (rejectedBufferIdsRef.current.has(buffer.buffer_id)) {
+      const previousVersion = rejectionVersions.get(buffer.buffer_id) || 0
+      const currentVersion = joinRejectionVersionsRef.current.get(buffer.buffer_id) || 0
+      if (currentVersion > previousVersion) return false
+      rejectedBufferIdsRef.current.delete(buffer.buffer_id)
+    }
 
     const connectionId = `server:${connection.id}`
     const channel = {
@@ -440,6 +462,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setActiveServerId(connectionId)
     setActiveChannelId(channel.id)
     setView("chat")
+    return true
   }
 
   async function joinManualServer(form) {
@@ -461,20 +484,34 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       })
 
       for (const channel of channels) {
+        const rejectionVersions = new Map(joinRejectionVersionsRef.current)
         const joined = await apiClient.joinChannel(connection.id, channel)
-        applyJoinedChannel(connection, joined.channel)
+        applyJoinedChannel(connection, joined.channel, rejectionVersions)
       }
     } catch (_error) {
       appendSystemMessage("Server join failed.")
     }
   }
 
-  function applyJoinedChannel(connection, membership) {
+  function applyJoinedChannel(
+    connection,
+    membership,
+    rejectionVersions = new Map(joinRejectionVersionsRef.current)
+  ) {
     if (!connection || !membership) return
 
     const connectionId = `server:${connection.id}`
+    const bufferId = `channel:${membership.id}`
+
+    if (rejectedBufferIdsRef.current.has(bufferId)) {
+      const previousVersion = rejectionVersions.get(bufferId) || 0
+      const currentVersion = joinRejectionVersionsRef.current.get(bufferId) || 0
+      if (currentVersion > previousVersion) return false
+      rejectedBufferIdsRef.current.delete(bufferId)
+    }
+
     const channel = {
-      id: `channel:${membership.id}`,
+      id: bufferId,
       channel_membership_id: membership.id,
       channel: membership.channel,
       topic: `on ${connection.host}`,
@@ -520,6 +557,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setActiveServerId(connectionId)
     setActiveChannelId(channel.id)
     setView("chat")
+    return true
   }
 
   function applyChannelDirectory(directory) {
@@ -561,12 +599,25 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const server = connectionsRef.current.find((connection) => connection.id === channelDirectory.serverId)
     if (!server?.server_connection_id || !channelName) return
 
-    const channel = normalizeChannel(channelName.trim())
+    const channel = channelName.trim()
+    const rejectionVersions = new Map(joinRejectionVersionsRef.current)
     setChannelDirectory((current) => ({...current, joinError: null, joiningChannel: channel}))
 
     try {
       const joined = await apiClient.joinChannel(server.server_connection_id, channel)
-      applyJoinedChannel({...server, id: server.server_connection_id}, joined.channel)
+      const applied = applyJoinedChannel(
+        {...server, id: server.server_connection_id},
+        joined.channel,
+        rejectionVersions
+      )
+
+      if (!applied) {
+        setChannelDirectory((current) => ({
+          ...current,
+          joinError: `Could not join ${channel}. Check the name and channel permissions, then try Join again.`,
+          joiningChannel: null,
+        }))
+      }
     } catch (_error) {
       setChannelDirectory((current) => ({...current, joinError: "Could not join " + channel + ". Check the name and channel permissions, then try Join again.", joiningChannel: null}))
     }
@@ -578,31 +629,48 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     const body = draft.trim()
 
-    if (body.startsWith("/") && realtimeClientRef.current) {
+    if (body.startsWith("/")) {
+      const bufferId = currentBufferId()
+
+      if (!realtimeClientRef.current || !bufferId) {
+        setComposerError("Choose a connected server or channel before running a command.")
+        return
+      }
+
       const directoryRequestId = body.toLowerCase() === "/list" ? ++channelDirectoryRequestRef.current : null
-      setDraft("")
+      const commandId = globalThis.crypto?.randomUUID?.() || `command-${Date.now()}`
+      setComposerError(null)
 
       try {
         const reply = await realtimeClientRef.current.push("command:run", {
+          command_id: commandId,
           input: body,
-          buffer_id: currentBufferId(),
+          buffer_id: bufferId,
         })
 
+        setDraft("")
         if (reply.directory) {
           if (directoryRequestId !== channelDirectoryRequestRef.current) return
           applyChannelDirectory(reply.directory)
-        } else {
-          appendSystemMessage("Command accepted.")
         }
-      } catch (_error) {
-        appendSystemMessage("Command failed.")
+      } catch (error) {
+        setComposerError(commandErrorMessage(error))
       }
 
       return
     }
 
-    if (!activeChannel) return
+    if (view === "server") {
+      setComposerError("Server buffers accept commands only. Try /msg NickServ help or /quote WHOIS nick.")
+      return
+    }
+
+    if (!activeChannel) {
+      setComposerError("Choose a channel before sending a message.")
+      return
+    }
     if (isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)) return
+    setComposerError(null)
 
     const nextMessage = {
       id: `${view}-${Date.now()}`,
@@ -819,7 +887,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   function applyServerStatus(payload) {
     setConnections((current) =>
       current.map((connection) =>
-        connection.server_connection_id === payload.server_connection_id ? {...connection, status: payload.status} : connection
+        connection.server_connection_id === payload.server_connection_id
+          ? {...connection, status: payload.status, nickname: payload.nickname || connection.nickname}
+          : connection
       )
     )
 
@@ -851,6 +921,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     const channelId = bufferId?.startsWith("channel:") ? bufferId : null
     if (!channelId) return
+
+    rejectedBufferIdsRef.current.add(channelId)
+    joinRejectionVersionsRef.current.set(
+      channelId,
+      (joinRejectionVersionsRef.current.get(channelId) || 0) + 1
+    )
 
     setConnections((current) =>
       current.map((connection) => ({
@@ -938,6 +1014,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     if (bootstrap.topics?.length) setTopics(bootstrap.topics.map(normalizeTopic))
     if (bootstrap.notification_state) setNotificationState(bootstrap.notification_state)
+    setCommandCatalog(bootstrap.command_catalog || [])
 
     const nextConnections = bootstrap.connections.map((connection) => {
       const channelBuffers = bootstrap.buffers.filter(
@@ -1038,6 +1115,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       channelDirectory={channelDirectory}
       connections={connections}
       currentUser={currentUser}
+      commandCatalog={commandCatalog}
+      composerError={composerError}
       draft={draft}
       messages={messages}
       notificationState={notificationState}
@@ -1086,7 +1165,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         viewRef.current = "chat"
         setView("chat")
       }}
-      onUpdateDraft={setDraft}
+      onUpdateDraft={(value) => {
+        setDraft(value)
+        setComposerError(null)
+      }}
       connectionHealth={connectionHealth}
     />
   )
@@ -1107,8 +1189,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function reconcileBootstrapCursors(cursorsByBuffer) {
-    Object.entries(cursorsByBuffer).forEach(([bufferId, cursor]) => {
-      reconcileBufferMessages(bufferId, cursor)
+    Object.keys(cursorsByBuffer).forEach((bufferId) => {
+      reconcileBufferMessages(bufferId)
     })
   }
 
@@ -1117,26 +1199,43 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!server) return
 
     const bufferIds = [server.id, ...server.channels.map((channel) => channel.id)]
-    bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId, latestCursorForBuffer(bufferId)))
+    bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId))
   }
 
   function reconcileAllBuffers() {
     connectionsRef.current.forEach((server) => {
       const bufferIds = [server.id, ...server.channels.map((channel) => channel.id)]
-      bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId, latestCursorForBuffer(bufferId)))
+      bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId))
     })
   }
 
-  function reconcileBufferMessages(bufferId, cursor) {
+  function reconcileBufferMessages(bufferId) {
     if (!isBackendBufferId(bufferId)) return
     if (reconcilingBuffersRef.current.has(bufferId)) return
 
     reconcilingBuffersRef.current.add(bufferId)
 
-    apiClient
-      .bufferMessages(bufferId, cursor ? {after: cursor, limit: 50} : {limit: 50})
-      .then(({messages = []}) => {
-        const normalized = messages.map(normalizeMessage)
+    const currentMessages = bufferId.startsWith("server:")
+      ? messagesByServerRef.current[bufferId] || []
+      : messagesByChannelRef.current[bufferId] || []
+    const commandIds = [...new Set(currentMessages
+      .filter((message) =>
+        message.kind === "command" && ["sent", "acknowledged"].includes(message.metadata?.command_status)
+      )
+      .map((message) => message.metadata?.command_id)
+      .filter(Boolean))]
+    const commandIdChunks = []
+    for (let index = 0; index < commandIds.length; index += 50) {
+      commandIdChunks.push(commandIds.slice(index, index + 50))
+    }
+
+    Promise.all([
+      apiClient.bufferMessages(bufferId, {limit: 50}),
+      ...commandIdChunks.map((ids) => apiClient.bufferMessages(bufferId, {commandIds: ids})),
+    ])
+      .then(([tail, ...commandUpdates]) => {
+        const repairedCommands = commandUpdates.flatMap((response) => response.messages || [])
+        const normalized = [...(tail.messages || []), ...repairedCommands].map(normalizeMessage)
         if (normalized.length === 0) return
 
         if (bufferId.startsWith("server:")) {
@@ -1157,14 +1256,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       })
   }
 
-  function latestCursorForBuffer(bufferId) {
-    const messages = bufferId.startsWith("server:")
-      ? messagesByServerRef.current[bufferId] || []
-      : messagesByChannelRef.current[bufferId] || []
-
-    return latestBackendMessageId(messages)
-  }
-
   function retryRealtimeConnection() {
     if (!realtimeClientRef.current?.reconnect) return
 
@@ -1176,8 +1267,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!channel?.id || !realtimeClientRef.current) return
 
     try {
-      const left = await realtimeClientRef.current.push("channel:leave", {buffer_id: channel.id})
-      applyBufferLeft(left)
+      await realtimeClientRef.current.push("channel:leave", {buffer_id: channel.id})
     } catch (_error) {
       // The channel remains visible if the backend cannot leave it.
     }
@@ -1325,7 +1415,7 @@ export function LandingPage({currentUser, topics, developerOauth, selectedTopic,
           </h1>
           <p className="mt-5 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">IRC, made easy</p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100" href="/chat">
+            <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-cyan-950 transition hover:bg-cyan-100" href="/chat">
               Open chat
             </a>
             {!currentUser && developerOauth && (
@@ -1392,6 +1482,8 @@ function AppShell(props) {
             />
           ) : props.view === "server" ? (
             <ServerBufferPane
+              commandCatalog={props.commandCatalog}
+              composerError={props.composerError}
               draft={props.draft}
               messages={props.serverMessages}
               onLoadOlderMessages={props.onLoadOlderMessages}
@@ -1555,7 +1647,7 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
                   >
                     <span className="min-w-0 flex-1 truncate">{channel.channel}</span>
                     {channel.mention_count > 0 && (
-                      <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-slate-950">{channel.mention_count}</span>
+                      <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-rose-950">{channel.mention_count}</span>
                     )}
                   </button>
                   <ChannelActionMenu
@@ -1572,7 +1664,7 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
       </nav>
       <div className="border-t border-slate-800/80 p-3">
         <div className="flex items-center gap-3 rounded-md bg-slate-900/70 p-2">
-          <div className="grid size-9 place-items-center rounded-md bg-emerald-300 text-sm font-bold text-slate-950">
+          <div className="grid size-9 place-items-center rounded-md bg-emerald-300 text-sm font-bold text-emerald-950">
             {currentUser.email.slice(0, 2).toUpperCase()}
           </div>
           <div className="min-w-0">
@@ -1844,7 +1936,7 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
   }
 }
 
-function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}) {
+function ChatPane({activeChannel, commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(activeChannel?.id, nextReadingOlder),
@@ -1861,6 +1953,9 @@ function ChatPane({activeChannel, connectionHealth, draft, messages, onLoadOlder
       </div>
       {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}
       <ChatComposer
+        commandCatalog={commandCatalog}
+        context="channel"
+        error={composerError}
         inputId="chat-message-input"
         draft={draft}
         disabled={sendDisabled}
@@ -1877,7 +1972,7 @@ function NewMessagesButton({count, onClick}) {
   return (
     <div className="pointer-events-none -mt-12 flex justify-center">
       <button
-        className="pointer-events-auto rounded-full border border-cyan-300/40 bg-cyan-300 px-3 py-1.5 text-xs font-semibold text-slate-950 shadow-lg shadow-black/30 transition hover:bg-white"
+        className="pointer-events-auto rounded-full border border-cyan-300/40 bg-cyan-300 px-3 py-1.5 text-xs font-semibold text-cyan-950 shadow-lg shadow-black/30 transition hover:bg-white"
         onClick={onClick}
         type="button"
       >
@@ -1918,7 +2013,10 @@ function TimeSeparator({value}) {
 function MessageRow({message, onRetryMessage}) {
   if (metaMessageKind(message.kind)) {
     return (
-      <div className={["px-2 py-1 text-xs italic", message.kind === "error" ? "text-rose-300" : "text-emerald-300"].join(" ")}>
+      <div
+        className={["px-2 py-1 text-xs italic", message.kind === "error" ? "text-rose-300" : "text-emerald-300"].join(" ")}
+        data-command-status={message.kind === "command" ? message.metadata?.command_status : undefined}
+      >
         {message.body}
       </div>
     )
@@ -2084,7 +2182,7 @@ function ChannelDirectoryPane({directory, onJoinChannel, onRefresh, server}) {
                     <button
                       className={[
                         "h-9 rounded-md px-4 text-sm font-semibold transition disabled:cursor-wait",
-                        joining ? "bg-slate-700 text-slate-400" : "bg-cyan-300 text-cyan-950 hover:bg-white",
+                        joining ? "bg-slate-700 text-white/70" : "bg-cyan-300 text-cyan-950 hover:bg-white",
                       ].join(" ")}
                       disabled={joining}
                       onClick={() => onJoinChannel(channel.channel)}
@@ -2119,7 +2217,7 @@ function DiscoverPane({topics, onSelectTopic}) {
   )
 }
 
-function ServerBufferPane({connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}) {
+function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(server?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(server?.id, nextReadingOlder),
@@ -2145,13 +2243,16 @@ function ServerBufferPane({connectionHealth, draft, messages, onLoadOlderMessage
       </div>
       {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}
       <ChatComposer
+        commandCatalog={commandCatalog}
+        context="server"
+        error={composerError}
         inputId="server-command-input"
         draft={draft}
-        disabled={false}
+        disabled={server.status !== "connected" || connectionHealth !== "connected"}
         statusLabel={composerStatusLabel(server.status, connectionHealth)}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
-        placeholder="Message a service or type a server command"
+        placeholder="Try /msg NickServ help or /quote WHOIS nick"
       />
     </section>
   )
@@ -2174,7 +2275,7 @@ function ServerStatusBanner({onReconnectServer, server}) {
       </div>
       {canReconnect && (
         <button
-          className="rounded-md border border-amber-200/40 px-3 py-1.5 text-xs font-semibold text-amber-50 transition hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
+          className="rounded-md border border-amber-200/40 px-3 py-1.5 text-xs font-semibold text-amber-50 transition hover:border-amber-100 hover:bg-amber-100 hover:text-amber-950"
           onClick={() => onReconnectServer?.(server)}
           type="button"
         >
@@ -2185,8 +2286,8 @@ function ServerStatusBanner({onReconnectServer, server}) {
   )
 }
 
-function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdateDraft, placeholder, statusLabel}) {
-  const suggestions = commandSuggestionsFor(draft)
+function ChatComposer({commandCatalog = [], context, disabled = false, draft, error, inputId, onSendMessage, onUpdateDraft, placeholder, statusLabel}) {
+  const suggestions = commandSuggestionsFor(draft, commandCatalog, context)
   const {refs, floatingStyles} = useFloating({
     placement: "top-start",
     middleware: [offset(8), shift({padding: 12})],
@@ -2197,6 +2298,11 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
       className="relative border-t border-slate-800/80 bg-[#0f131b] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:p-4"
       onSubmit={onSendMessage}
     >
+      {error && (
+        <p id={`${inputId}-error`} className="mx-auto mb-2 max-w-4xl text-sm text-rose-300" role="alert">
+          {error}
+        </p>
+      )}
       {suggestions.length > 0 && (
         <div
           ref={refs.setFloating}
@@ -2233,7 +2339,7 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
         <div className="order-1 flex min-w-0 items-center justify-end gap-2 sm:order-2">
           {statusLabel && <ComposerStatus label={statusLabel} />}
           <button
-            className="shrink-0 rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            className="shrink-0 rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-cyan-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-white/70"
             disabled={disabled}
           >
             Send
@@ -2242,6 +2348,7 @@ function ChatComposer({disabled = false, draft, inputId, onSendMessage, onUpdate
         <textarea
           id={inputId}
           aria-label="Message composer"
+          aria-describedby={error ? `${inputId}-error` : undefined}
           className="order-2 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 sm:order-1 sm:min-h-0 sm:py-2 sm:text-sm"
           value={draft}
           onChange={(event) => onUpdateDraft(event.target.value)}
@@ -2387,7 +2494,7 @@ function AuthPrompt({developerOauth, topic, onClose}) {
           </button>
         </div>
         <div className="mt-5 space-y-3">
-          <a className="block rounded-md bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-950 hover:bg-cyan-100" href={`/auth/google?topic=${topicParam}`}>
+          <a className="block rounded-md bg-white px-4 py-2.5 text-center text-sm font-semibold text-cyan-950 hover:bg-cyan-100" href={`/auth/google?topic=${topicParam}`}>
             Continue with Google
           </a>
           {developerOauth && (
@@ -2442,7 +2549,7 @@ function ManualJoinDialog({onClose, onJoin}) {
           <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>
             Cancel
           </button>
-          <button className="flex-1 rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white">
+          <button className="flex-1 rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-cyan-950 hover:bg-white">
             Join
           </button>
         </div>
@@ -2496,7 +2603,7 @@ function EditServerDialog({onClose, onSave, server}) {
           <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>
             Cancel
           </button>
-          <button className="flex-1 rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white">
+          <button className="flex-1 rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-cyan-950 hover:bg-white">
             Save
           </button>
         </div>
@@ -2528,7 +2635,7 @@ function LeaveServerDialog({onClose, onConfirm, server}) {
           <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>
             Cancel
           </button>
-          <button className="flex-1 rounded-md bg-rose-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white" onClick={onConfirm} type="button">
+          <button className="flex-1 rounded-md bg-rose-300 px-4 py-2 text-sm font-semibold text-rose-950 hover:bg-white" onClick={onConfirm} type="button">
             Leave
           </button>
         </div>
@@ -2587,7 +2694,7 @@ function Tooltip({children, label}) {
 
 function AppMark({small = false}) {
   return (
-    <span className={["grid place-items-center rounded-md bg-cyan-300 font-black text-slate-950", small ? "size-7 text-xs" : "size-9 text-sm"].join(" ")}>
+    <span className={["grid place-items-center rounded-md bg-cyan-300 font-black text-cyan-950", small ? "size-7 text-xs" : "size-9 text-sm"].join(" ")}>
       #
     </span>
   )
@@ -2751,12 +2858,35 @@ export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_
   return messages.slice(-limit)
 }
 
-function commandSuggestionsFor(value) {
+function commandSuggestionsFor(value, commandCatalog, context) {
   const trimmedStart = value.trimStart()
   if (!trimmedStart.startsWith("/") || trimmedStart.includes(" ")) return []
 
   const prefix = trimmedStart.slice(1).toLowerCase()
-  return slashCommands.filter((command) => command.name.slice(1).startsWith(prefix))
+  return commandCatalog.filter(
+    (command) =>
+      command.availability !== "disabled" &&
+      (!context || command.contexts?.includes(context)) &&
+      command.name.slice(1).startsWith(prefix)
+  )
+}
+
+function commandErrorMessage(error) {
+  if (error?.error?.message) {
+    const usage = error.error.usage ? ` Usage: ${error.error.usage}` : ""
+    return `${error.error.message}${usage}`
+  }
+
+  const messages = {
+    invalid_buffer: "Choose a server or channel where this command can run.",
+    invalid_command_args: "The command arguments are incomplete or invalid.",
+    joining_channel: "Wait for the channel join to finish, then try again.",
+    not_connected: "Reconnect to the IRC server before running this command.",
+    not_joined: "Join that channel before sending to it.",
+    unknown_command: "That slash command is not supported.",
+  }
+
+  return messages[error?.reason] || "The IRC command could not be sent."
 }
 
 function channelDirectoryError(reason) {

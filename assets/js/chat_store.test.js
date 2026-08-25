@@ -167,10 +167,10 @@ describe("chat store", () => {
       2,
       3,
     ])
-    expect(mergeNewerMessages(current, [{id: 3, body: "three"}, {id: 4, body: "four"}]).map((message) => message.id)).toEqual([
-      2,
-      3,
-      4,
+    expect(mergeNewerMessages(current, [{id: 3, body: "three updated", metadata: {command_status: "completed"}}, {id: 4, body: "four"}])).toEqual([
+      {id: 2, body: "two"},
+      {id: 3, body: "three updated", metadata: {command_status: "completed"}},
+      {id: 4, body: "four"},
     ])
     expect(appendTimelineMessage(current, {id: 3, body: "three"}, false).map((message) => message.id)).toEqual([2, 3])
   })
@@ -187,6 +187,34 @@ describe("chat store", () => {
     ])
 
     expect(merged.map((message) => message.id)).toEqual([10, 11, "client-1"])
+    expect(merged.find((message) => message.id === 10)?.body).toBe("ten duplicate")
     expect(latestBackendMessageId(merged)).toBe(11)
+  })
+
+  test("does not regress a terminal command row with a stale tail snapshot", () => {
+    const completed = {
+      id: 12,
+      kind: "command",
+      body: "WHOIS mira",
+      metadata: {command_status: "completed"},
+    }
+    const staleSent = {
+      ...completed,
+      metadata: {command_status: "sent"},
+    }
+
+    expect(mergeNewerMessages([completed], [staleSent])).toEqual([completed])
+  })
+
+  test("repairs a locally sent command from an overlapping older history page", () => {
+    const sent = {
+      id: 12,
+      kind: "command",
+      body: "LIST",
+      metadata: {command_status: "sent"},
+    }
+    const completed = {...sent, metadata: {command_status: "completed"}}
+
+    expect(mergeOlderMessages([completed], [sent])).toEqual([completed])
   })
 })

@@ -3,7 +3,7 @@ defmodule Ircpipe.ChatTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.Message
+  alias Ircpipe.Chat.{ChannelMembership, Message}
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Repo
 
@@ -137,6 +137,174 @@ defmodule Ircpipe.ChatTest do
       })
 
     assert {:error, :invalid_connection} = Chat.join_channel(user, connection, "#private")
+  end
+
+  test "keeps membership identity and history across confirmed join and part lifecycle" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, pending} = Chat.request_channel_join(user, connection, "#elixir")
+    assert pending.status == "pending"
+    assert pending.auto_join
+
+    {:ok, joined} = Chat.confirm_channel_join(connection, "#elixir")
+    assert joined.id == pending.id
+    assert joined.status == "joined"
+    assert joined.joined_at
+
+    {:ok, duplicate_confirmation} = Chat.confirm_channel_join(connection, "#elixir")
+    assert duplicate_confirmation.joined_at == joined.joined_at
+
+    Chat.record_inbound_message(connection, "#elixir", "akash", "history survives")
+
+    {:ok, left} = Chat.confirm_channel_left(connection, "#elixir")
+    assert left.id == pending.id
+    assert left.status == "left"
+    refute left.auto_join
+    assert left.left_at
+    assert [%Message{body: "history survives"}] = Chat.list_messages(user, left.id)
+
+    {:ok, duplicate_left} = Chat.confirm_channel_left(connection, "#elixir")
+    assert duplicate_left.left_at == left.left_at
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, rejoining} = Chat.request_channel_join(user, connection, "#elixir")
+    assert rejoining.id == pending.id
+    assert rejoining.status == "pending"
+    assert rejoining.auto_join
+    assert rejoining.joined_at == joined.joined_at
+
+    {:ok, rejected} = Chat.reject_channel_join(connection, "#elixir", "invite only")
+    assert rejected.status == "error"
+    refute rejected.auto_join
+    assert rejected.last_error == "invite only"
+    assert rejected.joined_at == joined.joined_at
+
+    assert_receive {:buffer_left,
+                    %{buffer_id: "channel:" <> _, channel_membership_id: membership_id}}
+
+    assert membership_id == pending.id
+  end
+
+  test "reuses memberships under negotiated IRC channel casemapping" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "casemapping",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, ascii_pending} = Chat.request_channel_join(user, connection, "#Pipe", :ascii)
+    {:ok, ascii_joined} = Chat.confirm_channel_join(connection, "#pipe", :ascii)
+    assert ascii_joined.id == ascii_pending.id
+
+    {:ok, rfc_pending} = Chat.request_channel_join(user, connection, "#[Ops]", :rfc1459)
+    {:ok, rfc_joined} = Chat.confirm_channel_join(connection, "#" <> "{ops}", :rfc1459)
+    assert rfc_joined.id == rfc_pending.id
+
+    assert Chat.get_channel_membership(connection, "#PIPE", :ascii).id == ascii_pending.id
+
+    assert Chat.get_channel_membership(connection, "#" <> "{OPS}", :rfc1459).id ==
+             rfc_pending.id
+  end
+
+  test "reconciles casemapping-equivalent memberships without losing history" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "duplicate-casemapping",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, first} = Chat.join_channel(user, connection, "#[Ops]")
+
+    second =
+      %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
+      |> ChannelMembership.changeset(%{
+        channel: "#" <> "{ops}",
+        status: "joined",
+        auto_join: true
+      })
+      |> Repo.insert!()
+
+    Chat.record_inbound_message(
+      connection,
+      "#[Ops]",
+      "mira",
+      "first history",
+      "message",
+      %{},
+      :ascii
+    )
+
+    Chat.record_inbound_message(
+      connection,
+      "#" <> "{ops}",
+      "mira",
+      "second history",
+      "message",
+      %{},
+      :ascii
+    )
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    assert {:ok, [_loser]} = Chat.reconcile_channel_memberships(connection, :rfc1459)
+    assert_receive {:buffer_left, %{channel_membership_id: loser_id}}
+    assert loser_id in [first.id, second.id]
+    membership = Chat.get_channel_membership(connection, "#" <> "{OPS}", :rfc1459)
+    assert membership.id in [first.id, second.id]
+
+    assert Enum.map(Chat.list_messages(user, membership.id), & &1.body) == [
+             "first history",
+             "second history"
+           ]
+
+    memberships = Repo.all(ChannelMembership)
+    assert Enum.count(memberships, &(&1.server_connection_id == connection.id)) == 1
+  end
+
+  test "does not reconcile bracket-equivalent memberships before casemapping is trusted" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "unknown-casemapping",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    Enum.each(["#[ops]", "#" <> "{ops}"], fn channel ->
+      %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
+      |> ChannelMembership.changeset(%{channel: channel, status: "joined", auto_join: true})
+      |> Repo.insert!()
+    end)
+
+    assert connection.casemapping == nil
+    assert [%{channel_memberships: memberships}] = Chat.list_connections(user)
+    assert Enum.count(memberships) == 2
+
+    {:ok, ascii_connection} = Chat.update_connection_casemapping(connection, :ascii)
+    assert {:ok, []} = Chat.reconcile_channel_memberships(ascii_connection, :ascii)
+    assert [%{channel_memberships: memberships}] = Chat.list_connections(user)
+    assert Enum.count(memberships) == 2
   end
 
   test "scopes channel memberships and buffer history to their owner" do

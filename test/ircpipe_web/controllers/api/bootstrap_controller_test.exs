@@ -30,6 +30,9 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, archived_membership} = Chat.join_channel(user, connection, "#archive")
+    Chat.record_inbound_message(connection, "#archive", "akash", "retained archive")
+    {:ok, _archived_membership} = Chat.confirm_channel_left(connection, "#archive")
     {:ok, server_message} = Chat.record_server_message(connection, "Connected to local")
 
     {:ok, channel_message} =
@@ -68,6 +71,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert %{
              "user" => %{"id" => user_id, "email" => _email, "message_retention_days" => 3},
              "notification_state" => "default",
+             "command_catalog" => command_catalog,
              "server_time" => _server_time,
              "connections" => [connection_json],
              "buffers" => [server_buffer, channel_buffer],
@@ -81,6 +85,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert user_id == user.id
     assert connection_json["id"] == connection.id
     assert connection_json["channels"] == [membership.id]
+    assert Enum.any?(command_catalog, &(&1["name"] == "/quote"))
 
     assert server_buffer["buffer_id"] == "server:#{connection.id}"
     assert server_buffer["buffer_type"] == "server"
@@ -147,6 +152,11 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
            )
 
     refute Enum.any?(get_in(json_response(conn, 200), ["buffers"]), &(&1["title"] == "#private"))
+
+    refute Enum.any?(
+             get_in(json_response(conn, 200), ["buffers"]),
+             &(&1["channel_membership_id"] == archived_membership.id)
+           )
   end
 
   test "starts persisted IRC sessions and rejoins channels on bootstrap", %{

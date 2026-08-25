@@ -96,7 +96,8 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
           "host" => "localhost",
           "port" => 6697,
           "use_tls" => true,
-          "nickname" => "mira2"
+          "nickname" => "mira2",
+          "casemapping" => "rfc1459"
         }
       })
 
@@ -112,6 +113,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
            } = json_response(conn, 200)
 
     assert connection_id == connection.id
+    assert Chat.get_connection!(user, connection.id).casemapping == nil
   end
 
   test "deletes an owned server connection", %{conn: conn, user: user} do

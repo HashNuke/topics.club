@@ -57,13 +57,19 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
   end
 
-  test "runs supported slash commands over the user channel" do
+  test "rejects commands without a buffer context" do
     user = AccountsFixtures.user_fixture()
     socket = join_user_channel(user)
 
     ref = push(socket, "command:run", %{"input" => "/join #elixir"})
 
-    assert_reply ref, :ok, %{command: %{name: "join", args: ["#elixir"]}}
+    assert_reply ref, :error, %{
+      reason: "invalid_buffer",
+      command_id: command_id,
+      command: %{name: "join", args: ["#elixir"]}
+    }
+
+    assert is_binary(command_id)
   end
 
   test "runs join slash commands through the IRC session and records a server outcome" do
@@ -76,15 +82,15 @@ defmodule IrcpipeWeb.UserChannelTest do
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
         "use_tls" => false,
-        "nickname" => "mira"
+        "nickname" => "ircpipe"
       })
 
+    socket = join_user_channel(user)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
 
-    assert_receive {:irc_server_line, "NICK mira"}, 1_000
-    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
-
-    socket = join_user_channel(user)
+    assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
+    assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
+    assert_push "buffer:system", %{body: "Connected to 127.0.0.1."}
 
     ref =
       push(socket, "command:run", %{
@@ -104,12 +110,12 @@ defmodule IrcpipeWeb.UserChannelTest do
       type: "buffer:system",
       buffer_id: "server:" <> _,
       kind: "command",
-      body: "Joining #ops."
+      body: "JOIN #ops"
     }
 
     assert Enum.any?(
              Chat.list_buffer_messages(user, "server:#{connection.id}"),
-             &(&1.kind == "command" and &1.body == "Joining #ops.")
+             &(&1.kind == "command" and &1.body == "JOIN #ops")
            )
 
     assert :ok = Session.quit(connection)
@@ -182,14 +188,15 @@ defmodule IrcpipeWeb.UserChannelTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    socket = join_user_channel(user)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
 
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
-
-    socket = join_user_channel(user)
-    assert :ok = Session.join(connection, "#elixir")
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+
+    assert :ok = Session.join(connection, "#elixir")
+    refute_receive {:irc_server_line, "JOIN #elixir"}
     assert_push "presence:sync", %{buffer_id: "channel:" <> _}
 
     ref =
@@ -216,6 +223,22 @@ defmodule IrcpipeWeb.UserChannelTest do
              Chat.list_messages(user, membership.id),
              &(&1.body == "hello from channel" and &1.nick == "mira")
            )
+
+    dcc_body = <<1, "DCC SEND secret.txt 127001 1234 99", 1>>
+
+    dcc_ref =
+      push(socket, "message:send", %{
+        "client_message_id" => "client-dcc",
+        "buffer_id" => "channel:#{membership.id}",
+        "body" => dcc_body
+      })
+
+    assert_reply dcc_ref, :error, %{
+      reason: "unsupported_ctcp",
+      client_message_id: "client-dcc"
+    }
+
+    refute_receive {:irc_server_line, "PRIVMSG #elixir :" <> ^dcc_body}
 
     assert :ok = Session.quit(connection)
   end
@@ -757,17 +780,19 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
 
     socket = join_user_channel(user)
     ref = push(socket, "channel:leave", %{"buffer_id" => "channel:#{membership.id}"})
 
     assert_reply ref, :ok, %{
-      type: "buffer:left",
+      status: "sent",
       buffer_id: "channel:" <> _,
       channel_membership_id: membership_id
     }
 
     assert membership_id == membership.id
+    assert_receive {:irc_server_line, "PART #elixir leaving"}, 1_000
 
     assert_push "buffer:left", %{
       type: "buffer:left",
@@ -776,9 +801,10 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
 
     assert buffer_id == "channel:#{membership.id}"
-    assert_receive {:irc_server_line, "PART #elixir leaving"}, 1_000
-
-    assert_raise Ecto.NoResultsError, fn -> Chat.get_membership!(user, membership.id) end
+    left_membership = Chat.get_membership!(user, membership.id)
+    assert left_membership.status == "left"
+    assert left_membership.auto_join == false
+    assert left_membership.left_at
     assert :ok = Session.quit(connection)
   end
 
@@ -796,12 +822,11 @@ defmodule IrcpipeWeb.UserChannelTest do
       })
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    socket = join_user_channel(user)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
-    assert_receive {:buffer_system, %{body: "Connected to 127.0.0.1."}}, 1_000
-
-    socket = join_user_channel(user)
+    assert_push "buffer:system", %{body: "Connected to 127.0.0.1."}
     direct_ref = push(socket, "server:list", %{"server_connection_id" => connection.id})
 
     assert_reply direct_ref, :ok, %{
@@ -835,6 +860,102 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
 
     assert_receive {:irc_server_line, "LIST"}, 1_000
+    assert :ok = Session.quit(connection)
+  end
+
+  test "runs a parsed quote query and persists correlated command results" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    socket = join_user_channel(user)
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert_push "buffer:system", %{body: "Connected to 127.0.0.1."}
+
+    ref =
+      push(socket, "command:run", %{
+        "command_id" => "whois-mira-1",
+        "input" => "/quote WHOIS mira",
+        "buffer_id" => "server:#{connection.id}"
+      })
+
+    assert_reply ref, :ok, %{
+      command_id: "whois-mira-1",
+      status: "sent",
+      display: "WHOIS mira"
+    }
+
+    assert_receive {:irc_server_line, "WHOIS mira"}, 1_000
+
+    assert_push "buffer:system", %{
+      metadata: %{
+        "command_id" => "whois-mira-1",
+        "command_status" => "result",
+        "irc_event" => "whois_user"
+      }
+    }
+
+    assert_push "buffer:system", %{
+      metadata: %{
+        "command_id" => "whois-mira-1",
+        "command_status" => "completed"
+      }
+    }
+
+    _ = :sys.get_state(Session.via(connection))
+
+    messages = Chat.list_buffer_messages(user, "server:#{connection.id}")
+
+    assert Enum.any?(messages, fn message ->
+             message.metadata["command_id"] == "whois-mira-1" and
+               message.metadata["command_status"] == "completed"
+           end)
+
+    assert :ok = Session.quit(connection)
+  end
+
+  test "rejects protocol-owned quote commands before IRC transmission" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    socket = join_user_channel(user)
+
+    ref =
+      push(socket, "command:run", %{
+        "command_id" => "denied-ping-1",
+        "input" => "/quote PING test-token",
+        "buffer_id" => "server:#{connection.id}"
+      })
+
+    assert_reply ref, :error, %{
+      command_id: "denied-ping-1",
+      reason: "protocol_owned",
+      error: %{code: "protocol_owned"}
+    }
+
+    refute_receive {:irc_server_line, "PING test-token"}, 100
     assert :ok = Session.quit(connection)
   end
 

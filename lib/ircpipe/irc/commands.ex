@@ -13,6 +13,8 @@ defmodule Ircpipe.Irc.Commands do
       usage: "/join #channel",
       description: "Join a channel",
       required_permission: "user",
+      contexts: ["server", "channel"],
+      availability: "enabled",
       examples: ["/join #elixir"]
     },
     %{
@@ -21,30 +23,38 @@ defmodule Ircpipe.Irc.Commands do
       usage: "/list",
       description: "Browse channels on this server",
       required_permission: "user",
+      contexts: ["server", "channel"],
+      availability: "enabled",
       examples: ["/list"]
     },
     %{
       name: "/part",
       command: "part",
-      usage: "/part #channel",
+      usage: "/part [#channel]",
       description: "Leave a channel",
       required_permission: "user",
-      examples: ["/part #elixir"]
+      contexts: ["server", "channel"],
+      availability: "enabled",
+      examples: ["/part", "/part #elixir"]
     },
     %{
       name: "/leave",
       command: "leave",
-      usage: "/leave #channel",
+      usage: "/leave [#channel]",
       description: "Leave a channel",
       required_permission: "user",
-      examples: ["/leave #elixir"]
+      contexts: ["server", "channel"],
+      availability: "enabled",
+      examples: ["/leave", "/leave #elixir"]
     },
     %{
       name: "/msg",
       command: "msg",
       usage: "/msg nick message",
-      description: "Send a private message",
+      description: "Send a retained private message",
       required_permission: "user",
+      contexts: ["server", "channel"],
+      availability: "enabled",
       examples: ["/msg NickServ help"]
     },
     %{
@@ -53,6 +63,8 @@ defmodule Ircpipe.Irc.Commands do
       usage: "/me action",
       description: "Send an action message",
       required_permission: "user",
+      contexts: ["channel"],
+      availability: "enabled",
       examples: ["/me waves"]
     },
     %{
@@ -61,23 +73,29 @@ defmodule Ircpipe.Irc.Commands do
       usage: "/nick newnick",
       description: "Change nickname",
       required_permission: "user",
+      contexts: ["server", "channel"],
+      availability: "enabled",
       examples: ["/nick mira_"]
     },
     %{
       name: "/topic",
       command: "topic",
-      usage: "/topic #channel text",
+      usage: "/topic #channel [topic]",
       description: "Set or view a topic",
       required_permission: "channel_operator",
-      examples: ["/topic #elixir Releases and OTP"]
+      contexts: ["server", "channel"],
+      availability: "enabled",
+      examples: ["/topic #elixir", "/topic #elixir Releases and OTP"]
     },
     %{
       name: "/quote",
       command: "quote",
       usage: "/quote RAW COMMAND",
-      description: "Send a raw IRC command",
-      required_permission: "advanced_user",
-      examples: ["/quote WHO #elixir"]
+      description: "Run a managed IRC command",
+      required_permission: "user",
+      contexts: ["server", "channel"],
+      availability: "managed_only",
+      examples: ["/quote WHO #elixir", "/quote WHOIS nick"]
     }
   ]
 
@@ -113,7 +131,8 @@ defmodule Ircpipe.Irc.Commands do
     input = String.trim(input)
 
     with "/" <> command_line <- input,
-         [name | rest] <- String.split(command_line, ~r/\s+/, parts: 2),
+         [raw_name | rest] <- String.split(command_line, ~r/\s+/, parts: 2),
+         name = String.downcase(raw_name),
          true <- known_command?(name) do
       {:ok,
        %{
@@ -153,6 +172,14 @@ defmodule Ircpipe.Irc.Commands do
       [""] -> []
       [target] -> [target]
       [target, body] -> [target, body]
+    end
+  end
+
+  defp parse_args("topic", args) do
+    case String.split(String.trim(args), ~r/\s+/, parts: 2) do
+      [""] -> []
+      [channel] -> [channel]
+      [channel, topic] -> [channel, topic]
     end
   end
 
