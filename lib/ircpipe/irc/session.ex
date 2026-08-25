@@ -98,7 +98,7 @@ defmodule Ircpipe.Irc.Session do
         opts
       end
 
-    case Ircxd.start_link(opts) do
+    case Ircxd.Client.start_link(opts) do
       {:ok, client} ->
         {:noreply, %{state | client: client}}
 

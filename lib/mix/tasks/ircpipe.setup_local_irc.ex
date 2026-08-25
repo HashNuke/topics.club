@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Ircpipe.SetupLocalIrc do
     nick = "topics_setup_#{System.unique_integer([:positive])}"
     first = hd(topics)
 
-    case Ircxd.start_link(
+    case Ircxd.Client.start_link(
            host: first.server_host,
            port: first.server_port,
            tls: false,
