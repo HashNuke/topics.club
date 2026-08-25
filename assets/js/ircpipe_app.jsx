@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/react"
 import {createApiClient} from "./api_client.js"
+import AppMark from "./components/app_mark.jsx"
 import {
   applyUserDiff,
   appendTimelineMessage,
@@ -2689,14 +2690,6 @@ function Tooltip({children, label}) {
         </div>
       )}
     </>
-  )
-}
-
-function AppMark({small = false}) {
-  return (
-    <span className={["grid place-items-center rounded-md bg-cyan-300 font-black text-cyan-950", small ? "size-7 text-xs" : "size-9 text-sm"].join(" ")}>
-      #
-    </span>
   )
 }
 

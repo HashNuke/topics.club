@@ -1,0 +1,11 @@
+@import "tailwindcss" source(none);
+@source "../js";
+
+@plugin "../vendor/heroicons";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+html,
+body {
+  background: #090b10;
+}

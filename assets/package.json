@@ -1,6 +1,8 @@
 {
   "private": true,
   "scripts": {
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
@@ -16,6 +18,11 @@
     "vitest": "^4.1.6"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0"
+    "@playwright/test": "^1.60.0",
+    "@storybook/react-vite": "^10.5.10",
+    "@tailwindcss/vite": "^4.3.3",
+    "storybook": "^10.5.10",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
   }
 }

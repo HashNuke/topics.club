@@ -44,6 +44,16 @@ custom classes must fully style the input
 - Focus on **delightful details** like hover effects, loading states, and smooth page transitions
 
 
+### Storybook-first React UI development
+
+- "Storybook" means the Node.js Storybook toolchain for the React frontend under `assets/js`. Install and run it from `assets/` using the project's JavaScript package manager; do not substitute a Phoenix or Elixir component-story library.
+- Create or extract frontend UI as reusable React components, add those components to the Storybook catalog, and validate them in Storybook before composing them into the application.
+- Every project-owned React UI component must have stories that make it independently previewable. Cover the representative states that apply, including default, loading, empty, error, disabled, and responsive states.
+- Keep components modular and presentation-focused. Pass application data and actions through props instead of coupling stories to live HTTP requests, sockets, authentication, or navigation.
+- Use deterministic fixtures and mocked callbacks in stories so component prototypes remain quick and reliable to review.
+- Add composed stories for significant sections and complete pages. Reuse the same components and fixtures rather than maintaining separate Storybook-only implementations.
+- Treat Storybook rendering as part of completing UI work: validate the component and its important states there before wiring it into the application.
+
 <!-- phoenix-gen-auth-start -->
 ## Authentication
 
