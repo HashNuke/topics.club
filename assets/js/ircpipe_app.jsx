@@ -3,6 +3,7 @@ import {createApiClient} from "./api_client.js"
 import AppMark from "./components/app_mark.jsx"
 import AuthPrompt from "./components/auth_prompt.jsx"
 import ChannelDirectoryPane from "./components/channel_directory_pane.jsx"
+import DiscoverPane from "./components/discover_pane.jsx"
 import ChatPane, {
   isRealtimeChannel,
   realtimeReadyFor,
@@ -1570,22 +1571,6 @@ function MobileDrawerHeader({title, onClose}) {
         <span className="hero-x-mark size-5" aria-hidden="true" />
       </button>
     </div>
-  )
-}
-
-function DiscoverPane({topics, onSelectTopic}) {
-  return (
-    <section className="min-h-0 flex-1 overflow-y-auto bg-[#090b10] p-4 sm:p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Discover topics</h2>
-            <p className="mt-1 text-sm text-slate-500">Join a suggested conversation or add your own server from the sidebar.</p>
-          </div>
-        </div>
-        <TopicGrid topics={topics} onSelectTopic={onSelectTopic} />
-      </div>
-    </section>
   )
 }
 
