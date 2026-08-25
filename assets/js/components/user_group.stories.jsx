@@ -1,0 +1,38 @@
+import {useState} from "react"
+import UserGroup from "./user_group.jsx"
+
+const users = Array.from({length: 13}, (_, index) => ({
+  nick: `member_${index + 1}`,
+  role: "user",
+  status: index === 4 ? "away" : "online",
+}))
+
+function ExpandableGroup(args) {
+  const [expanded, setExpanded] = useState(args.expanded)
+  return <UserGroup {...args} expanded={expanded} onExpand={() => setExpanded(true)} />
+}
+
+export default {
+  title: "People/UserGroup",
+  component: UserGroup,
+  render: (args) => <ExpandableGroup {...args} />,
+  decorators: [(Story) => <div className="w-64 max-w-full"><Story /></div>],
+  args: {expanded: false, label: "Online", users},
+}
+
+export const Collapsed = {}
+
+export const Expanded = {
+  args: {expanded: true},
+}
+
+export const Moderators = {
+  args: {
+    label: "Mods",
+    users: [
+      {nick: "mira", role: "owner", status: "online"},
+      {nick: "akash", role: "op", status: "online"},
+      {nick: "lena", role: "halfop", status: "away"},
+    ],
+  },
+}

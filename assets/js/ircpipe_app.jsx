@@ -7,6 +7,7 @@ import ChatPane, {
   isRealtimeChannel,
   realtimeReadyFor,
 } from "./components/chat_pane.jsx"
+import RightSidebar from "./components/right_sidebar.jsx"
 import ServerBufferPane from "./components/server_buffer_pane.jsx"
 import {
   applyUserDiff,
@@ -1956,74 +1957,6 @@ function DiscoverPane({topics, onSelectTopic}) {
         <TopicGrid topics={topics} onSelectTopic={onSelectTopic} />
       </div>
     </section>
-  )
-}
-
-function RightSidebar({activeChannel, users, mobile = false}) {
-  const [expandedGroups, setExpandedGroups] = useState({})
-  const groupedUsers = [
-    {label: "Mods", users: users.filter((user) => ["owner", "admin", "op", "halfop"].includes(user.role))},
-    {label: "Voiced", users: users.filter((user) => user.role === "voice")},
-    {label: "Online", users: users.filter((user) => (!user.role || user.role === "user") && user.status !== "away")},
-    {label: "Away", users: users.filter((user) => user.status === "away")},
-  ].filter((group) => group.users.length > 0)
-
-  return (
-    <aside className={[
-      "min-h-0 border-l border-slate-800/80 bg-[#0f131b]",
-      mobile ? "block min-h-0 flex-1 border-l-0" : "hidden lg:block",
-    ].join(" ")} aria-label="People here">
-      <div className="border-b border-slate-800/80 px-4 py-4">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">People here</h2>
-        <p className="mt-1 text-sm text-slate-300">{activeChannel?.channel || "#elixir"}</p>
-      </div>
-      <div className="max-h-[calc(100vh-5.5rem)] space-y-4 overflow-y-auto p-3">
-        {groupedUsers.map((group) => (
-          <section key={group.label}>
-            <div className="mb-1 flex items-center justify-between px-2 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-slate-600">
-              <span>{group.label}</span>
-              <span>{group.users.length}</span>
-            </div>
-            <div className="space-y-1">
-              {(expandedGroups[group.label] ? group.users : group.users.slice(0, 10)).map((user) => (
-                <UserListItem key={user.nick} user={user} />
-              ))}
-              {!expandedGroups[group.label] && group.users.length > 10 && (
-                <button
-                  className="w-full rounded-md px-2 py-1.5 text-left text-xs font-semibold text-cyan-200 transition hover:bg-slate-800/70 hover:text-white"
-                  onClick={() => setExpandedGroups((current) => ({...current, [group.label]: true}))}
-                >
-                  +{group.users.length - 10} more
-                </button>
-              )}
-            </div>
-          </section>
-        ))}
-      </div>
-    </aside>
-  )
-}
-
-function UserListItem({user}) {
-  const role = ["owner", "admin", "op", "halfop"].includes(user.role) ? "mod" : user.role === "voice" ? "voice" : "user"
-
-  return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-300 hover:bg-slate-800/70">
-      <span className={["size-2 rounded-full", user.status === "away" ? "bg-amber-300" : "bg-emerald-300"].join(" ")} />
-      <span className="min-w-0 flex-1 truncate">{user.nick}</span>
-      <span
-        className={[
-          "rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide",
-          role === "mod"
-            ? "bg-cyan-300/15 text-cyan-200"
-            : role === "voice"
-              ? "bg-violet-300/15 text-violet-200"
-              : "bg-slate-800 text-slate-500",
-        ].join(" ")}
-      >
-        {role}
-      </span>
-    </div>
   )
 }
 
