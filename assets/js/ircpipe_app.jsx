@@ -23,75 +23,6 @@ export {default as LandingPage} from "./components/landing_page.jsx"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 
-export const demoTopics = [
-  {
-    id: "local-elixir",
-    name: "#elixir",
-    description: "Phoenix, OTP, releases, and production Elixir help.",
-    server_host: "127.0.0.1",
-    server_port: 6669,
-    use_tls: false,
-    channel: "#elixir",
-    members: 426,
-    vibe: "builders",
-  },
-  {
-    id: "local-phoenix",
-    name: "#phoenix",
-    description: "LiveView patterns, web UI questions, and framework support.",
-    server_host: "127.0.0.1",
-    server_port: 6669,
-    use_tls: false,
-    channel: "#phoenix",
-    members: 188,
-    vibe: "web",
-  },
-  {
-    id: "local-linux",
-    name: "#linux",
-    description: "Daily Linux discussion, troubleshooting, and desktop setups.",
-    server_host: "127.0.0.1",
-    server_port: 6669,
-    use_tls: false,
-    channel: "#linux",
-    members: 931,
-    vibe: "systems",
-  },
-  {
-    id: "local-rust",
-    name: "#rust",
-    description: "Rust language help, async crates, and compiler talk.",
-    server_host: "127.0.0.1",
-    server_port: 6669,
-    use_tls: false,
-    channel: "#rust",
-    members: 812,
-    vibe: "language",
-  },
-  {
-    id: "local-gamedev",
-    name: "#gamedev",
-    description: "Indie games, engines, shaders, and release feedback.",
-    server_host: "127.0.0.1",
-    server_port: 6669,
-    use_tls: false,
-    channel: "#gamedev",
-    members: 147,
-    vibe: "creative",
-  },
-  {
-    id: "local-homelab",
-    name: "#homelab",
-    description: "Self-hosting, small servers, storage, and network projects.",
-    server_host: "127.0.0.1",
-    server_port: 6669,
-    use_tls: false,
-    channel: "#homelab",
-    members: 269,
-    vibe: "infra",
-  },
-]
-
 export default function IrcpipeApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}) {
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
@@ -1336,13 +1267,7 @@ function backendTopicFor(topic, topics) {
 }
 
 function topicForRequestedId(requestedId, topics) {
-  const directMatch = topics.find((topic) => String(topic.id) === String(requestedId))
-  if (directMatch) return directMatch
-
-  const demoMatch = demoTopics.find((topic) => String(topic.id) === String(requestedId))
-  if (!demoMatch) return null
-
-  return backendTopicFor(normalizeTopic(demoMatch), topics) || null
+  return topics.find((topic) => String(topic.id) === String(requestedId)) || null
 }
 
 function defaultIrcNick(currentUser) {

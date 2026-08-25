@@ -2,12 +2,18 @@ import React from "react"
 import {describe, expect, test, vi} from "vitest"
 import {fireEvent, render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import IrcpipeApp, {appendTimelineMessage, demoTopics, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.jsx"
+import IrcpipeApp, {appendTimelineMessage, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.jsx"
+
+const topicFixtures = [
+  {id: "fixture-elixir", name: "#elixir", description: "Phoenix, OTP, releases, and production Elixir help.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#elixir", members: 426},
+  {id: "fixture-phoenix", name: "#phoenix", description: "LiveView patterns, web UI questions, and framework support.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#phoenix", members: 188},
+  {id: "fixture-linux", name: "#linux", description: "Daily Linux discussion and troubleshooting.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#linux", members: 931},
+]
 
 function mockTopicsFetch() {
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
     ok: true,
-    json: async () => ({topics: demoTopics}),
+    json: async () => ({topics: topicFixtures}),
   })
 }
 
@@ -179,14 +185,14 @@ function mockBootstrapFetch({
           },
           message_cursors_by_buffer: messageCursorsByBuffer,
           users_by_buffer: {"channel:7": []},
-          topics: demoTopics,
+          topics: topicFixtures,
         }),
       }
     }
 
     return {
       ok: true,
-      json: async () => ({topics: demoTopics}),
+      json: async () => ({topics: topicFixtures}),
     }
   })
 }
@@ -329,7 +335,7 @@ function mockManualJoinFetch() {
           buffers: [],
           messages_by_buffer: {},
           users_by_buffer: {},
-          topics: demoTopics,
+          topics: topicFixtures,
           notification_state: "default",
         }),
       }
@@ -372,7 +378,7 @@ function mockManualJoinFetch() {
 
     return {
       ok: true,
-      json: async () => ({topics: demoTopics}),
+      json: async () => ({topics: topicFixtures}),
     }
   })
 }
@@ -450,7 +456,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(dialog).getByRole("heading", {name: "Sign in to join"})).toBeInTheDocument()
     expect(within(dialog).getByRole("link", {name: "Developer OAuth"})).toHaveAttribute(
       "href",
-      "/auth/developer?topic=local-phoenix"
+      "/auth/developer?topic=fixture-phoenix"
     )
   })
 
@@ -559,9 +565,9 @@ describe("IrcpipeApp UI prototype", () => {
     )
   })
 
-  test("resolves a local landing topic query to the backend topic before joining", async () => {
+  test("joins a requested backend topic by its id", async () => {
     mockResolvedLocalTopicFetch()
-    window.history.pushState({}, "", "/chat?topic=local-elixir")
+    window.history.pushState({}, "", "/chat?topic=101")
 
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
@@ -582,7 +588,7 @@ describe("IrcpipeApp UI prototype", () => {
 
       return {
         ok: true,
-        json: async () => ({topics: demoTopics}),
+        json: async () => ({topics: topicFixtures}),
       }
     })
 
@@ -2248,8 +2254,4 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByRole("navigation", {name: "Joined topics"})).not.toBeInTheDocument()
   })
 
-  test("prototype topics do not reference public IRC servers", () => {
-    expect(demoTopics.map((topic) => topic.server_host)).toEqual(demoTopics.map(() => "127.0.0.1"))
-    expect(demoTopics.map((topic) => topic.use_tls)).toEqual(demoTopics.map(() => false))
-  })
 })
