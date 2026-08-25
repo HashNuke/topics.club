@@ -782,6 +782,62 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert :ok = Session.quit(connection)
   end
 
+  test "opens a server channel directory directly and through /list" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert_receive {:buffer_system, %{body: "Connected to 127.0.0.1."}}, 1_000
+
+    socket = join_user_channel(user)
+    direct_ref = push(socket, "server:list", %{"server_connection_id" => connection.id})
+
+    assert_reply direct_ref, :ok, %{
+      reply: "ok",
+      directory: %{
+        server_connection_id: server_connection_id,
+        server_name: "local",
+        channels: [
+          %{channel: "#elixir", users: 42},
+          %{channel: "#quiet", users: 4},
+          %{channel: "&local", users: 3}
+        ]
+      }
+    }
+
+    assert server_connection_id == connection.id
+    assert_receive {:irc_server_line, "LIST"}, 1_000
+
+    command_ref =
+      push(socket, "command:run", %{
+        "input" => "/list",
+        "buffer_id" => "server:#{connection.id}"
+      })
+
+    assert_reply command_ref, :ok, %{
+      command: %{name: "list", args: []},
+      directory: %{
+        server_connection_id: ^server_connection_id,
+        channels: [_first, _second, _third]
+      }
+    }
+
+    assert_receive {:irc_server_line, "LIST"}, 1_000
+    assert :ok = Session.quit(connection)
+  end
+
   test "disconnects and reconnects an owned server over the user channel" do
     server = start_supervised!({IrcTestServer, self()})
     user = AccountsFixtures.user_fixture()

@@ -612,6 +612,39 @@ defmodule Ircpipe.Irc.SessionTest do
            )
   end
 
+  test "lists advertised server channels by visible users" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "directory-test",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
+    assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
+    assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
+
+    task = Task.async(fn -> Session.list_channels(connection) end)
+    assert_receive {:irc_server_line, "LIST"}, 1_000
+
+    assert {:ok,
+            [
+              %{channel: "#elixir", users: 42, topic: "Elixir, OTP, and Phoenix"},
+              %{channel: "#quiet", users: 4, topic: "A smaller conversation"},
+              %{channel: "&local", users: 3, topic: "A local-only channel"}
+            ]} = Task.await(task)
+
+    assert :ok = Session.quit(connection)
+  end
+
   test "rejoins persisted channel memberships after registration" do
     server = start_supervised!({IrcTestServer, self()})
     port = IrcTestServer.port(server)

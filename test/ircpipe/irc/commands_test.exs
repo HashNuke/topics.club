@@ -30,6 +30,9 @@ defmodule Ircpipe.Irc.CommandsTest do
              Commands.parse("/msg NickServ help")
 
     assert {:ok, %{name: "me", args: ["waves hello"]}} = Commands.parse("/me waves hello")
+
+    assert {:ok, %{name: "list", args: [], description: "Browse channels on this server"}} =
+             Commands.parse("/list")
   end
 
   test "rejects normal messages and unknown slash commands" do

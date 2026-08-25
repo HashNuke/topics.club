@@ -204,5 +204,5 @@ function sortTimelineMessages(messages) {
 
 export function normalizeChannel(channel) {
   if (!channel) return "#general"
-  return channel.startsWith("#") ? channel : `#${channel}`
+  return "#&+!".includes(channel[0]) ? channel : "#" + channel
 }

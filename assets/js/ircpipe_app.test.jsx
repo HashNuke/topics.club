@@ -16,6 +16,7 @@ function mockBootstrapFetch({
   channelMentionCount = 0,
   channelUnreadCount = 0,
   connectionStatus = "connected",
+  joinOk = true,
   messageCursorsByBuffer = {"channel:7": 99},
 } = {}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
@@ -41,6 +42,25 @@ function mockBootstrapFetch({
       return {
         ok: true,
         json: async () => ({deleted: {type: "server:deleted", server_connection_id: 42}}),
+      }
+    }
+
+    if (path === "/api/connections/42/channels" && options.method === "POST") {
+      const {channel} = JSON.parse(options.body)
+
+      if (!joinOk) return {ok: false, json: async () => ({error: "join_failed"})}
+
+      return {
+        ok: true,
+        json: async () => ({
+          channel: {
+            id: 12,
+            connection_id: 42,
+            channel,
+            unread_count: 0,
+            mention_count: 0,
+          },
+        }),
       }
     }
 
@@ -1571,6 +1591,220 @@ describe("IrcpipeApp UI prototype", () => {
     )
     expect(await screen.findByRole("heading", {name: "Discover topics"})).toBeInTheDocument()
     expect(screen.queryByRole("button", {name: /#testing/i})).not.toBeInTheDocument()
+  })
+
+  test("browses, filters, and joins channels from a server directory", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn((event) => {
+      if (event === "server:list") {
+        return Promise.resolve({
+          directory: {
+            server_connection_id: 42,
+            server_name: "local",
+            server_host: "127.0.0.1",
+            channels: [
+              {channel: "#elixir", users: 42, topic: "Phoenix, OTP, and releases"},
+              {channel: "#quiet", users: 4, topic: "A slower room"},
+            ],
+          },
+        })
+      }
+
+      return Promise.resolve({ok: true})
+    })
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    await user.click(await screen.findByRole("button", {name: "Browse channels on local"}))
+
+    expect(push).toHaveBeenCalledWith("server:list", {server_connection_id: 42})
+    expect(await screen.findByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
+    expect(screen.getByText("Phoenix, OTP, and releases")).toBeInTheDocument()
+    expect(screen.getByText("42 people")).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText("Search this server"), "quiet")
+    expect(screen.queryByText("#elixir")).not.toBeInTheDocument()
+    expect(screen.getByText("#quiet")).toBeInTheDocument()
+
+    await user.clear(screen.getByLabelText("Search this server"))
+    const elixirRow = screen.getByText("#elixir").closest("article")
+    await user.click(within(elixirRow).getByRole("button", {name: "Join"}))
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/connections/42/channels",
+      expect.objectContaining({method: "POST", body: JSON.stringify({channel: "#elixir"})})
+    )
+    expect(await screen.findByRole("heading", {name: "#elixir"})).toBeInTheDocument()
+    expect(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("#elixir")).toBeInTheDocument()
+  })
+
+  test("does not reopen a directory after the user navigates away from a pending list", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    let resolveList
+    const push = vi.fn((event) => {
+      if (event === "server:list") return new Promise((resolve) => { resolveList = resolve })
+      return Promise.resolve({ok: true})
+    })
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    await user.click(await screen.findByRole("button", {name: "Browse channels on local"}))
+    expect(screen.getByRole("status", {name: /Loading channels from local/i})).toBeInTheDocument()
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    await user.click(within(nav).getByRole("button", {name: "#testing"}))
+    resolveList({
+      directory: {
+        server_connection_id: 42,
+        server_name: "local",
+        channels: [{channel: "#late", users: 10, topic: "Late result"}],
+      },
+    })
+
+    await waitFor(() => expect(screen.getByRole("heading", {name: "#testing"})).toBeInTheDocument())
+    expect(screen.queryByText("#late")).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", {name: "Channels on local"})).not.toBeInTheDocument()
+  })
+
+  test("keeps join errors separate and preserves advertised channel prefixes", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({joinOk: false})
+    const push = vi.fn((event) => {
+      if (event === "server:list") {
+        return Promise.resolve({
+          directory: {
+            server_connection_id: 42,
+            server_name: "local",
+            channels: [{channel: "&local", users: 3, topic: "Local-only conversation"}],
+          },
+        })
+      }
+
+      return Promise.resolve({ok: true})
+    })
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    await user.click(await screen.findByRole("button", {name: "Browse channels on local"}))
+    const channelRow = (await screen.findByText("&local")).closest("article")
+    await user.click(within(channelRow).getByRole("button", {name: "Join"}))
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/connections/42/channels",
+      expect.objectContaining({method: "POST", body: JSON.stringify({channel: "&local"})})
+    )
+    expect(await screen.findByText("Channel was not joined")).toBeInTheDocument()
+    expect(screen.getByText(/Check the name and channel permissions, then try Join again/)).toBeInTheDocument()
+    expect(screen.queryByText("The channel list did not load")).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
+  })
+
+  test("does not reopen a directory after navigating away from a pending /list command", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    let resolveCommand
+    const push = vi.fn((event) => {
+      if (event === "command:run") return new Promise((resolve) => { resolveCommand = resolve })
+      return Promise.resolve({ok: true})
+    })
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+    await user.type(screen.getByLabelText("Message composer"), "/list")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+    await user.click(screen.getByRole("button", {name: "local"}))
+
+    resolveCommand({
+      command: {name: "list", args: []},
+      directory: {
+        server_connection_id: 42,
+        server_name: "local",
+        channels: [{channel: "#late", users: 10, topic: "Late result"}],
+      },
+    })
+
+    expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
+    expect(screen.queryByText("#late")).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", {name: "Channels on local"})).not.toBeInTheDocument()
+  })
+
+  test("opens the active server directory from the /list command", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn((event) => {
+      if (event === "command:run") {
+        return Promise.resolve({
+          command: {name: "list", args: []},
+          directory: {
+            server_connection_id: 42,
+            server_name: "local",
+            server_host: "127.0.0.1",
+            channels: [{channel: "#elixir", users: 42, topic: "Phoenix, OTP, and releases"}],
+          },
+        })
+      }
+
+      return Promise.resolve({ok: true})
+    })
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+
+    await user.type(screen.getByLabelText("Message composer"), "/list")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(push).toHaveBeenCalledWith("command:run", expect.objectContaining({input: "/list", buffer_id: "channel:7"}))
+    expect(await screen.findByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
+    expect(screen.getByText("#elixir")).toBeInTheDocument()
   })
 
   test("shows slash command suggestions from the chat composer", async () => {

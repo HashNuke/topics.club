@@ -202,6 +202,25 @@ defmodule IrcpipeWeb.UserChannel do
     reply_error(socket, %{reason: "invalid_buffer"})
   end
 
+  def handle_in("server:list", %{"server_connection_id" => connection_id}, socket) do
+    user = socket.assigns.current_user
+    connection = Chat.get_connection!(user, connection_id)
+
+    case list_channels(connection) do
+      {:ok, channels} ->
+        reply_ok(socket, %{directory: channel_directory(connection, channels)})
+
+      {:error, reason} ->
+        reply_error(socket, %{reason: error_reason(reason)})
+    end
+  rescue
+    Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
+  end
+
+  def handle_in("server:list", _payload, socket) do
+    reply_error(socket, %{reason: "invalid_server"})
+  end
+
   def handle_in("server:disconnect", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
     connection = Chat.get_connection!(user, connection_id)
@@ -250,6 +269,19 @@ defmodule IrcpipeWeb.UserChannel do
          :ok <- Session.join(connection, channel) do
       Chat.record_server_message(connection, "Joining #{membership.channel}.", "command")
       reply_ok(socket, %{command: command, buffer_id: "channel:#{membership.id}"})
+    else
+      {:error, reason} ->
+        reply_error(socket, %{reason: error_reason(reason), command: command})
+    end
+  end
+
+  defp run_command(%{name: "list", args: []} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         {:ok, channels} <- list_channels(connection) do
+      reply_ok(socket, %{
+        command: command,
+        directory: channel_directory(connection, channels)
+      })
     else
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
@@ -403,6 +435,21 @@ defmodule IrcpipeWeb.UserChannel do
     end
   end
 
+  defp channel_directory(connection, channels) do
+    %{
+      server_connection_id: connection.id,
+      server_name: connection.name,
+      server_host: connection.host,
+      channels: channels
+    }
+  end
+
+  defp list_channels(connection) do
+    Session.list_channels(connection)
+  catch
+    :exit, _reason -> {:error, :not_connected}
+  end
+
   defp say(membership, body) do
     Session.say(membership.server_connection, membership.channel, body)
   catch
@@ -426,6 +473,8 @@ defmodule IrcpipeWeb.UserChannel do
   defp error_reason(:invalid_command_args), do: "invalid_command_args"
   defp error_reason(:invalid_connection), do: "invalid_connection"
   defp error_reason(:not_connected), do: "not_connected"
+  defp error_reason(:list_in_progress), do: "list_in_progress"
+  defp error_reason(:list_timeout), do: "list_timeout"
   defp error_reason(:joining_channel), do: "joining_channel"
   defp error_reason(:not_joined), do: "not_joined"
   defp error_reason(_reason), do: "send_failed"

@@ -101,5 +101,15 @@ defmodule Ircpipe.IrcTestServer do
     ]
   end
 
+  defp reply("LIST") do
+    [
+      ":ircpipe-test 321 ircpipe Channel :Users Name",
+      ":ircpipe-test 322 ircpipe #quiet 4 :A smaller conversation",
+      ":ircpipe-test 322 ircpipe &local 3 :A local-only channel",
+      ":ircpipe-test 322 ircpipe #elixir 42 :Elixir, OTP, and Phoenix",
+      ":ircpipe-test 323 ircpipe :End of /LIST"
+    ]
+  end
+
   defp reply(_line), do: []
 end

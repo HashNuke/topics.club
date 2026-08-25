@@ -6,6 +6,8 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.ServerConnection
 
+  @channel_list_timeout 10_000
+
   def child_spec(%ServerConnection{} = connection) do
     %{
       id: {__MODULE__, connection.user_id, connection.id},
@@ -20,6 +22,10 @@ defmodule Ircpipe.Irc.Session do
 
   def join(%ServerConnection{} = connection, channel) do
     GenServer.call(via(connection), {:join, Chat.normalize_channel(channel)})
+  end
+
+  def list_channels(%ServerConnection{} = connection) do
+    GenServer.call(via(connection), :list_channels, @channel_list_timeout + 1_000)
   end
 
   def say(%ServerConnection{} = connection, channel, body) do
@@ -70,7 +76,8 @@ defmodule Ircpipe.Irc.Session do
        pending_joins: persisted_channels(connection),
        joined_channels: MapSet.new(),
        names_buffers: %{},
-       pending_echoes: []
+       pending_echoes: [],
+       channel_list_request: nil
      }}
   end
 
@@ -440,6 +447,48 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, state}
   end
 
+  def handle_info({:ircxd, {:list_start, _payload}}, %{channel_list_request: request} = state)
+      when not is_nil(request) do
+    {:noreply, put_in(state.channel_list_request.entries, %{})}
+  end
+
+  def handle_info(
+        {:ircxd, {:list_entry, %{channel: channel} = payload}},
+        %{channel_list_request: request} = state
+      )
+      when not is_nil(request) do
+    entry = %{
+      channel: channel,
+      users: parse_visible_users(Map.get(payload, :visible)),
+      topic: Map.get(payload, :topic) || ""
+    }
+
+    {:noreply, put_in(state.channel_list_request.entries[entry.channel], entry)}
+  end
+
+  def handle_info({:ircxd, {:list_end, _payload}}, %{channel_list_request: request} = state)
+      when not is_nil(request) do
+    Process.cancel_timer(request.timer)
+
+    channels =
+      request.entries
+      |> Map.values()
+      |> Enum.sort_by(fn entry -> {-entry.users, String.downcase(entry.channel)} end)
+
+    GenServer.reply(request.from, {:ok, channels})
+    {:noreply, %{state | channel_list_request: nil}}
+  end
+
+  def handle_info(
+        {:channel_list_timeout, ref},
+        %{channel_list_request: %{ref: ref} = request} = state
+      ) do
+    GenServer.reply(request.from, {:error, :list_timeout})
+    {:noreply, %{state | channel_list_request: nil}}
+  end
+
+  def handle_info({:channel_list_timeout, _ref}, state), do: {:noreply, state}
+
   def handle_info({:ircxd, _event}, state), do: {:noreply, state}
 
   @impl true
@@ -454,6 +503,28 @@ defmodule Ircpipe.Irc.Session do
       end
 
     {:reply, normalize_result(result), state}
+  end
+
+  def handle_call(:list_channels, _from, %{registered?: false} = state) do
+    {:reply, {:error, :not_connected}, state}
+  end
+
+  def handle_call(:list_channels, _from, %{channel_list_request: request} = state)
+      when not is_nil(request) do
+    {:reply, {:error, :list_in_progress}, state}
+  end
+
+  def handle_call(:list_channels, from, state) do
+    with {:ok, client} <- fetch_client(state),
+         :ok <- Ircxd.Client.list(client) do
+      ref = make_ref()
+      timer = Process.send_after(self(), {:channel_list_timeout, ref}, @channel_list_timeout)
+      request = %{from: from, ref: ref, timer: timer, entries: %{}}
+
+      {:noreply, %{state | channel_list_request: request}}
+    else
+      error -> {:reply, error, state}
+    end
   end
 
   def handle_call({:say, channel, body}, _from, state) do
@@ -638,6 +709,17 @@ defmodule Ircpipe.Irc.Session do
 
   defp fetch_client(%{client: nil}), do: {:error, :not_connected}
   defp fetch_client(%{client: client}), do: {:ok, client}
+
+  defp parse_visible_users(value) when is_integer(value), do: value
+
+  defp parse_visible_users(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {count, ""} -> count
+      _other -> 0
+    end
+  end
+
+  defp parse_visible_users(_value), do: 0
 
   defp fetch_joined_client(state, channel) do
     normalized = Chat.normalize_channel(channel)

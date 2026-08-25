@@ -7,6 +7,7 @@ import {
   latestBackendMessageId,
   mergeNewerMessages,
   mergeOlderMessages,
+  normalizeChannel,
   normalizeMessage,
   normalizeTopic,
 } from "./chat_store.js"
@@ -132,6 +133,14 @@ describe("chat store", () => {
     expect(errored.connectionHealth).toBe("reconnecting")
     expect(errored.connections[0].status).toBe("errored")
     expect(errored.buffers.map((buffer) => buffer.status)).toEqual(["errored", "errored"])
+  })
+
+  test("preserves IRC channel type prefixes", () => {
+    expect(normalizeChannel("elixir")).toBe("#elixir")
+    expect(normalizeChannel("#elixir")).toBe("#elixir")
+    expect(normalizeChannel("&local")).toBe("&local")
+    expect(normalizeChannel("+modeless")).toBe("+modeless")
+    expect(normalizeChannel("!safe")).toBe("!safe")
   })
 
   test("normalizes topic and message payloads outside UI components", () => {

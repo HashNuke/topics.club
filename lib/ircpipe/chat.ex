@@ -576,7 +576,9 @@ defmodule Ircpipe.Chat do
     |> Repo.delete_all()
   end
 
-  def normalize_channel("#" <> _ = channel), do: channel
+  def normalize_channel(<<prefix, _rest::binary>> = channel) when prefix in [?#, ?&, ?+, ?!],
+    do: channel
+
   def normalize_channel(channel), do: "##{channel}"
 
   def valid_nick?(nick) when is_binary(nick) do

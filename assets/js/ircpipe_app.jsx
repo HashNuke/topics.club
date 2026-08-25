@@ -133,6 +133,7 @@ const demoMessages = [
 
 export const slashCommands = [
   {name: "/join", usage: "/join #channel", description: "Join a channel"},
+  {name: "/list", usage: "/list", description: "Browse channels on this server"},
   {name: "/part", usage: "/part #channel", description: "Leave a channel"},
   {name: "/leave", usage: "/leave #channel", description: "Leave a channel"},
   {name: "/msg", usage: "/msg nick message", description: "Send a private message"},
@@ -160,6 +161,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   )
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
+  const [channelDirectory, setChannelDirectory] = useState({serverId: null, channels: [], status: "idle", error: null, joinError: null, joiningChannel: null})
+  const channelDirectoryRequestRef = useRef(0)
   const loadingOlderRef = useRef(new Set())
   const readingBuffersRef = useRef(new Set())
   const activeChannelIdRef = useRef(activeChannelId)
@@ -519,29 +522,87 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setView("chat")
   }
 
+  function applyChannelDirectory(directory) {
+    const server = connectionsRef.current.find((connection) => connection.server_connection_id === directory?.server_connection_id)
+    if (!server) return
+
+    activeServerIdRef.current = server.id
+    viewRef.current = "directory"
+    setActiveServerId(server.id)
+    setChannelDirectory({serverId: server.id, channels: directory.channels || [], status: "ready", error: null, joinError: null, joiningChannel: null})
+    setView("directory")
+  }
+
+  async function openChannelDirectory(server) {
+    if (!server) return
+    const requestId = ++channelDirectoryRequestRef.current
+
+    activeServerIdRef.current = server.id
+    viewRef.current = "directory"
+    setActiveServerId(server.id)
+    setChannelDirectory({serverId: server.id, channels: [], status: "loading", error: null, joinError: null, joiningChannel: null})
+    setView("directory")
+
+    if (!server.server_connection_id || !realtimeClientRef.current) {
+      setChannelDirectory((current) => current.serverId === server.id ? {...current, status: "error", error: "Connect to this server before browsing its channels."} : current)
+      return
+    }
+
+    try {
+      const reply = await realtimeClientRef.current.push("server:list", {server_connection_id: server.server_connection_id})
+      if (requestId !== channelDirectoryRequestRef.current || viewRef.current !== "directory" || activeServerIdRef.current !== server.id) return
+      applyChannelDirectory(reply.directory)
+    } catch (error) {
+      setChannelDirectory((current) => current.serverId === server.id ? {...current, status: "error", error: channelDirectoryError(error?.reason), joiningChannel: null} : current)
+    }
+  }
+
+  async function joinDirectoryChannel(channelName) {
+    const server = connectionsRef.current.find((connection) => connection.id === channelDirectory.serverId)
+    if (!server?.server_connection_id || !channelName) return
+
+    const channel = normalizeChannel(channelName.trim())
+    setChannelDirectory((current) => ({...current, joinError: null, joiningChannel: channel}))
+
+    try {
+      const joined = await apiClient.joinChannel(server.server_connection_id, channel)
+      applyJoinedChannel({...server, id: server.server_connection_id}, joined.channel)
+    } catch (_error) {
+      setChannelDirectory((current) => ({...current, joinError: "Could not join " + channel + ". Check the name and channel permissions, then try Join again.", joiningChannel: null}))
+    }
+  }
+
   async function sendMessage(event) {
     event.preventDefault()
-    if (!draft.trim() || !activeChannel) return
+    if (!draft.trim()) return
 
     const body = draft.trim()
-    if (isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)) return
 
     if (body.startsWith("/") && realtimeClientRef.current) {
+      const directoryRequestId = body.toLowerCase() === "/list" ? ++channelDirectoryRequestRef.current : null
       setDraft("")
 
       try {
-        await realtimeClientRef.current.push("command:run", {
+        const reply = await realtimeClientRef.current.push("command:run", {
           input: body,
           buffer_id: currentBufferId(),
         })
 
-        appendSystemMessage("Command accepted.")
+        if (reply.directory) {
+          if (directoryRequestId !== channelDirectoryRequestRef.current) return
+          applyChannelDirectory(reply.directory)
+        } else {
+          appendSystemMessage("Command accepted.")
+        }
       } catch (_error) {
         appendSystemMessage("Command failed.")
       }
 
       return
     }
+
+    if (!activeChannel) return
+    if (isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)) return
 
     const nextMessage = {
       id: `${view}-${Date.now()}`,
@@ -974,6 +1035,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     <AppShell
       activeChannel={activeChannel}
       activeServer={activeServer}
+      channelDirectory={channelDirectory}
       connections={connections}
       currentUser={currentUser}
       draft={draft}
@@ -983,21 +1045,33 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       topics={topics}
       users={users}
       view={view}
-      onDiscover={() => setView("discover")}
+      onDiscover={() => {
+        channelDirectoryRequestRef.current += 1
+        viewRef.current = "discover"
+        setView("discover")
+      }}
+      onJoinDirectoryChannel={joinDirectoryChannel}
       onJoinManualServer={joinManualServer}
       onLeaveChannel={leaveChannel}
       onMarkChannelRead={markChannelRead}
       onRequestNotifications={requestNotifications}
+      onOpenChannelDirectory={openChannelDirectory}
       onDisconnectServer={disconnectServer}
       onLeaveServer={leaveServer}
       onReconnectServer={reconnectServer}
       onUpdateServer={updateServerConnection}
       onSelectChannel={(channel) => {
+        channelDirectoryRequestRef.current += 1
+        viewRef.current = "chat"
+        activeServerIdRef.current = channel.connection?.id || activeServerId
         setActiveServerId(channel.connection?.id || activeServerId)
         setActiveChannelId(channel.id)
         setView("chat")
       }}
       onSelectServer={(server) => {
+        channelDirectoryRequestRef.current += 1
+        viewRef.current = "server"
+        activeServerIdRef.current = server.id
         setActiveServerId(server.id)
         setView("server")
       }}
@@ -1007,7 +1081,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onSendMessage={sendMessage}
       onLoadOlderMessages={loadOlderMessages}
       onReadingStateChange={updateBufferReadingState}
-      onShowChat={() => setView("chat")}
+      onShowChat={() => {
+        channelDirectoryRequestRef.current += 1
+        viewRef.current = "chat"
+        setView("chat")
+      }}
       onUpdateDraft={setDraft}
       connectionHealth={connectionHealth}
     />
@@ -1305,6 +1383,13 @@ function AppShell(props) {
           />
           {props.view === "discover" ? (
             <DiscoverPane topics={props.topics} onSelectTopic={props.onSelectTopic} />
+          ) : props.view === "directory" ? (
+            <ChannelDirectoryPane
+              directory={props.channelDirectory}
+              onJoinChannel={props.onJoinDirectoryChannel}
+              onRefresh={() => props.onOpenChannelDirectory(props.activeServer)}
+              server={props.activeServer}
+            />
           ) : props.view === "server" ? (
             <ServerBufferPane
               draft={props.draft}
@@ -1331,6 +1416,10 @@ function AppShell(props) {
             mobile
             onDiscover={() => {
               props.onDiscover()
+              setMobileMenuOpen(false)
+            }}
+            onOpenChannelDirectory={(server) => {
+              props.onOpenChannelDirectory(server)
               setMobileMenuOpen(false)
             }}
             onSelectChannel={(channel) => {
@@ -1380,7 +1469,7 @@ function MobileDrawerHeader({title, onClose}) {
   )
 }
 
-function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer}) {
+function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer}) {
   const [manualOpen, setManualOpen] = useState(false)
   const [editingServer, setEditingServer] = useState(null)
   const [leavingServer, setLeavingServer] = useState(null)
@@ -1428,6 +1517,18 @@ function LeftSidebar({activeChannel, activeServer, connections, currentUser, mob
               <button className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left" onClick={() => onSelectServer(connection)}>
                 <span className="size-1.5 rounded-full bg-emerald-400" />
                 <span className="truncate">{connection.name}</span>
+              </button>
+              <button
+                id={"browse-channels-" + connection.server_connection_id}
+                className="grid size-7 shrink-0 place-items-center rounded text-slate-500 transition hover:bg-slate-700 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onOpenChannelDirectory?.(connection)
+                }}
+                aria-label={"Browse channels on " + connection.name}
+                type="button"
+              >
+                <span className="hero-plus size-3.5" aria-hidden="true" />
               </button>
               <ServerActionMenu
                 server={connection}
@@ -1720,6 +1821,14 @@ function topBarCopyFor({activeChannel, activeServer, view}) {
     }
   }
 
+  if (view === "directory") {
+    return {
+      title: `Channels on ${activeServer?.name || "server"}`,
+      context: null,
+      subtitle: "Browse public conversations and join with one click.",
+    }
+  }
+
   if (view === "server") {
     return {
       title: activeServer?.host || "Server",
@@ -1842,6 +1951,156 @@ function MessageRow({message, onRetryMessage}) {
 
 function metaMessageKind(kind) {
   return ["system", "command", "join", "part", "quit", "nick", "mode", "kick", "topic", "notice", "error"].includes(kind)
+}
+
+function ChannelDirectoryPane({directory, onJoinChannel, onRefresh, server}) {
+  const [query, setQuery] = useState("")
+  const [manualChannel, setManualChannel] = useState("")
+  const normalizedQuery = query.trim().toLowerCase()
+  const visibleChannels = (directory?.channels || []).filter((channel) => {
+    if (!normalizedQuery) return true
+    return `${channel.channel} ${channel.topic || ""}`.toLowerCase().includes(normalizedQuery)
+  })
+
+  function joinManualChannel(event) {
+    event.preventDefault()
+    const channel = manualChannel.trim()
+    if (!channel) return
+    onJoinChannel(channel)
+  }
+
+  return (
+    <section id="channel-directory" className="min-h-0 flex-1 overflow-y-auto bg-[#090b10] px-4 py-5 sm:px-6 sm:py-7">
+      <div className="mx-auto max-w-5xl">
+        <div className="flex flex-col gap-5 border-b border-slate-800 pb-6 sm:flex-row sm:items-end sm:justify-between">
+          <div className="max-w-2xl">
+            <h2 className="text-2xl font-semibold tracking-tight text-white">Find your next conversation</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              This list comes from {server?.name || "the server"}. Private channels and channels hidden by the server will not appear.
+            </p>
+          </div>
+          <button
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 self-start rounded-md border border-slate-700 px-3 text-sm font-medium text-slate-200 transition hover:border-cyan-300/70 hover:text-white disabled:cursor-wait disabled:opacity-60 sm:self-auto"
+            disabled={directory?.status === "loading"}
+            onClick={onRefresh}
+            type="button"
+          >
+            <span className={["hero-arrow-path size-4", directory?.status === "loading" ? "animate-spin" : ""].join(" ")} aria-hidden="true" />
+            Refresh list
+          </button>
+        </div>
+
+        <div className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.55fr)]">
+          <label className="block" htmlFor="channel-directory-search">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Search this server</span>
+            <span className="flex h-11 items-center gap-2 rounded-md border border-slate-700 bg-[#111620] px-3 transition focus-within:border-cyan-300/70 focus-within:ring-2 focus-within:ring-cyan-300/10">
+              <span className="hero-magnifying-glass size-4 text-slate-500" aria-hidden="true" />
+              <input
+                id="channel-directory-search"
+                className="min-w-0 flex-1 border-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-600"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Try elixir, games, or music"
+                type="search"
+                value={query}
+              />
+            </span>
+          </label>
+
+          <form id="channel-directory-join-form" onSubmit={joinManualChannel}>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="channel-directory-manual">
+              Know the channel name?
+            </label>
+            <div className="flex h-11 overflow-hidden rounded-md border border-slate-700 bg-[#111620] transition focus-within:border-cyan-300/70 focus-within:ring-2 focus-within:ring-cyan-300/10">
+              <input
+                id="channel-directory-manual"
+                className="min-w-0 flex-1 border-0 bg-transparent px-3 text-sm text-white outline-none placeholder:text-slate-600"
+                onChange={(event) => setManualChannel(event.target.value)}
+                placeholder="#channel"
+                value={manualChannel}
+              />
+              <button className="border-l border-slate-700 px-4 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-300 hover:text-cyan-950" type="submit">
+                Join
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {directory?.error && (
+          <div className="mb-4 flex flex-col gap-3 rounded-md border border-rose-400/30 bg-rose-400/5 p-4 sm:flex-row sm:items-center sm:justify-between" role="alert">
+            <div>
+              <div className="text-sm font-semibold text-rose-200">The channel list did not load</div>
+              <p className="mt-1 text-sm text-slate-400">{directory.error}</p>
+            </div>
+            <button className="shrink-0 self-start rounded-md border border-rose-300/40 px-3 py-1.5 text-sm font-semibold text-rose-100 transition hover:border-rose-200 hover:text-white" onClick={onRefresh} type="button">
+              Try again
+            </button>
+          </div>
+        )}
+
+        {directory?.joinError && (
+          <div className="mb-4 rounded-md border border-amber-300/30 bg-amber-300/5 p-4" role="alert">
+            <div className="text-sm font-semibold text-amber-100">Channel was not joined</div>
+            <p className="mt-1 text-sm text-slate-400">{directory.joinError}</p>
+          </div>
+        )}
+
+        {directory?.status === "loading" ? (
+          <div className="overflow-hidden rounded-lg border border-slate-800 bg-[#10151e]" aria-label={"Loading channels from " + (server?.name || "the server")} aria-live="polite" role="status">
+            <span className="sr-only">Asking {server?.name || "the server"} for its public channels.</span>
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="grid animate-pulse gap-3 border-b border-slate-800/90 px-4 py-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_5rem]">
+                <div>
+                  <div className="h-3 w-28 rounded bg-slate-700/80" />
+                  <div className="mt-3 h-2.5 w-3/5 rounded bg-slate-800" />
+                </div>
+                <div className="h-9 rounded-md bg-slate-800" />
+              </div>
+            ))}
+          </div>
+        ) : directory?.status === "ready" && visibleChannels.length === 0 ? (
+          <div className="border-y border-slate-800 py-12 text-center">
+            <span className="hero-magnifying-glass mx-auto block size-6 text-slate-600" aria-hidden="true" />
+            <p className="mt-3 text-sm font-medium text-slate-300">No matching channels found.</p>
+            <p className="mt-1 text-sm text-slate-500">Try a broader search, refresh the list, or join by name.</p>
+          </div>
+        ) : directory?.status === "ready" ? (
+          <div className="overflow-hidden rounded-lg border border-slate-800 bg-[#10151e]">
+            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" aria-live="polite" role="status">
+              <span>{visibleChannels.length} {visibleChannels.length === 1 ? "channel" : "channels"}</span>
+              <span>Join a channel</span>
+            </div>
+            <div className="divide-y divide-slate-800/90">
+              {visibleChannels.map((channel) => {
+                const joining = directory.joiningChannel === channel.channel
+                return (
+                  <article key={channel.channel} className="group grid gap-3 px-4 py-4 transition hover:bg-slate-900/70 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <h3 className="font-mono text-sm font-semibold text-cyan-200">{channel.channel}</h3>
+                        <span className="text-xs tabular-nums text-slate-500">{channel.users} {channel.users === 1 ? "person" : "people"}</span>
+                      </div>
+                      <p className="mt-1.5 truncate text-sm text-slate-400" title={channel.topic || "No topic set"}>{channel.topic || "No topic set"}</p>
+                    </div>
+                    <button
+                      className={[
+                        "h-9 rounded-md px-4 text-sm font-semibold transition disabled:cursor-wait",
+                        joining ? "bg-slate-700 text-slate-400" : "bg-cyan-300 text-cyan-950 hover:bg-white",
+                      ].join(" ")}
+                      disabled={joining}
+                      onClick={() => onJoinChannel(channel.channel)}
+                      type="button"
+                    >
+                      {joining ? "Joining…" : "Join"}
+                    </button>
+                  </article>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  )
 }
 
 function DiscoverPane({topics, onSelectTopic}) {
@@ -2498,6 +2757,13 @@ function commandSuggestionsFor(value) {
 
   const prefix = trimmedStart.slice(1).toLowerCase()
   return slashCommands.filter((command) => command.name.slice(1).startsWith(prefix))
+}
+
+function channelDirectoryError(reason) {
+  if (reason === "list_in_progress") return "This server is already preparing a channel list. Try again in a moment."
+  if (reason === "list_timeout") return "The server took too long to return its channel list."
+  if (reason === "not_connected") return "Reconnect to this server before browsing its channels."
+  return "The server could not return its channel list. Try again shortly."
 }
 
 function notificationPermission() {

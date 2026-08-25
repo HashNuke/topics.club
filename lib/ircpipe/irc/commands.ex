@@ -16,6 +16,14 @@ defmodule Ircpipe.Irc.Commands do
       examples: ["/join #elixir"]
     },
     %{
+      name: "/list",
+      command: "list",
+      usage: "/list",
+      description: "Browse channels on this server",
+      required_permission: "user",
+      examples: ["/list"]
+    },
+    %{
       name: "/part",
       command: "part",
       usage: "/part #channel",
