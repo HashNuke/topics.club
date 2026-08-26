@@ -7,15 +7,28 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Notifications
   alias Ircpipe.Realtime.Event
+  alias Ircpipe.Repo
 
   @message_limit 150
 
   def show(conn, _params) do
     user = conn.assigns.current_scope.user
-    connections = Chat.list_connections(user)
-    topics = Chat.list_topics()
-    messages_by_buffer = messages_by_buffer(user, connections)
-    users_by_buffer = users_by_buffer(connections)
+
+    {:ok, snapshot} =
+      Repo.transaction(fn ->
+        {connections, direct_message_tombstones} =
+          Chat.list_connections_with_direct_message_state(user)
+
+        %{
+          connections: connections,
+          direct_message_tombstones: direct_message_tombstones,
+          messages_by_buffer: messages_by_buffer(user, connections),
+          topics: Chat.list_topics(),
+          users_by_buffer: users_by_buffer(connections)
+        }
+      end)
+
+    connections = snapshot.connections
 
     Enum.each(connections, &start_session/1)
 
@@ -32,13 +45,13 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       server_time: DateTime.utc_now(:second),
       connections: Enum.map(connections, &connection_json/1),
       buffers: buffers,
-      direct_message_tombstones: Chat.list_direct_message_tombstones(user),
+      direct_message_tombstones: snapshot.direct_message_tombstones,
       active_buffer_id: active_buffer_id,
-      messages_by_buffer: messages_by_buffer,
-      message_cursors_by_buffer: message_cursors_by_buffer(messages_by_buffer),
-      users_by_buffer: users_by_buffer,
+      messages_by_buffer: snapshot.messages_by_buffer,
+      message_cursors_by_buffer: message_cursors_by_buffer(snapshot.messages_by_buffer),
+      users_by_buffer: snapshot.users_by_buffer,
       command_catalog: Commands.all(),
-      topics: Enum.map(topics, &topic_json/1)
+      topics: Enum.map(snapshot.topics, &topic_json/1)
     }
 
     json(conn, payload)

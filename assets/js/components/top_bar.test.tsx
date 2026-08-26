@@ -7,8 +7,8 @@ function renderTopBar(notificationDeviceState: NotificationDeviceState) {
   const onToggleChannelNotifications = vi.fn()
   render(
     <TopBar
-      activeChannel={{id: "channel:1", channel: "#elixir"}}
-      activeServer={{id: "server:1", name: "Libera Chat", host: "irc.libera.chat", channels: []}}
+      activeChannel={{id: "channel:1", buffer_type: "channel", channel_membership_id: 1, channel: "#elixir", mention_notifications_enabled: true, notification_preference_revision: 0}}
+      activeServer={{id: "server:1", server_connection_id: 1, name: "Libera Chat", host: "irc.libera.chat", mention_notifications_enabled: true, notification_preference_revision: 0, channels: []}}
       connectionHealth="connected"
       notificationDeviceState={notificationDeviceState}
       notificationSavingIds={new Set()}

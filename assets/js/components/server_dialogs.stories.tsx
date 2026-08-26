@@ -18,13 +18,13 @@ export const EditServer = {
     <EditServerDialog
       onClose={() => {}}
       onSave={() => {}}
-      server={{id: "server:1", host: "irc.example.net", nickname: "mira", port: 6697, use_tls: true, channels: []}}
+      server={{id: "server:1", server_connection_id: 1, host: "irc.example.net", nickname: "mira", port: 6697, use_tls: true, mention_notifications_enabled: true, notification_preference_revision: 0, channels: []}}
     />
   ),
 }
 
 export const LeaveServer = {
-  render: () => <LeaveServerDialog onClose={() => {}} onConfirm={() => {}} server={{id: "server:1", name: "Libera Chat", host: "irc.libera.chat", channels: []}} />,
+  render: () => <LeaveServerDialog onClose={() => {}} onConfirm={() => {}} server={{id: "server:1", server_connection_id: 1, name: "Libera Chat", host: "irc.libera.chat", mention_notifications_enabled: true, notification_preference_revision: 0, channels: []}} />,
 }
 
 export const InputField = {

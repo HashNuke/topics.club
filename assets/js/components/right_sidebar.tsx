@@ -1,6 +1,6 @@
 import React, {useState} from "react"
 import UserGroup from "./user_group.tsx"
-import type {Channel, ChatUser} from "../types.ts"
+import type {Channel, ChatUser, DirectMessageChannel} from "../types.ts"
 
 export function groupUsers(users: ChatUser[]): Array<{label: string; users: ChatUser[]}> {
   return [
@@ -46,7 +46,7 @@ export default function RightSidebar({activeChannel, users, mobile = false, onSe
   )
 }
 
-function DirectMessagePeerSidebar({activeChannel, mobile, onSetBlocked}: {activeChannel: Channel; mobile: boolean; onSetBlocked: (channel: Channel, blocked: boolean) => void}) {
+function DirectMessagePeerSidebar({activeChannel, mobile, onSetBlocked}: {activeChannel: DirectMessageChannel; mobile: boolean; onSetBlocked: (channel: Channel, blocked: boolean) => void}) {
   const identity = activeChannel.account || activeChannel.hostmask || "Identity unavailable on this network"
 
   return (

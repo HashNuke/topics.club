@@ -6,13 +6,13 @@ export default {
 }
 
 export const ChannelActions = {
-  render: () => <ChannelActionMenu channel={{id: "channel:1", channel: "#elixir"}} onCopyChannel={() => {}} onLeaveChannel={() => {}} onMarkRead={() => {}} />,
+  render: () => <ChannelActionMenu channel={{id: "channel:1", buffer_type: "channel", channel_membership_id: 1, channel: "#elixir", mention_notifications_enabled: true, notification_preference_revision: 0}} onCopyChannel={() => {}} onLeaveChannel={() => {}} onMarkRead={() => {}} />,
 }
 
 export const ServerActions = {
-  render: () => <ServerActionMenu server={{id: "server:1", name: "Libera Chat", host: "irc.libera.chat", channels: []}} onDisconnect={() => {}} onEdit={() => {}} onLeave={() => {}} onReconnect={() => {}} />,
+  render: () => <ServerActionMenu server={{id: "server:1", server_connection_id: 1, name: "Libera Chat", host: "irc.libera.chat", mention_notifications_enabled: true, notification_preference_revision: 0, channels: []}} onDisconnect={() => {}} onEdit={() => {}} onLeave={() => {}} onReconnect={() => {}} />,
 }
 
 export const DirectMessageActions = {
-  render: () => <DirectMessageActionMenu channel={{id: "direct:8", buffer_type: "direct_message", channel: "akash"}} onClose={() => {}} />,
+  render: () => <DirectMessageActionMenu channel={{id: "direct:8", buffer_type: "direct_message", direct_message_thread_id: 8, direct_message_revision: 1, channel: "akash", blocked: false}} onClose={() => {}} />,
 }

@@ -29,6 +29,15 @@ defmodule Ircpipe.Chat do
   def get_topic!(id), do: Repo.get!(Topic, id)
 
   def list_connections(%User{id: user_id}) do
+    {connections, _tombstones} = load_connections_with_direct_message_state(user_id)
+    connections
+  end
+
+  def list_connections_with_direct_message_state(%User{id: user_id}) do
+    load_connections_with_direct_message_state(user_id)
+  end
+
+  defp load_connections_with_direct_message_state(user_id) do
     connections =
       ServerConnection
       |> where([c], c.user_id == ^user_id)
@@ -46,17 +55,41 @@ defmodule Ircpipe.Chat do
         order_by: [asc: fragment("lower(?)", membership.channel), asc: membership.id]
       )
 
-    direct_messages =
-      from(thread in DirectMessageThread,
-        where: is_nil(thread.closed_at),
-        order_by: [asc: fragment("lower(?)", thread.peer_nick), asc: thread.id]
-      )
+    connections = Repo.preload(connections, [channel_memberships: memberships], force: true)
 
-    Repo.preload(
-      connections,
-      [channel_memberships: memberships, direct_message_threads: direct_messages],
-      force: true
-    )
+    direct_message_threads =
+      DirectMessageThread
+      |> where([thread], thread.user_id == ^user_id)
+      |> order_by([thread], asc: fragment("lower(?)", thread.peer_nick), asc: thread.id)
+      |> Repo.all()
+
+    open_threads_by_connection =
+      direct_message_threads
+      |> Enum.reject(& &1.closed_at)
+      |> Enum.group_by(& &1.server_connection_id)
+
+    connections =
+      Enum.map(connections, fn connection ->
+        %{
+          connection
+          | direct_message_threads: Map.get(open_threads_by_connection, connection.id, [])
+        }
+      end)
+
+    tombstones =
+      direct_message_threads
+      |> Enum.filter(& &1.closed_at)
+      |> Enum.sort_by(& &1.id)
+      |> Enum.map(fn thread ->
+        %{
+          buffer_id: "direct:#{thread.id}",
+          server_connection_id: thread.server_connection_id,
+          direct_message_thread_id: thread.id,
+          revision: thread.mutation_revision
+        }
+      end)
+
+    {connections, tombstones}
   end
 
   def list_recently_seen_connections(cutoff) do
@@ -273,28 +306,96 @@ defmodule Ircpipe.Chat do
     result
   end
 
-  def get_active_direct_message_thread(
-        %ServerConnection{user_id: user_id, id: connection_id},
-        id
-      ) do
-    Repo.transaction(fn ->
-      user = Repo.get!(User, user_id)
-      candidate = get_direct_message_thread!(user, id)
+  def send_direct_message_thread(
+        %ServerConnection{user_id: user_id, id: connection_id} = connection,
+        thread_id,
+        body,
+        transmit
+      )
+      when is_function(transmit, 1) do
+    result =
+      Repo.transaction(fn ->
+        lock_direct_message_connection!(connection_id)
 
-      if candidate.server_connection_id != connection_id,
-        do: Repo.rollback(:invalid_direct_message)
+        thread =
+          DirectMessageThread
+          |> where(
+            [thread],
+            thread.id == ^thread_id and thread.user_id == ^user_id and
+              thread.server_connection_id == ^connection_id
+          )
+          |> Repo.one()
 
-      lock_direct_message_connection!(connection_id)
-      thread = get_direct_message_thread!(user, id)
+        cond do
+          is_nil(thread) ->
+            Repo.rollback(:invalid_direct_message)
 
-      if archived_direct_message_thread?(thread) or not is_nil(thread.closed_at) do
-        Repo.rollback(:direct_message_closed)
-      end
+          archived_direct_message_thread?(thread) or not is_nil(thread.closed_at) ->
+            Repo.rollback(:direct_message_closed)
 
-      thread
-    end)
-  rescue
-    Ecto.NoResultsError -> {:error, :invalid_direct_message}
+          true ->
+            case transmit.(thread.peer_nick) do
+              :ok -> :ok
+              {:error, reason} -> Repo.rollback(reason)
+              error -> Repo.rollback(error)
+            end
+
+            maybe_pause_direct_message_send(thread)
+
+            metadata = %{
+              direction: "outgoing",
+              peer_nick: thread.peer_nick,
+              target: thread.peer_nick,
+              account: thread.account,
+              hostmask: thread.hostmask
+            }
+
+            message =
+              %Message{
+                user_id: user_id,
+                server_connection_id: connection_id,
+                direct_message_thread_id: thread.id
+              }
+              |> Message.changeset(%{
+                kind: "message",
+                nick: connection.nickname,
+                hostmask: thread.hostmask,
+                metadata: stringify_metadata(metadata),
+                body: body,
+                mentioned: false,
+                occurred_at: DateTime.utc_now(:second)
+              })
+              |> Repo.insert!()
+
+            prune_old_messages(Repo.get!(User, user_id))
+
+            %{thread: thread, message: message}
+        end
+      end)
+
+    case result do
+      {:ok, %{thread: thread, message: message} = recorded} ->
+        broadcast_direct_message_thread(thread)
+        broadcast_direct_message(message, thread)
+        {:ok, recorded}
+
+      error ->
+        error
+    end
+  end
+
+  defp maybe_pause_direct_message_send(thread) do
+    case Application.get_env(:ircpipe, :pause_direct_message_send) do
+      pid when is_pid(pid) ->
+        send(pid, {:direct_message_send_paused, self(), thread.id})
+
+        receive do
+          {:continue_direct_message_send, thread_id} when thread_id == thread.id -> :ok
+        end
+
+      _other ->
+        :ok
+    end
   end
 
   def rename_direct_message_peer(

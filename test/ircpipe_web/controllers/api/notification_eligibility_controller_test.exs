@@ -19,6 +19,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
       )
 
     assert %{"eligible" => true} = json_response(eligible, 200)
+    assert ["no-store"] = get_resp_header(eligible, "cache-control")
 
     assert :ok = Chat.mark_read(user, membership)
 
@@ -29,6 +30,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
       )
 
     assert %{"eligible" => false} = json_response(ineligible, 200)
+    assert ["no-store"] = get_resp_header(ineligible, "cache-control")
   end
 
   test "fails closed for anonymous, stale-generation, and malformed requests", %{
@@ -60,6 +62,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
       )
 
     assert %{"eligible" => false} = json_response(malformed, 200)
+    assert ["no-store"] = get_resp_header(malformed, "cache-control")
 
     generation = conn |> get_session(:user_token) |> UserToken.session_token_fingerprint()
 

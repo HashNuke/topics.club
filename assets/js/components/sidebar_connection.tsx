@@ -48,7 +48,7 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
           loading={notificationDeviceState.loading || notificationSavingIds.has(connection.id)}
           onToggle={() => onToggleServerNotifications(connection)}
           scopeLabel={connection.name || connection.host}
-          state={notificationControlState(notificationDeviceState, connection.mention_notifications_enabled ?? true)}
+          state={notificationControlState(notificationDeviceState, connection.mention_notifications_enabled)}
         />
         <button
           id={`${idNamespace}-browse-channels-${connection.server_connection_id}`}

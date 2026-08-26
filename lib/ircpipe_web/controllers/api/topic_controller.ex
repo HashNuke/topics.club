@@ -58,7 +58,9 @@ defmodule IrcpipeWeb.Api.TopicController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: Session.status(connection)
+      status: Session.status(connection),
+      mention_notifications_enabled: connection.mention_notifications_enabled,
+      notification_preference_revision: connection.notification_preference_revision
     }
   end
 
@@ -72,7 +74,9 @@ defmodule IrcpipeWeb.Api.TopicController do
       subtitle: "on #{connection.host}",
       status: Session.status(connection),
       unread_count: membership.unread_count,
-      mention_count: membership.mention_count
+      mention_count: membership.mention_count,
+      mention_notifications_enabled: membership.mention_notifications_enabled,
+      notification_preference_revision: membership.notification_preference_revision
     }
   end
 

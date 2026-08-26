@@ -33,6 +33,7 @@ import type {
   ChatMessage,
   ChatUser,
   DirectMessageClosedPayload,
+  DirectMessageBufferRecord,
   DirectMessageThreadPayload,
   DirectMessageTombstone,
   EntityId,
@@ -134,11 +135,12 @@ export default function useServerConnections({
   }
 
   function applyJoinedTopic(
-    {connection, buffer, topic}: JoinedTopicPayload,
+    payload: JoinedTopicPayload,
     authoritative = false,
     rejectionVersions = new Map(joinRejectionVersionsRef.current)
   ): boolean | undefined {
-    if (!connection || !buffer) return
+    if (!validJoinedTopicPayload(payload)) return
+    const {connection, buffer, topic} = payload
 
     if (authoritative) {
       rejectedBufferIdsRef.current.delete(buffer.buffer_id)
@@ -194,7 +196,7 @@ export default function useServerConnections({
     membership: ChannelMembership,
     rejectionVersions = new Map(joinRejectionVersionsRef.current)
   ): boolean | undefined {
-    if (!connection || !membership) return
+    if (!validBackendConnection(connection) || !validChannelMembership(membership)) return
 
     const connectionId = `server:${connection.id}`
     const bufferId = `channel:${membership.id}`
@@ -255,15 +257,14 @@ export default function useServerConnections({
   }
 
   function applyDirectMessageThread(payload: DirectMessageThreadPayload): void {
-    if (!payload?.connection || !payload?.buffer) return
+    if (!validDirectMessageThreadPayload(payload)) return
     if (payload.buffer.direct_message_revision !== payload.revision) return
 
     if (payload.buffer.closed_at) {
       applyDirectMessageClosed({
         buffer_id: payload.buffer.buffer_id,
         server_connection_id: payload.buffer.server_connection_id,
-        direct_message_thread_id:
-          payload.buffer.direct_message_thread_id || payload.buffer.buffer_id.replace("direct:", ""),
+        direct_message_thread_id: payload.buffer.direct_message_thread_id,
         revision: payload.revision,
       })
       return
@@ -280,7 +281,7 @@ export default function useServerConnections({
 
   function applyDirectMessageClosed(payload: DirectMessageClosedPayload): void {
     const bufferId = payload?.buffer_id
-    if (!bufferId?.startsWith("direct:")) return
+    if (!validDirectMessageClosedPayload(payload)) return
     if (!acceptDirectMessageRevision(bufferId, payload.revision)) return
 
     const serverId = `server:${payload.server_connection_id}`
@@ -319,7 +320,7 @@ export default function useServerConnections({
 
     try {
       const payload = await realtimeClientRef.current.push<{
-        buffer: import("../types.ts").BufferRecord
+        buffer: DirectMessageBufferRecord
         revision: number
       }>(
         "direct_message:block",
@@ -332,7 +333,7 @@ export default function useServerConnections({
 
       applyDirectMessageThread({
         connection: {
-          id: server.server_connection_id || server.id.replace("server:", ""),
+          id: server.server_connection_id,
           name: server.name,
           host: server.host,
           port: server.port,
@@ -340,7 +341,7 @@ export default function useServerConnections({
           nickname: server.nickname,
           status: server.status,
           mention_notifications_enabled: server.mention_notifications_enabled,
-          notification_preference_revision: server.notification_preference_revision as number,
+          notification_preference_revision: server.notification_preference_revision,
         },
         buffer: payload.buffer,
         revision: payload.revision,
@@ -451,38 +452,111 @@ export default function useServerConnections({
       for (const channel of connection.channels) {
         if (
           channel.buffer_type === "direct_message" &&
-          Number.isSafeInteger(channel.direct_message_revision) &&
-          (channel.direct_message_revision as number) >= 0
+          validRevision(channel.direct_message_revision)
         ) {
           const previous = directMessageRevisionsRef.current.get(channel.id) ?? -1
-          if ((channel.direct_message_revision as number) > previous) {
-            directMessageRevisionsRef.current.set(channel.id, channel.direct_message_revision as number)
+          if (channel.direct_message_revision > previous) {
+            directMessageRevisionsRef.current.set(channel.id, channel.direct_message_revision)
           }
         }
       }
     }
   }
 
-  function acceptDirectMessageRevision(bufferId: string, revision: number | undefined): boolean {
-    if (!Number.isSafeInteger(revision) || (revision as number) < 0) return false
+  function acceptDirectMessageRevision(bufferId: string, revision: number): boolean {
+    if (!validRevision(revision)) return false
 
     const previous = directMessageRevisionsRef.current.get(bufferId) ?? -1
-    if ((revision as number) <= previous) return false
+    if (revision <= previous) return false
 
-    directMessageRevisionsRef.current.set(bufferId, revision as number)
+    directMessageRevisionsRef.current.set(bufferId, revision)
     return true
   }
 
   function seedDirectMessageTombstones(tombstones: DirectMessageTombstone[]): void {
     for (const tombstone of tombstones) {
-      if (!tombstone?.buffer_id?.startsWith("direct:")) continue
-      if (!Number.isSafeInteger(tombstone.revision) || tombstone.revision < 0) continue
+      if (!validDirectMessageClosedPayload(tombstone)) continue
 
       const previous = directMessageRevisionsRef.current.get(tombstone.buffer_id) ?? -1
       if (tombstone.revision > previous) {
         directMessageRevisionsRef.current.set(tombstone.buffer_id, tombstone.revision)
       }
     }
+  }
+
+  function validDirectMessageThreadPayload(payload: DirectMessageThreadPayload): boolean {
+    if (!payload?.connection || !payload?.buffer) return false
+    const {buffer, connection, revision} = payload
+
+    return (
+      buffer.buffer_type === "direct_message" &&
+      validEntityId(buffer.direct_message_thread_id) &&
+      validEntityId(buffer.server_connection_id) &&
+      validEntityId(connection.id) &&
+      buffer.buffer_id === `direct:${buffer.direct_message_thread_id}` &&
+      String(buffer.server_connection_id) === String(connection.id) &&
+      validRevision(buffer.direct_message_revision) &&
+      typeof buffer.blocked === "boolean" &&
+      validRevision(revision) &&
+      validBackendConnection(connection)
+    )
+  }
+
+  function validJoinedTopicPayload(payload: JoinedTopicPayload): boolean {
+    if (!payload?.connection || !payload?.buffer) return false
+    const {buffer, connection} = payload
+
+    return (
+      validBackendConnection(connection) &&
+      buffer.buffer_type === "channel" &&
+      validEntityId(buffer.channel_membership_id) &&
+      validEntityId(buffer.server_connection_id) &&
+      buffer.buffer_id === `channel:${buffer.channel_membership_id}` &&
+      String(buffer.server_connection_id) === String(connection.id) &&
+      typeof buffer.mention_notifications_enabled === "boolean" &&
+      validRevision(buffer.notification_preference_revision)
+    )
+  }
+
+  function validBackendConnection(connection: BackendConnection): boolean {
+    return Boolean(
+      connection &&
+      validEntityId(connection.id) &&
+      typeof connection.host === "string" &&
+      connection.host.length > 0 &&
+      typeof connection.mention_notifications_enabled === "boolean" &&
+      validRevision(connection.notification_preference_revision)
+    )
+  }
+
+  function validChannelMembership(membership: ChannelMembership): boolean {
+    return Boolean(
+      membership &&
+      validEntityId(membership.id) &&
+      typeof membership.channel === "string" &&
+      membership.channel.length > 0 &&
+      typeof membership.mention_notifications_enabled === "boolean" &&
+      validRevision(membership.notification_preference_revision)
+    )
+  }
+
+  function validDirectMessageClosedPayload(payload: DirectMessageClosedPayload): boolean {
+    return Boolean(
+      payload &&
+      validEntityId(payload.server_connection_id) &&
+      validEntityId(payload.direct_message_thread_id) &&
+      payload.buffer_id === `direct:${payload.direct_message_thread_id}` &&
+      validRevision(payload.revision)
+    )
+  }
+
+  function validRevision(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  }
+
+  function validEntityId(value: unknown): value is EntityId {
+    if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
+    return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
   }
 
   return {

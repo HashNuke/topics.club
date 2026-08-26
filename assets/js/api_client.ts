@@ -1,7 +1,7 @@
 import type {BootstrapPayload} from "./bootstrap_state.ts"
 import type {
   BackendConnection,
-  BufferRecord,
+  ChannelBufferRecord,
   ChannelMembership,
   ChatMessage,
   ServerChannel,
@@ -60,7 +60,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch}: ApiCl
     bootstrap: () => request<BootstrapPayload>("/api/bootstrap"),
     activity: () => request<Record<string, unknown>>("/api/activity", {method: "POST", body: JSON.stringify({})}),
     topics: () => request<{topics: TopicInput[]}>("/api/topics"),
-    joinTopic: (topicId: EntityId) => request<{connection: BackendConnection; buffer: BufferRecord; topic?: TopicInput}>(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
+    joinTopic: (topicId: EntityId) => request<{connection: BackendConnection; buffer: ChannelBufferRecord; topic?: TopicInput}>(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
     discoveryServerChannels: () => request<{server_channels: ServerChannel[]}>("/api/discovery/server_channels"),
     joinDiscoveryServerChannel: (serverChannelId: EntityId) => request<JoinedTopicPayload>(`/api/discovery/server_channels/${serverChannelId}/join`, {method: "POST", body: JSON.stringify({})}),
     createConnection: (connection: ConnectionForm) => request<{connection: BackendConnection}>("/api/connections", {method: "POST", body: JSON.stringify({connection})}),
@@ -90,10 +90,15 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch}: ApiCl
         method: "DELETE",
         body: JSON.stringify({}),
       }),
-    notificationEligibility: (notificationId: EntityId, sessionGeneration: string) => {
+    notificationEligibility: (
+      notificationId: EntityId,
+      sessionGeneration: string,
+      signal?: AbortSignal
+    ) => {
       const query = new URLSearchParams({session_generation: sessionGeneration})
       return request<{eligible: boolean}>(
-        `/api/notifications/${encodeURIComponent(String(notificationId))}/eligibility?${query}`
+        `/api/notifications/${encodeURIComponent(String(notificationId))}/eligibility?${query}`,
+        {cache: "no-store", signal}
       )
     },
     updateServerNotificationPreference: (connectionId: EntityId, enabled: boolean) =>

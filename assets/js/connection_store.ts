@@ -1,15 +1,21 @@
 import type {
   BackendConnection,
   BufferReadPayload,
-  BufferRecord,
   Channel,
+  ChannelBufferRecord,
   ChannelMembership,
+  DirectMessageBufferRecord,
+  DirectMessageChannel,
+  JoinedChannel,
   ServerConnection,
   ServerStatusPayload,
   Topic,
 } from "./types.ts"
 
-export function channelFromBuffer(buffer: BufferRecord, topic?: {description?: string}): Channel {
+export function channelFromBuffer(
+  buffer: ChannelBufferRecord,
+  topic?: {description?: string}
+): JoinedChannel {
   return {
     id: buffer.buffer_id,
     buffer_type: "channel",
@@ -18,12 +24,12 @@ export function channelFromBuffer(buffer: BufferRecord, topic?: {description?: s
     topic: topic?.description || buffer.subtitle,
     unread_count: buffer.unread_count,
     mention_count: buffer.mention_count,
-    mention_notifications_enabled: buffer.mention_notifications_enabled ?? true,
+    mention_notifications_enabled: buffer.mention_notifications_enabled,
     notification_preference_revision: buffer.notification_preference_revision,
   }
 }
 
-export function directMessageFromBuffer(buffer: BufferRecord): Channel {
+export function directMessageFromBuffer(buffer: DirectMessageBufferRecord): DirectMessageChannel {
   return {
     id: buffer.buffer_id,
     buffer_type: "direct_message",
@@ -34,13 +40,13 @@ export function directMessageFromBuffer(buffer: BufferRecord): Channel {
     mention_count: 0,
     account: buffer.account,
     hostmask: buffer.hostmask,
-    blocked: Boolean(buffer.blocked),
+    blocked: buffer.blocked,
     closed_at: buffer.closed_at,
     direct_message_revision: buffer.direct_message_revision,
   }
 }
 
-export function channelFromMembership(membership: ChannelMembership, host: string): Channel {
+export function channelFromMembership(membership: ChannelMembership, host: string): JoinedChannel {
   return {
     id: `channel:${membership.id}`,
     buffer_type: "channel",
@@ -49,7 +55,7 @@ export function channelFromMembership(membership: ChannelMembership, host: strin
     topic: `on ${host}`,
     unread_count: membership.unread_count,
     mention_count: membership.mention_count,
-    mention_notifications_enabled: membership.mention_notifications_enabled ?? true,
+    mention_notifications_enabled: membership.mention_notifications_enabled,
     notification_preference_revision: membership.notification_preference_revision,
   }
 }
@@ -92,7 +98,7 @@ export function upsertJoinedChannel(
       use_tls: connection.use_tls,
       nickname: connection.nickname,
       status: connection.status,
-      mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
+      mention_notifications_enabled: connection.mention_notifications_enabled,
       notification_preference_revision: connection.notification_preference_revision,
       channels: [channel],
     },
@@ -116,9 +122,9 @@ export function upsertDirectMessage(
       if (item.id !== existingConnection.id) return item
 
       const exists = item.channels.some((conversation) => conversation.id === directMessage.id)
-      const conversations = exists
+      const conversations: Channel[] = exists
         ? item.channels.map((conversation) =>
-            conversation.id === directMessage.id ? {...conversation, ...directMessage} : conversation
+            conversation.id === directMessage.id ? directMessage : conversation
           )
         : [...item.channels, directMessage]
 
@@ -137,7 +143,7 @@ export function upsertDirectMessage(
       use_tls: connection.use_tls,
       nickname: connection.nickname,
       status: connection.status,
-      mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
+      mention_notifications_enabled: connection.mention_notifications_enabled,
       notification_preference_revision: connection.notification_preference_revision,
       channels: [directMessage],
     },

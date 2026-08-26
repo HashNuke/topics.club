@@ -21,7 +21,7 @@ function joinResponse(id, channel) {
   return {
     ok: true,
     json: async () => ({
-      channel: {id, connection_id: 42, channel, unread_count: 0, mention_count: 0},
+      channel: {id, connection_id: 42, channel, unread_count: 0, mention_count: 0, mention_notifications_enabled: true, notification_preference_revision: 0},
     }),
   }
 }
@@ -105,6 +105,8 @@ function mockBootstrapFetch({
             use_tls: true,
             nickname: "mira2",
             status: "connected",
+            mention_notifications_enabled: true,
+            notification_preference_revision: 0,
             channels: [{id: 7, channel: "#testing", unread_count: channelUnreadCount, mention_count: channelMentionCount}],
           },
         }),
@@ -139,6 +141,8 @@ function mockBootstrapFetch({
             channel,
             unread_count: 0,
             mention_count: 0,
+            mention_notifications_enabled: true,
+            notification_preference_revision: 0,
           },
         }),
       }
@@ -169,8 +173,8 @@ function mockBootstrapFetch({
       return {
         ok: true,
         json: async () => ({
-          connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected"},
-          buffer: {buffer_id: "channel:7", buffer_type: "channel", server_connection_id: 42, channel_membership_id: 7, title: "#testing", subtitle: "Existing channel", status: "connected", unread_count: 0, mention_count: 0},
+          connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+          buffer: {buffer_id: "channel:7", buffer_type: "channel", server_connection_id: 42, channel_membership_id: 7, title: "#testing", subtitle: "Existing channel", status: "connected", unread_count: 0, mention_count: 0, mention_notifications_enabled: true, notification_preference_revision: 0},
         }),
       }
     }
@@ -314,8 +318,8 @@ function mockDiscoveryFetch() {
       return {
         ok: true,
         json: async () => ({
-          connection: {id: 55, name: "Local IRC", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected"},
-          buffer: {buffer_id: "channel:88", buffer_type: "channel", server_connection_id: 55, channel_membership_id: 88, title: "#backend", subtitle: "Backend implementation work.", status: "connected", unread_count: 0, mention_count: 0},
+          connection: {id: 55, name: "Local IRC", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+          buffer: {buffer_id: "channel:88", buffer_type: "channel", server_connection_id: 55, channel_membership_id: 88, title: "#backend", subtitle: "Backend implementation work.", status: "connected", unread_count: 0, mention_count: 0, mention_notifications_enabled: true, notification_preference_revision: 0},
         }),
       }
     }
@@ -366,6 +370,8 @@ function mockResolvedLocalTopicFetch() {
             use_tls: false,
             nickname: "mira",
             status: "connected",
+            mention_notifications_enabled: true,
+            notification_preference_revision: 0,
           },
           buffer: {
             buffer_id: "channel:88",
@@ -377,6 +383,8 @@ function mockResolvedLocalTopicFetch() {
             status: "connected",
             unread_count: 0,
             mention_count: 0,
+            mention_notifications_enabled: true,
+            notification_preference_revision: 0,
           },
         }),
       }
@@ -418,6 +426,8 @@ function mockManualJoinFetch() {
             use_tls: false,
             nickname: "mira",
             status: "connected",
+            mention_notifications_enabled: true,
+            notification_preference_revision: 0,
           },
         }),
       }
@@ -436,6 +446,8 @@ function mockManualJoinFetch() {
             channel,
             unread_count: 0,
             mention_count: 0,
+            mention_notifications_enabled: true,
+            notification_preference_revision: 0,
           },
         }),
       }
@@ -471,16 +483,16 @@ function directMessageApiClient() {
       push: {configured: false, vapid_public_key: null, session_generation: "test-session"},
       direct_message_tombstones: [],
       connections: [
-        {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", notification_preference_revision: 0},
-        {id: 2, name: "New Network", host: "irc.new.test", nickname: "mira", status: "connected", notification_preference_revision: 0},
+        {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+        {id: 2, name: "New Network", host: "irc.new.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
       ],
       buffers: [
-        {buffer_id: "server:1", buffer_type: "server", server_connection_id: 1, title: "irc.old.test"},
-        {buffer_id: "channel:4", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 4, title: "#zulu"},
+        {buffer_id: "server:1", buffer_type: "server", server_connection_id: 1, title: "irc.old.test", mention_notifications_enabled: true, notification_preference_revision: 0},
+        {buffer_id: "channel:4", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 4, title: "#zulu", mention_notifications_enabled: true, notification_preference_revision: 0},
         {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 1, title: "Zed", subtitle: "on irc.old.test", unread_count: 2, blocked: false, account: "zed-account"},
-        {buffer_id: "channel:3", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 3, title: "#alpha"},
+        {buffer_id: "channel:3", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 3, title: "#alpha", mention_notifications_enabled: true, notification_preference_revision: 0},
         {buffer_id: "direct:8", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 8, direct_message_revision: 1, title: "akash", subtitle: "on irc.old.test", unread_count: 0, blocked: false},
-        {buffer_id: "server:2", buffer_type: "server", server_connection_id: 2, title: "irc.new.test"},
+        {buffer_id: "server:2", buffer_type: "server", server_connection_id: 2, title: "irc.new.test", mention_notifications_enabled: true, notification_preference_revision: 0},
       ],
       active_buffer_id: "direct:9",
       messages_by_buffer: {
@@ -660,7 +672,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
     realtimeHandlers.onDirectMessageThread({
-      connection: {id: 42, name: "local", host: "127.0.0.1", status: "connected", notification_preference_revision: 0},
+      connection: {id: 42, name: "local", host: "127.0.0.1", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
       buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 1, blocked: false},
       revision: 1,
     })
@@ -696,7 +708,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     act(() => {
       realtimeHandlers.onDirectMessageThread({
-        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", notification_preference_revision: 0},
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {
           buffer_id: "direct:9",
           buffer_type: "direct_message",
@@ -742,7 +754,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
 
-    const connection = {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", notification_preference_revision: 0}
+    const connection = {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0}
     act(() => {
       realtimeHandlers.onDirectMessageThread({
         connection,
@@ -815,7 +827,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
     act(() => {
       realtimeHandlers.onDirectMessageThread({
-        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", notification_preference_revision: 0},
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {
           buffer_id: "direct:9",
           buffer_type: "direct_message",
@@ -834,6 +846,50 @@ describe("IrcpipeApp UI prototype", () => {
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
     expect(within(nav).queryByText("Zed")).not.toBeInTheDocument()
     expect(screen.getByRole("heading", {name: "akash"})).toBeInTheDocument()
+  })
+
+  test("rejects malformed direct-message realtime records instead of reconstructing identifiers", async () => {
+    const apiClient = directMessageApiClient()
+    const client = fakeRealtimeClient(vi.fn())
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+
+    act(() => {
+      realtimeHandlers.onDirectMessageThread({
+        connection: {id: 1, host: "irc.old.test", mention_notifications_enabled: true, notification_preference_revision: 0},
+        buffer: {
+          buffer_id: "direct:12",
+          buffer_type: "direct_message",
+          server_connection_id: 1,
+          direct_message_revision: 1,
+          title: "Mona",
+        },
+        revision: 1,
+      } as any)
+      realtimeHandlers.onDirectMessageClosed({
+        buffer_id: "direct:9",
+        server_connection_id: 1,
+        direct_message_thread_id: 8,
+        revision: 2,
+      })
+    })
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    expect(within(nav).queryByText("Mona")).not.toBeInTheDocument()
+    expect(within(nav).getByText("Zed")).toBeInTheDocument()
   })
 
   test("authoritatively refreshes on reconnect and replays events that arrive during refresh", async () => {
@@ -882,7 +938,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     act(() => {
       realtimeHandlers.onDirectMessageThread({
-        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", notification_preference_revision: 0},
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 12, direct_message_revision: 1, title: "Mona", unread_count: 1, blocked: false},
         revision: 1,
       })
@@ -1078,7 +1134,7 @@ describe("IrcpipeApp UI prototype", () => {
 
       act(() => {
         realtimeHandlers.onDirectMessageThread({
-          connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", notification_preference_revision: 0},
+          connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
           buffer: {
             buffer_id: "direct:12",
             buffer_type: "direct_message",
@@ -1969,6 +2025,8 @@ describe("IrcpipeApp UI prototype", () => {
         use_tls: false,
         nickname: "mira",
         status: "connected",
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
       },
       buffer: {
         buffer_id: "channel:8",
@@ -1980,6 +2038,8 @@ describe("IrcpipeApp UI prototype", () => {
         status: "connected",
         unread_count: 0,
         mention_count: 0,
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
       },
     })
 
@@ -2196,6 +2256,78 @@ describe("IrcpipeApp UI prototype", () => {
         "/api/notifications/106/eligibility?session_generation=test-session",
         expect.objectContaining({credentials: "same-origin"})
       ))
+      expect(NotificationMock).not.toHaveBeenCalled()
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
+  test("aborts delayed notification authorization when the signed-in account changes", async () => {
+    const seedClient = directMessageApiClient()
+    let resolveEligibility
+    let eligibilitySignal
+    const notificationEligibility = vi.fn((_notificationId, _generation, signal) => {
+      eligibilitySignal = signal
+      return new Promise((resolve) => { resolveEligibility = resolve })
+    })
+    const apiClient = {...seedClient, notificationEligibility}
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+    const originalVisibilityState = document.visibilityState
+    let realtimeHandlers
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+
+    try {
+      const rendered = render(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 1, email: "mira@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+      act(() => {
+        realtimeHandlers.onNotificationDirectMessage({
+          event_id: "notification:stale-account",
+          notification_id: 107,
+          buffer_id: "direct:9",
+          server_connection_id: 1,
+          peer_nick: "Zed",
+          nick: "Zed",
+          body: "do not leak",
+        })
+      })
+
+      await waitFor(() => expect(notificationEligibility).toHaveBeenCalledOnce())
+
+      rendered.rerender(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 2, email: "other@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      await waitFor(() => expect(eligibilitySignal.aborted).toBe(true))
+      await act(async () => resolveEligibility({eligible: true}))
       expect(NotificationMock).not.toHaveBeenCalled()
     } finally {
       if (originalNotification) {
@@ -3081,6 +3213,8 @@ describe("IrcpipeApp UI prototype", () => {
           channel: "#elixir",
           unread_count: 0,
           mention_count: 0,
+          mention_notifications_enabled: true,
+          notification_preference_revision: 0,
         },
       }),
     })

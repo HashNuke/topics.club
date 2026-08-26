@@ -600,6 +600,78 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     end)
   end
 
+  test "closing a direct message waits for an in-flight send to transmit and persist" do
+    test_pid = self()
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {user, scope, connection, thread} =
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        user = AccountsFixtures.user_fixture()
+        scope = AccountsFixtures.user_scope_fixture(user)
+        connection = connection_fixture(user, "concurrent-send-close")
+        {:ok, thread} = Chat.open_direct_message(user, connection, "guest")
+        {user, scope, connection, thread}
+      end)
+
+    Application.put_env(:ircpipe, :pause_direct_message_send, test_pid)
+
+    on_exit(fn ->
+      Application.delete_env(:ircpipe, :pause_direct_message_send)
+
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
+          do: Repo.delete!(persisted_user)
+      end)
+    end)
+
+    sender =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Chat.send_direct_message_thread(connection, thread.id, "serialized hello", fn target ->
+            send(test_pid, {:direct_message_transmitted, target})
+            :ok
+          end)
+        end)
+      end)
+
+    assert_receive {:direct_message_transmitted, "guest"}
+    assert_receive {:direct_message_send_paused, sender_pid, thread_id}
+    assert thread_id == thread.id
+
+    closer =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        send(test_pid, :direct_message_close_started)
+
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Chat.close_direct_message_thread(scope, thread.id)
+        end)
+      end)
+
+    assert_receive :direct_message_close_started
+    refute Task.yield(closer, 100)
+
+    send(sender_pid, {:continue_direct_message_send, thread.id})
+    assert {:ok, %{message: sent_message, thread: sent_thread}} = Task.await(sender)
+    assert sent_thread.id == thread.id
+    assert sent_message.body == "serialized hello"
+    assert {:ok, closed_thread} = Task.await(closer)
+    assert closed_thread.id == thread.id
+    assert closed_thread.closed_at
+
+    Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+      persisted = Chat.get_direct_message_thread!(user, thread.id)
+      assert persisted.closed_at
+
+      assert Repo.exists?(
+               from(message in Message,
+                 where:
+                   message.direct_message_thread_id == ^thread.id and
+                     message.body == "serialized hello"
+               )
+             )
+    end)
+  end
+
   test "a block waiting behind peer displacement cannot resurrect the archived thread" do
     test_pid = self()
     supervisor = start_supervised!(Task.Supervisor)

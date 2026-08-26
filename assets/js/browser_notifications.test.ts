@@ -146,6 +146,47 @@ describe("browser notifications", () => {
     secondTab.close()
   })
 
+  test("completes slow tab authorization before entering the synchronous election", async () => {
+    const channelFactory = inMemoryBroadcastChannelFactory()
+    const display = vi.fn().mockReturnValue(true)
+    const firstTab = createNotificationEventCoordinator({
+      channelFactory,
+      claimWindowMs: 1,
+      scope: "slow-authorization",
+      storage: null,
+      tabId: "tab-a",
+    })
+    const secondTab = createNotificationEventCoordinator({
+      channelFactory,
+      claimWindowMs: 1,
+      scope: "slow-authorization",
+      storage: null,
+      tabId: "tab-b",
+    })
+
+    const authorizeThenCoordinate = async (
+      coordinator: ReturnType<typeof createNotificationEventCoordinator>,
+      authorizationDelay: number
+    ) => {
+      await new Promise((resolve) => setTimeout(resolve, authorizationDelay))
+      return coordinator.coordinate("notification:slow-authorization", {
+        eligible: true,
+        visible: false,
+        display,
+      })
+    }
+
+    const outcomes = await Promise.all([
+      authorizeThenCoordinate(firstTab, 5),
+      authorizeThenCoordinate(secondTab, 30),
+    ])
+
+    expect(display).toHaveBeenCalledOnce()
+    expect(outcomes.filter(Boolean)).toHaveLength(1)
+    firstTab.close()
+    secondTab.close()
+  })
+
   test("a visible tab suppresses fallback notifications in every tab", async () => {
     const channelFactory = inMemoryBroadcastChannelFactory()
     const visibleDisplay = vi.fn().mockReturnValue(true)

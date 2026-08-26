@@ -32,7 +32,7 @@ export interface NotificationEventCoordinator {
 }
 
 interface NotificationDisplayCandidate {
-  display(): boolean | Promise<boolean>
+  display(): boolean
   eligible: boolean
   visible: boolean
 }
@@ -184,7 +184,7 @@ export function createNotificationEventCoordinator(
         if (failures.get(eventId)?.has(candidate.tab_id)) continue
 
         if (candidate.tab_id === tabId) {
-          if (await safeDisplay(displayCandidate.display)) {
+          if (safeDisplay(displayCandidate.display)) {
             return commitOutcome(
               storage,
               storageKey,
@@ -437,9 +437,9 @@ function compareCandidates(left: TabCandidate, right: TabCandidate): number {
   return left.tab_id.localeCompare(right.tab_id)
 }
 
-async function safeDisplay(display: () => boolean | Promise<boolean>): Promise<boolean> {
+function safeDisplay(display: () => boolean): boolean {
   try {
-    return Boolean(await display())
+    return Boolean(display())
   } catch (_error) {
     return false
   }

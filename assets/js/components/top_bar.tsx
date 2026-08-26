@@ -55,16 +55,16 @@ export default function TopBar({activeChannel, activeServer, connectionHealth, n
       <div className="flex items-center gap-2">
         <ConnectionHealthIndicator status={connectionHealth} onRetry={onRetryRealtime} />
         {showsUserSidebar && <button className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden" onClick={onOpenMobileUsers} aria-label="Show users" type="button"><span className="hero-users size-5" aria-hidden="true" /></button>}
-        {view === "chat" && activeChannel && activeChannel.buffer_type !== "direct_message" && <NotificationBell
+        {view === "chat" && activeChannel && activeChannel.buffer_type === "channel" && activeServer && <NotificationBell
           id="channel-notification-bell"
           loading={notificationDeviceState.loading || notificationSavingIds.has(activeChannel.id)}
           onToggle={() => onToggleChannelNotifications(activeChannel)}
           scopeLabel={activeChannel.channel}
           state={notificationControlState(
             notificationDeviceState,
-            activeChannel.mention_notifications_enabled ?? true,
-            activeServer?.mention_notifications_enabled ?? true,
-            activeServer?.name || activeServer?.host
+            activeChannel.mention_notifications_enabled,
+            activeServer.mention_notifications_enabled,
+            activeServer.name || activeServer.host
           )}
         />}
       </div>
