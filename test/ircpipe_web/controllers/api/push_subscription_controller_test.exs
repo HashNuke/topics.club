@@ -8,6 +8,7 @@ defmodule IrcpipeWeb.Api.PushSubscriptionControllerTest do
 
   test "creates and removes the current device subscription", %{conn: conn, user: user} do
     expiration_time = DateTime.add(DateTime.utc_now(:second), 86_400, :second)
+    {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
 
     create_conn =
       post(conn, ~p"/api/push_subscriptions", %{
@@ -16,7 +17,7 @@ defmodule IrcpipeWeb.Api.PushSubscriptionControllerTest do
           endpoint: "https://push.example.test/subscription/one",
           expirationTime: DateTime.to_unix(expiration_time, :millisecond),
           keys: %{
-            p256dh: Base.url_encode64(:crypto.strong_rand_bytes(65), padding: false),
+            p256dh: Base.url_encode64(public_key, padding: false),
             auth: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
           }
         }

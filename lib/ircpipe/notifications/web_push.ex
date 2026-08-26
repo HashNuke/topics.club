@@ -144,15 +144,17 @@ defmodule Ircpipe.Notifications.WebPush do
     end
   end
 
-  defp public_address?({a, b, _c, _d}) do
+  defp public_address?({a, b, c, _d}) do
     cond do
       a in [0, 10, 127] -> false
       a == 100 and b in 64..127 -> false
       a == 169 and b == 254 -> false
       a == 172 and b in 16..31 -> false
       a == 192 and b in [0, 168] -> false
-      a == 192 and b == 0 -> false
+      a == 192 and b == 88 and c == 99 -> false
       a == 198 and b in 18..19 -> false
+      a == 198 and b == 51 and c == 100 -> false
+      a == 203 and b == 0 and c == 113 -> false
       a >= 224 -> false
       true -> true
     end
@@ -165,12 +167,20 @@ defmodule Ircpipe.Notifications.WebPush do
     public_address?({high >>> 8, high &&& 0xFF, low >>> 8, low &&& 0xFF})
   end
 
-  defp public_address?({first, _b, _c, _d, _e, _f, _g, _h}) do
-    first not in 0xFC00..0xFDFF and first not in 0xFE80..0xFEBF and
-      first not in 0xFF00..0xFFFF
+  defp public_address?({first, second, _c, _d, _e, _f, _g, _h}) do
+    first in 0x2000..0x3FFF and
+      not reserved_global_unicast_block?(first, second)
   end
 
   defp public_address?(_address), do: false
+
+  defp reserved_global_unicast_block?(0x2001, second)
+       when second in 0x0000..0x01FF or second == 0x0DB8,
+       do: true
+
+  defp reserved_global_unicast_block?(0x2002, _second), do: true
+  defp reserved_global_unicast_block?(0x3FFF, second) when second in 0x0000..0x0FFF, do: true
+  defp reserved_global_unicast_block?(_first, _second), do: false
 
   defp encrypt(plaintext, p256dh, auth) do
     user_agent_public = Base.url_decode64!(p256dh, padding: false)

@@ -36,6 +36,8 @@ defmodule Ircpipe.Notifications.PushSubscription do
     |> validate_length(:auth, max: 128)
     |> validate_length(:user_agent, max: 1_000)
     |> validate_change(:endpoint, &validate_endpoint/2)
+    |> validate_change(:p256dh, &validate_p256dh/2)
+    |> validate_change(:auth, &validate_auth/2)
     |> unique_constraint([:user_id, :installation_id])
     |> unique_constraint(:endpoint_hash)
   end
@@ -50,6 +52,33 @@ defmodule Ircpipe.Notifications.PushSubscription do
 
       _other ->
         [endpoint: "must be a valid HTTPS push service URL"]
+    end
+  end
+
+  defp validate_p256dh(:p256dh, value) do
+    case Base.url_decode64(value, padding: false) do
+      {:ok, <<4, _coordinates::binary-size(64)>> = public_key} ->
+        if valid_p256_public_key?(public_key),
+          do: [],
+          else: [p256dh: "must be a 65-byte uncompressed P-256 public key"]
+
+      _invalid ->
+        [p256dh: "must be a 65-byte uncompressed P-256 public key"]
+    end
+  end
+
+  defp valid_p256_public_key?(public_key) do
+    {_public_key, private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+    shared_secret = :crypto.compute_key(:ecdh, public_key, private_key, :prime256v1)
+    byte_size(shared_secret) == 32
+  rescue
+    _error -> false
+  end
+
+  defp validate_auth(:auth, value) do
+    case Base.url_decode64(value, padding: false) do
+      {:ok, decoded} when byte_size(decoded) == 16 -> []
+      _invalid -> [auth: "must decode to 16 bytes"]
     end
   end
 end

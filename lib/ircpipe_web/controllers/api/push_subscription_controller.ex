@@ -36,6 +36,17 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "invalid_push_subscription"})
+
+      {:error, :too_many_push_subscriptions} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "too_many_push_subscriptions"})
+
+      {:error, :push_subscription_rate_limited} ->
+        conn
+        |> put_resp_header("retry-after", "3600")
+        |> put_status(:too_many_requests)
+        |> json(%{error: "push_subscription_limit_reached"})
     end
   end
 

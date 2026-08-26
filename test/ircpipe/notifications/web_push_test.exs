@@ -128,6 +128,25 @@ defmodule Ircpipe.Notifications.WebPushTest do
     end
   end
 
+  test "rejects site-local and IPv4-translated private IPv6 answers" do
+    Application.put_env(:ircpipe, WebPush,
+      endpoint_resolver: fn _host, _family ->
+        {:ok, [{0xFEC0, 0, 0, 0, 0, 0, 0, 1}]}
+      end
+    )
+
+    for endpoint <- [
+          "https://[fec0::1]/push",
+          "https://[::ffff:0:10.0.0.1]/push",
+          "https://site-local.example.test/push"
+        ] do
+      assert {:error, :unsafe_push_endpoint} = WebPush.validate_endpoint(endpoint)
+    end
+
+    assert {:ok, {0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111}} =
+             WebPush.validate_endpoint("https://[2606:4700:4700::1111]/push")
+  end
+
   test "reports an unconfigured sender without making a request" do
     Application.put_env(:ircpipe, WebPush,
       public_key: "replace-with-generated-public-key",

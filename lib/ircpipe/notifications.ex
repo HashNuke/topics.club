@@ -1,7 +1,7 @@
 defmodule Ircpipe.Notifications do
   import Ecto.Query
 
-  alias Ircpipe.Accounts.Scope
+  alias Ircpipe.Accounts.{Scope, User}
 
   alias Ircpipe.Chat.{
     ChannelMembership,
@@ -11,8 +11,12 @@ defmodule Ircpipe.Notifications do
     ServerConnection
   }
 
-  alias Ircpipe.Notifications.{PushSubscription, PushWorker, WebPush}
+  alias Ircpipe.Notifications.{PushSubscription, PushSubscriptionRateLimit, PushWorker, WebPush}
   alias Ircpipe.Repo
+
+  @max_push_subscriptions_per_user 5
+  @push_subscription_creation_limit 10
+  @push_subscription_window_seconds 3_600
 
   def push_config do
     %{configured: WebPush.configured?(), vapid_public_key: WebPush.public_key()}
@@ -21,26 +25,104 @@ defmodule Ircpipe.Notifications do
   def upsert_subscription(%Scope{user: user}, attrs, user_agent \\ nil) do
     endpoint = Map.get(attrs, "endpoint") || Map.get(attrs, :endpoint)
     endpoint_hash = endpoint_hash(endpoint)
+    installation_id = installation_id(attrs)
 
-    Repo.transaction(fn ->
-      from(subscription in PushSubscription,
-        where:
-          subscription.user_id == ^user.id and
-            (subscription.endpoint_hash == ^endpoint_hash or
-               subscription.installation_id == ^installation_id(attrs))
-      )
-      |> Repo.delete_all()
+    changeset =
+      %PushSubscription{user_id: user.id, endpoint_hash: endpoint_hash}
+      |> PushSubscription.changeset(Map.put(stringify_keys(attrs), "user_agent", user_agent))
 
-      result =
-        %PushSubscription{user_id: user.id, endpoint_hash: endpoint_hash}
-        |> PushSubscription.changeset(Map.put(stringify_keys(attrs), "user_agent", user_agent))
-        |> Repo.insert()
+    if changeset.valid? do
+      Repo.transaction(fn ->
+        lock_subscription_user!(user.id)
 
-      case result do
-        {:ok, subscription} -> subscription
-        {:error, changeset} -> Repo.rollback(changeset)
+        existing? =
+          Repo.exists?(
+            from(subscription in PushSubscription,
+              where:
+                subscription.user_id == ^user.id and
+                  (subscription.endpoint_hash == ^endpoint_hash or
+                     subscription.installation_id == ^installation_id)
+            )
+          )
+
+        if not existing? do
+          enforce_subscription_cap!(user.id)
+          record_subscription_creation!(user.id)
+        end
+
+        from(subscription in PushSubscription,
+          where:
+            subscription.user_id == ^user.id and
+              (subscription.endpoint_hash == ^endpoint_hash or
+                 subscription.installation_id == ^installation_id)
+        )
+        |> Repo.delete_all()
+
+        case Repo.insert(changeset) do
+          {:ok, subscription} -> subscription
+          {:error, failed_changeset} -> Repo.rollback(failed_changeset)
+        end
+      end)
+    else
+      {:error, changeset}
+    end
+  end
+
+  defp enforce_subscription_cap!(user_id) do
+    count =
+      PushSubscription
+      |> where([subscription], subscription.user_id == ^user_id)
+      |> Repo.aggregate(:count)
+
+    if count >= @max_push_subscriptions_per_user,
+      do: Repo.rollback(:too_many_push_subscriptions)
+  end
+
+  defp record_subscription_creation!(user_id) do
+    now = DateTime.utc_now(:second)
+
+    Repo.insert_all(
+      PushSubscriptionRateLimit,
+      [
+        %{
+          user_id: user_id,
+          window_started_at: now,
+          creation_count: 0,
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      on_conflict: :nothing,
+      conflict_target: [:user_id]
+    )
+
+    limit =
+      PushSubscriptionRateLimit
+      |> where([rate_limit], rate_limit.user_id == ^user_id)
+      |> lock("FOR UPDATE")
+      |> Repo.one!()
+
+    if DateTime.diff(now, limit.window_started_at, :second) >=
+         @push_subscription_window_seconds do
+      limit
+      |> Ecto.Changeset.change(window_started_at: now, creation_count: 1)
+      |> Repo.update!()
+    else
+      if limit.creation_count >= @push_subscription_creation_limit do
+        Repo.rollback(:push_subscription_rate_limited)
       end
-    end)
+
+      limit
+      |> Ecto.Changeset.change(creation_count: limit.creation_count + 1)
+      |> Repo.update!()
+    end
+  end
+
+  defp lock_subscription_user!(user_id) do
+    User
+    |> where([user], user.id == ^user_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
   end
 
   def delete_subscription(%Scope{user: user}, installation_id) do
@@ -199,6 +281,8 @@ defmodule Ircpipe.Notifications do
     subscriptions =
       PushSubscription
       |> where([subscription], subscription.user_id == ^record.user_id)
+      |> order_by([subscription], desc: subscription.updated_at)
+      |> limit(^@max_push_subscriptions_per_user)
       |> Repo.all()
 
     results =

@@ -79,6 +79,84 @@ defmodule Ircpipe.NotificationsTest do
     assert Repo.get!(PushSubscription, original.id).user_id == scope.user.id
   end
 
+  test "caps active push installations per user", %{scope: scope} do
+    for index <- 1..5 do
+      attrs =
+        subscription_attrs("https://push.example.test/subscription/cap-#{index}")
+        |> Map.put("installation_id", "browser-#{index}")
+
+      assert {:ok, _subscription} = Notifications.upsert_subscription(scope, attrs)
+    end
+
+    overflow =
+      subscription_attrs("https://push.example.test/subscription/cap-overflow")
+      |> Map.put("installation_id", "browser-overflow")
+
+    assert {:error, :too_many_push_subscriptions} =
+             Notifications.upsert_subscription(scope, overflow)
+
+    assert Repo.aggregate(PushSubscription, :count) == 5
+  end
+
+  test "rate limits repeated creation even when installations are deleted", %{scope: scope} do
+    for index <- 1..10 do
+      installation_id = "rotating-browser-#{index}"
+
+      attrs =
+        subscription_attrs("https://push.example.test/subscription/rotation-#{index}")
+        |> Map.put("installation_id", installation_id)
+
+      assert {:ok, _subscription} = Notifications.upsert_subscription(scope, attrs)
+      assert :ok = Notifications.delete_subscription(scope, installation_id)
+    end
+
+    limited =
+      subscription_attrs("https://push.example.test/subscription/rate-limited")
+      |> Map.put("installation_id", "rate-limited-browser")
+
+    assert {:error, :push_subscription_rate_limited} =
+             Notifications.upsert_subscription(scope, limited)
+  end
+
+  test "validates Web Push key material at registration", %{scope: scope} do
+    attrs =
+      subscription_attrs("https://push.example.test/subscription/invalid-keys")
+      |> Map.put("p256dh", Base.url_encode64(<<4, 0::512>>, padding: false))
+      |> Map.put("auth", Base.url_encode64(:crypto.strong_rand_bytes(15), padding: false))
+
+    assert {:error, changeset} = Notifications.upsert_subscription(scope, attrs)
+    assert "must be a 65-byte uncompressed P-256 public key" in errors_on(changeset).p256dh
+    assert "must decode to 16 bytes" in errors_on(changeset).auth
+  end
+
+  test "delivery fan-out stays bounded for legacy rows above the active cap", %{
+    scope: scope,
+    connection: connection,
+    membership: membership
+  } do
+    for index <- 1..6 do
+      attrs =
+        subscription_attrs("https://push.example.test/subscription/legacy-#{index}")
+        |> Map.put("installation_id", "legacy-browser-#{index}")
+
+      %PushSubscription{
+        user_id: scope.user.id,
+        endpoint_hash: :crypto.hash(:sha256, attrs["endpoint"])
+      }
+      |> PushSubscription.changeset(attrs)
+      |> Repo.insert!()
+    end
+
+    notification = mention_notification(connection, membership)
+    assert :ok = Notifications.deliver_notification(notification.id)
+
+    for _index <- 1..5 do
+      assert_receive {:push_sent, _subscription, _payload}
+    end
+
+    refute_receive {:push_sent, _subscription, _payload}
+  end
+
   test "delivers mention payloads when both preference gates are enabled", %{
     scope: scope,
     connection: connection,
@@ -422,10 +500,12 @@ defmodule Ircpipe.NotificationsTest do
   end
 
   defp subscription_attrs(endpoint) do
+    {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+
     %{
       "installation_id" => "browser-installation",
       "endpoint" => endpoint,
-      "p256dh" => Base.url_encode64(:crypto.strong_rand_bytes(65), padding: false),
+      "p256dh" => Base.url_encode64(public_key, padding: false),
       "auth" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
     }
   end
