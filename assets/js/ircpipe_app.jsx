@@ -29,6 +29,7 @@ import {
   trimMessagesToLimit,
 } from "./chat_store.js"
 import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
+import useActivityHeartbeat from "./hooks/use_activity_heartbeat.js"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
 export {default as TopicGrid} from "./components/topic_grid.jsx"
@@ -132,28 +133,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       .catch(() => {})
   }, [apiClient, currentUser?.id, mode])
 
-  useEffect(() => {
-    if (!currentUser || mode === "landing" || !apiClient.activity) return
-
-    const touchActivity = () => {
-      apiClient.activity().catch(() => {})
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") touchActivity()
-    }
-
-    touchActivity()
-    document.addEventListener("visibilitychange", handleVisibilityChange)
-    window.addEventListener("focus", touchActivity)
-    const interval = window.setInterval(touchActivity, 30 * 60 * 1000)
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
-      window.removeEventListener("focus", touchActivity)
-      window.clearInterval(interval)
-    }
-  }, [apiClient, currentUser?.id, mode])
+  useActivityHeartbeat(apiClient, Boolean(currentUser && mode !== "landing"))
 
   useEffect(() => {
     if (!currentUser || mode === "landing" || !realtimeClientFactory) return
