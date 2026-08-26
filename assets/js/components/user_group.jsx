@@ -1,3 +1,4 @@
+import React from "react"
 import UserListItem from "./user_list_item.jsx"
 
 export default function UserGroup({expanded = false, label, onExpand, users}) {

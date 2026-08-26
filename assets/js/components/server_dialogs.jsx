@@ -1,4 +1,4 @@
-import {useState} from "react"
+import React, {useState} from "react"
 
 export function LabeledInput({autoComplete, id, label, onChange, placeholder, type = "text", value}) {
   return (

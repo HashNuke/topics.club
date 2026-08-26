@@ -1,3 +1,5 @@
+import React from "react"
+
 export default function ChannelDirectoryControls({manualChannel, onJoinManualChannel, onUpdateManualChannel, onUpdateQuery, query}) {
   return (
     <div className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.55fr)]">

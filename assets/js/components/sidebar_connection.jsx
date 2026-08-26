@@ -1,3 +1,4 @@
+import React from "react"
 import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.jsx"
 
 export default function SidebarConnection({activeChannel, activeServer, connection, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, view}) {

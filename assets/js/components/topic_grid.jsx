@@ -1,3 +1,4 @@
+import React from "react"
 import {normalizeTopic} from "../chat_store.js"
 
 export function TopicCard({onSelectTopic, topic}) {

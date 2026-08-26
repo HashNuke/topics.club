@@ -1,3 +1,5 @@
+import React from "react"
+
 export default function ChannelDirectoryResults({channels, directory, onJoinChannel, serverName}) {
   if (directory?.status === "loading") {
     return (

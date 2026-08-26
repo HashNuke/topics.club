@@ -1,4 +1,4 @@
-import {useState} from "react"
+import React, {useState} from "react"
 import ChannelDirectoryControls from "./channel_directory_controls.jsx"
 import ChannelDirectoryFeedback from "./channel_directory_feedback.jsx"
 import ChannelDirectoryHeader from "./channel_directory_header.jsx"

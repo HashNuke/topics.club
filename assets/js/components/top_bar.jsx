@@ -1,5 +1,5 @@
 import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/react"
-import {cloneElement, useState} from "react"
+import React, {cloneElement, useState} from "react"
 
 export function topBarCopyFor({activeChannel, activeServer, view}) {
   if (view === "discover") return {title: "Discover", context: null, subtitle: "Find more topics to join."}

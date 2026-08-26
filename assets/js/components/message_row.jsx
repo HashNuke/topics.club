@@ -1,3 +1,5 @@
+import React from "react"
+
 const META_MESSAGE_KINDS = [
   "system",
   "command",

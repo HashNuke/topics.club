@@ -1,3 +1,4 @@
+import React from "react"
 import AppMark from "./app_mark.jsx"
 import AuthPrompt from "./auth_prompt.jsx"
 import TopicGrid from "./topic_grid.jsx"

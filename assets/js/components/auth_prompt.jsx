@@ -1,3 +1,5 @@
+import React from "react"
+
 export default function AuthPrompt({developerOauth, topic, onClose}) {
   const topicParam = encodeURIComponent(topic.id)
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">

@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from "react"
+import React, {useEffect, useRef, useState} from "react"
 import ChatComposer from "./chat_composer.jsx"
 import MessageTimeline from "./message_timeline.jsx"
 

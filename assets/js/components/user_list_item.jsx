@@ -1,3 +1,5 @@
+import React from "react"
+
 export function userRoleLabel(user) {
   if (["owner", "admin", "op", "halfop"].includes(user.role)) return "mod"
   if (user.role === "voice") return "voice"

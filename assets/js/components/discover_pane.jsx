@@ -1,3 +1,4 @@
+import React from "react"
 import TopicGrid from "./topic_grid.jsx"
 
 export default function DiscoverPane({topics, onSelectTopic}) {

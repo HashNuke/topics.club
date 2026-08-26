@@ -1,4 +1,4 @@
-import {useState} from "react"
+import React, {useState} from "react"
 import ChannelDirectoryPane from "./channel_directory_pane.jsx"
 import ChatPane from "./chat_pane.jsx"
 import DiscoverPane from "./discover_pane.jsx"

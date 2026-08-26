@@ -1,4 +1,5 @@
 import {offset, shift, useFloating} from "@floating-ui/react"
+import React from "react"
 
 export default function ChatComposer({
   commandCatalog = [],
