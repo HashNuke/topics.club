@@ -1,18 +1,18 @@
 defmodule IrcpipeWeb.Api.TopicController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat
+  alias Ircpipe.Chat.Topics
   alias Ircpipe.Irc.{Session, SessionSupervisor}
 
   def index(conn, _params) do
-    json(conn, %{topics: Enum.map(Chat.list_topics(), &topic_json/1)})
+    json(conn, %{topics: Enum.map(Topics.list(), &topic_json/1)})
   end
 
   def join(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    topic = Chat.get_topic!(id)
+    topic = Topics.get!(id)
 
-    with {:ok, %{connection: connection, topic: topic}} <- Chat.join_topic(user, topic),
+    with {:ok, %{connection: connection, topic: topic}} <- Topics.join(user, topic),
          :ok <- start_session(connection) do
       case try_join(connection, user, topic.channel) do
         {:ok, membership, status} ->

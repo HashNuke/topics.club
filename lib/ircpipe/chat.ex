@@ -13,8 +13,7 @@ defmodule Ircpipe.Chat do
     Message,
     Notification,
     Retention,
-    ServerConnection,
-    Topic
+    ServerConnection
   }
 
   alias Ircpipe.Notifications.Delivery
@@ -22,14 +21,6 @@ defmodule Ircpipe.Chat do
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
   alias Ircxd.Casemapping
-
-  def list_topics do
-    Topic
-    |> order_by([t], asc: t.sort_order, asc: t.name)
-    |> Repo.all()
-  end
-
-  def get_topic!(id), do: Repo.get!(Topic, id)
 
   def list_connections(%User{id: user_id}) do
     {connections, _tombstones} = load_connections_with_direct_message_state(user_id)
@@ -417,22 +408,6 @@ defmodule Ircpipe.Chat do
     })
 
     Repo.delete(connection)
-  end
-
-  def join_topic(%User{} = user, %Topic{} = topic) do
-    Repo.transaction(fn ->
-      {:ok, connection} =
-        Connections.create_or_get(user, %{
-          "name" => topic.server_host,
-          "host" => topic.server_host,
-          "port" => topic.server_port,
-          "use_tls" => topic.use_tls,
-          "nickname" => Connections.default_nick(user)
-        })
-
-      connection = ensure_valid_nick(connection, user)
-      %{connection: connection, topic: topic}
-    end)
   end
 
   def update_connection_casemapping(%ServerConnection{} = connection, casemapping) do
@@ -1421,22 +1396,6 @@ defmodule Ircpipe.Chat do
       where: notification.direct_message_thread_id == ^thread_id and is_nil(notification.read_at)
     )
     |> Repo.update_all(set: [read_at: now, updated_at: now])
-  end
-
-  defp ensure_valid_nick(%ServerConnection{} = connection, %User{} = user) do
-    if Identifier.valid_nick?(connection.nickname) do
-      connection
-    else
-      {:ok, connection} =
-        connection
-        |> ServerConnection.changeset(%{
-          nickname: Connections.default_nick(user),
-          status: "disconnected"
-        })
-        |> Repo.update()
-
-      connection
-    end
   end
 
   defp mention?(body, nickname, casemapping)

@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   alias Ircpipe.Chat
   alias Ircpipe.Chat.MessageHistory
+  alias Ircpipe.Chat.Topics
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -24,7 +25,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
           connections: connections,
           direct_message_tombstones: direct_message_tombstones,
           messages_by_buffer: messages_by_buffer(user, connections),
-          topics: Chat.list_topics(),
+          topics: Topics.list(),
           users_by_buffer: users_by_buffer(connections)
         }
       end)

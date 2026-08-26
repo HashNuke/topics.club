@@ -5,8 +5,6 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{ChannelMembership, Message, MessageHistory, Retention}
-  alias Ircpipe.Chat.Topic
-  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
 
   test "scopes server connections to their owner" do
@@ -26,61 +24,6 @@ defmodule Ircpipe.ChatTest do
     assert owned.id == connection.id
     assert [] = Chat.list_connections(other_user)
     assert_raise Ecto.NoResultsError, fn -> Connections.get!(other_user, connection.id) end
-  end
-
-  test "suggested topic joins generate IRC-safe nicknames" do
-    user = AccountsFixtures.user_fixture(%{email: "3dev@example.com"})
-
-    topic =
-      Repo.insert!(
-        Topic.changeset(%Topic{}, %{
-          name: "#elixir",
-          description: "Local Elixir discussion.",
-          server_host: "127.0.0.1",
-          server_port: 6669,
-          use_tls: false,
-          channel: "#elixir",
-          sort_order: 10
-        })
-      )
-
-    {:ok, %{connection: connection}} = Chat.join_topic(user, topic)
-
-    assert connection.nickname == "u_3dev"
-    assert Identifier.valid_nick?(connection.nickname)
-  end
-
-  test "suggested topic joins repair existing invalid nicknames" do
-    user = AccountsFixtures.user_fixture(%{email: "3dev@example.com"})
-
-    {:ok, connection} =
-      Connections.create(user, %{
-        "name" => "127.0.0.1",
-        "host" => "127.0.0.1",
-        "port" => 6669,
-        "use_tls" => false,
-        "nickname" => "3dev",
-        "status" => "connecting"
-      })
-
-    topic =
-      Repo.insert!(
-        Topic.changeset(%Topic{}, %{
-          name: "#elixir",
-          description: "Local Elixir discussion.",
-          server_host: "127.0.0.1",
-          server_port: 6669,
-          use_tls: false,
-          channel: "#elixir",
-          sort_order: 10
-        })
-      )
-
-    {:ok, %{connection: repaired}} = Chat.join_topic(user, topic)
-
-    assert repaired.id == connection.id
-    assert repaired.nickname == "u_3dev"
-    assert repaired.status == "disconnected"
   end
 
   test "does not join channels on another user's server connection" do
