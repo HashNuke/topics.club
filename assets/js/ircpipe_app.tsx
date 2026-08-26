@@ -189,6 +189,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [activeServerId])
 
   useEffect(() => {
+    setComposerError(null)
+  }, [activeChannelId, activeServerId, view])
+
+  useEffect(() => {
     notificationStateRef.current = notificationState
   }, [notificationState])
 

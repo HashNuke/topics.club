@@ -33,6 +33,7 @@ function mockBootstrapFetch({
   channelMentionCount = 0,
   channelUnreadCount = 0,
   connectionStatus = "connected",
+  includeDiscovery = false,
   joinResponsePromise = null,
   joinOk = true,
   messageCursorsByBuffer = {"channel:7": 99},
@@ -88,6 +89,37 @@ function mockBootstrapFetch({
             unread_count: 0,
             mention_count: 0,
           },
+        }),
+      }
+    }
+
+    if (includeDiscovery && path === "/api/discovery/server_channels") {
+      return {
+        ok: true,
+        json: async () => ({
+          server_channels: [
+            {
+              id: 501,
+              name: "#testing",
+              topic: "Existing channel",
+              user_count: 42,
+              network_id: 9,
+              network_name: "Local IRC",
+              server_host: "127.0.0.1",
+              server_port: 6669,
+              use_tls: false,
+            },
+          ],
+        }),
+      }
+    }
+
+    if (includeDiscovery && path === "/api/discovery/server_channels/501/join" && options.method === "POST") {
+      return {
+        ok: true,
+        json: async () => ({
+          connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected"},
+          buffer: {buffer_id: "channel:7", buffer_type: "channel", server_connection_id: 42, channel_membership_id: 7, title: "#testing", subtitle: "Existing channel", status: "connected", unread_count: 0, mention_count: 0},
         }),
       }
     }
@@ -2218,6 +2250,37 @@ describe("IrcpipeApp UI prototype", () => {
       "Arguments do not match WHOIS <nick>. Usage: WHOIS <nick>"
     )
     expect(composer).toHaveValue("/quote WHOIS")
+  })
+
+  test("clears a stale command error when Discover opens an already-joined channel", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({includeDiscovery: true})
+    const client = fakeRealtimeClient(vi.fn().mockRejectedValue({reason: "unexpected"}))
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+
+    await user.type(screen.getByLabelText("Message composer"), "/quote WHOIS")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+    expect(await screen.findByRole("alert")).toHaveTextContent("The IRC command could not be sent.")
+
+    await user.click(screen.getByRole("button", {name: /discover/i}))
+    await user.click(await screen.findByRole("button", {name: "Join #testing on Local IRC"}))
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    expect(screen.queryByText("The IRC command could not be sent.")).not.toBeInTheDocument()
   })
 
   test("keeps slash command suggestions hidden for normal messages", async () => {

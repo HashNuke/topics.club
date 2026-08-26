@@ -3,7 +3,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
 
   alias Ircpipe.Chat
   alias Ircpipe.Discovery
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
 
   setup :register_and_log_in_user
@@ -97,6 +97,57 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
     assert connection.id == existing_connection.id
     assert connection.host == "127.0.0.1"
     assert length(Chat.list_connections(user)) == 1
+    assert :ok = Session.quit(connection)
+  end
+
+  test "returns an already-joined channel without sending another JOIN", %{
+    conn: conn,
+    user: user
+  } do
+    server = start_supervised!({IrcTestServer, self()})
+    now = ~U[2026-08-26 12:00:00Z]
+    port = IrcTestServer.port(server)
+
+    {:ok, [network]} =
+      Discovery.sync_networks([%{network_entry() | port: port}], now)
+
+    {:ok, 1} =
+      Discovery.replace_server_channels(
+        network,
+        [%{name: "#elixir", topic: "Elixir and OTP", user_count: 42}],
+        now
+      )
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "existing",
+        "host" => "127.0.0.1",
+        "port" => port,
+        "use_tls" => false
+      })
+
+    {:ok, _membership} = Chat.join_channel(user, connection, "#elixir")
+    connection = Chat.get_connection!(user, connection.id)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK " <> _nickname}, 1_000
+    assert_receive {:irc_server_line, "USER " <> _rest}, 1_000
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+    assert_receive {:presence_sync, %{buffer_id: "channel:" <> _}}, 1_000
+    _state = :sys.get_state(Session.via(connection))
+
+    [server_channel] = Discovery.list_popular_server_channels()
+    conn = post(conn, ~p"/api/discovery/server_channels/#{server_channel.id}/join")
+
+    assert %{
+             "connection" => %{"id" => connection_id},
+             "buffer" => %{"title" => "#elixir"},
+             "status" => "sent"
+           } = json_response(conn, 200)
+
+    assert connection_id == connection.id
+    refute_receive {:irc_server_line, "JOIN #elixir"}
     assert :ok = Session.quit(connection)
   end
 
