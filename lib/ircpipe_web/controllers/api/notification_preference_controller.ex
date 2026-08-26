@@ -1,11 +1,11 @@
 defmodule IrcpipeWeb.Api.NotificationPreferenceController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.Preferences
 
   def update_server(conn, %{"id" => id, "mention_notifications_enabled" => enabled})
       when is_boolean(enabled) do
-    case Notifications.update_server_preference(conn.assigns.current_scope, id, enabled) do
+    case Preferences.update_server(conn.assigns.current_scope, id, enabled) do
       {:ok, connection} ->
         json(conn, %{
           preference: %{
@@ -28,7 +28,7 @@ defmodule IrcpipeWeb.Api.NotificationPreferenceController do
 
   def update_channel(conn, %{"id" => id, "mention_notifications_enabled" => enabled})
       when is_boolean(enabled) do
-    case Notifications.update_channel_preference(conn.assigns.current_scope, id, enabled) do
+    case Preferences.update_channel(conn.assigns.current_scope, id, enabled) do
       {:ok, membership} ->
         json(conn, %{
           preference: %{

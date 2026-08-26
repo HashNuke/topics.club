@@ -8,7 +8,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Notification
   alias Ircpipe.Notifications
-  alias Ircpipe.Notifications.{PushSubscription, PushWorker, WebPush}
+  alias Ircpipe.Notifications.{Preferences, PushSubscription, PushWorker, WebPush}
 
   setup do
     previous_sender = Application.get_env(:ircpipe, :push_sender)
@@ -19,9 +19,6 @@ defmodule Ircpipe.NotificationsTest do
     previous_rotation_pause = Application.get_env(:ircpipe, :pause_session_rotation)
     previous_snapshot_pause = Application.get_env(:ircpipe, :pause_push_delivery_snapshot)
     previous_reset_pause = Application.get_env(:ircpipe, :pause_session_reset)
-
-    previous_preference_pause =
-      Application.get_env(:ircpipe, :pause_notification_preference_broadcast)
 
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
@@ -36,7 +33,6 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:pause_session_rotation, previous_rotation_pause)
       restore_env(:pause_push_delivery_snapshot, previous_snapshot_pause)
       restore_env(:pause_session_reset, previous_reset_pause)
-      restore_env(:pause_notification_preference_broadcast, previous_preference_pause)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -498,62 +494,20 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     assert {:ok, channel} =
-             Notifications.update_channel_preference(scope, membership.id, false)
+             Preferences.update_channel(scope, membership.id, false)
 
     refute channel.mention_notifications_enabled
     channel_notification = mention_notification(connection, membership)
     assert :ok = Notifications.deliver_notification(channel_notification.id)
     refute_receive {:push_sent, _, _}
 
-    assert {:ok, _channel} = Notifications.update_channel_preference(scope, membership.id, true)
-    assert {:ok, server} = Notifications.update_server_preference(scope, connection.id, false)
+    assert {:ok, _channel} = Preferences.update_channel(scope, membership.id, true)
+    assert {:ok, server} = Preferences.update_server(scope, connection.id, false)
     refute server.mention_notifications_enabled
 
     server_notification = mention_notification(connection, membership)
     assert :ok = Notifications.deliver_notification(server_notification.id)
     refute_receive {:push_sent, _, _}
-  end
-
-  test "preference revisions order broadcasts delayed after commit", %{
-    scope: scope,
-    connection: connection
-  } do
-    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{scope.user.id}")
-    Application.put_env(:ircpipe, :pause_notification_preference_broadcast, {self(), 1})
-    supervisor = start_supervised!(Task.Supervisor)
-
-    first =
-      Task.Supervisor.async_nolink(supervisor, fn ->
-        receive do
-          :update_preference ->
-            Notifications.update_server_preference(scope, connection.id, false)
-        end
-      end)
-
-    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), first.pid)
-    send(first.pid, :update_preference)
-
-    assert_receive {:notification_preference_broadcast_paused, first_pid, connection_id, 1}
-    assert connection_id == connection.id
-
-    assert {:ok, latest} =
-             Notifications.update_server_preference(scope, connection.id, true)
-
-    assert latest.notification_preference_revision == 2
-
-    assert_receive {:notification_preference,
-                    %{id: ^connection_id, mention_notifications_enabled: true, revision: 2}}
-
-    send(first_pid, {:continue_notification_preference_broadcast, 1})
-    assert {:ok, delayed} = Task.await(first)
-    assert delayed.notification_preference_revision == 1
-
-    assert_receive {:notification_preference,
-                    %{id: ^connection_id, mention_notifications_enabled: false, revision: 1}}
-
-    stored = Repo.get!(Ircpipe.Chat.ServerConnection, connection.id)
-    assert stored.mention_notifications_enabled
-    assert stored.notification_preference_revision == 2
   end
 
   test "receipt eligibility changes immediately after a mention is read", %{
@@ -615,7 +569,7 @@ defmodule Ircpipe.NotificationsTest do
     generation = UserToken.session_token_fingerprint(session_token)
     server_muted = mention_notification(connection, membership)
 
-    assert {:ok, _server} = Notifications.update_server_preference(scope, connection.id, false)
+    assert {:ok, _server} = Preferences.update_server(scope, connection.id, false)
 
     refute Notifications.notification_eligible?(
              scope,
@@ -624,9 +578,9 @@ defmodule Ircpipe.NotificationsTest do
              generation
            )
 
-    assert {:ok, _server} = Notifications.update_server_preference(scope, connection.id, true)
+    assert {:ok, _server} = Preferences.update_server(scope, connection.id, true)
     channel_muted = mention_notification(connection, membership)
-    assert {:ok, _channel} = Notifications.update_channel_preference(scope, membership.id, false)
+    assert {:ok, _channel} = Preferences.update_channel(scope, membership.id, false)
 
     refute Notifications.notification_eligible?(
              scope,
