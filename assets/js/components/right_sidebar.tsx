@@ -72,7 +72,7 @@ function DirectMessagePeerSidebar({activeChannel, mobile, onSetBlocked}: {active
           <p className="mt-1 break-all text-xs text-slate-300">{identity}</p>
         </div>
         <button
-          id="direct-message-block-button"
+          id={`${mobile ? "mobile" : "desktop"}-direct-message-block-button`}
           className={[
             "w-full rounded-md border px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70",
             activeChannel.blocked

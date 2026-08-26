@@ -36,6 +36,7 @@ export default function LeftSidebar(props: LeftSidebarProps) {
   const [manualOpen, setManualOpen] = useState(false)
   const [editingServer, setEditingServer] = useState<ServerConnection | null>(null)
   const [leavingServer, setLeavingServer] = useState<ServerConnection | null>(null)
+  const idNamespace = mobile ? "mobile-sidebar" : "desktop-sidebar"
 
   return (
     <aside className={["min-h-0 border-r border-slate-800/80 bg-[#0f131b]", mobile ? "flex min-h-0 flex-1 flex-col border-r-0" : "hidden lg:flex lg:flex-col"].join(" ")}>
@@ -44,12 +45,12 @@ export default function LeftSidebar(props: LeftSidebarProps) {
           <AppMark small />
           <span className="font-semibold tracking-tight">topics.club</span>
         </button>
-        <button id="add-server-button" className="grid size-8 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white" onClick={() => setManualOpen(true)} aria-label="Join another server" type="button">
+        <button id={`${idNamespace}-add-server-button`} className="grid size-8 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white" onClick={() => setManualOpen(true)} aria-label="Join another server" type="button">
           <span className="hero-plus size-4" aria-hidden="true" />
         </button>
       </div>
       <div className="space-y-2 border-b border-slate-800/80 p-3">
-        <button id="discover-channels-button" className="flex w-full items-center justify-between rounded-md border border-slate-700/80 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-200 transition hover:border-cyan-300" onClick={onDiscover} type="button">
+        <button id={`${idNamespace}-discover-channels-button`} className="flex w-full items-center justify-between rounded-md border border-slate-700/80 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-200 transition hover:border-cyan-300" onClick={onDiscover} type="button">
           <span>Discover</span>
           <span className="hero-magnifying-glass size-4 text-slate-500" aria-hidden="true" />
         </button>
@@ -61,6 +62,7 @@ export default function LeftSidebar(props: LeftSidebarProps) {
             activeChannel={activeChannel}
             activeServer={activeServer}
             connection={connection}
+            idNamespace={idNamespace}
             notificationDeviceState={notificationDeviceState}
             notificationSavingIds={notificationSavingIds}
             onCloseDirectMessage={onCloseDirectMessage}

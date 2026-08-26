@@ -127,9 +127,11 @@ export function createNotificationEventCoordinator(
       if (closed) return false
       const eventId = normalizedEventId(rawEventId)
       if (!eventId) {
-        return displayCandidate.eligible && !displayCandidate.visible &&
+        return Boolean(channel) && displayCandidate.eligible && !displayCandidate.visible &&
           safeDisplay(displayCandidate.display)
       }
+
+      if (!channel) return false
 
       if (
         attempted.has(eventId) ||

@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.UserSessionController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Accounts
+  alias Ircpipe.Notifications
   alias IrcpipeWeb.UserAuth
 
   def new(conn, _params) do
@@ -39,11 +40,20 @@ defmodule IrcpipeWeb.UserSessionController do
 
   # email + password login
   def create(conn, %{"user" => %{"email" => email, "password" => password} = user_params}) do
-    case Accounts.authenticate_and_issue_user_session_token(email, password) do
-      {:ok, {user, session_token}} ->
+    case Notifications.authenticate_and_rotate_session_with_subscriptions(
+           email,
+           password,
+           get_session(conn, :user_token)
+         ) do
+      {:ok, session} ->
         conn
         |> put_flash(:info, "Welcome back!")
-        |> UserAuth.log_in_user_with_issued_session(user, session_token, user_params)
+        |> UserAuth.log_in_user_with_issued_session(
+          session.user,
+          session.session_token,
+          session.replaced_session_token,
+          user_params
+        )
 
       {:error, :invalid_credentials} ->
         form = Phoenix.Component.to_form(user_params, as: "user")

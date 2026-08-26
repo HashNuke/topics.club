@@ -15,6 +15,7 @@ defmodule Ircpipe.Notifications do
   alias Ircpipe.Repo
 
   @max_push_subscriptions_per_user 5
+  @max_notification_id 9_223_372_036_854_775_807
   @push_subscription_creation_limit 10
   @push_subscription_window_seconds 3_600
 
@@ -58,14 +59,15 @@ defmodule Ircpipe.Notifications do
     do: %{user_id: nil, session_generation: nil}
 
   def notification_eligible?(%Scope{user: user}, session_token, notification_id, generation)
-      when is_binary(session_token) and is_integer(notification_id) and is_binary(generation) do
+      when is_binary(session_token) and is_integer(notification_id) and notification_id > 0 and
+             notification_id <= @max_notification_id and is_binary(generation) do
     current_generation = UserToken.session_token_fingerprint(session_token)
 
     with true <- Plug.Crypto.secure_compare(current_generation, generation),
          {session_user, _inserted_at} <- Ircpipe.Accounts.get_user_by_session_token(session_token),
          true <- session_user.id == user.id,
          %{user_id: notification_user_id, server_enabled: true, channel_enabled: true} <-
-           delivery_record(notification_id) do
+           delivery_record(notification_id, user.id) do
       notification_user_id == user.id
     else
       _ineligible -> false
@@ -212,6 +214,44 @@ defmodule Ircpipe.Notifications do
     end)
   end
 
+  def authenticate_and_rotate_session_with_subscriptions(email, password, previous_session_token)
+      when is_binary(email) and is_binary(password) do
+    Repo.transaction(fn ->
+      user =
+        User
+        |> where([candidate], candidate.email == ^email)
+        |> lock("FOR UPDATE")
+        |> Repo.one()
+
+      if User.valid_password?(user, password) do
+        previous = lock_replaceable_session_token(user.id, previous_session_token)
+        {next_session_token, next_user_token} = UserToken.build_session_token(user)
+        next = Repo.insert!(next_user_token)
+
+        replaced_session_token =
+          if previous do
+            from(subscription in PushSubscription,
+              where:
+                subscription.user_id == ^user.id and
+                  subscription.user_token_id == ^previous.id
+            )
+            |> Repo.update_all(set: [user_token_id: next.id])
+
+            Repo.delete!(previous)
+            previous_session_token
+          end
+
+        %{
+          user: user,
+          session_token: next_session_token,
+          replaced_session_token: replaced_session_token
+        }
+      else
+        Repo.rollback(:invalid_credentials)
+      end
+    end)
+  end
+
   defp maybe_pause_session_rotation do
     if test_pid = Application.get_env(:ircpipe, :pause_session_rotation) do
       send(test_pid, {:session_rotation_paused, self()})
@@ -292,6 +332,22 @@ defmodule Ircpipe.Notifications do
 
     if UserToken.session_token_valid?(token), do: token
   end
+
+  defp lock_replaceable_session_token(user_id, session_token) when is_binary(session_token) do
+    token =
+      UserToken
+      |> where(
+        [candidate],
+        candidate.user_id == ^user_id and candidate.token == ^session_token and
+          candidate.context == "session"
+      )
+      |> lock("FOR UPDATE")
+      |> Repo.one()
+
+    if UserToken.session_token_valid?(token), do: token
+  end
+
+  defp lock_replaceable_session_token(_user_id, _session_token), do: nil
 
   defp maybe_pause_push_registration do
     if test_pid = Application.get_env(:ircpipe, :pause_push_registration) do
@@ -395,64 +451,77 @@ defmodule Ircpipe.Notifications do
     end
   end
 
-  defp delivery_record(notification_id) do
-    direct_message_delivery_record(notification_id) || mention_delivery_record(notification_id)
+  defp delivery_record(notification_id, user_id \\ nil) do
+    direct_message_delivery_record(notification_id, user_id) ||
+      mention_delivery_record(notification_id, user_id)
   end
 
-  defp mention_delivery_record(notification_id) do
-    from(notification in Notification,
-      join: message in Message,
-      on: message.id == notification.message_id,
-      join: membership in ChannelMembership,
-      on: membership.id == notification.channel_membership_id,
-      join: connection in ServerConnection,
-      on: connection.id == membership.server_connection_id,
-      where:
-        notification.id == ^notification_id and is_nil(notification.read_at) and
-          message.mentioned == true,
-      select: %{
-        notification_id: notification.id,
-        user_id: notification.user_id,
-        message_id: message.id,
-        kind: "mention",
-        body: message.body,
-        nick: message.nick,
-        channel: membership.channel,
-        channel_membership_id: membership.id,
-        server_name: connection.name,
-        server_enabled: connection.mention_notifications_enabled,
-        channel_enabled: membership.mention_notifications_enabled
-      }
+  defp mention_delivery_record(notification_id, user_id) do
+    Notification
+    |> join(:inner, [notification], message in Message, on: message.id == notification.message_id)
+    |> join(:inner, [notification, _message], membership in ChannelMembership,
+      on: membership.id == notification.channel_membership_id
     )
+    |> join(:inner, [_notification, _message, membership], connection in ServerConnection,
+      on: connection.id == membership.server_connection_id
+    )
+    |> where(
+      [notification, message],
+      notification.id == ^notification_id and is_nil(notification.read_at) and
+        message.mentioned == true
+    )
+    |> maybe_scope_notification_user(user_id)
+    |> select([notification, message, membership, connection], %{
+      notification_id: notification.id,
+      user_id: notification.user_id,
+      message_id: message.id,
+      kind: "mention",
+      body: message.body,
+      nick: message.nick,
+      channel: membership.channel,
+      channel_membership_id: membership.id,
+      server_name: connection.name,
+      server_enabled: connection.mention_notifications_enabled,
+      channel_enabled: membership.mention_notifications_enabled
+    })
     |> Repo.one()
   end
 
-  defp direct_message_delivery_record(notification_id) do
-    from(notification in Notification,
-      join: message in Message,
-      on: message.id == notification.message_id,
-      join: thread in DirectMessageThread,
-      on: thread.id == notification.direct_message_thread_id,
-      join: connection in ServerConnection,
-      on: connection.id == thread.server_connection_id,
-      where:
-        notification.id == ^notification_id and is_nil(notification.read_at) and
-          is_nil(thread.blocked_at) and is_nil(thread.closed_at),
-      select: %{
-        notification_id: notification.id,
-        user_id: notification.user_id,
-        message_id: message.id,
-        kind: "direct_message",
-        body: message.body,
-        nick: message.nick,
-        peer_nick: thread.peer_nick,
-        direct_message_thread_id: thread.id,
-        server_name: connection.name,
-        server_enabled: true,
-        channel_enabled: true
-      }
+  defp direct_message_delivery_record(notification_id, user_id) do
+    Notification
+    |> join(:inner, [notification], message in Message, on: message.id == notification.message_id)
+    |> join(:inner, [notification, _message], thread in DirectMessageThread,
+      on: thread.id == notification.direct_message_thread_id
     )
+    |> join(:inner, [_notification, _message, thread], connection in ServerConnection,
+      on: connection.id == thread.server_connection_id
+    )
+    |> where(
+      [notification, _message, thread],
+      notification.id == ^notification_id and is_nil(notification.read_at) and
+        is_nil(thread.blocked_at) and is_nil(thread.closed_at)
+    )
+    |> maybe_scope_notification_user(user_id)
+    |> select([notification, message, thread, connection], %{
+      notification_id: notification.id,
+      user_id: notification.user_id,
+      message_id: message.id,
+      kind: "direct_message",
+      body: message.body,
+      nick: message.nick,
+      peer_nick: thread.peer_nick,
+      direct_message_thread_id: thread.id,
+      server_name: connection.name,
+      server_enabled: true,
+      channel_enabled: true
+    })
     |> Repo.one()
+  end
+
+  defp maybe_scope_notification_user(query, nil), do: query
+
+  defp maybe_scope_notification_user(query, user_id) do
+    where(query, [notification], notification.user_id == ^user_id)
   end
 
   defp send_to_subscriptions(record) do

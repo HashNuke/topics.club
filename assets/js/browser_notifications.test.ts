@@ -238,6 +238,26 @@ describe("browser notifications", () => {
     secondTab.close()
   })
 
+  test("fails closed when BroadcastChannel coordination is unavailable", async () => {
+    const display = vi.fn().mockReturnValue(true)
+    const coordinator = createNotificationEventCoordinator({
+      channelFactory: () => null,
+      claimWindowMs: 1,
+      scope: "no-fallback",
+      storage: inMemoryClaimStorage(),
+      tabId: "tab-a",
+    })
+
+    await expect(coordinator.coordinate("notification:no-channel", {
+      eligible: true,
+      visible: false,
+      display,
+    })).resolves.toBe(false)
+
+    expect(display).not.toHaveBeenCalled()
+    coordinator.close()
+  })
+
   test("reports notifications as unsupported when the API is missing", async () => {
     delete window.Notification
 
@@ -267,5 +287,14 @@ function inMemoryBroadcastChannelFactory() {
         listeners.delete(listener)
       },
     }
+  }
+}
+
+function inMemoryClaimStorage() {
+  const values = new Map<string, string>()
+
+  return {
+    getItem: (key: string) => values.get(key) || null,
+    setItem: (key: string, value: string) => values.set(key, value),
   }
 }

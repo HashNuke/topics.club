@@ -211,6 +211,46 @@ defmodule Ircpipe.NotificationsTest do
     refute Repo.get_by(UserToken, user_id: scope.user.id, context: "session")
   end
 
+  test "password reset serializes against password reauthentication", %{scope: scope} do
+    supervisor = start_supervised!(Task.Supervisor)
+    user = AccountsFixtures.set_password(scope.user)
+    authenticated_scope = AccountsFixtures.user_scope_fixture(user)
+    session_token = Accounts.generate_user_session_token(user)
+
+    assert {:ok, subscription} =
+             Notifications.upsert_subscription(
+               authenticated_scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/password-reset-race")
+             )
+
+    Application.put_env(:ircpipe, :pause_session_reset, self())
+
+    reset =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Accounts.update_user_password(user, %{password: "replacement password"})
+      end)
+
+    assert_receive {:session_reset_paused, reset_pid}
+
+    reauthentication =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.authenticate_and_rotate_session_with_subscriptions(
+          user.email,
+          AccountsFixtures.valid_user_password(),
+          session_token
+        )
+      end)
+
+    refute Task.yield(reauthentication, 100)
+    send(reset_pid, :continue_session_reset)
+
+    assert {:ok, {_updated_user, _revoked_tokens}} = Task.await(reset)
+    assert {:error, :invalid_credentials} = Task.await(reauthentication)
+    refute Repo.get(PushSubscription, subscription.id)
+    refute Repo.get_by(UserToken, user_id: user.id, context: "session")
+  end
+
   test "rejects registration after its authenticated session is revoked", %{scope: scope} do
     session_token = Accounts.generate_user_session_token(scope.user)
     assert :ok = Accounts.delete_user_session_token(session_token)
@@ -451,6 +491,30 @@ defmodule Ircpipe.NotificationsTest do
              scope,
              session_token,
              notification.id,
+             generation
+           )
+  end
+
+  test "receipt eligibility never loads another user's notification", %{scope: scope} do
+    other_user = AccountsFixtures.user_fixture()
+
+    {:ok, other_connection} =
+      Chat.create_connection(other_user, %{
+        "name" => "Foreign",
+        "host" => "irc.foreign.test",
+        "port" => 6697,
+        "nickname" => "mira"
+      })
+
+    {:ok, other_membership} = Chat.join_channel(other_user, other_connection, "#private")
+    foreign_notification = mention_notification(other_connection, other_membership)
+    session_token = Accounts.generate_user_session_token(scope.user)
+    generation = UserToken.session_token_fingerprint(session_token)
+
+    refute Notifications.notification_eligible?(
+             scope,
+             session_token,
+             foreign_notification.id,
              generation
            )
   end

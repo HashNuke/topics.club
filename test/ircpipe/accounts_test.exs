@@ -370,39 +370,6 @@ defmodule Ircpipe.AccountsTest do
     end
   end
 
-  describe "session issuance serialization" do
-    test "an old-password login verified before reset cannot issue afterward" do
-      previous_pause = Application.get_env(:ircpipe, :pause_session_reset)
-      on_exit(fn -> restore_env(:pause_session_reset, previous_pause) end)
-      supervisor = start_supervised!(Task.Supervisor)
-      user = user_fixture() |> set_password()
-
-      Application.put_env(:ircpipe, :pause_session_reset, self())
-
-      reset =
-        Task.Supervisor.async_nolink(supervisor, fn ->
-          Accounts.update_user_password(user, %{password: "replacement password"})
-        end)
-
-      assert_receive {:session_reset_paused, reset_pid}
-
-      old_password_login =
-        Task.Supervisor.async_nolink(supervisor, fn ->
-          Accounts.authenticate_and_issue_user_session_token(
-            user.email,
-            valid_user_password()
-          )
-        end)
-
-      refute Task.yield(old_password_login, 100)
-      send(reset_pid, :continue_session_reset)
-
-      assert {:ok, {_updated_user, _revoked_tokens}} = Task.await(reset)
-      assert {:error, :invalid_credentials} = Task.await(old_password_login)
-      refute Repo.get_by(UserToken, user_id: user.id, context: "session")
-    end
-  end
-
   describe "deliver_login_instructions/2" do
     setup do
       %{user: unconfirmed_user_fixture()}
@@ -427,7 +394,4 @@ defmodule Ircpipe.AccountsTest do
       refute inspect(%User{password: "123456"}) =~ "password: \"123456\""
     end
   end
-
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 end

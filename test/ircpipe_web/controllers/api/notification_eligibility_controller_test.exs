@@ -60,6 +60,16 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
       )
 
     assert %{"eligible" => false} = json_response(malformed, 200)
+
+    generation = conn |> get_session(:user_token) |> UserToken.session_token_fingerprint()
+
+    oversized =
+      get(
+        conn,
+        ~p"/api/notifications/999999999999999999999999999999999999/eligibility?#{%{session_generation: generation}}"
+      )
+
+    assert %{"eligible" => false} = json_response(oversized, 200)
   end
 
   defp mention_notification(user) do

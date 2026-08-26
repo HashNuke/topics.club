@@ -46,9 +46,17 @@ defmodule IrcpipeWeb.UserAuth do
     do_log_in_user(conn, user, params, true)
   end
 
-  def log_in_user_with_issued_session(conn, user, token, params \\ %{}) do
+  def log_in_user_with_issued_session(
+        conn,
+        user,
+        token,
+        replaced_session_token,
+        params \\ %{}
+      ) do
     user_return_to = get_session(conn, :user_return_to)
     remember_me = get_session(conn, :user_remember_me)
+
+    disconnect_user_socket(replaced_session_token)
 
     conn
     |> revoke_auth_session_for_account_change(user)

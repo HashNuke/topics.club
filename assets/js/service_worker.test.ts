@@ -170,6 +170,32 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   })
   expect(showNotification).toHaveBeenCalledTimes(3)
 
+  for (let index = 0; index < 40; index += 1) {
+    await dispatchExtendableEvent(handlers.get("message"), {
+      source: {id: `vanished-${index}`},
+      data: {
+        type: "notification:client-lease",
+        healthy: true,
+        sessionGeneration: "session-b",
+      },
+    })
+  }
+
+  worker.clients.matchAll.mockResolvedValue([{
+    id: "vanished-0",
+    url: "https://topics.example.test/app",
+    visibilityState: "visible",
+  }])
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => ({
+      title: "Lease cap message",
+      notification_id: "lease-cap",
+      user_id: "account-b",
+      session_generation: "session-b",
+    })},
+  })
+  expect(showNotification).toHaveBeenCalledTimes(4)
+
   currentAccount = {user_id: null, session_generation: null}
   await dispatchExtendableEvent(handlers.get("message"), {
     data: {type: "notification:refresh-account"},

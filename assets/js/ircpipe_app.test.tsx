@@ -434,6 +434,10 @@ function fakeRealtimeClient(pushImpl) {
   return client
 }
 
+function refreshAccountMessages(postMessage) {
+  return postMessage.mock.calls.filter(([message]) => message?.type === "notification:refresh-account")
+}
+
 function directMessageApiClient() {
   return {
     topics: vi.fn().mockResolvedValue({topics: []}),
@@ -598,6 +602,17 @@ describe("IrcpipeApp UI prototype", () => {
     expect(copy.indexOf("akash")).toBeLessThan(copy.indexOf("Zed"))
     expect(copy.indexOf("Zed")).toBeLessThan(copy.indexOf("#alpha"))
     expect(copy.indexOf("#alpha")).toBeLessThan(copy.indexOf("#zulu"))
+
+    await userEvent.click(screen.getByLabelText("Show channels"))
+    await userEvent.click(screen.getByLabelText("Show users"))
+
+    const scopedControlIds = Array.from(document.querySelectorAll(
+      '[id*="server-notification-bell"], [id$="direct-message-block-button"]'
+    )).map((element) => element.id)
+
+    expect(scopedControlIds).toContain("desktop-direct-message-block-button")
+    expect(scopedControlIds).toContain("mobile-direct-message-block-button")
+    expect(new Set(scopedControlIds).size).toBe(scopedControlIds.length)
   })
 
   test("adds incoming private-message threads without stealing focus", async () => {
@@ -694,6 +709,75 @@ describe("IrcpipeApp UI prototype", () => {
     act(() => realtimeHandlers.onChannelError({reason: "server restart"}))
     await act(async () => realtimeHandlers.onJoinOk())
     await waitFor(() => expect(apiClient.bootstrap).toHaveBeenCalledTimes(3))
+  })
+
+  test("refreshes the worker account when the same user rotates session generation", async () => {
+    const seedClient = directMessageApiClient()
+    const base = await seedClient.bootstrap()
+    const initial = {
+      ...base,
+      push: {
+        configured: false,
+        vapid_public_key: null,
+        session_generation: "session-a",
+        session_installation_id: null,
+        session_registration_confirmed: false,
+      },
+    }
+    const rotated = {
+      ...initial,
+      push: {...initial.push, session_generation: "session-b"},
+    }
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(rotated),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    const postMessage = vi.fn()
+    const originalServiceWorker = navigator.serviceWorker
+    let realtimeHandlers
+
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: {
+        ready: Promise.resolve({active: {postMessage}}),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        controller: null,
+      },
+      configurable: true,
+    })
+
+    try {
+      render(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 1, email: "mira@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+      await waitFor(() => expect(refreshAccountMessages(postMessage).length).toBeGreaterThanOrEqual(2))
+      const beforeRotation = refreshAccountMessages(postMessage).length
+
+      await act(async () => realtimeHandlers.onJoinOk())
+
+      await waitFor(() => {
+        expect(apiClient.bootstrap).toHaveBeenCalledTimes(2)
+        expect(refreshAccountMessages(postMessage).length).toBeGreaterThan(beforeRotation)
+      })
+    } finally {
+      if (originalServiceWorker) {
+        Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
+      } else {
+        delete navigator.serviceWorker
+      }
+    }
   })
 
   test("replays a queued mute before deciding whether to show its queued mention", async () => {

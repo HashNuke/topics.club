@@ -243,25 +243,6 @@ defmodule Ircpipe.Accounts do
     end)
   end
 
-  def authenticate_and_issue_user_session_token(email, password)
-      when is_binary(email) and is_binary(password) do
-    Repo.transaction(fn ->
-      user =
-        User
-        |> where([user], user.email == ^email)
-        |> lock("FOR UPDATE")
-        |> Repo.one()
-
-      if User.valid_password?(user, password) do
-        {token, user_token} = UserToken.build_session_token(user)
-        Repo.insert!(user_token)
-        {user, token}
-      else
-        Repo.rollback(:invalid_credentials)
-      end
-    end)
-  end
-
   @doc """
   Gets the user with the given signed token.
 

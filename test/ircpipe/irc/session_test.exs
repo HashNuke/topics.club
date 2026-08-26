@@ -3,6 +3,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.{DirectMessageThread, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
 
@@ -133,7 +134,12 @@ defmodule Ircpipe.Irc.SessionTest do
     state = %{
       connection: connection,
       pending_echoes: [
-        %{channel: "#pipe", body: "hello from app", kind: "message"}
+        %{
+          channel: "#pipe",
+          body: "hello from app",
+          kind: "message",
+          inserted_at_ms: System.monotonic_time(:millisecond)
+        }
       ]
     }
 
@@ -181,7 +187,14 @@ defmodule Ircpipe.Irc.SessionTest do
 
     state = %{
       connection: connection,
-      pending_echoes: [%{target: "#pipe", body: "hello from app", kind: "message"}]
+      pending_echoes: [
+        %{
+          target: "#pipe",
+          body: "hello from app",
+          kind: "message",
+          inserted_at_ms: System.monotonic_time(:millisecond)
+        }
+      ]
     }
 
     assert {:noreply, updated_state} =
@@ -204,7 +217,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert Repo.reload(membership).unread_count == 0
   end
 
-  test "records unmatched same-nick channel messages" do
+  test "classifies an overflowed same-nick channel echo as outgoing attention-free traffic" do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
@@ -217,10 +230,31 @@ defmodule Ircpipe.Irc.SessionTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+    body = "message delayed past the pending cap"
 
-    state = %{connection: connection, pending_echoes: []}
+    Chat.record_inbound_message(
+      connection,
+      "#pipe",
+      "mira",
+      body,
+      "message",
+      %{direction: "outgoing"}
+    )
 
-    assert {:noreply, ^state} =
+    state = %{
+      connection: connection,
+      pending_echoes:
+        Enum.map(1..200, fn index ->
+          %{
+            target: "#pipe",
+            body: "newer #{index}",
+            kind: "message",
+            inserted_at_ms: System.monotonic_time(:millisecond)
+          }
+        end)
+    }
+
+    assert {:noreply, _updated_state} =
              Session.handle_info(
                {:ircxd,
                 {:privmsg,
@@ -228,13 +262,73 @@ defmodule Ircpipe.Irc.SessionTest do
                    target: "#pipe",
                    nick: "Mira",
                    raw_source: "mira!user@test",
-                   body: "message from another source"
+                   body: body
                  }}},
                state
              )
 
-    assert [%{body: "message from another source", nick: "Mira"}] =
-             Chat.list_messages(user, membership.id)
+    messages = Chat.list_messages(user, membership.id)
+    assert Enum.count(messages, &(&1.body == body)) == 2
+    assert Enum.all?(messages, &(not &1.mentioned))
+    assert Repo.reload(membership).unread_count == 0
+    assert Repo.reload(membership).mention_count == 0
+    assert Repo.aggregate(Notification, :count) == 0
+  end
+
+  test "classifies an overflowed same-nick direct echo without creating self attention" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "direct-echo-overflow",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    body = "private message delayed past the pending cap"
+
+    assert {:ok, %{thread: original_thread}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "mira",
+               body,
+               "message",
+               %{direction: "outgoing", peer_nick: "akash", target: "akash"}
+             )
+
+    state = %{
+      connection: connection,
+      pending_echoes:
+        Enum.map(1..200, fn index ->
+          %{
+            target: "akash",
+            body: "newer #{index}",
+            kind: "message",
+            inserted_at_ms: System.monotonic_time(:millisecond)
+          }
+        end)
+    }
+
+    assert {:noreply, _updated_state} =
+             Session.handle_info(
+               {:ircxd,
+                {:privmsg,
+                 %{
+                   target: "akash",
+                   nick: "Mira",
+                   raw_source: "mira!user@test",
+                   body: body
+                 }}},
+               state
+             )
+
+    threads = Repo.all(DirectMessageThread)
+    assert Enum.map(threads, & &1.id) == [original_thread.id]
+    assert Repo.reload(original_thread).unread_count == 0
+    assert Repo.aggregate(Notification, :count) == 0
   end
 
   test "persists direct messages and routes non-hash channel targets" do

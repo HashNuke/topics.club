@@ -138,7 +138,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!("serviceWorker" in navigator)) return
 
     return synchronizeServiceWorkerAccount()
-  }, [currentUser?.id])
+  }, [currentUser?.id, pushConfig.session_generation])
 
   const {
     appendSystemMessage,

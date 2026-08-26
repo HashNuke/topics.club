@@ -4,6 +4,7 @@ const NOTIFICATION_ACCOUNT_KEY = "/__ircpipe-notification-account__"
 let notificationAccountRefresh = Promise.resolve()
 const notificationClientLeases = new Map()
 const NOTIFICATION_CLIENT_LEASE_MS = 30_000
+const NOTIFICATION_CLIENT_LEASE_LIMIT = 32
 
 self.addEventListener("install", () => self.skipWaiting())
 self.addEventListener("activate", (event) => {
@@ -23,6 +24,7 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
+    pruneNotificationClientLeases()
     const payload = event.data?.json?.() || {}
     await queueNotificationAccountRefresh()
     if (!await notificationAccountMatches(payload.user_id, payload.session_generation)) return
@@ -62,6 +64,7 @@ function queueNotificationAccountRefresh() {
 }
 
 function updateNotificationClientLease(clientId, lease) {
+  pruneNotificationClientLeases()
   if (!clientId) return
 
   if (!lease.healthy || !lease.sessionGeneration) {
@@ -73,6 +76,20 @@ function updateNotificationClientLease(clientId, lease) {
     expiresAt: Date.now() + NOTIFICATION_CLIENT_LEASE_MS,
     sessionGeneration: String(lease.sessionGeneration),
   })
+
+  while (notificationClientLeases.size > NOTIFICATION_CLIENT_LEASE_LIMIT) {
+    const oldestClientId = [...notificationClientLeases.entries()]
+      .sort((left, right) => left[1].expiresAt - right[1].expiresAt)[0]?.[0]
+    if (!oldestClientId) break
+    notificationClientLeases.delete(oldestClientId)
+  }
+}
+
+function pruneNotificationClientLeases() {
+  const now = Date.now()
+  for (const [clientId, lease] of notificationClientLeases) {
+    if (lease.expiresAt <= now) notificationClientLeases.delete(clientId)
+  }
 }
 
 function healthyNotificationClient(client, sessionGeneration) {
@@ -173,6 +190,7 @@ async function notificationStillEligible(payload) {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
   event.waitUntil((async () => {
+    pruneNotificationClientLeases()
     await queueNotificationAccountRefresh()
     const data = event.notification.data || {}
     if (!await notificationAccountMatches(data.userId, data.sessionGeneration)) return

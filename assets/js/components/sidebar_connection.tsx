@@ -13,6 +13,7 @@ export interface SidebarConnectionProps {
   activeChannel?: Channel
   activeServer?: ServerConnection
   connection: ServerConnection
+  idNamespace?: string
   notificationDeviceState: NotificationDeviceState
   notificationSavingIds: Set<string>
   onDisconnectServer?: (server: ServerConnection) => void
@@ -30,7 +31,7 @@ export interface SidebarConnectionProps {
 }
 
 export default function SidebarConnection(props: SidebarConnectionProps) {
-  const {activeChannel, activeServer, connection, notificationDeviceState, notificationSavingIds, onCloseDirectMessage, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onToggleServerNotifications, view} = props
+  const {activeChannel, activeServer, connection, idNamespace = "sidebar", notificationDeviceState, notificationSavingIds, onCloseDirectMessage, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onToggleServerNotifications, view} = props
   return (
     <section className="mb-5">
       <div className={[
@@ -43,14 +44,14 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
         </button>
         <NotificationBell
           compact
-          id={`server-notification-bell-${connection.server_connection_id}`}
+          id={`${idNamespace}-server-notification-bell-${connection.server_connection_id}`}
           loading={notificationDeviceState.loading || notificationSavingIds.has(connection.id)}
           onToggle={() => onToggleServerNotifications(connection)}
           scopeLabel={connection.name || connection.host}
           state={notificationControlState(notificationDeviceState, connection.mention_notifications_enabled ?? true)}
         />
         <button
-          id={`browse-channels-${connection.server_connection_id}`}
+          id={`${idNamespace}-browse-channels-${connection.server_connection_id}`}
           className="grid size-7 shrink-0 place-items-center rounded text-slate-500 transition hover:bg-slate-700 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
           onClick={() => onOpenChannelDirectory?.(connection)}
           aria-label={`Browse channels on ${connection.name}`}

@@ -3,6 +3,11 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
 
   import Ircpipe.AccountsFixtures
   alias Ircpipe.Accounts
+  alias Ircpipe.Accounts.{Scope, UserToken}
+  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.PushSubscription
+  alias Ircpipe.Repo
+  alias IrcpipeWeb.UserSocket
 
   setup do
     %{unconfirmed_user: unconfirmed_user_fixture(), user: user_fixture()}
@@ -110,6 +115,49 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
 
       assert conn.resp_cookies["_ircpipe_web_user_remember_me"]
       assert redirected_to(conn) == ~p"/"
+    end
+
+    test "atomically replaces a same-user session and rebinds its push installation", %{
+      conn: conn,
+      user: user
+    } do
+      user = set_password(user)
+      logged_in = log_in_user(conn, user)
+      previous_token = get_session(logged_in, :user_token)
+      other_tab_token = Accounts.generate_user_session_token(user)
+      previous_socket_id = UserSocket.id_for_session_token(previous_token)
+      other_socket_id = UserSocket.id_for_session_token(other_tab_token)
+      IrcpipeWeb.Endpoint.subscribe(previous_socket_id)
+      IrcpipeWeb.Endpoint.subscribe(other_socket_id)
+      {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+
+      assert {:ok, subscription} =
+               Notifications.upsert_subscription(
+                 Scope.for_user(user),
+                 previous_token,
+                 %{
+                   "installation_id" => "password-reauth-browser",
+                   "endpoint" => "https://push.example.test/password-reauth",
+                   "p256dh" => Base.url_encode64(public_key, padding: false),
+                   "auth" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+                 }
+               )
+
+      reauthenticated =
+        post(logged_in, ~p"/users/log-in", %{
+          "user" => %{"email" => user.email, "password" => valid_user_password()}
+        })
+
+      next_token = get_session(reauthenticated, :user_token)
+      next_user_token = Repo.get_by!(UserToken, token: next_token, context: "session")
+
+      assert next_token != previous_token
+      refute Accounts.get_user_by_session_token(previous_token)
+      assert Accounts.get_user_by_session_token(other_tab_token)
+      assert Repo.get!(PushSubscription, subscription.id).user_token_id == next_user_token.id
+
+      assert_receive %Phoenix.Socket.Broadcast{topic: ^previous_socket_id, event: "disconnect"}
+      refute_receive %Phoenix.Socket.Broadcast{topic: ^other_socket_id}
     end
 
     test "logs the user in with return to", %{conn: conn, user: user} do
