@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.Bouncer do
 
   require Logger
 
-  alias Ircpipe.Chat
+  alias Ircpipe.Chat.ConnectionActivity
   alias Ircpipe.Irc.SessionSupervisor
 
   @idle_timeout :timer.hours(24)
@@ -40,7 +40,7 @@ defmodule Ircpipe.Irc.Bouncer do
     if state.enabled? do
       state
       |> cutoff()
-      |> Chat.list_recently_seen_connections()
+      |> ConnectionActivity.recently_seen()
       |> Enum.each(&start_session/1)
     end
 
@@ -51,7 +51,7 @@ defmodule Ircpipe.Irc.Bouncer do
     if state.enabled? do
       state
       |> cutoff()
-      |> Chat.list_inactive_connections()
+      |> ConnectionActivity.inactive()
       |> Enum.each(&disconnect_session/1)
 
       schedule_sweep(state)

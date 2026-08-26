@@ -92,24 +92,6 @@ defmodule Ircpipe.Chat do
     {connections, tombstones}
   end
 
-  def list_recently_seen_connections(cutoff) do
-    ServerConnection
-    |> join(:inner, [c], u in User, on: u.id == c.user_id)
-    |> where([_c, u], not is_nil(u.last_seen_at) and u.last_seen_at >= ^cutoff)
-    |> preload(:channel_memberships)
-    |> order_by([c], asc: c.user_id, asc: c.name)
-    |> Repo.all()
-  end
-
-  def list_inactive_connections(cutoff) do
-    ServerConnection
-    |> join(:inner, [c], u in User, on: u.id == c.user_id)
-    |> where([_c, u], is_nil(u.last_seen_at) or u.last_seen_at < ^cutoff)
-    |> preload(:channel_memberships)
-    |> order_by([c], asc: c.user_id, asc: c.name)
-    |> Repo.all()
-  end
-
   def get_connection!(%User{id: user_id}, id) do
     ServerConnection
     |> where([c], c.user_id == ^user_id and c.id == ^id)
