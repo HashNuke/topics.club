@@ -30,9 +30,9 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    assert [owned] = Chat.list_connections(user)
+    assert [owned] = Connections.list(user)
     assert owned.id == connection.id
-    assert [] = Chat.list_connections(other_user)
+    assert [] = Connections.list(other_user)
     assert_raise Ecto.NoResultsError, fn -> Connections.get!(other_user, connection.id) end
   end
 
@@ -231,12 +231,12 @@ defmodule Ircpipe.ChatTest do
     end)
 
     assert connection.casemapping == nil
-    assert [%{channel_memberships: memberships}] = Chat.list_connections(user)
+    assert [%{channel_memberships: memberships}] = Connections.list(user)
     assert Enum.count(memberships) == 2
 
     {:ok, ascii_connection} = Chat.update_connection_casemapping(connection, :ascii)
     assert {:ok, []} = MembershipReconciler.reconcile(ascii_connection, :ascii)
-    assert [%{channel_memberships: memberships}] = Chat.list_connections(user)
+    assert [%{channel_memberships: memberships}] = Connections.list(user)
     assert Enum.count(memberships) == 2
   end
 

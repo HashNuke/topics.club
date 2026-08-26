@@ -1,7 +1,7 @@
 defmodule IrcpipeWeb.Api.BootstrapController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Chat.Topics
@@ -19,18 +19,20 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
     {:ok, snapshot} =
       Repo.transaction(fn ->
-        {connections, direct_message_tombstones} =
-          Chat.list_connections_with_direct_message_state(user)
+        connection_snapshot = Connections.snapshot_in_transaction(user)
+        connections = connection_snapshot.connections
 
         %{
           connections: connections,
-          direct_message_tombstones: direct_message_tombstones,
+          direct_message_tombstones: connection_snapshot.direct_message_tombstones,
+          connection_reconciliations: connection_snapshot.reconciliations,
           messages_by_buffer: messages_by_buffer(user, connections),
           topics: Topics.list(),
           users_by_buffer: users_by_buffer(connections)
         }
       end)
 
+    Connections.broadcast_reconciliations(snapshot.connection_reconciliations)
     connections = snapshot.connections
 
     Enum.each(connections, &start_session/1)

@@ -25,7 +25,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     {:ok, _zulu} = Chat.join_channel(user, oldest, "#zulu")
     {:ok, _alpha} = Chat.join_channel(user, oldest, "#alpha")
 
-    connections = Chat.list_connections(user)
+    connections = Connections.list(user)
 
     assert Enum.map(connections, & &1.id) == [oldest.id, newest.id]
 

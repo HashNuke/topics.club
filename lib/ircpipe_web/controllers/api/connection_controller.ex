@@ -9,7 +9,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
 
   def index(conn, _params) do
     user = conn.assigns.current_scope.user
-    json(conn, %{connections: Enum.map(Chat.list_connections(user), &connection_json/1)})
+    json(conn, %{connections: Enum.map(Connections.list(user), &connection_json/1)})
   end
 
   def create(conn, %{"connection" => attrs}) do

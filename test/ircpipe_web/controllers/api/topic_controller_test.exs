@@ -1,7 +1,6 @@
 defmodule IrcpipeWeb.Api.TopicControllerTest do
   use IrcpipeWeb.ConnCase, async: false
 
-  alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.{Session, SessionSupervisor}
@@ -86,7 +85,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
 
     on_exit(fn ->
       user
-      |> Chat.list_connections()
+      |> Connections.list()
       |> Enum.each(&SessionSupervisor.stop_session/1)
     end)
 

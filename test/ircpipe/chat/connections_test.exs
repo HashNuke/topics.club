@@ -2,6 +2,7 @@ defmodule Ircpipe.Chat.ConnectionsTest do
   use Ircpipe.DataCase, async: true
 
   alias Ircpipe.AccountsFixtures
+  alias Ircpipe.Chat
   alias Ircpipe.Chat.ChannelMembership
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.ServerConnection
@@ -108,6 +109,99 @@ defmodule Ircpipe.Chat.ConnectionsTest do
     assert Repo.aggregate(ServerConnection, :count) == 0
   end
 
+  test "lists open direct messages with closed-thread tombstones" do
+    user = AccountsFixtures.user_fixture()
+    scope = AccountsFixtures.user_scope_fixture(user)
+
+    assert {:ok, connection} =
+             Connections.create(user, %{
+               "name" => "direct messages",
+               "host" => "irc.direct.test",
+               "nickname" => "mira"
+             })
+
+    assert {:ok, open_thread} = Chat.open_direct_message(user, connection, "Zed")
+    assert {:ok, closed_thread} = Chat.open_direct_message(user, connection, "akash")
+    assert {:ok, closed_thread} = Chat.close_direct_message_thread(scope, closed_thread.id)
+
+    assert %{
+             connections: [loaded],
+             direct_message_tombstones: [tombstone]
+           } = Connections.snapshot(user)
+
+    assert Enum.map(loaded.direct_message_threads, & &1.id) == [open_thread.id]
+
+    assert tombstone == %{
+             buffer_id: "direct:#{closed_thread.id}",
+             server_connection_id: connection.id,
+             direct_message_thread_id: closed_thread.id,
+             revision: closed_thread.mutation_revision
+           }
+  end
+
+  test "defers reconciliation broadcasts and rolls back deletion with an outer transaction" do
+    user = AccountsFixtures.user_fixture()
+
+    assert {:ok, connection} =
+             Connections.create(user, %{
+               "name" => "rollback",
+               "host" => "irc.rollback.test",
+               "nickname" => "mira"
+             })
+
+    assert {:ok, connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+
+    for channel <- ["#[ops]", "#" <> "{ops}"] do
+      %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
+      |> ChannelMembership.changeset(%{channel: channel, status: "joined"})
+      |> Repo.insert!()
+    end
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    connection_id = connection.id
+
+    assert {:error, :forced_rollback} =
+             Repo.transaction(fn ->
+               snapshot = Connections.snapshot_in_transaction(user)
+               assert [{^connection_id, [_loser]}] = reconciliation_ids(snapshot.reconciliations)
+               Repo.rollback(:forced_rollback)
+             end)
+
+    refute_receive {:buffer_left, _event}
+
+    assert 2 ==
+             ChannelMembership
+             |> where([membership], membership.server_connection_id == ^connection.id)
+             |> Repo.aggregate(:count)
+
+    assert %{connections: [%{channel_memberships: [_survivor]}]} =
+             Connections.snapshot(user)
+
+    assert_receive {:buffer_left, %{channel_membership_id: _loser_id}}
+
+    assert 1 ==
+             ChannelMembership
+             |> where([membership], membership.server_connection_id == ^connection.id)
+             |> Repo.aggregate(:count)
+  end
+
+  test "rejects transaction-owning snapshots and broadcasts inside an outer transaction" do
+    user = AccountsFixtures.user_fixture()
+
+    assert {:error, :forced_rollback} =
+             Repo.transaction(fn ->
+               assert_raise ArgumentError, ~r/use snapshot_in_transaction/, fn ->
+                 Connections.snapshot(user)
+               end
+
+               assert_raise ArgumentError, ~r/after the transaction commits/, fn ->
+                 Connections.broadcast_reconciliations([])
+               end
+
+               Repo.rollback(:forced_rollback)
+             end)
+  end
+
   test "retains connection credentials while encrypting them at rest" do
     user = AccountsFixtures.user_fixture(%{email: "mira@example.com"})
 
@@ -168,5 +262,11 @@ defmodule Ircpipe.Chat.ConnectionsTest do
              })
 
     assert missing_nickname.nickname == "mira"
+  end
+
+  defp reconciliation_ids(reconciliations) do
+    Enum.map(reconciliations, fn {connection, losers} ->
+      {connection.id, Enum.map(losers, & &1.id)}
+    end)
   end
 end

@@ -86,7 +86,7 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   def handle_info({:sync_server_statuses, user}, socket) do
-    Enum.each(Chat.list_connections(user), fn connection ->
+    Enum.each(Connections.list(user), fn connection ->
       push(socket, "server:status", Event.server_status(connection, Session.status(connection)))
     end)
 

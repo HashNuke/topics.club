@@ -97,7 +97,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
     connection = Connections.get!(user, connection_id)
     assert connection.id == existing_connection.id
     assert connection.host == "127.0.0.1"
-    assert length(Chat.list_connections(user)) == 1
+    assert length(Connections.list(user)) == 1
     assert :ok = Session.quit(connection)
   end
 
