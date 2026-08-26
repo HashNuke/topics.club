@@ -127,6 +127,33 @@ function validProtocolEntityId(value: unknown): value is EntityId {
   return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
 }
 
+function validSentMessageReply(
+  message: ChatMessage,
+  channel: Channel,
+  expectedBody: string
+): boolean {
+  if (
+    !message ||
+    message.type !== "buffer:message" ||
+    message.version !== 1 ||
+    !validProtocolEntityId(message.id) ||
+    message.event_id !== `message:${message.id}` ||
+    !validProtocolEntityId(message.server_connection_id) ||
+    message.buffer_id !== channel.id ||
+    typeof message.nick !== "string" ||
+    message.nick.length === 0 ||
+    message.body !== expectedBody ||
+    typeof message.occurred_at !== "string" ||
+    !Number.isFinite(Date.parse(message.occurred_at))
+  ) return false
+
+  return channel.buffer_type === "direct_message"
+    ? validProtocolEntityId(message.direct_message_thread_id) &&
+        String(message.direct_message_thread_id) === String(channel.direct_message_thread_id)
+    : validProtocolEntityId(message.channel_membership_id) &&
+        String(message.channel_membership_id) === String(channel.channel_membership_id)
+}
+
 interface NotificationPreferenceOperation {
   baseRevision: number
   epoch: number
@@ -595,6 +622,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           body,
         })
 
+        if (!validSentMessageReply(reply.message, activeChannel, body)) {
+          throw new Error("invalid_message_reply")
+        }
         replacePendingMessage(activeChannel.id, clientMessageId, normalizeMessage(reply.message))
       } catch (_error) {
         markPendingFailed(activeChannel.id, clientMessageId)
@@ -637,6 +667,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         body: message.body,
       })
 
+      if (!validSentMessageReply(reply.message, activeChannel, message.body)) {
+        throw new Error("invalid_message_reply")
+      }
       replacePendingMessage(activeChannel.id, clientMessageId, normalizeMessage(reply.message))
     } catch (_error) {
       markPendingFailed(activeChannel.id, clientMessageId)
@@ -1330,14 +1363,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   ): boolean {
     return Boolean(
       message &&
+      message.type === "buffer:message" &&
+      message.version === 1 &&
       validProtocolEntityId(message.id) &&
+      message.event_id === `message:${message.id}` &&
       validProtocolEntityId(message.server_connection_id) &&
       validProtocolEntityId(message.direct_message_thread_id) &&
       message.buffer_id === buffer.buffer_id &&
       String(message.server_connection_id) === String(buffer.server_connection_id) &&
       String(message.direct_message_thread_id) === String(buffer.direct_message_thread_id) &&
       typeof message.nick === "string" &&
-      typeof message.body === "string"
+      message.nick.length > 0 &&
+      typeof message.body === "string" &&
+      typeof message.occurred_at === "string" &&
+      Number.isFinite(Date.parse(message.occurred_at))
     )
   }
 

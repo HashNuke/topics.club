@@ -1237,7 +1237,7 @@ describe("IrcpipeApp UI prototype", () => {
         connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 0, blocked: false},
         revision: 1,
-        message: {id: 89, buffer_id: "direct:12", server_connection_id: 42, direct_message_thread_id: 12, nick: "mira", body: "hello privately"},
+        message: {type: "buffer:message", version: 1, event_id: "message:89", id: 89, buffer_id: "direct:12", server_connection_id: 42, direct_message_thread_id: 12, nick: "mira", body: "hello privately", occurred_at: "2026-08-26T00:00:00Z"},
       }))
     })
     const client = fakeRealtimeClient(push)
@@ -1404,8 +1404,13 @@ describe("IrcpipeApp UI prototype", () => {
     const push = vi.fn().mockResolvedValue({
       client_message_id: "client-reply",
       message: {
+        type: "buffer:message",
+        version: 1,
+        event_id: "message:100",
         id: 100,
         buffer_id: "channel:7",
+        server_connection_id: 42,
+        channel_membership_id: 7,
         nick: "mira",
         body: "sent through socket",
         kind: "message",
@@ -1506,8 +1511,13 @@ describe("IrcpipeApp UI prototype", () => {
       .mockRejectedValueOnce({reason: "not_connected"})
       .mockResolvedValueOnce({
         message: {
+          type: "buffer:message",
+          version: 1,
+          event_id: "message:101",
           id: 101,
           buffer_id: "channel:7",
+          server_connection_id: 42,
+          channel_membership_id: 7,
           nick: "mira",
           body: "try again",
           kind: "message",

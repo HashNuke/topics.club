@@ -471,9 +471,10 @@ export default function useServerConnections({
       payload.type === "direct_message:thread" &&
       payload.version === 1 &&
       typeof payload.event_id === "string" &&
-      payload.event_id.startsWith(`direct_message_thread:${buffer.direct_message_thread_id}:`) &&
+      new RegExp(`^direct_message_thread:${buffer.direct_message_thread_id}:[0-9]+$`)
+        .test(payload.event_id) &&
       typeof payload.occurred_at === "string" &&
-      payload.occurred_at.length > 0 &&
+      Number.isFinite(Date.parse(payload.occurred_at)) &&
       buffer.buffer_type === "direct_message" &&
       validEntityId(buffer.direct_message_thread_id) &&
       validEntityId(buffer.server_connection_id) &&
