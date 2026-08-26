@@ -96,7 +96,10 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   end
 
   defp active_buffer_id(buffers) do
-    channel_buffer = Enum.find(buffers, &(&1.buffer_type == "channel"))
+    channel_buffer =
+      Enum.find(buffers, &(&1.buffer_type == "channel" and &1.membership_status == "joined")) ||
+        Enum.find(buffers, &(&1.buffer_type == "channel"))
+
     buffer = channel_buffer || List.first(buffers)
     buffer && buffer.buffer_id
   end

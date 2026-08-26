@@ -188,4 +188,28 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
     assert :ok = Session.quit(connection)
   end
+
+  test "prefers a joined channel over an earlier pending channel", %{conn: conn, user: user} do
+    server = start_supervised!({IrcTestServer, self()})
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, pending} = Chat.request_channel_join(user, connection, "#pending")
+    {:ok, joined} = Chat.join_channel(user, connection, "#joined")
+
+    conn = get(conn, ~p"/api/bootstrap")
+
+    assert %{"active_buffer_id" => active_buffer_id} = json_response(conn, 200)
+    assert active_buffer_id == "channel:#{joined.id}"
+    refute active_buffer_id == "channel:#{pending.id}"
+
+    assert :ok = Session.quit(connection)
+  end
 end

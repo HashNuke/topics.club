@@ -1,4 +1,9 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
+import {
+  loadActiveBufferPreference,
+  saveActiveBufferPreference,
+  selectPreferredBuffer,
+} from "./active_buffer_preference.ts"
 import {createApiClient, type ApiClient} from "./api_client.ts"
 import {commandErrorMessage, type CommandError} from "./app_feedback.ts"
 import {buildBootstrapState, type BootstrapPayload} from "./bootstrap_state.ts"
@@ -191,6 +196,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   useEffect(() => {
     setComposerError(null)
   }, [activeChannelId, activeServerId, view])
+
+  useEffect(() => {
+    if (!currentUser || mode === "landing") return
+
+    const bufferId = view === "chat" ? activeChannelId : view === "server" ? activeServerId : null
+    if (bufferId) saveActiveBufferPreference(currentUser.id, bufferId)
+  }, [activeChannelId, activeServerId, currentUser?.id, mode, view])
 
   useEffect(() => {
     notificationStateRef.current = notificationState
@@ -457,6 +469,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const state = buildBootstrapState(bootstrap)
     if (!state) return
 
+    const preferredBuffer = currentUser
+      ? selectPreferredBuffer(state.connections, loadActiveBufferPreference(currentUser.id))
+      : null
+
     if (state.topics) setTopics(state.topics)
     if (state.notificationState) setNotificationState(state.notificationState)
     setCommandCatalog(state.commandCatalog)
@@ -464,9 +480,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setMessagesByServer(state.messagesByServer)
     setMessagesByChannel(state.messagesByChannel)
     setUsersByChannel(state.usersByChannel)
-    if (state.activeChannelId) setActiveChannelId(state.activeChannelId)
-    if (state.activeServerId) setActiveServerId(state.activeServerId)
-    if (state.view) setView(state.view)
+    if (preferredBuffer) {
+      setActiveChannelId(preferredBuffer.activeChannelId)
+      setActiveServerId(preferredBuffer.activeServerId)
+      setView(preferredBuffer.view)
+    } else {
+      if (state.activeChannelId) setActiveChannelId(state.activeChannelId)
+      if (state.activeServerId) setActiveServerId(state.activeServerId)
+      if (state.view) setView(state.view)
+    }
     reconcileBootstrapCursors(state.cursorsByBuffer)
   }
 
