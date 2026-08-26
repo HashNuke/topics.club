@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
   use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Message
   alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
@@ -16,7 +17,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "rest-policy",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -158,7 +159,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
 
   defp joined_channel(user) do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,

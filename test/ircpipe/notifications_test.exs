@@ -6,6 +6,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.Accounts.{UserToken}
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Notification
 
   alias Ircpipe.Notifications.{
@@ -47,7 +48,7 @@ defmodule Ircpipe.NotificationsTest do
     scope = AccountsFixtures.user_scope_fixture(user)
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "Libera",
         "host" => "irc.example.test",
         "port" => 6697,
@@ -495,7 +496,7 @@ defmodule Ircpipe.NotificationsTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, other_connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "Foreign",
         "host" => "irc.foreign.test",
         "port" => 6697,

@@ -3,6 +3,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, MessageHistory, Notification}
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Notifications.Delivery
@@ -781,7 +782,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
   defp connection_fixture(user, name) do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "#{name}-#{System.unique_integer([:positive])}",
         "host" => "irc.example.test",
         "port" => 6697,

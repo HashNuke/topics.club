@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -123,7 +124,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
 
   defp connection_fixture(user, port) do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-#{System.unique_integer([:positive])}",
         "host" => "127.0.0.1",
         "port" => port,

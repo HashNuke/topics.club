@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
   use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.ChannelMembership
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
@@ -16,7 +17,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "join-policy",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -33,7 +34,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
 
   test "marks a channel membership read through the API", %{conn: conn, user: user} do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -59,7 +60,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -98,7 +99,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     other_user = Ircpipe.AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,

@@ -2,13 +2,14 @@ defmodule IrcpipeWeb.Api.ChannelController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
 
   def create(conn, %{"connection_id" => connection_id, "channel" => channel}) do
     user = conn.assigns.current_scope.user
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
 
     with :ok <- CommandRegistry.validate_join_channel_syntax(channel),
          :ok <- start_session(connection),

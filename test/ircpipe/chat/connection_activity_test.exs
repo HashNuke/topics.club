@@ -4,6 +4,7 @@ defmodule Ircpipe.Chat.ConnectionActivityTest do
   alias Ircpipe.Accounts.User
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.ConnectionActivity
   alias Ircpipe.Repo
 
@@ -52,7 +53,7 @@ defmodule Ircpipe.Chat.ConnectionActivityTest do
 
   defp connection_fixture(user, name) do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => name,
         "host" => "irc.example.test",
         "port" => 6697,

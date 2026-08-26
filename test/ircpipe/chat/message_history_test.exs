@@ -3,6 +3,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{Message, MessageHistory}
   alias Ircpipe.Repo
 
@@ -10,7 +11,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "history",
         "host" => "irc.example.test",
         "port" => 6697,
@@ -88,7 +89,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, other_connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "foreign-history",
         "host" => "irc.example.test",
         "port" => 6697,

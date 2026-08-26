@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
@@ -20,7 +21,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -45,7 +46,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     ])
 
     {:ok, other_connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "other",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -207,7 +208,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -235,7 +236,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     user: user
   } do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -302,7 +303,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),

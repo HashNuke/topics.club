@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
 
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Notification
   alias Ircpipe.Repo
 
@@ -77,7 +78,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
 
   defp mention_notification(user) do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "server-#{System.unique_integer([:positive])}",
         "host" => "irc.example.test",
         "port" => 6697,

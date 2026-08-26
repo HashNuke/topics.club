@@ -6,6 +6,7 @@ defmodule Ircpipe.Irc.BouncerTest do
   alias Ircpipe.Accounts.User
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Bouncer
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -18,7 +19,7 @@ defmodule Ircpipe.Irc.BouncerTest do
     mark_seen(user, DateTime.utc_now(:second))
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -43,7 +44,7 @@ defmodule Ircpipe.Irc.BouncerTest do
     mark_seen(user, DateTime.add(DateTime.utc_now(:second), -25, :hour))
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),

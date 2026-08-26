@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -102,7 +103,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -151,7 +152,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -195,7 +196,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -266,7 +267,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -275,7 +276,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       })
 
     {:ok, other_connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "other",
         "host" => "irc.example.test",
         "port" => 6667,
@@ -356,7 +357,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -427,7 +428,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -496,7 +497,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -536,7 +537,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -561,7 +562,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -601,7 +602,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -645,7 +646,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -675,14 +676,14 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert buffer_id == "server:#{connection.id}"
     assert connection_id == connection.id
-    assert Chat.get_connection!(user, connection.id).unread_count == 0
+    assert Connections.get!(user, connection.id).unread_count == 0
   end
 
   test "pushes server status broadcasts over the user channel" do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -710,7 +711,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -738,7 +739,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -773,7 +774,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -803,7 +804,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -833,7 +834,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -867,7 +868,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -898,7 +899,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -930,7 +931,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -962,7 +963,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -998,7 +999,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -1018,7 +1019,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -1064,7 +1065,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -1119,7 +1120,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -1180,7 +1181,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -1215,7 +1216,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),

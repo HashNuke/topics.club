@@ -1,5 +1,6 @@
 defmodule IrcpipeWeb.UserChannel.BufferResolver do
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Session
 
   def membership(user, membership_id) do
@@ -27,7 +28,7 @@ defmodule IrcpipeWeb.UserChannel.BufferResolver do
   end
 
   def connection(user, "server:" <> connection_id) do
-    {:ok, Chat.get_connection!(user, connection_id)}
+    {:ok, Connections.get!(user, connection_id)}
   rescue
     _exception in [Ecto.NoResultsError, Ecto.Query.CastError] ->
       {:error, :invalid_server}

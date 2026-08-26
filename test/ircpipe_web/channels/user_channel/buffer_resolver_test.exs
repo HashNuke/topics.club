@@ -3,13 +3,14 @@ defmodule IrcpipeWeb.UserChannel.BufferResolverTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias IrcpipeWeb.UserChannel.BufferResolver
 
   setup do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "Libera",
         "host" => "irc.example.test",
         "port" => 6697,

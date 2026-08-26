@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
   use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Discovery
   alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
@@ -67,7 +68,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
       )
 
     {:ok, existing_connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "127.0.0.1",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -93,7 +94,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
     assert_receive {:irc_server_line, "USER " <> _rest}, 1_000
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
 
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
     assert connection.id == existing_connection.id
     assert connection.host == "127.0.0.1"
     assert length(Chat.list_connections(user)) == 1
@@ -119,7 +120,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
       )
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "existing",
         "host" => "127.0.0.1",
         "port" => port,
@@ -127,7 +128,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
       })
 
     {:ok, _membership} = Chat.join_channel(user, connection, "#elixir")
-    connection = Chat.get_connection!(user, connection.id)
+    connection = Connections.get!(user, connection.id)
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
 

@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
   use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Session
   alias Ircpipe.IrcTestServer
 
@@ -24,14 +25,14 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
     assert %{"connection" => %{"id" => connection_id, "host" => "127.0.0.1"}} =
              json_response(create_conn, 201)
 
-    assert Chat.get_connection!(user, connection_id).nickname == "mira"
+    assert Connections.get!(user, connection_id).nickname == "mira"
 
     list_conn = get(conn, ~p"/api/connections")
 
     assert %{"connections" => [%{"id" => ^connection_id, "host" => "127.0.0.1"}]} =
              json_response(list_conn, 200)
 
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert :ok = Session.quit(connection)
   end
@@ -55,7 +56,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
     assert %{"connection" => %{"id" => connection_id, "nickname" => ^expected_nickname}} =
              json_response(create_conn, 201)
 
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
     assert connection.nickname == expected_nickname
     assert_receive {:irc_server_line, "NICK " <> ^expected_nickname}, 1_000
     assert :ok = Session.quit(connection)
@@ -65,7 +66,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -88,7 +89,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => IrcTestServer.port(server),
@@ -101,7 +102,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
     {:ok, _pid} = Ircpipe.Irc.SessionSupervisor.start_session(connection)
 
     assert_receive {:server_status, %{status: "connected"}}, 1_000
-    assert Chat.get_connection!(user, connection.id).status == "connecting"
+    assert Connections.get!(user, connection.id).status == "connecting"
 
     list_conn = get(conn, ~p"/api/connections")
 
@@ -114,7 +115,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
   test "disconnects an owned server connection", %{conn: conn, user: user} do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -134,7 +135,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
   test "updates an owned server connection", %{conn: conn, user: user} do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -166,12 +167,12 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
            } = json_response(conn, 200)
 
     assert connection_id == connection.id
-    assert Chat.get_connection!(user, connection.id).casemapping == nil
+    assert Connections.get!(user, connection.id).casemapping == nil
   end
 
   test "deletes an owned server connection", %{conn: conn, user: user} do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -217,14 +218,14 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
                     }}
 
     assert server_buffer_id == "server:#{connection.id}"
-    assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(user, connection.id) end
+    assert_raise Ecto.NoResultsError, fn -> Connections.get!(user, connection.id) end
   end
 
   test "does not disconnect another user's server connection", %{conn: conn} do
     other_user = Ircpipe.AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "other",
         "host" => "127.0.0.1",
         "port" => 6667,

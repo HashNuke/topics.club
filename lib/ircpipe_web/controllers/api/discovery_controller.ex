@@ -1,7 +1,7 @@
 defmodule IrcpipeWeb.Api.DiscoveryController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Discovery
   alias Ircpipe.Irc.{Session, SessionSupervisor}
 
@@ -16,7 +16,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
     network = server_channel.network
 
     with {:ok, connection} <-
-           Chat.create_or_get_connection(user, %{
+           Connections.create_or_get(user, %{
              "name" => network.name,
              "host" => network.host,
              "port" => network.port,

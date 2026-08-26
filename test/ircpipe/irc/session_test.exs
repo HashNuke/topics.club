@@ -3,6 +3,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{DirectMessageThread, MessageHistory, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.Irc.Session.PendingEchoes
@@ -14,7 +15,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => port,
@@ -67,7 +68,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -120,7 +121,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -162,7 +163,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "rfc1459-echo",
         "host" => "localhost",
         "port" => 6667,
@@ -214,7 +215,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -272,7 +273,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "direct-echo-overflow",
         "host" => "localhost",
         "port" => 6667,
@@ -328,7 +329,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -417,7 +418,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -489,7 +490,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -533,7 +534,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -589,7 +590,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -608,7 +609,7 @@ defmodule Ircpipe.Irc.SessionTest do
              )
 
     assert updated_state.connection.nickname == "mira_"
-    assert Chat.get_connection!(user, connection.id).nickname == "mira_"
+    assert Connections.get!(user, connection.id).nickname == "mira_"
 
     assert_receive {:server_status, %{server_connection_id: connection_id, nickname: "mira_"}}
     assert connection_id == connection.id
@@ -628,7 +629,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -672,7 +673,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -714,7 +715,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -754,7 +755,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "part-error",
         "host" => "localhost",
         "port" => 6667,
@@ -790,7 +791,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "cancel-queued-join",
         "host" => "localhost",
         "port" => 6667,
@@ -825,7 +826,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "refresh-join-state",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -857,7 +858,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "reconnect-error",
         "host" => "localhost",
         "port" => 6667,
@@ -897,7 +898,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -937,7 +938,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test",
         "host" => "localhost",
         "port" => 6667,
@@ -1035,7 +1036,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "numeric-fallback",
         "host" => "localhost",
         "port" => 6667,
@@ -1074,7 +1075,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "labeled-results",
         "host" => "localhost",
         "port" => 6667,
@@ -1179,7 +1180,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "labeled-pipeline",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -1257,7 +1258,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "standard-fail-correlation",
         "host" => "localhost",
         "port" => 6667,
@@ -1343,7 +1344,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "join-correlation",
         "host" => "localhost",
         "port" => 6667,
@@ -1480,7 +1481,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "ascii-self-identity",
         "host" => "localhost",
         "port" => 6667,
@@ -1517,7 +1518,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "motd-results",
         "host" => "localhost",
         "port" => 6667,
@@ -1585,7 +1586,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "who-target",
         "host" => "localhost",
         "port" => 6667,
@@ -1648,7 +1649,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "cross-family",
         "host" => "localhost",
         "port" => 6667,
@@ -1732,7 +1733,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "directory-test",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -1766,7 +1767,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local-test-rejoin",
         "host" => "localhost",
         "port" => port,
@@ -1775,7 +1776,7 @@ defmodule Ircpipe.Irc.SessionTest do
       })
 
     {:ok, _membership} = Chat.join_channel(user, connection, "#persisted")
-    connection = Chat.get_connection!(user, connection.id)
+    connection = Connections.get!(user, connection.id)
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     {:ok, _pid} = SessionSupervisor.start_session(connection)
@@ -1835,7 +1836,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "delayed-split-isupport",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -1851,7 +1852,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     state = :sys.get_state(Session.via(connection))
     refute state.isupport_received?
-    assert Chat.get_connection!(user, connection.id).casemapping == nil
+    assert Connections.get!(user, connection.id).casemapping == nil
     refute Chat.get_membership!(user, membership.id).status == "error"
 
     assert :ok =
@@ -1865,7 +1866,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:buffer_message, %{body: "End of /MOTD command"}}, 1_000
     assert :sys.get_state(Session.via(connection)).isupport_received?
-    assert Chat.get_connection!(user, connection.id).casemapping == "ascii"
+    assert Connections.get!(user, connection.id).casemapping == "ascii"
     assert :ok = Session.quit(connection)
   end
 
@@ -1874,7 +1875,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "late-isupport",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -1897,7 +1898,7 @@ defmodule Ircpipe.Irc.SessionTest do
     _ = :sys.get_state(Session.via(connection))
     refute_receive {:irc_server_line, "JOIN ~custom"}, 200
     assert Chat.get_membership!(user, membership.id).status == "joined"
-    assert Chat.get_connection!(user, connection.id).casemapping == "ascii"
+    assert Connections.get!(user, connection.id).casemapping == "ascii"
     assert :ok = Session.quit(connection)
   end
 
@@ -1908,7 +1909,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "late-casemapping-rekey",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -1952,7 +1953,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "managed-join-tracking",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -1992,7 +1993,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "custom-channel-send",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -2028,7 +2029,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "status-message-targets",
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -2118,7 +2119,7 @@ defmodule Ircpipe.Irc.SessionTest do
         Process.cancel_timer(pending.timer)
       end)
 
-      assert Chat.get_connection!(user, connection.id)
+      assert Connections.get!(user, connection.id)
     end)
   end
 
@@ -2126,7 +2127,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "native-join-failure",
         "host" => "localhost",
         "port" => 6667,
@@ -2169,7 +2170,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "late-labeled-join-failure",
         "host" => "localhost",
         "port" => 6667,
@@ -2214,7 +2215,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "join-failure-#{scenario}",
         "host" => "localhost",
         "port" => 6667,
@@ -2269,7 +2270,7 @@ defmodule Ircpipe.Irc.SessionTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => name,
         "host" => "localhost",
         "port" => IrcTestServer.port(server),
@@ -2280,7 +2281,7 @@ defmodule Ircpipe.Irc.SessionTest do
     {:ok, _pending} = Chat.request_channel_join(user, connection, channel, :ascii)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN " <> ^channel}, 1_000
-    assert Chat.get_connection!(user, connection.id).casemapping == expected_mapping
+    assert Connections.get!(user, connection.id).casemapping == expected_mapping
 
     state = :sys.get_state(Session.via(connection))
     assert state.isupport_received? == (lines != [])

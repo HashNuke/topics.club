@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
@@ -14,7 +15,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   def create(conn, %{"connection" => attrs}) do
     user = conn.assigns.current_scope.user
 
-    with {:ok, connection} <- Chat.create_or_get_connection(user, attrs) do
+    with {:ok, connection} <- Connections.create_or_get(user, attrs) do
       SessionSupervisor.start_session(connection)
 
       conn
@@ -26,14 +27,14 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   def update(conn, %{"id" => id, "connection" => attrs}) do
     user = conn.assigns.current_scope.user
 
-    with {:ok, connection} <- Chat.update_connection(user, id, attrs) do
+    with {:ok, connection} <- Connections.update(user, id, attrs) do
       json(conn, %{connection: connection_json(connection)})
     end
   end
 
   def connect(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    connection = Chat.get_connection!(user, id)
+    connection = Connections.get!(user, id)
 
     with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
       json(conn, %{connection: connection_json(connection)})
@@ -42,7 +43,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
 
   def disconnect(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    connection = Chat.get_connection!(user, id)
+    connection = Connections.get!(user, id)
 
     :ok = SessionSupervisor.stop_session(connection)
 
@@ -51,7 +52,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
 
   def delete(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    connection = Chat.get_connection!(user, id)
+    connection = Connections.get!(user, id)
 
     :ok = SessionSupervisor.stop_session(connection)
     {:ok, _connection} = Chat.delete_connection(user, id)

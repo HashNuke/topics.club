@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
   use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
@@ -60,7 +61,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
     assert topic_id == topic.id
     assert buffer_id == "channel:#{membership_id}"
 
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
     expected_nick = user.email |> String.split("@") |> List.first()
     assert connection.nickname == expected_nick
     assert Enum.map(connection.channel_memberships, & &1.channel) == ["#elixir"]
@@ -100,7 +101,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
     assert first_body["buffer"]["channel_membership_id"] ==
              second_body["buffer"]["channel_membership_id"]
 
-    connection = Chat.get_connection!(user, first_body["connection"]["id"])
+    connection = Connections.get!(user, first_body["connection"]["id"])
     assert :ok = SessionSupervisor.stop_session(connection)
   end
 end

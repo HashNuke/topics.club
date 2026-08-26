@@ -3,6 +3,7 @@ defmodule Ircpipe.Chat.RetentionTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{Message, Retention}
   alias Ircpipe.Repo
 
@@ -40,7 +41,7 @@ defmodule Ircpipe.Chat.RetentionTest do
 
   defp membership_fixture(user, name) do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => name,
         "host" => "irc.example.test",
         "port" => 6697,

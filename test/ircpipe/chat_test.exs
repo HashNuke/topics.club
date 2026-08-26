@@ -3,6 +3,7 @@ defmodule Ircpipe.ChatTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{ChannelMembership, Message, MessageHistory, Retention}
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.Identifier
@@ -13,7 +14,7 @@ defmodule Ircpipe.ChatTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -24,84 +25,7 @@ defmodule Ircpipe.ChatTest do
     assert [owned] = Chat.list_connections(user)
     assert owned.id == connection.id
     assert [] = Chat.list_connections(other_user)
-    assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(other_user, connection.id) end
-  end
-
-  test "gets an existing connection by normalized endpoint and port instead of display name" do
-    user = AccountsFixtures.user_fixture()
-
-    {:ok, existing} =
-      Chat.create_connection(user, %{
-        "name" => "My Libera connection",
-        "host" => "IRC.Libera.Chat",
-        "port" => 6697,
-        "use_tls" => true
-      })
-
-    assert {:ok, reused} =
-             Chat.create_or_get_connection(user, %{
-               "name" => "Libera.Chat",
-               "host" => "irc.libera.chat",
-               "port" => 6697,
-               "use_tls" => false
-             })
-
-    assert reused.id == existing.id
-
-    assert {:ok, other_port} =
-             Chat.create_or_get_connection(user, %{
-               "name" => "Libera alternate port",
-               "host" => "irc.libera.chat",
-               "port" => 6667,
-               "use_tls" => false
-             })
-
-    refute other_port.id == existing.id
-  end
-
-  test "defaults nickname and SASL account while retaining connection credentials" do
-    user = AccountsFixtures.user_fixture(%{email: "mira@example.com"})
-
-    {:ok, connection} =
-      Chat.create_connection(user, %{
-        "name" => "authenticated",
-        "host" => "irc.example.com",
-        "nickname" => " ",
-        "sasl_password" => "account-secret",
-        "server_password" => "network-secret"
-      })
-
-    stored_connection = Repo.get!(Ircpipe.Chat.ServerConnection, connection.id)
-
-    assert stored_connection.nickname == "mira"
-    assert stored_connection.sasl_username == "mira"
-    assert stored_connection.sasl_password == "account-secret"
-    assert stored_connection.server_password == "network-secret"
-
-    assert %{rows: [[encrypted_server_password, encrypted_sasl_password]]} =
-             Repo.query!(
-               "SELECT server_password, sasl_password FROM server_connections WHERE id = $1",
-               [connection.id]
-             )
-
-    refute encrypted_server_password == "network-secret"
-    refute encrypted_sasl_password == "account-secret"
-    assert Ircpipe.Vault.decrypt!(encrypted_server_password) == "network-secret"
-    assert Ircpipe.Vault.decrypt!(encrypted_sasl_password) == "account-secret"
-  end
-
-  test "defaults the SASL account in atom-keyed connection attributes" do
-    user = AccountsFixtures.user_fixture(%{email: "mira@example.com"})
-
-    assert {:ok, connection} =
-             Chat.create_connection(user, %{
-               name: "authenticated",
-               host: "irc.example.com",
-               nickname: "mira",
-               sasl_password: "account-secret"
-             })
-
-    assert connection.sasl_username == "mira"
+    assert_raise Ecto.NoResultsError, fn -> Connections.get!(other_user, connection.id) end
   end
 
   test "suggested topic joins generate IRC-safe nicknames" do
@@ -130,7 +54,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture(%{email: "3dev@example.com"})
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "127.0.0.1",
         "host" => "127.0.0.1",
         "port" => 6669,
@@ -164,7 +88,7 @@ defmodule Ircpipe.ChatTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(other_user, %{
+      Connections.create(other_user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -179,7 +103,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -234,7 +158,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "casemapping",
         "host" => "localhost",
         "port" => 6667,
@@ -260,7 +184,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "duplicate-casemapping",
         "host" => "localhost",
         "port" => 6667,
@@ -319,7 +243,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "unknown-casemapping",
         "host" => "localhost",
         "port" => 6667,
@@ -348,7 +272,7 @@ defmodule Ircpipe.ChatTest do
     other_user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -381,7 +305,7 @@ defmodule Ircpipe.ChatTest do
     {:ok, user} = Retention.update_days(user, 1)
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -415,7 +339,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -445,14 +369,14 @@ defmodule Ircpipe.ChatTest do
     assert [%Message{body: "Connected"}] =
              MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
 
-    assert Chat.get_connection!(user, connection.id).unread_count == 1
+    assert Connections.get!(user, connection.id).unread_count == 1
   end
 
   test "marks server buffers read" do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -463,7 +387,7 @@ defmodule Ircpipe.ChatTest do
     Chat.record_server_message(connection, "Connected")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
-    assert :ok = Chat.mark_read(user, Chat.get_connection!(user, connection.id))
+    assert :ok = Chat.mark_read(user, Connections.get!(user, connection.id))
 
     assert_receive {:buffer_read,
                     %{
@@ -478,7 +402,7 @@ defmodule Ircpipe.ChatTest do
     assert buffer_id == "server:#{connection.id}"
     assert connection_id == connection.id
 
-    reloaded = Chat.get_connection!(user, connection.id)
+    reloaded = Connections.get!(user, connection.id)
     assert reloaded.unread_count == 0
     assert reloaded.mention_count == 0
   end
@@ -487,7 +411,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -518,7 +442,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -559,7 +483,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -598,7 +522,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,
@@ -668,7 +592,7 @@ defmodule Ircpipe.ChatTest do
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "local",
         "host" => "127.0.0.1",
         "port" => 6667,

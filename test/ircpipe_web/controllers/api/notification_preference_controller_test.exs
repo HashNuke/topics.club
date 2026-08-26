@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.NotificationPreferenceControllerTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
   alias Ircpipe.Repo
 
@@ -85,7 +86,7 @@ defmodule IrcpipeWeb.Api.NotificationPreferenceControllerTest do
 
   defp connection_with_channel(user) do
     {:ok, connection} =
-      Chat.create_connection(user, %{
+      Connections.create(user, %{
         "name" => "server-#{System.unique_integer([:positive])}",
         "host" => "irc.example.test",
         "port" => 6697,

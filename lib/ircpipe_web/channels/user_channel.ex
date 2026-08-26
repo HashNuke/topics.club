@@ -5,6 +5,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Accounts.Scope
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
@@ -168,7 +169,7 @@ defmodule IrcpipeWeb.UserChannel do
   def handle_in("buffer:read", %{"buffer_id" => "server:" <> connection_id}, socket) do
     user = socket.assigns.current_user
 
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
     :ok = Chat.mark_read(user, connection)
 
     Reply.ok(socket, %{buffer_id: "server:#{connection.id}", unread_count: 0, mention_count: 0})
@@ -257,7 +258,7 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in("server:list", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
 
     case ChannelDirectory.fetch(connection) do
       {:ok, directory} ->
@@ -276,7 +277,7 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in("server:disconnect", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
 
     :ok = SessionSupervisor.stop_session(connection)
 
@@ -287,7 +288,7 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in("server:reconnect", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
-    connection = Chat.get_connection!(user, connection_id)
+    connection = Connections.get!(user, connection_id)
 
     with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
       Reply.ok(socket, Event.server_status(connection, Session.status(connection)))
