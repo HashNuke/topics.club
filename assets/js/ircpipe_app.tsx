@@ -129,7 +129,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!currentUser) clearNotificationServerRegistration()
     if (!("serviceWorker" in navigator)) return
 
-    return synchronizeServiceWorkerAccount(currentUser ? String(currentUser.id) : null)
+    return synchronizeServiceWorkerAccount()
   }, [currentUser?.id])
 
   const {
@@ -696,7 +696,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     if (
       currentUser &&
-      notificationDeliveryCoveredByPush(notificationDeviceStateRef.current, currentUser.id)
+      notificationDeliveryCoveredByPush(
+        notificationDeviceStateRef.current,
+        currentUser.id,
+        pushConfig
+      )
     ) return
 
     const server = connectionsRef.current.find(
@@ -726,7 +730,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         display: () => {
           if (
             currentUser &&
-            notificationDeliveryCoveredByPush(notificationDeviceStateRef.current, currentUser.id)
+            notificationDeliveryCoveredByPush(
+              notificationDeviceStateRef.current,
+              currentUser.id,
+              pushConfig
+            )
           ) return false
 
           return showMentionNotification(message, {
@@ -740,7 +748,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     if (
       currentUser &&
-      notificationDeliveryCoveredByPush(notificationDeviceStateRef.current, currentUser.id)
+      notificationDeliveryCoveredByPush(
+        notificationDeviceStateRef.current,
+        currentUser.id,
+        pushConfig
+      )
     ) return
 
     showMentionNotification(message, {

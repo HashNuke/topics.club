@@ -77,7 +77,13 @@ describe("notificationControlState", () => {
   })
 
   test("rotates an origin subscription when the signed-in account changes", async () => {
-    const oldSubscription = {unsubscribe: vi.fn().mockResolvedValue(true)}
+    const oldSubscription = {
+      unsubscribe: vi.fn().mockResolvedValue(true),
+      toJSON: () => ({
+        endpoint: "https://push.example.test/old-account",
+        keys: {p256dh: "old-public-key", auth: "old-auth"},
+      }),
+    }
     const newSubscription = {
       toJSON: () => ({
         endpoint: "https://push.example.test/new-account",
@@ -90,7 +96,9 @@ describe("notificationControlState", () => {
         subscribe: vi.fn().mockResolvedValue(newSubscription),
       },
     }
-    const savePushSubscription = vi.fn().mockResolvedValue({subscription: {installation_id: "new"}})
+    const savePushSubscription = vi.fn()
+      .mockRejectedValueOnce(new Error("push_subscription_owned_by_another_account"))
+      .mockResolvedValue({subscription: {installation_id: "new"}})
     configurePushBrowser(registration)
     localStorage.setItem(INSTALLATION_KEY, JSON.stringify({installation_id: "old", user_id: "1"}))
 
@@ -102,7 +110,7 @@ describe("notificationControlState", () => {
 
     expect(oldSubscription.unsubscribe).toHaveBeenCalledOnce()
     expect(registration.pushManager.subscribe).toHaveBeenCalledOnce()
-    expect(savePushSubscription).toHaveBeenCalledWith(
+    expect(savePushSubscription).toHaveBeenLastCalledWith(
       expect.not.stringMatching(/^old$/),
       newSubscription.toJSON()
     )
@@ -213,9 +221,9 @@ describe("notificationControlState", () => {
     expect(notificationDeliveryCoveredByPush(staleSecondTabState, 2)).toBe(true)
   })
 
-  test("keeps one installation identity when durable storage is denied", async () => {
-    const oldSubscription = {unsubscribe: vi.fn().mockResolvedValue(true)}
-    const newSubscription = {
+  test("recovers one installation identity across page lifecycles when durable storage is denied", async () => {
+    const subscription = {
+      unsubscribe: vi.fn().mockResolvedValue(true),
       toJSON: () => ({
         endpoint: "https://push.example.test/storage-denied",
         keys: {p256dh: "public-key", auth: "auth"},
@@ -223,13 +231,13 @@ describe("notificationControlState", () => {
     }
     const registration = {
       pushManager: {
-        getSubscription: vi.fn()
-          .mockResolvedValueOnce(oldSubscription)
-          .mockResolvedValue(newSubscription),
-        subscribe: vi.fn().mockResolvedValue(newSubscription),
+        getSubscription: vi.fn().mockResolvedValue(subscription),
+        subscribe: vi.fn(),
       },
     }
-    const savePushSubscription = vi.fn().mockResolvedValue({subscription: {}})
+    const savePushSubscription = vi.fn().mockResolvedValue({
+      subscription: {installation_id: "server-canonical-installation"},
+    })
     configurePushBrowser(registration)
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new DOMException("Storage denied")
@@ -239,16 +247,64 @@ describe("notificationControlState", () => {
     })
 
     const apiClient = {savePushSubscription} as any
-    const push = {configured: true, vapid_public_key: "AQ"}
+    const push = {
+      configured: true,
+      vapid_public_key: "AQ",
+      session_generation: "current-session",
+      session_installation_id: "server-canonical-installation",
+      session_registration_confirmed: true,
+    }
     const first = await synchronizeNotificationDevice(apiClient, push, 2)
-    const second = await synchronizeNotificationDevice(apiClient, push, 2)
+
+    vi.resetModules()
+    const reloadedModule = await import("./push_notifications.ts")
+    const second = await reloadedModule.synchronizeNotificationDevice(apiClient, push, 2)
 
     expect(first.subscribed).toBe(true)
     expect(second.subscribed).toBe(true)
-    expect(oldSubscription.unsubscribe).toHaveBeenCalledOnce()
-    expect(registration.pushManager.subscribe).toHaveBeenCalledOnce()
+    expect(subscription.unsubscribe).not.toHaveBeenCalled()
+    expect(registration.pushManager.subscribe).not.toHaveBeenCalled()
     expect(savePushSubscription).toHaveBeenCalledTimes(2)
-    expect(savePushSubscription.mock.calls[0][0]).toBe(savePushSubscription.mock.calls[1][0])
+    expect(savePushSubscription.mock.calls[0][0]).toBe("server-canonical-installation")
+    expect(savePushSubscription.mock.calls[1][0]).toBe("server-canonical-installation")
+  })
+
+  test("does not trust a prior session registration after a password reset", async () => {
+    const subscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/reset-session",
+        keys: {p256dh: "public-key", auth: "auth"},
+      }),
+    }
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(subscription),
+        subscribe: vi.fn(),
+      },
+    }
+    configurePushBrowser(registration)
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
+      installation_id: "pre-reset-installation",
+      user_id: "2",
+      session_generation: "revoked-session",
+      server_registration_confirmed: true,
+    }))
+
+    const push = {
+      configured: true,
+      vapid_public_key: "AQ",
+      session_generation: "replacement-session",
+      session_installation_id: null,
+      session_registration_confirmed: false,
+    }
+    const state = await synchronizeNotificationDevice(
+      {savePushSubscription: vi.fn().mockRejectedValue(new Error("temporary outage"))} as any,
+      push,
+      2
+    )
+
+    expect(state.subscribed).toBe(false)
+    expect(notificationDeliveryCoveredByPush(state, 2, push)).toBe(false)
   })
 })
 

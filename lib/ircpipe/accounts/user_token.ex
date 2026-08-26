@@ -85,6 +85,10 @@ defmodule Ircpipe.Accounts.UserToken do
     DateTime.add(inserted_at, @session_validity_in_days, :day)
   end
 
+  def session_token_fingerprint(token) when is_binary(token) do
+    :crypto.hash(:sha256, token) |> Base.url_encode64(padding: false)
+  end
+
   @doc """
   Builds a token and its hash to be delivered to the user's email.
 

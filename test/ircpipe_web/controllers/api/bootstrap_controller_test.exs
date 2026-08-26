@@ -70,7 +70,13 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
     assert %{
              "user" => %{"id" => user_id, "email" => _email, "message_retention_days" => 3},
-             "push" => %{"configured" => false, "vapid_public_key" => nil},
+             "push" => %{
+               "configured" => false,
+               "vapid_public_key" => nil,
+               "session_generation" => session_generation,
+               "session_registration_confirmed" => false,
+               "session_installation_id" => nil
+             },
              "command_catalog" => command_catalog,
              "server_time" => _server_time,
              "connections" => [connection_json],
@@ -83,6 +89,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
            } = json_response(conn, 200)
 
     assert user_id == user.id
+    assert is_binary(session_generation)
     assert connection_json["id"] == connection.id
     assert connection_json["channels"] == [membership.id]
     assert connection_json["mention_notifications_enabled"]

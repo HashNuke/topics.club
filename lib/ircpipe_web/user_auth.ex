@@ -41,8 +41,9 @@ defmodule IrcpipeWeb.UserAuth do
   @doc """
   Logs the user in after an account operation has intentionally revoked every prior session.
   """
-  def log_in_user_after_session_reset(conn, user) do
-    do_log_in_user(conn, user, %{}, true)
+  def log_in_user_after_session_reset(conn, user, revoked_tokens, params \\ %{}) do
+    disconnect_revoked_user_sockets(revoked_tokens)
+    do_log_in_user(conn, user, params, true)
   end
 
   defp do_log_in_user(conn, user, params, session_reset?) do
@@ -87,6 +88,15 @@ defmodule IrcpipeWeb.UserAuth do
       |> maybe_reissue_user_session_token(user, token_inserted_at)
     else
       nil -> assign(conn, :current_scope, Scope.for_user(nil))
+    end
+  end
+
+  def fetch_current_scope_for_user_without_reissue(conn, _opts) do
+    with token when is_binary(token) <- get_session(conn, :user_token),
+         {user, _token_inserted_at} <- Accounts.get_user_by_session_token(token) do
+      assign(conn, :current_scope, Scope.for_user(user))
+    else
+      _missing_or_invalid_session -> assign(conn, :current_scope, Scope.for_user(nil))
     end
   end
 
@@ -194,6 +204,13 @@ defmodule IrcpipeWeb.UserAuth do
   end
 
   defp disconnect_user_socket(_token), do: :ok
+
+  defp disconnect_revoked_user_sockets(tokens) do
+    Enum.each(tokens, fn
+      %{context: "session", token: token} -> disconnect_user_socket(token)
+      _token -> :ok
+    end)
+  end
 
   # Do not renew session if the user is already logged in
   # to prevent CSRF errors or data being lost in tabs that are still open

@@ -28,6 +28,13 @@ defmodule IrcpipeWeb.Router do
     plug :track_user_activity
   end
 
+  pipeline :notification_account_api do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug :put_secure_browser_headers
+    plug :fetch_current_scope_for_user_without_reissue
+  end
+
   scope "/", IrcpipeWeb do
     pipe_through :browser
 
@@ -45,6 +52,12 @@ defmodule IrcpipeWeb.Router do
     pipe_through :api
 
     get "/topics", TopicController, :index
+  end
+
+  scope "/api", IrcpipeWeb.Api do
+    pipe_through :notification_account_api
+
+    get "/notification-account", NotificationAccountController, :show
   end
 
   scope "/api", IrcpipeWeb.Api do

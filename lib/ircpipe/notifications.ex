@@ -22,6 +22,53 @@ defmodule Ircpipe.Notifications do
     %{configured: WebPush.configured?(), vapid_public_key: WebPush.public_key()}
   end
 
+  def push_config(%Scope{user: user}, session_token) when is_binary(session_token) do
+    installation_id = current_session_installation_id(user.id, session_token)
+
+    push_config()
+    |> Map.put(:session_generation, UserToken.session_token_fingerprint(session_token))
+    |> Map.put(:session_registration_confirmed, is_binary(installation_id))
+    |> Map.put(:session_installation_id, installation_id)
+  end
+
+  def push_config(%Scope{}, _session_token) do
+    push_config()
+    |> Map.put(:session_generation, nil)
+    |> Map.put(:session_registration_confirmed, false)
+    |> Map.put(:session_installation_id, nil)
+  end
+
+  def notification_account(%Scope{user: user}, session_token) when is_binary(session_token) do
+    case Ircpipe.Accounts.get_user_by_session_token(session_token) do
+      {session_user, _inserted_at} when session_user.id == user.id ->
+        %{
+          user_id: user.id,
+          session_generation: UserToken.session_token_fingerprint(session_token)
+        }
+
+      _invalid_session ->
+        %{user_id: nil, session_generation: nil}
+    end
+  end
+
+  def notification_account(%Scope{}, _session_token),
+    do: %{user_id: nil, session_generation: nil}
+
+  def notification_account(nil, _session_token),
+    do: %{user_id: nil, session_generation: nil}
+
+  defp current_session_installation_id(user_id, session_token) do
+    UserToken.valid_session_token_query()
+    |> where([token], token.user_id == ^user_id and token.token == ^session_token)
+    |> join(:inner, [token], subscription in PushSubscription,
+      on: subscription.user_token_id == token.id and subscription.user_id == ^user_id
+    )
+    |> order_by([_token, subscription], desc: subscription.updated_at)
+    |> select([_token, subscription], subscription.installation_id)
+    |> limit(1)
+    |> Repo.one()
+  end
+
   def upsert_subscription(scope, session_token, attrs, user_agent \\ nil)
 
   def upsert_subscription(%Scope{user: user}, session_token, attrs, user_agent)
@@ -43,17 +90,38 @@ defmodule Ircpipe.Notifications do
 
         maybe_pause_push_registration()
 
-        existing? =
-          Repo.exists?(
-            from(subscription in PushSubscription,
-              where:
-                subscription.user_id == ^user.id and
-                  (subscription.endpoint_hash == ^endpoint_hash or
-                     subscription.installation_id == ^installation_id)
-            )
-          )
+        if Repo.exists?(
+             from(subscription in PushSubscription,
+               where:
+                 subscription.endpoint_hash == ^endpoint_hash and
+                   subscription.user_id != ^user.id
+             )
+           ) do
+          Repo.rollback(:endpoint_owned_by_another_account)
+        end
 
-        if not existing? do
+        existing =
+          PushSubscription
+          |> where(
+            [subscription],
+            subscription.user_id == ^user.id and
+              (subscription.endpoint_hash == ^endpoint_hash or
+                 subscription.installation_id == ^installation_id)
+          )
+          |> order_by(
+            [subscription],
+            desc: subscription.endpoint_hash == ^endpoint_hash,
+            desc: subscription.updated_at
+          )
+          |> limit(1)
+          |> Repo.one()
+
+        canonical_installation_id =
+          if existing && existing.endpoint_hash == endpoint_hash,
+            do: existing.installation_id,
+            else: installation_id
+
+        if is_nil(existing) do
           enforce_subscription_cap!(user.id)
           record_subscription_creation!(user.id)
         end
@@ -67,6 +135,7 @@ defmodule Ircpipe.Notifications do
         |> Repo.delete_all()
 
         case changeset
+             |> Ecto.Changeset.put_change(:installation_id, canonical_installation_id)
              |> Ecto.Changeset.put_change(:user_token_id, user_token.id)
              |> Repo.insert() do
           {:ok, subscription} -> subscription
@@ -415,7 +484,9 @@ defmodule Ircpipe.Notifications do
 
     cond do
       current_subscription && UserToken.session_token_valid?(session_token) ->
-        [current_subscription]
+        [
+          {current_subscription, UserToken.session_token_fingerprint(session_token.token)}
+        ]
 
       current_subscription ->
         Repo.delete!(current_subscription)
@@ -452,8 +523,8 @@ defmodule Ircpipe.Notifications do
     end
   end
 
-  defp send_to_subscription(subscription, record) do
-    payload = notification_payload(record)
+  defp send_to_subscription({subscription, session_generation}, record) do
+    payload = notification_payload(record) |> Map.put(:session_generation, session_generation)
     {subscription, push_sender().send(subscription, payload)}
   end
 

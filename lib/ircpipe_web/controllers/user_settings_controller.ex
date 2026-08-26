@@ -42,11 +42,11 @@ defmodule IrcpipeWeb.UserSettingsController do
     user = conn.assigns.current_scope.user
 
     case Accounts.update_user_password(user, user_params) do
-      {:ok, {user, _}} ->
+      {:ok, {user, revoked_tokens}} ->
         conn
         |> put_flash(:info, "Password updated successfully.")
         |> put_session(:user_return_to, ~p"/users/settings")
-        |> UserAuth.log_in_user_after_session_reset(user)
+        |> UserAuth.log_in_user_after_session_reset(user, revoked_tokens)
 
       {:error, changeset} ->
         render(conn, :edit, password_changeset: changeset)

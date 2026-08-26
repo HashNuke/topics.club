@@ -24,7 +24,11 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
     payload = %{
       user: user_json(user),
-      push: Notifications.push_config(),
+      push:
+        Notifications.push_config(
+          conn.assigns.current_scope,
+          get_session(conn, :user_token)
+        ),
       server_time: DateTime.utc_now(:second),
       connections: Enum.map(connections, &connection_json/1),
       buffers: buffers,

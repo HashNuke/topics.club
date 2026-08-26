@@ -20,10 +20,15 @@ defmodule IrcpipeWeb.UserSessionController do
       end
 
     case Accounts.login_user_by_magic_link(token) do
-      {:ok, {user, _expired_tokens}} ->
+      {:ok, {user, []}} ->
         conn
         |> put_flash(:info, info)
         |> UserAuth.log_in_user(user, user_params)
+
+      {:ok, {user, revoked_tokens}} ->
+        conn
+        |> put_flash(:info, info)
+        |> UserAuth.log_in_user_after_session_reset(user, revoked_tokens, user_params)
 
       {:error, :not_found} ->
         conn

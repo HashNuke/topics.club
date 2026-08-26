@@ -1,5 +1,4 @@
 export function synchronizeServiceWorkerAccount(
-  userId: string | null,
   serviceWorker: ServiceWorkerContainer = navigator.serviceWorker
 ): () => void {
   let disposed = false
@@ -16,7 +15,7 @@ export function synchronizeServiceWorkerAccount(
         if (serviceWorker.controller) workers.add(serviceWorker.controller)
 
         for (const worker of workers) {
-          worker.postMessage({type: "notification:account", userId})
+          worker.postMessage({type: "notification:refresh-account"})
         }
       })
       .catch(() => undefined)

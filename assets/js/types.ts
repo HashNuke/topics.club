@@ -196,6 +196,9 @@ export interface PresenceDiffPayload {
 export interface PushConfig {
   configured: boolean
   vapid_public_key?: string | null
+  session_generation?: string | null
+  session_installation_id?: string | null
+  session_registration_confirmed?: boolean
 }
 
 export interface NotificationPreferencePayload {

@@ -13,6 +13,7 @@ let inMemoryInstallation: NotificationInstallation | null = null
 interface NotificationInstallation {
   installation_id: string
   server_registration_confirmed: boolean
+  session_generation: string | null
   user_id: string
 }
 
@@ -21,26 +22,33 @@ export async function synchronizeNotificationDevice(
   push: PushConfig,
   userId: EntityId
 ): Promise<NotificationDeviceState> {
+  reconcileNotificationInstallation(userId, push)
   const base = deviceBase(push)
   const unavailable = notificationUnavailableReason(base)
   if (unavailable || base.capability !== "granted") return {...base, loading: false}
-  let serverRegistrationConfirmed = notificationServerRegistrationConfirmed(userId)
+  let serverRegistrationConfirmed = notificationServerRegistrationConfirmed(userId, push)
 
   try {
     const registration = await navigator.serviceWorker.ready
     let subscription = await registration.pushManager.getSubscription()
     if (!subscription) {
-      setServerRegistrationConfirmed(userId, false)
+      setServerRegistrationConfirmed(userId, push, false)
       return {...base, loading: false, subscribed: false}
     }
 
-    if (!installationOwnedBy(userId)) {
-      await subscription.unsubscribe()
-      subscription = await subscribe(registration, push)
-      serverRegistrationConfirmed = false
+    if (!installationOwnedBy(userId, push)) {
+      try {
+        await persistSubscription(apiClient, userId, push, subscription)
+        return {...base, loading: false, subscribed: true}
+      } catch (error) {
+        if (!subscriptionOwnedByAnotherAccount(error)) throw error
+        await subscription.unsubscribe()
+        subscription = await subscribe(registration, push)
+        serverRegistrationConfirmed = false
+      }
     }
 
-    await persistSubscription(apiClient, userId, subscription)
+    await persistSubscription(apiClient, userId, push, subscription)
     return {...base, loading: false, subscribed: true}
   } catch (_error) {
     return {
@@ -57,10 +65,11 @@ export async function enableNotificationDevice(
   push: PushConfig,
   userId: EntityId
 ): Promise<NotificationDeviceState> {
+  reconcileNotificationInstallation(userId, push)
   const base = deviceBase(push)
   const unavailable = notificationUnavailableReason(base)
   if (unavailable) return {...base, loading: false, error: unavailable}
-  let serverRegistrationConfirmed = notificationServerRegistrationConfirmed(userId)
+  let serverRegistrationConfirmed = notificationServerRegistrationConfirmed(userId, push)
 
   const permission = base.capability === "granted"
     ? "granted"
@@ -74,15 +83,21 @@ export async function enableNotificationDevice(
     const registration = await navigator.serviceWorker.ready
     let existing = await registration.pushManager.getSubscription()
 
-    if (existing && !installationOwnedBy(userId)) {
-      await existing.unsubscribe()
-      existing = null
-      serverRegistrationConfirmed = false
+    if (existing && !installationOwnedBy(userId, push)) {
+      try {
+        await persistSubscription(apiClient, userId, push, existing)
+        return {...base, capability: "granted", loading: false, subscribed: true}
+      } catch (error) {
+        if (!subscriptionOwnedByAnotherAccount(error)) throw error
+        await existing.unsubscribe()
+        existing = null
+        serverRegistrationConfirmed = false
+      }
     }
 
     const subscription = existing || await subscribe(registration, push)
 
-    await persistSubscription(apiClient, userId, subscription)
+    await persistSubscription(apiClient, userId, push, subscription)
     return {...base, capability: "granted", loading: false, subscribed: true}
   } catch (_error) {
     return {
@@ -110,16 +125,22 @@ export function notificationControlState(
   return {kind: "enabled"}
 }
 
-export function notificationServerRegistrationConfirmed(userId: EntityId): boolean {
+export function notificationServerRegistrationConfirmed(
+  userId: EntityId,
+  push?: PushConfig
+): boolean {
   const installation = storedNotificationInstallation()
-  return installation?.user_id === String(userId) && installation.server_registration_confirmed
+  const currentSession = !push?.session_generation ||
+    installation?.session_generation === push.session_generation
+  return installation?.user_id === String(userId) && currentSession && installation.server_registration_confirmed
 }
 
 export function notificationDeliveryCoveredByPush(
   device: NotificationDeviceState,
-  userId: EntityId
+  userId: EntityId,
+  push?: PushConfig
 ): boolean {
-  return device.subscribed || notificationServerRegistrationConfirmed(userId)
+  return device.subscribed || notificationServerRegistrationConfirmed(userId, push)
 }
 
 export function clearNotificationServerRegistration(): void {
@@ -142,20 +163,28 @@ function pushCapability() {
 async function persistSubscription(
   apiClient: ApiClient,
   userId: EntityId,
+  push: PushConfig,
   subscription: PushSubscription
 ): Promise<void> {
   const json = subscription.toJSON()
   const installation = notificationInstallation(userId)
-  await apiClient.savePushSubscription(installation.installation_id, {
+  const response = await apiClient.savePushSubscription(installation.installation_id, {
     endpoint: json.endpoint,
     expirationTime: json.expirationTime,
     keys: json.keys,
   })
-  storeNotificationInstallation({...installation, server_registration_confirmed: true})
+  storeNotificationInstallation({
+    ...installation,
+    installation_id: response.subscription.installation_id,
+    server_registration_confirmed: true,
+    session_generation: push.session_generation || null,
+  })
 }
 
-function installationOwnedBy(userId: EntityId): boolean {
-  return storedNotificationInstallation()?.user_id === String(userId)
+function installationOwnedBy(userId: EntityId, push: PushConfig): boolean {
+  const installation = storedNotificationInstallation()
+  return installation?.user_id === String(userId) &&
+    (!push.session_generation || installation.session_generation === push.session_generation)
 }
 
 function notificationInstallation(userId: EntityId): NotificationInstallation {
@@ -166,6 +195,7 @@ function notificationInstallation(userId: EntityId): NotificationInstallation {
   const installation = {
     installation_id: newInstallationId(),
     server_registration_confirmed: false,
+    session_generation: null,
     user_id: normalizedUserId,
   }
 
@@ -188,6 +218,7 @@ function storedNotificationInstallation(): NotificationInstallation | null {
       inMemoryInstallation = {
         installation_id: parsed.installation_id,
         server_registration_confirmed: parsed.server_registration_confirmed === true,
+        session_generation: typeof parsed.session_generation === "string" ? parsed.session_generation : null,
         user_id: parsed.user_id,
       }
       return inMemoryInstallation
@@ -199,10 +230,49 @@ function storedNotificationInstallation(): NotificationInstallation | null {
   return inMemoryInstallation
 }
 
-function setServerRegistrationConfirmed(userId: EntityId, confirmed: boolean): void {
+function setServerRegistrationConfirmed(
+  userId: EntityId,
+  push: PushConfig,
+  confirmed: boolean
+): void {
   const installation = storedNotificationInstallation()
   if (installation?.user_id !== String(userId)) return
-  storeNotificationInstallation({...installation, server_registration_confirmed: confirmed})
+  storeNotificationInstallation({
+    ...installation,
+    server_registration_confirmed: confirmed,
+    session_generation: push.session_generation || installation.session_generation,
+  })
+}
+
+function reconcileNotificationInstallation(userId: EntityId, push: PushConfig): void {
+  const normalizedUserId = String(userId)
+  const existing = storedNotificationInstallation()
+
+  if (push.session_installation_id) {
+    storeNotificationInstallation({
+      installation_id: push.session_installation_id,
+      server_registration_confirmed: push.session_registration_confirmed === true,
+      session_generation: push.session_generation || null,
+      user_id: normalizedUserId,
+    })
+    return
+  }
+
+  if (
+    existing?.user_id === normalizedUserId &&
+    push.session_generation &&
+    existing.session_generation !== push.session_generation
+  ) {
+    storeNotificationInstallation({
+      ...existing,
+      server_registration_confirmed: false,
+      session_generation: push.session_generation,
+    })
+  }
+}
+
+function subscriptionOwnedByAnotherAccount(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("push_subscription_owned_by_another_account")
 }
 
 function storeNotificationInstallation(installation: NotificationInstallation): void {

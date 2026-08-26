@@ -76,6 +76,32 @@ defmodule Ircpipe.NotificationsTest do
     assert Repo.aggregate(PushSubscription, :count) == 0
   end
 
+  test "reports push registration for the exact authenticated session", %{scope: scope} do
+    session_token = Accounts.generate_user_session_token(scope.user)
+
+    assert {:ok, _subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/session-bootstrap")
+             )
+
+    assert %{
+             session_generation: session_generation,
+             session_installation_id: "browser-installation",
+             session_registration_confirmed: true
+           } = Notifications.push_config(scope, session_token)
+
+    assert session_generation == UserToken.session_token_fingerprint(session_token)
+
+    other_session_token = Accounts.generate_user_session_token(scope.user)
+
+    assert %{
+             session_installation_id: nil,
+             session_registration_confirmed: false
+           } = Notifications.push_config(scope, other_session_token)
+  end
+
   test "registration and logout serialize on the authenticated session", %{scope: scope} do
     supervisor = start_supervised!(Task.Supervisor)
     session_token = Accounts.generate_user_session_token(scope.user)
@@ -166,8 +192,9 @@ defmodule Ircpipe.NotificationsTest do
 
     other_scope = AccountsFixtures.user_scope_fixture()
 
-    assert {:error, changeset} = upsert_subscription(other_scope, attrs)
-    assert "has already been taken" in errors_on(changeset).endpoint_hash
+    assert {:error, :endpoint_owned_by_another_account} =
+             upsert_subscription(other_scope, attrs)
+
     assert Repo.get!(PushSubscription, original.id).user_id == scope.user.id
   end
 
@@ -276,6 +303,7 @@ defmodule Ircpipe.NotificationsTest do
     assert payload.body == "akash: hello mira"
     assert payload.tag == "notification_mention:message:#{message.id}"
     assert payload.user_id == scope.user.id
+    assert is_binary(payload.session_generation)
     assert payload.url == "/app?buffer=channel:#{membership.id}"
   end
 
@@ -313,6 +341,7 @@ defmodule Ircpipe.NotificationsTest do
     assert payload.buffer_id == "direct:#{thread.id}"
     assert payload.tag == "notification_direct_message:message:#{message.id}"
     assert payload.user_id == scope.user.id
+    assert is_binary(payload.session_generation)
     assert payload.url == "/app?buffer=direct:#{thread.id}"
 
     assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, thread.id, true)

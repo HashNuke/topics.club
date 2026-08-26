@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.UserSocket do
   channel "user:*", IrcpipeWeb.UserChannel
 
   alias Ircpipe.Accounts
+  alias Ircpipe.Accounts.UserToken
 
   @impl true
   def connect(_params, socket, %{session: %{"user_token" => token}}) do
@@ -27,7 +28,6 @@ defmodule IrcpipeWeb.UserSocket do
   def id(socket), do: socket.assigns.session_socket_id
 
   def id_for_session_token(token) when is_binary(token) do
-    digest = :crypto.hash(:sha256, token) |> Base.url_encode64(padding: false)
-    "user_socket:session:#{digest}"
+    "user_socket:session:#{UserToken.session_token_fingerprint(token)}"
   end
 end

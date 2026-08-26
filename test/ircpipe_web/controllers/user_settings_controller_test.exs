@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.UserSettingsControllerTest do
   use IrcpipeWeb.ConnCase, async: true
 
   alias Ircpipe.Accounts
+  alias IrcpipeWeb.UserSocket
   import Ircpipe.AccountsFixtures
 
   setup :register_and_log_in_user
@@ -31,6 +32,13 @@ defmodule IrcpipeWeb.UserSettingsControllerTest do
 
   describe "PUT /users/settings (change password form)" do
     test "updates the user password and resets tokens", %{conn: conn, user: user} do
+      current_token = get_session(conn, :user_token)
+      other_device_token = Accounts.generate_user_session_token(user)
+      current_socket_id = UserSocket.id_for_session_token(current_token)
+      other_socket_id = UserSocket.id_for_session_token(other_device_token)
+      IrcpipeWeb.Endpoint.subscribe(current_socket_id)
+      IrcpipeWeb.Endpoint.subscribe(other_socket_id)
+
       new_password_conn =
         put(conn, ~p"/users/settings", %{
           "action" => "update_password",
@@ -48,6 +56,9 @@ defmodule IrcpipeWeb.UserSettingsControllerTest do
                "Password updated successfully"
 
       assert Accounts.get_user_by_email_and_password(user.email, "new valid password")
+
+      assert_receive %Phoenix.Socket.Broadcast{topic: ^current_socket_id, event: "disconnect"}
+      assert_receive %Phoenix.Socket.Broadcast{topic: ^other_socket_id, event: "disconnect"}
     end
 
     test "does not update password on invalid data", %{conn: conn} do

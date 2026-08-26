@@ -54,6 +54,11 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
         conn
         |> put_status(:unauthorized)
         |> json(%{error: "session_expired"})
+
+      {:error, :endpoint_owned_by_another_account} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: "push_subscription_owned_by_another_account"})
     end
   end
 

@@ -1,7 +1,7 @@
 import {expect, test, vi} from "vitest"
 import {synchronizeServiceWorkerAccount} from "./service_worker_account.ts"
 
-test("reposts the signed-in account when a replacement worker takes control", async () => {
+test("asks a replacement worker to refresh the server-authenticated account", async () => {
   let controllerChange: (() => void) | undefined
   const oldWorker = {postMessage: vi.fn()}
   const nextWorker = {postMessage: vi.fn()}
@@ -16,14 +16,12 @@ test("reposts the signed-in account when a replacement worker takes control", as
   }
 
   const stop = synchronizeServiceWorkerAccount(
-    "42",
     serviceWorker as unknown as ServiceWorkerContainer
   )
   await Promise.resolve()
 
   expect(oldWorker.postMessage).toHaveBeenCalledWith({
-    type: "notification:account",
-    userId: "42",
+    type: "notification:refresh-account",
   })
 
   registration.active = nextWorker
@@ -32,8 +30,7 @@ test("reposts the signed-in account when a replacement worker takes control", as
   await Promise.resolve()
 
   expect(nextWorker.postMessage).toHaveBeenCalledWith({
-    type: "notification:account",
-    userId: "42",
+    type: "notification:refresh-account",
   })
 
   stop()

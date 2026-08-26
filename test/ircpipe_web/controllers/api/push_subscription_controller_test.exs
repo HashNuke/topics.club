@@ -57,6 +57,39 @@ defmodule IrcpipeWeb.Api.PushSubscriptionControllerTest do
     end
   end
 
+  test "recovers the canonical installation id from an existing browser endpoint", %{
+    conn: conn
+  } do
+    {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+
+    subscription = %{
+      endpoint: "https://push.example.test/subscription/canonical-browser",
+      keys: %{
+        p256dh: Base.url_encode64(public_key, padding: false),
+        auth: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+      }
+    }
+
+    first =
+      post(conn, ~p"/api/push_subscriptions", %{
+        installation_id: "canonical-installation",
+        subscription: subscription
+      })
+
+    assert json_response(first, 201)
+
+    recovered =
+      post(conn, ~p"/api/push_subscriptions", %{
+        installation_id: "lost-local-installation",
+        subscription: subscription
+      })
+
+    assert %{"subscription" => %{"installation_id" => "canonical-installation"}} =
+             json_response(recovered, 201)
+
+    assert Repo.aggregate(PushSubscription, :count) == 1
+  end
+
   test "logout revokes the installation so another account can register the browser endpoint", %{
     conn: conn,
     user: first_user
