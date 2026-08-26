@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
-import {channelDirectoryError, commandErrorMessage} from "./app_feedback.js"
+import {commandErrorMessage} from "./app_feedback.js"
 import {buildBootstrapState} from "./bootstrap_state.js"
 import {
   channelFromBuffer,
@@ -30,6 +30,7 @@ import {
 } from "./chat_store.js"
 import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.js"
+import useChannelDirectory from "./hooks/use_channel_directory.js"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
 export {default as TopicGrid} from "./components/topic_grid.jsx"
@@ -55,8 +56,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [draft, setDraft] = useState("")
   const [composerError, setComposerError] = useState(null)
   const [commandCatalog, setCommandCatalog] = useState([])
-  const [channelDirectory, setChannelDirectory] = useState({serverId: null, channels: [], status: "idle", error: null, joinError: null, joiningChannel: null})
-  const channelDirectoryRequestRef = useRef(0)
   const loadingOlderRef = useRef(new Set())
   const readingBuffersRef = useRef(new Set())
   const activeChannelIdRef = useRef(activeChannelId)
@@ -71,6 +70,25 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
   const viewRef = useRef(view)
+
+  const {
+    applyChannelDirectory,
+    beginChannelDirectoryRequest,
+    cancelChannelDirectory,
+    channelDirectory,
+    joinDirectoryChannel,
+    openChannelDirectory,
+  } = useChannelDirectory({
+    activeServerIdRef,
+    apiClient,
+    applyJoinedChannel,
+    connectionsRef,
+    joinRejectionVersionsRef,
+    realtimeClientRef,
+    setActiveServerId,
+    setView,
+    viewRef,
+  })
 
   useEffect(() => {
     connectionsRef.current = connections
@@ -321,69 +339,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return true
   }
 
-  function applyChannelDirectory(directory) {
-    const server = connectionsRef.current.find((connection) => connection.server_connection_id === directory?.server_connection_id)
-    if (!server) return
-
-    activeServerIdRef.current = server.id
-    viewRef.current = "directory"
-    setActiveServerId(server.id)
-    setChannelDirectory({serverId: server.id, channels: directory.channels || [], status: "ready", error: null, joinError: null, joiningChannel: null})
-    setView("directory")
-  }
-
-  async function openChannelDirectory(server) {
-    if (!server) return
-    const requestId = ++channelDirectoryRequestRef.current
-
-    activeServerIdRef.current = server.id
-    viewRef.current = "directory"
-    setActiveServerId(server.id)
-    setChannelDirectory({serverId: server.id, channels: [], status: "loading", error: null, joinError: null, joiningChannel: null})
-    setView("directory")
-
-    if (!server.server_connection_id || !realtimeClientRef.current) {
-      setChannelDirectory((current) => current.serverId === server.id ? {...current, status: "error", error: "Connect to this server before browsing its channels."} : current)
-      return
-    }
-
-    try {
-      const reply = await realtimeClientRef.current.push("server:list", {server_connection_id: server.server_connection_id})
-      if (requestId !== channelDirectoryRequestRef.current || viewRef.current !== "directory" || activeServerIdRef.current !== server.id) return
-      applyChannelDirectory(reply.directory)
-    } catch (error) {
-      setChannelDirectory((current) => current.serverId === server.id ? {...current, status: "error", error: channelDirectoryError(error?.reason), joiningChannel: null} : current)
-    }
-  }
-
-  async function joinDirectoryChannel(channelName) {
-    const server = connectionsRef.current.find((connection) => connection.id === channelDirectory.serverId)
-    if (!server?.server_connection_id || !channelName) return
-
-    const channel = channelName.trim()
-    const rejectionVersions = new Map(joinRejectionVersionsRef.current)
-    setChannelDirectory((current) => ({...current, joinError: null, joiningChannel: channel}))
-
-    try {
-      const joined = await apiClient.joinChannel(server.server_connection_id, channel)
-      const applied = applyJoinedChannel(
-        {...server, id: server.server_connection_id},
-        joined.channel,
-        rejectionVersions
-      )
-
-      if (!applied) {
-        setChannelDirectory((current) => ({
-          ...current,
-          joinError: `Could not join ${channel}. Check the name and channel permissions, then try Join again.`,
-          joiningChannel: null,
-        }))
-      }
-    } catch (_error) {
-      setChannelDirectory((current) => ({...current, joinError: "Could not join " + channel + ". Check the name and channel permissions, then try Join again.", joiningChannel: null}))
-    }
-  }
-
   async function sendMessage(event) {
     event.preventDefault()
     if (!draft.trim()) return
@@ -398,7 +353,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         return
       }
 
-      const directoryRequestId = body.toLowerCase() === "/list" ? ++channelDirectoryRequestRef.current : null
+      const directoryRequestId = body.toLowerCase() === "/list" ? beginChannelDirectoryRequest() : null
       const commandId = globalThis.crypto?.randomUUID?.() || `command-${Date.now()}`
       setComposerError(null)
 
@@ -411,8 +366,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
         setDraft("")
         if (reply.directory) {
-          if (directoryRequestId !== channelDirectoryRequestRef.current) return
-          applyChannelDirectory(reply.directory)
+          applyChannelDirectory(reply.directory, directoryRequestId)
         }
       } catch (error) {
         setComposerError(commandErrorMessage(error))
@@ -796,7 +750,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       users={users}
       view={view}
       onDiscover={() => {
-        channelDirectoryRequestRef.current += 1
+        cancelChannelDirectory()
         viewRef.current = "discover"
         setView("discover")
       }}
@@ -811,7 +765,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onReconnectServer={reconnectServer}
       onUpdateServer={updateServerConnection}
       onSelectChannel={(channel) => {
-        channelDirectoryRequestRef.current += 1
+        cancelChannelDirectory()
         viewRef.current = "chat"
         activeServerIdRef.current = channel.connection?.id || activeServerId
         setActiveServerId(channel.connection?.id || activeServerId)
@@ -819,7 +773,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         setView("chat")
       }}
       onSelectServer={(server) => {
-        channelDirectoryRequestRef.current += 1
+        cancelChannelDirectory()
         viewRef.current = "server"
         activeServerIdRef.current = server.id
         setActiveServerId(server.id)
@@ -832,7 +786,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onLoadOlderMessages={loadOlderMessages}
       onReadingStateChange={updateBufferReadingState}
       onShowChat={() => {
-        channelDirectoryRequestRef.current += 1
+        cancelChannelDirectory()
         viewRef.current = "chat"
         setView("chat")
       }}
