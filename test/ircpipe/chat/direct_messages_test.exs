@@ -516,6 +516,14 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   test "an ingestion waiting behind a block transaction is dropped before persistence" do
     test_pid = self()
     supervisor = start_supervised!(Task.Supervisor)
+    pause_ref = make_ref()
+    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_block_after_lock)
+
+    Application.put_env(
+      :ircpipe,
+      :pause_direct_message_block_after_lock,
+      {test_pid, pause_ref}
+    )
 
     {user, scope, connection, thread} =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
@@ -541,6 +549,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
       end)
 
     on_exit(fn ->
+      restore_env(:pause_direct_message_block_after_lock, previous_pause)
+
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
           do: Repo.delete!(persisted_user)
@@ -550,22 +560,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     blocker =
       Task.Supervisor.async_nolink(supervisor, fn ->
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Repo.transaction(fn ->
-            Ircpipe.Chat.ServerConnection
-            |> where([server], server.id == ^connection.id)
-            |> lock("FOR UPDATE")
-            |> Repo.one!()
-
-            send(test_pid, {:block_lock_acquired, self()})
-
-            receive do
-              :finish_block -> Chat.set_direct_message_blocked(scope, thread.id, true)
-            end
-          end)
+          Chat.set_direct_message_blocked(scope, thread.id, true)
         end)
       end)
 
-    assert_receive {:block_lock_acquired, blocker_pid}
+    assert_receive {:direct_message_block_paused, blocker_pid, ^pause_ref, thread_id}
+    assert thread_id == thread.id
 
     ingestion =
       Task.Supervisor.async_nolink(supervisor, fn ->
@@ -589,9 +589,9 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     assert_receive :ingestion_started
     refute Task.yield(ingestion, 100)
-    send(blocker_pid, :finish_block)
+    send(blocker_pid, {:continue_direct_message_block, pause_ref})
 
-    assert {:ok, {:ok, _blocked}} = Task.await(blocker)
+    assert {:ok, _blocked} = Task.await(blocker)
     assert {:ok, %{message: nil, dropped?: true}} = Task.await(ingestion)
 
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
@@ -674,6 +674,14 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   test "a block waiting behind peer displacement cannot resurrect the archived thread" do
     test_pid = self()
     supervisor = start_supervised!(Task.Supervisor)
+    pause_ref = make_ref()
+    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_rename_after_lock)
+
+    Application.put_env(
+      :ircpipe,
+      :pause_direct_message_rename_after_lock,
+      {test_pid, pause_ref}
+    )
 
     {user, scope, connection, account_a, account_b} =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
@@ -705,6 +713,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
       end)
 
     on_exit(fn ->
+      restore_env(:pause_direct_message_rename_after_lock, previous_pause)
+
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
           do: Repo.delete!(persisted_user)
@@ -716,29 +726,18 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     displacement =
       Task.Supervisor.async_nolink(supervisor, fn ->
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Repo.transaction(fn ->
-            Ircpipe.Chat.ServerConnection
-            |> where([server], server.id == ^connection.id)
-            |> lock("FOR UPDATE")
-            |> Repo.one!()
-
-            send(test_pid, {:displacement_lock_acquired, self()})
-
-            receive do
-              :displace ->
-                Chat.rename_direct_message_peer(
-                  connection,
-                  account_a.peer_nick,
-                  account_b.peer_nick,
-                  %{account: "account-a", hostmask: "beta!a@example.test"},
-                  :rfc1459
-                )
-            end
-          end)
+          Chat.rename_direct_message_peer(
+            connection,
+            account_a.peer_nick,
+            account_b.peer_nick,
+            %{account: "account-a", hostmask: "beta!a@example.test"},
+            :rfc1459
+          )
         end)
       end)
 
-    assert_receive {:displacement_lock_acquired, displacement_pid}
+    assert_receive {:direct_message_rename_paused, displacement_pid, ^pause_ref, connection_id}
+    assert connection_id == connection.id
 
     blocker =
       Task.Supervisor.async_nolink(supervisor, fn ->
@@ -751,9 +750,9 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     assert_receive :blocking_started
     refute Task.yield(blocker, 100)
-    send(displacement_pid, :displace)
+    send(displacement_pid, {:continue_direct_message_rename, pause_ref})
 
-    assert {:ok, {:ok, renamed}} = Task.await(displacement)
+    assert {:ok, renamed} = Task.await(displacement)
     assert renamed.id == account_a.id
     assert {:error, :direct_message_closed} = Task.await(blocker)
 
@@ -799,4 +798,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
       0 -> :ok
     end
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 end
