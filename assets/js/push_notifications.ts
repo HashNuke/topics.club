@@ -8,6 +8,7 @@ import type {NotificationControlState} from "./components/notification_bell.tsx"
 import type {EntityId, PushConfig} from "./types.ts"
 
 const INSTALLATION_KEY = "ircpipe.notification-installation"
+let inMemoryInstallation: NotificationInstallation | null = null
 
 interface NotificationInstallation {
   installation_id: string
@@ -176,7 +177,7 @@ function notificationInstallation(userId: EntityId): NotificationInstallation {
 function storedNotificationInstallation(): NotificationInstallation | null {
   try {
     const value = localStorage.getItem(INSTALLATION_KEY)
-    if (!value) return null
+    if (!value) return inMemoryInstallation
     const parsed = JSON.parse(value)
 
     if (
@@ -184,17 +185,18 @@ function storedNotificationInstallation(): NotificationInstallation | null {
       typeof parsed.installation_id === "string" &&
       typeof parsed.user_id === "string"
     ) {
-      return {
+      inMemoryInstallation = {
         installation_id: parsed.installation_id,
         server_registration_confirmed: parsed.server_registration_confirmed === true,
         user_id: parsed.user_id,
       }
+      return inMemoryInstallation
     }
   } catch (_error) {
-    return null
+    return inMemoryInstallation
   }
 
-  return null
+  return inMemoryInstallation
 }
 
 function setServerRegistrationConfirmed(userId: EntityId, confirmed: boolean): void {
@@ -204,11 +206,17 @@ function setServerRegistrationConfirmed(userId: EntityId, confirmed: boolean): v
 }
 
 function storeNotificationInstallation(installation: NotificationInstallation): void {
+  inMemoryInstallation = installation
+
   try {
     localStorage.setItem(INSTALLATION_KEY, JSON.stringify(installation))
   } catch (_error) {
     // A private browser context may deny durable storage; this synchronization still proceeds.
   }
+}
+
+export function resetNotificationInstallationMemoryForTest(): void {
+  inMemoryInstallation = null
 }
 
 function newInstallationId(): string {

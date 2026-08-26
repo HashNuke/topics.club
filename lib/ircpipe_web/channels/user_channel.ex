@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.UserChannel do
   use IrcpipeWeb, :channel
 
   alias Ircpipe.Accounts
+  alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Accounts.Scope
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Commands
@@ -12,10 +13,11 @@ defmodule IrcpipeWeb.UserChannel do
 
   @impl true
   def join("user:" <> user_id, _payload, socket) do
-    if Integer.to_string(socket.assigns.current_user.id) == user_id do
+    if authorized_session?(socket, user_id) do
       Accounts.touch_last_seen(socket.assigns.current_user)
       Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user_id}")
       send(self(), {:sync_server_statuses, socket.assigns.current_user})
+      schedule_session_expiration(socket)
 
       {:ok,
        %{
@@ -24,6 +26,16 @@ defmodule IrcpipeWeb.UserChannel do
        }, socket}
     else
       {:error, %{reason: "unauthorized"}}
+    end
+  end
+
+  def handle_info(:validate_auth_session, socket) do
+    if authorized_session?(socket, Integer.to_string(socket.assigns.current_user.id)) do
+      schedule_session_expiration(socket)
+      {:noreply, socket}
+    else
+      IrcpipeWeb.Endpoint.broadcast(socket.assigns.session_socket_id, "disconnect", %{})
+      {:stop, :normal, socket}
     end
   end
 
@@ -109,6 +121,26 @@ defmodule IrcpipeWeb.UserChannel do
   def handle_info({:buffer_joined, payload}, socket) do
     push(socket, "buffer:joined", payload)
     {:noreply, socket}
+  end
+
+  defp authorized_session?(socket, user_id) do
+    with true <- Integer.to_string(socket.assigns.current_user.id) == user_id,
+         token when is_binary(token) <- socket.assigns[:session_token],
+         {user, _inserted_at} <- Accounts.get_user_by_session_token(token) do
+      user.id == socket.assigns.current_user.id
+    else
+      _ -> false
+    end
+  end
+
+  defp schedule_session_expiration(socket) do
+    expires_at =
+      socket.assigns[:session_token_inserted_at]
+      |> Kernel.||(DateTime.utc_now(:second))
+      |> UserToken.session_token_expires_at()
+
+    delay = max(DateTime.diff(expires_at, DateTime.utc_now(:millisecond), :millisecond), 0)
+    Process.send_after(self(), :validate_auth_session, delay)
   end
 
   @impl true

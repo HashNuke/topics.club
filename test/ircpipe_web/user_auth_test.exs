@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.UserAuthTest do
   alias Ircpipe.Notifications.PushSubscription
   alias Ircpipe.Repo
   alias IrcpipeWeb.UserAuth
+  alias IrcpipeWeb.UserSocket
 
   import Ircpipe.AccountsFixtures
 
@@ -119,6 +120,7 @@ defmodule IrcpipeWeb.UserAuthTest do
       next_token = get_session(logged_in, :user_token)
       next_user_token = Repo.get_by!(UserToken, token: next_token, context: "session")
       assert Repo.reload(subscription).user_token_id == next_user_token.id
+      refute Accounts.get_user_by_session_token(session_token)
     end
 
     test "redirects to the configured path", %{conn: conn, user: user} do
@@ -182,6 +184,30 @@ defmodule IrcpipeWeb.UserAuthTest do
       refute get_session(conn, :user_token)
       assert %{max_age: 0} = conn.resp_cookies[@remember_me_cookie]
       assert redirected_to(conn) == ~p"/"
+    end
+
+    test "disconnects only sockets authenticated by the logged-out session", %{
+      conn: conn,
+      user: user
+    } do
+      logged_out_token = Accounts.generate_user_session_token(user)
+      other_tab_token = Accounts.generate_user_session_token(user)
+      logged_out_socket_id = UserSocket.id_for_session_token(logged_out_token)
+      other_tab_socket_id = UserSocket.id_for_session_token(other_tab_token)
+      IrcpipeWeb.Endpoint.subscribe(logged_out_socket_id)
+      IrcpipeWeb.Endpoint.subscribe(other_tab_socket_id)
+
+      conn
+      |> put_session(:user_token, logged_out_token)
+      |> UserAuth.log_out_user()
+
+      assert_receive %Phoenix.Socket.Broadcast{
+        topic: ^logged_out_socket_id,
+        event: "disconnect"
+      }
+
+      refute_receive %Phoenix.Socket.Broadcast{topic: ^other_tab_socket_id}
+      assert Accounts.get_user_by_session_token(other_tab_token)
     end
   end
 

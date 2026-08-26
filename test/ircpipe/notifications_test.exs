@@ -16,6 +16,8 @@ defmodule Ircpipe.NotificationsTest do
     previous_result = Application.get_env(:ircpipe, :push_test_result)
     previous_pause = Application.get_env(:ircpipe, :pause_push_delivery)
     previous_registration_pause = Application.get_env(:ircpipe, :pause_push_registration)
+    previous_rotation_pause = Application.get_env(:ircpipe, :pause_session_rotation)
+    previous_snapshot_pause = Application.get_env(:ircpipe, :pause_push_delivery_snapshot)
 
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
@@ -27,6 +29,8 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:push_test_result, previous_result)
       restore_env(:pause_push_delivery, previous_pause)
       restore_env(:pause_push_registration, previous_registration_pause)
+      restore_env(:pause_session_rotation, previous_rotation_pause)
+      restore_env(:pause_push_delivery_snapshot, previous_snapshot_pause)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -99,6 +103,47 @@ defmodule Ircpipe.NotificationsTest do
     assert {:ok, _subscription} = Task.await(registration)
     assert :ok = Task.await(logout)
     refute Repo.get_by(PushSubscription, user_id: scope.user.id)
+  end
+
+  test "concurrent rotation creates one successor and keeps subscriptions on its lineage", %{
+    scope: scope
+  } do
+    supervisor = start_supervised!(Task.Supervisor)
+    session_token = Accounts.generate_user_session_token(scope.user)
+
+    assert {:ok, subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/rotation-race")
+             )
+
+    Application.put_env(:ircpipe, :pause_session_rotation, self())
+
+    first_rotation =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.rotate_session_with_subscriptions(scope, session_token)
+      end)
+
+    assert_receive {:session_rotation_paused, rotation_pid}
+
+    second_rotation =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.rotate_session_with_subscriptions(scope, session_token)
+      end)
+
+    refute Task.yield(second_rotation, 100)
+    send(rotation_pid, :continue_session_rotation)
+
+    assert {:ok, %{session_token: successor, rebound_count: 1}} = Task.await(first_rotation)
+    assert {:error, :invalid_session} = Task.await(second_rotation)
+    refute Accounts.get_user_by_session_token(session_token)
+
+    successor_record = Repo.get_by!(UserToken, token: successor, context: "session")
+    assert Repo.reload(subscription).user_token_id == successor_record.id
+
+    assert :ok = Accounts.delete_user_session_token(successor)
+    refute Repo.get(PushSubscription, subscription.id)
   end
 
   test "rejects registration after its authenticated session is revoked", %{scope: scope} do
@@ -457,6 +502,54 @@ defmodule Ircpipe.NotificationsTest do
     assert :ok = Task.await(logout)
     refute Repo.get_by(PushSubscription, user_id: scope.user.id)
     refute_receive {:push_sent, _subscription, _payload}
+  end
+
+  test "delivery follows a subscription rebound after its initial snapshot", %{
+    scope: scope,
+    connection: connection,
+    membership: membership
+  } do
+    supervisor = start_supervised!(Task.Supervisor)
+    session_token = Accounts.generate_user_session_token(scope.user)
+
+    assert {:ok, subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/rebound-delivery")
+             )
+
+    notification = mention_notification(connection, membership)
+    Application.put_env(:ircpipe, :pause_push_delivery_snapshot, self())
+
+    delivery =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.deliver_notification(notification.id)
+      end)
+
+    assert_receive {:push_delivery_snapshot_paused, delivery_pid}
+
+    test_pid = self()
+
+    send(
+      delivery_pid,
+      {:continue_push_delivery_snapshot,
+       fn ->
+         send(
+           test_pid,
+           {:snapshot_rotation,
+            Notifications.rotate_session_with_subscriptions(scope, session_token)}
+         )
+       end}
+    )
+
+    assert_receive {:snapshot_rotation, {:ok, %{session_token: successor}}}
+    assert :ok = Task.await(delivery)
+    assert_receive {:push_sent, %{id: subscription_id}, _payload}
+    assert subscription_id == subscription.id
+
+    successor_record = Repo.get_by!(UserToken, token: successor, context: "session")
+    assert Repo.reload(subscription).user_token_id == successor_record.id
   end
 
   test "expired authenticated sessions are revalidated before delivery", %{

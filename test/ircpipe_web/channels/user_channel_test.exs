@@ -1,7 +1,11 @@
 defmodule IrcpipeWeb.UserChannelTest do
   use IrcpipeWeb.ChannelCase
 
+  import Ecto.Query
+
   alias Ircpipe.AccountsFixtures
+  alias Ircpipe.Accounts
+  alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -13,11 +17,31 @@ defmodule IrcpipeWeb.UserChannelTest do
     user = AccountsFixtures.user_fixture()
 
     assert {:ok, %{server_time: server_time, missed_event_cursor: nil}, _socket} =
-             UserSocket
-             |> socket("user_socket:#{user.id}", %{current_user: user})
+             authenticated_socket(user)
              |> subscribe_and_join(UserChannel, "user:#{user.id}")
 
     assert {:ok, _datetime, 0} = DateTime.from_iso8601(server_time)
+  end
+
+  test "disconnects a live channel when its session expires" do
+    user = AccountsFixtures.user_fixture()
+    socket = join_user_channel(user)
+    session_socket_id = socket.assigns.session_socket_id
+    session_token = socket.assigns.session_token
+    IrcpipeWeb.Endpoint.subscribe(session_socket_id)
+
+    expired_at = DateTime.utc_now(:second) |> DateTime.add(-15, :day)
+
+    UserToken
+    |> where([token], token.token == ^session_token)
+    |> Ircpipe.Repo.update_all(set: [inserted_at: expired_at])
+
+    send(socket.channel_pid, :validate_auth_session)
+
+    assert_receive %Phoenix.Socket.Broadcast{
+      topic: ^session_socket_id,
+      event: "disconnect"
+    }
   end
 
   test "suggests slash commands over the user channel" do
@@ -1138,10 +1162,21 @@ defmodule IrcpipeWeb.UserChannelTest do
 
   defp join_user_channel(user) do
     assert {:ok, _reply, socket} =
-             UserSocket
-             |> socket("user_socket:#{user.id}", %{current_user: user})
+             authenticated_socket(user)
              |> subscribe_and_join(UserChannel, "user:#{user.id}")
 
     socket
+  end
+
+  defp authenticated_socket(user) do
+    token = Accounts.generate_user_session_token(user)
+
+    UserSocket
+    |> socket(UserSocket.id_for_session_token(token), %{
+      current_user: user,
+      session_token: token,
+      session_token_inserted_at: DateTime.utc_now(:second),
+      session_socket_id: UserSocket.id_for_session_token(token)
+    })
   end
 end

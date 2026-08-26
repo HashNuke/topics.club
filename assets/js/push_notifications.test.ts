@@ -2,6 +2,7 @@ import {afterEach, describe, expect, test, vi} from "vitest"
 import {
   notificationControlState,
   notificationDeliveryCoveredByPush,
+  resetNotificationInstallationMemoryForTest,
   synchronizeNotificationDevice,
 } from "./push_notifications.ts"
 import type {NotificationDeviceState} from "./browser_notifications.ts"
@@ -12,7 +13,9 @@ const originalPushManager = window.PushManager
 const originalServiceWorker = navigator.serviceWorker
 
 afterEach(() => {
+  vi.restoreAllMocks()
   localStorage.clear()
+  resetNotificationInstallationMemoryForTest()
 
   if (originalNotification) {
     Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
@@ -208,6 +211,44 @@ describe("notificationControlState", () => {
 
     const staleSecondTabState = device({subscribed: false})
     expect(notificationDeliveryCoveredByPush(staleSecondTabState, 2)).toBe(true)
+  })
+
+  test("keeps one installation identity when durable storage is denied", async () => {
+    const oldSubscription = {unsubscribe: vi.fn().mockResolvedValue(true)}
+    const newSubscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/storage-denied",
+        keys: {p256dh: "public-key", auth: "auth"},
+      }),
+    }
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn()
+          .mockResolvedValueOnce(oldSubscription)
+          .mockResolvedValue(newSubscription),
+        subscribe: vi.fn().mockResolvedValue(newSubscription),
+      },
+    }
+    const savePushSubscription = vi.fn().mockResolvedValue({subscription: {}})
+    configurePushBrowser(registration)
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("Storage denied")
+    })
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage denied")
+    })
+
+    const apiClient = {savePushSubscription} as any
+    const push = {configured: true, vapid_public_key: "AQ"}
+    const first = await synchronizeNotificationDevice(apiClient, push, 2)
+    const second = await synchronizeNotificationDevice(apiClient, push, 2)
+
+    expect(first.subscribed).toBe(true)
+    expect(second.subscribed).toBe(true)
+    expect(oldSubscription.unsubscribe).toHaveBeenCalledOnce()
+    expect(registration.pushManager.subscribe).toHaveBeenCalledOnce()
+    expect(savePushSubscription).toHaveBeenCalledTimes(2)
+    expect(savePushSubscription.mock.calls[0][0]).toBe(savePushSubscription.mock.calls[1][0])
   })
 })
 

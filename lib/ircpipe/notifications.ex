@@ -81,39 +81,49 @@ defmodule Ircpipe.Notifications do
   def upsert_subscription(%Scope{}, _session_token, _attrs, _user_agent),
     do: {:error, :session_expired}
 
-  def rebind_session_subscriptions(
-        %Scope{user: user},
-        previous_session_token,
-        next_session_token
-      )
-      when is_binary(previous_session_token) and is_binary(next_session_token) do
+  def rotate_session_with_subscriptions(%Scope{user: user}, previous_session_token)
+      when is_binary(previous_session_token) do
     Repo.transaction(fn ->
-      tokens =
+      previous =
         UserToken
         |> where(
           [token],
           token.user_id == ^user.id and token.context == "session" and
-            token.token in ^[previous_session_token, next_session_token]
+            token.token == ^previous_session_token
         )
-        |> order_by([token], asc: token.id)
         |> lock("FOR UPDATE")
-        |> Repo.all()
+        |> Repo.one()
 
-      previous = Enum.find(tokens, &(&1.token == previous_session_token))
-      next = Enum.find(tokens, &(&1.token == next_session_token))
+      if UserToken.session_token_valid?(previous) do
+        maybe_pause_session_rotation()
+        {next_session_token, next_user_token} = UserToken.build_session_token(user)
+        next = Repo.insert!(next_user_token)
 
-      if previous && next && UserToken.session_token_valid?(next) do
-        from(subscription in PushSubscription,
-          where:
-            subscription.user_id == ^user.id and
-              subscription.user_token_id == ^previous.id
-        )
-        |> Repo.update_all(set: [user_token_id: next.id])
-        |> elem(0)
+        rebound_count =
+          from(subscription in PushSubscription,
+            where:
+              subscription.user_id == ^user.id and
+                subscription.user_token_id == ^previous.id
+          )
+          |> Repo.update_all(set: [user_token_id: next.id])
+          |> elem(0)
+
+        Repo.delete!(previous)
+        %{session_token: next_session_token, rebound_count: rebound_count}
       else
         Repo.rollback(:invalid_session)
       end
     end)
+  end
+
+  defp maybe_pause_session_rotation do
+    if test_pid = Application.get_env(:ircpipe, :pause_session_rotation) do
+      send(test_pid, {:session_rotation_paused, self()})
+
+      receive do
+        :continue_session_rotation -> :ok
+      end
+    end
   end
 
   defp enforce_subscription_cap!(user_id) do
@@ -357,39 +367,16 @@ defmodule Ircpipe.Notifications do
       |> limit(^@max_push_subscriptions_per_user)
       |> Repo.all()
 
+    maybe_pause_push_delivery_snapshot()
+
     deliverable_subscriptions =
       Enum.flat_map(subscriptions, fn subscription ->
-        session_token =
-          UserToken
-          |> where(
-            [token],
-            token.id == ^subscription.user_token_id and
-              token.user_id == ^record.user_id and token.context == "session"
-          )
-          |> lock("FOR SHARE")
-          |> Repo.one()
-
-        current_subscription =
-          PushSubscription
-          |> where(
-            [current],
-            current.id == ^subscription.id and
-              current.user_token_id == ^subscription.user_token_id
-          )
-          |> lock("FOR UPDATE")
-          |> Repo.one()
-
-        cond do
-          is_nil(current_subscription) ->
-            []
-
-          not UserToken.session_token_valid?(session_token) ->
-            Repo.delete!(current_subscription)
-            []
-
-          true ->
-            [current_subscription]
-        end
+        lock_deliverable_subscription(
+          subscription.id,
+          record.user_id,
+          subscription.user_token_id,
+          3
+        )
       end)
 
     results =
@@ -402,6 +389,67 @@ defmodule Ircpipe.Notifications do
       |> Enum.to_list()
 
     results
+  end
+
+  defp lock_deliverable_subscription(_subscription_id, _user_id, _token_id, 0), do: []
+
+  defp lock_deliverable_subscription(subscription_id, user_id, token_id, attempts_left) do
+    session_token =
+      UserToken
+      |> where(
+        [token],
+        token.id == ^token_id and token.user_id == ^user_id and token.context == "session"
+      )
+      |> lock("FOR SHARE")
+      |> Repo.one()
+
+    current_subscription =
+      PushSubscription
+      |> where(
+        [current],
+        current.id == ^subscription_id and current.user_id == ^user_id and
+          current.user_token_id == ^token_id
+      )
+      |> lock("FOR UPDATE")
+      |> Repo.one()
+
+    cond do
+      current_subscription && UserToken.session_token_valid?(session_token) ->
+        [current_subscription]
+
+      current_subscription ->
+        Repo.delete!(current_subscription)
+        []
+
+      next_token_id = current_subscription_token_id(subscription_id, user_id) ->
+        lock_deliverable_subscription(
+          subscription_id,
+          user_id,
+          next_token_id,
+          attempts_left - 1
+        )
+
+      true ->
+        []
+    end
+  end
+
+  defp current_subscription_token_id(subscription_id, user_id) do
+    PushSubscription
+    |> where([current], current.id == ^subscription_id and current.user_id == ^user_id)
+    |> select([current], current.user_token_id)
+    |> Repo.one()
+  end
+
+  defp maybe_pause_push_delivery_snapshot do
+    if test_pid = Application.get_env(:ircpipe, :pause_push_delivery_snapshot) do
+      send(test_pid, {:push_delivery_snapshot_paused, self()})
+
+      receive do
+        :continue_push_delivery_snapshot -> :ok
+        {:continue_push_delivery_snapshot, callback} when is_function(callback, 0) -> callback.()
+      end
+    end
   end
 
   defp send_to_subscription(subscription, record) do

@@ -22,6 +22,7 @@ import {
   notificationDeliveryCoveredByPush,
   synchronizeNotificationDevice,
 } from "./push_notifications.ts"
+import {synchronizeServiceWorkerAccount} from "./service_worker_account.ts"
 import AppShell from "./components/app_shell.tsx"
 import LandingPage from "./components/landing_page.tsx"
 import {
@@ -128,15 +129,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!currentUser) clearNotificationServerRegistration()
     if (!("serviceWorker" in navigator)) return
 
-    navigator.serviceWorker.ready
-      .then((registration) => {
-        const worker = registration.active || registration.waiting || registration.installing
-        worker?.postMessage({
-          type: "notification:account",
-          userId: currentUser ? String(currentUser.id) : null,
-        })
-      })
-      .catch(() => undefined)
+    return synchronizeServiceWorkerAccount(currentUser ? String(currentUser.id) : null)
   }, [currentUser?.id])
 
   const {

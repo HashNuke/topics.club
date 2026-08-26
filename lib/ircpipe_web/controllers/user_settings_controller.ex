@@ -46,7 +46,7 @@ defmodule IrcpipeWeb.UserSettingsController do
         conn
         |> put_flash(:info, "Password updated successfully.")
         |> put_session(:user_return_to, ~p"/users/settings")
-        |> UserAuth.log_in_user(user)
+        |> UserAuth.log_in_user_after_session_reset(user)
 
       {:error, changeset} ->
         render(conn, :edit, password_changeset: changeset)

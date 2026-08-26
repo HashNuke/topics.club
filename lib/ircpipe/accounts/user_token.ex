@@ -81,6 +81,10 @@ defmodule Ircpipe.Accounts.UserToken do
 
   def session_token_valid?(_token), do: false
 
+  def session_token_expires_at(inserted_at) do
+    DateTime.add(inserted_at, @session_validity_in_days, :day)
+  end
+
   @doc """
   Builds a token and its hash to be delivered to the user's email.
 

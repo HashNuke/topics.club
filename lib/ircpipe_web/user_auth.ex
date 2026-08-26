@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.UserAuth do
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.Scope
   alias Ircpipe.Notifications
+  alias IrcpipeWeb.UserSocket
 
   # Make the remember me cookie valid for 14 days. This should match
   # the session validity setting in UserToken.
@@ -34,11 +35,22 @@ defmodule IrcpipeWeb.UserAuth do
   or falls back to the `signed_in_path/1`.
   """
   def log_in_user(conn, user, params \\ %{}) do
+    do_log_in_user(conn, user, params, false)
+  end
+
+  @doc """
+  Logs the user in after an account operation has intentionally revoked every prior session.
+  """
+  def log_in_user_after_session_reset(conn, user) do
+    do_log_in_user(conn, user, %{}, true)
+  end
+
+  defp do_log_in_user(conn, user, params, session_reset?) do
     user_return_to = get_session(conn, :user_return_to)
 
     conn
     |> revoke_auth_session_for_account_change(user)
-    |> create_or_extend_session(user, params)
+    |> create_or_extend_session(user, params, session_reset?)
     |> redirect(to: user_return_to || signed_in_path(conn))
   end
 
@@ -50,6 +62,7 @@ defmodule IrcpipeWeb.UserAuth do
   def log_out_user(conn) do
     user_token = get_session(conn, :user_token)
     user_token && Accounts.delete_user_session_token(user_token)
+    disconnect_user_socket(user_token)
 
     if live_socket_id = get_session(conn, :live_socket_id) do
       IrcpipeWeb.Endpoint.broadcast(live_socket_id, "disconnect", %{})
@@ -106,6 +119,7 @@ defmodule IrcpipeWeb.UserAuth do
        when not is_nil(current_user) and current_user.id != next_user.id do
     if user_token = get_session(conn, :user_token) do
       Accounts.delete_user_session_token(user_token)
+      disconnect_user_socket(user_token)
     end
 
     conn
@@ -118,7 +132,7 @@ defmodule IrcpipeWeb.UserAuth do
     token_age = DateTime.diff(DateTime.utc_now(:second), token_inserted_at, :day)
 
     if token_age >= @session_reissue_age_in_days do
-      create_or_extend_session(conn, user, %{})
+      create_or_extend_session(conn, user, %{}, false)
     else
       conn
     end
@@ -132,37 +146,54 @@ defmodule IrcpipeWeb.UserAuth do
   # When the session is created, rather than extended, the renew_session
   # function will clear the session to avoid fixation attacks. See the
   # renew_session function to customize this behaviour.
-  defp create_or_extend_session(conn, user, params) do
+  defp create_or_extend_session(conn, user, params, session_reset?) do
     previous_token = get_session(conn, :user_token)
-    token = Accounts.generate_user_session_token(user)
     remember_me = get_session(conn, :user_remember_me)
 
-    maybe_rebind_push_subscriptions(conn, user, previous_token, token)
+    case session_token_for(conn, user, previous_token, session_reset?) do
+      {:ok, token, rotated?} ->
+        if rotated?, do: disconnect_user_socket(previous_token)
 
-    conn
-    |> renew_session(user)
-    |> put_token_in_session(token)
-    |> maybe_write_remember_me_cookie(token, params, remember_me)
+        conn
+        |> renew_session(user)
+        |> put_token_in_session(token)
+        |> maybe_write_remember_me_cookie(token, params, remember_me)
+
+      {:error, :invalid_session} ->
+        conn
+    end
   end
 
-  defp maybe_rebind_push_subscriptions(
+  defp session_token_for(
          %{assigns: %{current_scope: %Scope{user: current_user}}},
          user,
          previous_token,
-         next_token
+         false
        )
        when not is_nil(current_user) and current_user.id == user.id and
               is_binary(previous_token) do
-    Notifications.rebind_session_subscriptions(
-      Scope.for_user(user),
-      previous_token,
-      next_token
-    )
+    case Notifications.rotate_session_with_subscriptions(
+           Scope.for_user(user),
+           previous_token
+         ) do
+      {:ok, %{session_token: token}} -> {:ok, token, true}
+      {:error, :invalid_session} -> {:error, :invalid_session}
+    end
+  end
+
+  defp session_token_for(_conn, user, previous_token, session_reset?) do
+    {:ok, Accounts.generate_user_session_token(user), session_reset? && is_binary(previous_token)}
+  end
+
+  defp disconnect_user_socket(token) when is_binary(token) do
+    token
+    |> UserSocket.id_for_session_token()
+    |> IrcpipeWeb.Endpoint.broadcast("disconnect", %{})
 
     :ok
   end
 
-  defp maybe_rebind_push_subscriptions(_conn, _user, _previous_token, _next_token), do: :ok
+  defp disconnect_user_socket(_token), do: :ok
 
   # Do not renew session if the user is already logged in
   # to prevent CSRF errors or data being lost in tabs that are still open
