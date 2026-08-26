@@ -19,6 +19,8 @@ interface ReceiveChain {
 
 interface ChannelLike {
   on(event: string, callback: (payload: RealtimePayload) => void): void
+  onClose?(callback: (payload: unknown) => void): void
+  onError?(callback: (payload: unknown) => void): void
   join(): ReceiveChain
   push(event: string, payload: RealtimePayload, timeout: number): ReceiveChain
   leave(): void
@@ -27,7 +29,7 @@ interface ChannelLike {
 interface SocketLike {
   channel(topic: string, params: RealtimePayload): ChannelLike
   connect(): void
-  disconnect(): void
+  disconnect(callback?: () => void): void
   connectionState?(): string
   onOpen?(callback: () => void): void
   onClose?(callback: (event: unknown) => void): void
@@ -45,6 +47,8 @@ export interface RealtimeHandlers {
   onJoinOk?(payload: RealtimePayload): void
   onJoinError?(payload: RealtimePayload): void
   onJoinTimeout?(): void
+  onChannelClose?(payload: unknown): void
+  onChannelError?(payload: unknown): void
   onMessage?(payload: ChatMessage): void
   onBufferMessage?(payload: ChatMessage): void
   onBufferRead?(payload: BufferReadPayload): void
@@ -86,10 +90,13 @@ export function createRealtimeClient({
     params: {_csrf_token: csrfToken},
   })
   const channel = socket.channel(`user:${userId}`, {})
+  let joinedOnce = false
 
   socket.onOpen?.(() => handlers.onOpen?.())
   socket.onClose?.((event) => handlers.onClose?.(event))
   socket.onError?.((error) => handlers.onError?.(error))
+  channel.onClose?.((payload) => handlers.onChannelClose?.(payload))
+  channel.onError?.((payload) => handlers.onChannelError?.(payload))
 
   channel.on("message", (payload) => handlers.onMessage?.(payload as unknown as ChatMessage))
   channel.on("buffer:message", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
@@ -109,7 +116,10 @@ export function createRealtimeClient({
 
   function connect() {
     socket.connect()
-    joinChannel()
+    if (!joinedOnce) {
+      joinedOnce = true
+      joinChannel()
+    }
 
     return client
   }
@@ -142,8 +152,8 @@ export function createRealtimeClient({
   }
 
   function reconnect() {
-    disconnect()
-    return connect()
+    socket.disconnect(() => socket.connect())
+    return client
   }
 
   function connectionState() {

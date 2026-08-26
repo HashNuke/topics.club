@@ -38,6 +38,7 @@ function mockBootstrapFetch({
   joinOk = true,
   messageCursorsByBuffer = {"channel:7": 99},
   push = {configured: false, vapid_public_key: null},
+  pushSubscriptionOk = true,
   serverNotificationsEnabled = true,
   channelNotificationsEnabled = true,
 } = {}) {
@@ -47,7 +48,11 @@ function mockBootstrapFetch({
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/push_subscriptions" && options.method === "POST") {
       const {installation_id} = JSON.parse(options.body)
-      return {ok: true, json: async () => ({subscription: {installation_id}})}
+      return {
+        ok: pushSubscriptionOk,
+        json: async () => ({subscription: {installation_id}}),
+        text: async () => "push synchronization failed",
+      }
     }
 
     if (path === "/api/channel_memberships/7/notification_preferences" && options.method === "PUT") {
@@ -644,7 +649,8 @@ describe("IrcpipeApp UI prototype", () => {
       bootstrap: vi
         .fn()
         .mockResolvedValueOnce(initial)
-        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve })),
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve }))
+        .mockResolvedValue(refreshed),
       bufferMessages: vi.fn().mockResolvedValue({messages: []}),
     }
     const client = fakeRealtimeClient(vi.fn())
@@ -684,6 +690,10 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await within(nav).findByText("Bella")).toBeInTheDocument()
     expect(within(nav).getByText("Mona")).toBeInTheDocument()
     expect(within(nav).queryByText("Zed")).not.toBeInTheDocument()
+
+    act(() => realtimeHandlers.onChannelError({reason: "server restart"}))
+    await act(async () => realtimeHandlers.onJoinOk())
+    await waitFor(() => expect(apiClient.bootstrap).toHaveBeenCalledTimes(3))
   })
 
   test("auto-opens a direct-message thread returned by msg", async () => {
@@ -1715,8 +1725,11 @@ describe("IrcpipeApp UI prototype", () => {
     }
   })
 
-  test("queues local mention handling until push subscription inspection finishes", async () => {
-    mockBootstrapFetch({push: {configured: true, vapid_public_key: "AQ"}})
+  test("suppresses local mentions when subscription inspection succeeds but server sync fails", async () => {
+    mockBootstrapFetch({
+      push: {configured: true, vapid_public_key: "AQ"},
+      pushSubscriptionOk: false,
+    })
     let realtimeHandlers
     let resolveSubscription
     const client = fakeRealtimeClient(vi.fn())

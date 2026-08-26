@@ -23,14 +23,9 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
   useEffect(() => {
     if (!sessionKey || !realtimeClientFactory) return
 
-    let reconciledThisCycle = false
-
     const joined = () => {
       setConnectionHealth("connected")
-      if (!reconciledThisCycle) {
-        reconciledThisCycle = true
-        onConnectedRef.current?.()
-      }
+      onConnectedRef.current?.()
     }
     const realtimeClient = realtimeClientFactory({
       handlers: {
@@ -48,14 +43,13 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
         onNotificationDirectMessage: (payload) => handlersRef.current.onNotificationDirectMessage?.(payload),
         onNotificationPreference: (payload) => handlersRef.current.onNotificationPreference?.(payload),
         onOpen: () => setConnectionHealth("reconnecting"),
-        onClose: () => {
-          reconciledThisCycle = false
-          setConnectionHealth("reconnecting")
-        },
+        onClose: () => setConnectionHealth("reconnecting"),
         onError: () => setConnectionHealth("degraded"),
         onJoinOk: joined,
         onJoinError: () => setConnectionHealth("degraded"),
         onJoinTimeout: () => setConnectionHealth("degraded"),
+        onChannelError: () => setConnectionHealth("reconnecting"),
+        onChannelClose: () => setConnectionHealth("degraded"),
       },
     })
 

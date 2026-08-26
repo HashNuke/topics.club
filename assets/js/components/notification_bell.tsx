@@ -61,7 +61,10 @@ export default function NotificationBell({compact = false, id, loading = false, 
 
 function notificationCopy(scopeLabel: string, state: NotificationControlState): {action: string; tooltip: string} {
   if (state.kind === "enabled") {
-    return {action: `Mute mention notifications for ${scopeLabel}`, tooltip: `Mention notifications are on for ${scopeLabel}.`}
+    return {
+      action: `Mute mention notifications for ${scopeLabel}`,
+      tooltip: state.reason || `Mention notifications are on for ${scopeLabel}.`,
+    }
   }
 
   if (state.kind === "disabled") {

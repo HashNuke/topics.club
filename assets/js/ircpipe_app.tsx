@@ -100,6 +100,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const queuedNotificationEventsRef = useRef<ChatMessage[]>([])
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
   const realtimeRefreshInFlightRef = useRef(false)
+  const realtimeRefreshRequestedRef = useRef(false)
   const requestedBufferIdRef = useRef(requestedBufferId())
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
@@ -756,7 +757,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function refreshAuthoritativeBootstrap(): void {
-    if (realtimeRefreshInFlightRef.current) return
+    if (realtimeRefreshInFlightRef.current) {
+      realtimeRefreshRequestedRef.current = true
+      return
+    }
 
     realtimeRefreshInFlightRef.current = true
     apiClient
@@ -768,6 +772,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       .catch(() => reconcileAllBuffers())
       .finally(() => {
         realtimeRefreshInFlightRef.current = false
+
+        if (realtimeRefreshRequestedRef.current) {
+          realtimeRefreshRequestedRef.current = false
+          refreshAuthoritativeBootstrap()
+          return
+        }
+
         const queuedEvents = queuedRealtimeEventsRef.current.splice(0)
         queuedEvents.forEach((callback) => callback())
       })

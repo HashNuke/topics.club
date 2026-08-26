@@ -6,6 +6,7 @@ class FakeSocket {
     this.path = path
     this.options = options
     this.connected = false
+    this.connectCount = 0
     this.disconnected = false
     this.fakeChannel = new FakeChannel()
     this.lifecycleHandlers = {}
@@ -31,10 +32,12 @@ class FakeSocket {
 
   connect() {
     this.connected = true
+    this.connectCount += 1
   }
 
-  disconnect() {
+  disconnect(callback) {
     this.disconnected = true
+    callback?.()
   }
 
   connectionState() {
@@ -54,8 +57,17 @@ class FakeChannel {
   }
 
   join() {
+    if (this.joinCount > 0) throw new Error("channel instances may only join once")
     this.joinCount += 1
     return receiver()
+  }
+
+  onError(callback) {
+    this.handlers.phx_error = callback
+  }
+
+  onClose(callback) {
+    this.handlers.phx_close = callback
   }
 
   push(event, payload, timeout) {
@@ -203,21 +215,27 @@ describe("realtime client", () => {
     })
   })
 
-  test("forwards socket lifecycle events to handlers", () => {
+  test("forwards socket and channel lifecycle events to handlers", () => {
     const handlers = {
       onOpen: vi.fn(),
       onClose: vi.fn(),
       onError: vi.fn(),
+      onChannelError: vi.fn(),
+      onChannelClose: vi.fn(),
     }
     const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers})
 
     client.socket.lifecycleHandlers.open()
     client.socket.lifecycleHandlers.close({code: 1006})
     client.socket.lifecycleHandlers.error(new Error("boom"))
+    client.channel.handlers.phx_error({reason: "server restart"})
+    client.channel.handlers.phx_close("closed")
 
     expect(handlers.onOpen).toHaveBeenCalledOnce()
     expect(handlers.onClose).toHaveBeenCalledWith({code: 1006})
     expect(handlers.onError).toHaveBeenCalledWith(expect.any(Error))
+    expect(handlers.onChannelError).toHaveBeenCalledWith({reason: "server restart"})
+    expect(handlers.onChannelClose).toHaveBeenCalledWith("closed")
   })
 
   test("disconnects the channel and socket", () => {
@@ -229,15 +247,16 @@ describe("realtime client", () => {
     expect(client.socket.disconnected).toBe(true)
   })
 
-  test("reconnects by leaving the channel and joining again", () => {
+  test("reconnects the socket without joining a channel instance twice", () => {
     const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7})
 
     client.connect()
     client.reconnect()
 
-    expect(client.channel.left).toBe(true)
+    expect(client.channel.left).toBe(false)
     expect(client.socket.disconnected).toBe(true)
     expect(client.socket.connected).toBe(true)
-    expect(client.channel.joinCount).toBe(2)
+    expect(client.socket.connectCount).toBe(2)
+    expect(client.channel.joinCount).toBe(1)
   })
 })

@@ -35,7 +35,7 @@ export async function synchronizeNotificationDevice(apiClient: ApiClient, push: 
   } catch (_error) {
     return {
       ...state,
-      subscribed: false,
+      subscribed: true,
       error: "Notifications are enabled locally but could not be synchronized.",
     }
   }
@@ -80,6 +80,7 @@ export function notificationControlState(
   if (!device.subscribed) return {kind: "available", reason: device.error || undefined}
   if (!parentEnabled) return {kind: "disabled", reason: `Mentions are muted because ${parentLabel || "this server"} notifications are off.`}
   if (!scopeEnabled) return {kind: "disabled"}
+  if (device.error) return {kind: "enabled", reason: device.error}
   return {kind: "enabled"}
 }
 

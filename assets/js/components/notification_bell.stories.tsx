@@ -8,6 +8,7 @@ export default {
 }
 
 export const Enabled = {args: {state: {kind: "enabled"}}}
+export const EnabledWithSyncError = {args: {state: {kind: "enabled", reason: "Notifications are enabled locally but could not be synchronized."}}}
 export const Disabled = {args: {state: {kind: "disabled"}}}
 export const AvailableToSetUp = {args: {state: {kind: "available"}}}
 export const UnavailableOnHttp = {args: {state: {kind: "unavailable", reason: "Notifications require HTTPS or localhost."}}}

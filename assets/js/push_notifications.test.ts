@@ -35,5 +35,10 @@ describe("notificationControlState", () => {
       kind: "available",
       reason: "Push service timed out.",
     })
+
+    expect(notificationControlState(device({error: "Server synchronization failed."}))).toEqual({
+      kind: "enabled",
+      reason: "Server synchronization failed.",
+    })
   })
 })

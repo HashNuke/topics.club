@@ -38,9 +38,18 @@ describe("useRealtimeConnection", () => {
     expect(result.current.connectionHealth).toBe("connected")
     expect(onConnected).toHaveBeenCalledTimes(1)
 
+    act(() => realtimeHandlers.onChannelError({reason: "server restart"}))
+    expect(result.current.connectionHealth).toBe("reconnecting")
+    await act(async () => realtimeHandlers.onJoinOk())
+    expect(result.current.connectionHealth).toBe("connected")
+    expect(onConnected).toHaveBeenCalledTimes(2)
+
+    act(() => realtimeHandlers.onChannelClose("closed"))
+    expect(result.current.connectionHealth).toBe("degraded")
+
     act(() => realtimeHandlers.onClose())
     await act(async () => realtimeHandlers.onJoinOk())
-    expect(onConnected).toHaveBeenCalledTimes(2)
+    expect(onConnected).toHaveBeenCalledTimes(3)
 
     act(() => result.current.retryRealtimeConnection())
     expect(result.current.connectionHealth).toBe("reconnecting")
