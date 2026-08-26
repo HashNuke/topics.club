@@ -1,4 +1,4 @@
-import LeftSidebar from "./left_sidebar.jsx"
+import LeftSidebar from "./left_sidebar.tsx"
 
 const connection = {
   id: "server:1", server_connection_id: 1, name: "Libera Chat", host: "irc.libera.chat", port: 6697, use_tls: true, nickname: "mira",

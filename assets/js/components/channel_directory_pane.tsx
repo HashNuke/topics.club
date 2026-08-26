@@ -3,8 +3,17 @@ import ChannelDirectoryControls from "./channel_directory_controls.tsx"
 import ChannelDirectoryFeedback from "./channel_directory_feedback.tsx"
 import ChannelDirectoryHeader from "./channel_directory_header.tsx"
 import ChannelDirectoryResults from "./channel_directory_results.tsx"
+import type {ChannelDirectoryState} from "../hooks/use_channel_directory.ts"
+import type {ServerConnection} from "../types.ts"
 
-export default function ChannelDirectoryPane({directory, onJoinChannel, onRefresh, server}) {
+interface ChannelDirectoryPaneProps {
+  directory: ChannelDirectoryState
+  onJoinChannel: (channel: string) => void
+  onRefresh: () => void
+  server?: ServerConnection
+}
+
+export default function ChannelDirectoryPane({directory, onJoinChannel, onRefresh, server}: ChannelDirectoryPaneProps) {
   const [query, setQuery] = useState("")
   const [manualChannel, setManualChannel] = useState("")
   const normalizedQuery = query.trim().toLowerCase()
@@ -13,7 +22,7 @@ export default function ChannelDirectoryPane({directory, onJoinChannel, onRefres
     return `${channel.channel} ${channel.topic || ""}`.toLowerCase().includes(normalizedQuery)
   })
 
-  function joinManualChannel(event) {
+  function joinManualChannel(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const channel = manualChannel.trim()
     if (!channel) return

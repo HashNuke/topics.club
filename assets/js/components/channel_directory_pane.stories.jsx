@@ -1,4 +1,4 @@
-import ChannelDirectoryPane from "./channel_directory_pane.jsx"
+import ChannelDirectoryPane from "./channel_directory_pane.tsx"
 
 const channels = [
   {channel: "#elixir", users: 426, topic: "Phoenix, OTP, releases, and production Elixir help."},

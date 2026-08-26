@@ -1,12 +1,12 @@
 import React, {useState} from "react"
-import ChannelDirectoryPane from "./channel_directory_pane.jsx"
+import ChannelDirectoryPane from "./channel_directory_pane.tsx"
 import ChatPane from "./chat_pane.jsx"
 import DiscoverPane from "./discover_pane.tsx"
-import LeftSidebar from "./left_sidebar.jsx"
+import LeftSidebar from "./left_sidebar.tsx"
 import MobileDrawer, {MobileDrawerHeader} from "./mobile_drawer.tsx"
-import RightSidebar from "./right_sidebar.jsx"
+import RightSidebar from "./right_sidebar.tsx"
 import ServerBufferPane from "./server_buffer_pane.jsx"
-import TopBar from "./top_bar.jsx"
+import TopBar from "./top_bar.tsx"
 
 export default function AppShell(props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(Boolean(props.initialMobileMenuOpen))

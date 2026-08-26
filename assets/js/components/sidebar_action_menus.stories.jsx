@@ -1,4 +1,4 @@
-import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.jsx"
+import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.tsx"
 
 export default {
   title: "Navigation/SidebarActionMenus",

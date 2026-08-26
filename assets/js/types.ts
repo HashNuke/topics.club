@@ -2,6 +2,12 @@ export type EntityId = string | number
 export type AppView = "chat" | "server" | "discover" | "directory"
 export type ConnectionHealth = "connected" | "disconnected" | "reconnecting" | "degraded"
 
+export interface CurrentUser {
+  id: EntityId
+  email: string
+  message_retention_days?: number
+}
+
 export interface CommandMetadata {
   command_id?: string
   command_status?: "sent" | "acknowledged" | "completed" | "failed" | "timed_out"

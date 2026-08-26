@@ -2,8 +2,18 @@ import React from "react"
 import AppMark from "./app_mark.tsx"
 import AuthPrompt from "./auth_prompt.tsx"
 import TopicGrid from "./topic_grid.tsx"
+import type {CurrentUser, Topic, TopicInput} from "../types.ts"
 
-export default function LandingPage({currentUser, topics, developerOauth, selectedTopic, onSelectTopic, onCloseAuth}) {
+interface LandingPageProps {
+  currentUser?: CurrentUser | null
+  topics: TopicInput[]
+  developerOauth: boolean
+  selectedTopic?: Topic | null
+  onSelectTopic: (topic: Topic) => void
+  onCloseAuth: () => void
+}
+
+export default function LandingPage({currentUser, topics, developerOauth, selectedTopic, onSelectTopic, onCloseAuth}: LandingPageProps) {
   return <main className="min-h-screen bg-[#090b10] text-slate-100">
     <section className="mx-auto grid min-h-screen max-w-7xl content-center gap-8 px-5 py-8 lg:grid-cols-[0.9fr_1.1fr]">
       <div className="self-center">

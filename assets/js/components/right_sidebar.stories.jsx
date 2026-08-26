@@ -1,4 +1,4 @@
-import RightSidebar from "./right_sidebar.jsx"
+import RightSidebar from "./right_sidebar.tsx"
 
 const users = [
   {nick: "mira", role: "owner", status: "online"},

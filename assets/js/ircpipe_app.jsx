@@ -8,7 +8,7 @@ import {
   showMentionNotification,
 } from "./browser_notifications.ts"
 import AppShell from "./components/app_shell.jsx"
-import LandingPage from "./components/landing_page.jsx"
+import LandingPage from "./components/landing_page.tsx"
 import {
   isRealtimeChannel,
   realtimeReadyFor,
@@ -27,7 +27,7 @@ import useServerConnections from "./hooks/use_server_connections.ts"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.ts"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
 export {default as TopicGrid} from "./components/topic_grid.tsx"
-export {default as LandingPage} from "./components/landing_page.jsx"
+export {default as LandingPage} from "./components/landing_page.tsx"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 

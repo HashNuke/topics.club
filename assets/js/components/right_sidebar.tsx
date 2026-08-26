@@ -1,17 +1,18 @@
 import React, {useState} from "react"
 import UserGroup from "./user_group.tsx"
+import type {Channel, ChatUser} from "../types.ts"
 
-export function groupUsers(users) {
+export function groupUsers(users: ChatUser[]): Array<{label: string; users: ChatUser[]}> {
   return [
-    {label: "Mods", users: users.filter((user) => ["owner", "admin", "op", "halfop"].includes(user.role))},
+    {label: "Mods", users: users.filter((user) => ["owner", "admin", "op", "halfop"].includes(user.role || ""))},
     {label: "Voiced", users: users.filter((user) => user.role === "voice")},
     {label: "Online", users: users.filter((user) => (!user.role || user.role === "user") && user.status !== "away")},
     {label: "Away", users: users.filter((user) => user.status === "away")},
   ].filter((group) => group.users.length > 0)
 }
 
-export default function RightSidebar({activeChannel, users, mobile = false}) {
-  const [expandedGroups, setExpandedGroups] = useState({})
+export default function RightSidebar({activeChannel, users, mobile = false}: {activeChannel?: Channel; users: ChatUser[]; mobile?: boolean}) {
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
 
   return (
     <aside className={[

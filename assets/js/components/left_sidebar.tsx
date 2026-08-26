@@ -1,12 +1,36 @@
 import React, {useState} from "react"
 import AppMark from "./app_mark.tsx"
-import {EditServerDialog, LeaveServerDialog, ManualJoinDialog} from "./server_dialogs.jsx"
-import SidebarConnection from "./sidebar_connection.jsx"
+import {EditServerDialog, LeaveServerDialog, ManualJoinDialog} from "./server_dialogs.tsx"
+import SidebarConnection from "./sidebar_connection.tsx"
+import type {EditServerForm, ManualServerForm} from "../hooks/use_server_connections.ts"
+import type {AppView, Channel, CurrentUser, ServerConnection} from "../types.ts"
 
-export default function LeftSidebar({activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer}) {
+export interface LeftSidebarProps {
+  activeChannel?: Channel
+  activeServer?: ServerConnection
+  connections: ServerConnection[]
+  currentUser: CurrentUser
+  mobile?: boolean
+  view: AppView
+  onDiscover: () => void
+  onDisconnectServer: (server: ServerConnection) => void
+  onJoinManualServer: (form: ManualServerForm) => void
+  onLeaveChannel: (channel: Channel) => void
+  onLeaveServer: (server: ServerConnection) => void
+  onMarkChannelRead: (channel: Channel) => void
+  onOpenChannelDirectory: (server: ServerConnection) => void
+  onReconnectServer: (server: ServerConnection) => void
+  onSelectChannel: (channel: Channel) => void
+  onSelectServer: (server: ServerConnection) => void
+  onShowChat: () => void
+  onUpdateServer: (server: ServerConnection, form: EditServerForm) => void
+}
+
+export default function LeftSidebar(props: LeftSidebarProps) {
+  const {activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer} = props
   const [manualOpen, setManualOpen] = useState(false)
-  const [editingServer, setEditingServer] = useState(null)
-  const [leavingServer, setLeavingServer] = useState(null)
+  const [editingServer, setEditingServer] = useState<ServerConnection | null>(null)
+  const [leavingServer, setLeavingServer] = useState<ServerConnection | null>(null)
 
   return (
     <aside className={["min-h-0 border-r border-slate-800/80 bg-[#0f131b]", mobile ? "flex min-h-0 flex-1 flex-col border-r-0" : "hidden lg:flex lg:flex-col"].join(" ")}>

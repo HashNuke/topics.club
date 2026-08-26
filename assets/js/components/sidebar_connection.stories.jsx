@@ -1,4 +1,4 @@
-import SidebarConnection from "./sidebar_connection.jsx"
+import SidebarConnection from "./sidebar_connection.tsx"
 
 const connection = {
   id: "server:1",

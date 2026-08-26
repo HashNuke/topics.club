@@ -1,6 +1,18 @@
 import React, {useState} from "react"
+import type {EditServerForm, ManualServerForm} from "../hooks/use_server_connections.ts"
+import type {ServerConnection} from "../types.ts"
 
-export function LabeledInput({autoComplete, id, label, onChange, placeholder, type = "text", value}) {
+interface LabeledInputProps {
+  autoComplete?: string
+  id: string
+  label: string
+  onChange: (value: string) => void
+  placeholder?: string
+  type?: React.HTMLInputTypeAttribute
+  value: string | number
+}
+
+export function LabeledInput({autoComplete, id, label, onChange, placeholder, type = "text", value}: LabeledInputProps) {
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</span>
@@ -17,7 +29,7 @@ export function LabeledInput({autoComplete, id, label, onChange, placeholder, ty
   )
 }
 
-export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin}) {
+export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin}: {initialAdvancedOpen?: boolean; onClose: () => void; onJoin: (form: ManualServerForm) => void}) {
   const [advancedOpen, setAdvancedOpen] = useState(initialAdvancedOpen)
   const [form, setForm] = useState({
     host: "127.0.0.1",
@@ -29,7 +41,7 @@ export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin})
     useTls: false,
   })
 
-  function submit(event) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     onJoin(form)
   }
@@ -63,7 +75,7 @@ export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin})
   )
 }
 
-export function EditServerDialog({onClose, onSave, server}) {
+export function EditServerDialog({onClose, onSave, server}: {onClose: () => void; onSave: (form: EditServerForm) => void; server: ServerConnection}) {
   const [form, setForm] = useState({
     host: server.host || "",
     port: String(server.port || 6669),
@@ -71,7 +83,7 @@ export function EditServerDialog({onClose, onSave, server}) {
     useTls: Boolean(server.use_tls || server.useTls),
   })
 
-  function submit(event) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     onSave(form)
   }
@@ -94,7 +106,7 @@ export function EditServerDialog({onClose, onSave, server}) {
   )
 }
 
-export function LeaveServerDialog({onClose, onConfirm, server}) {
+export function LeaveServerDialog({onClose, onConfirm, server}: {onClose: () => void; onConfirm: () => void; server: ServerConnection}) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
       <section aria-label="Leave server" className="w-full max-w-sm rounded-lg border border-rose-900/70 bg-[#101620] p-5 shadow-2xl" role="dialog">
@@ -108,7 +120,7 @@ export function LeaveServerDialog({onClose, onConfirm, server}) {
   )
 }
 
-function DialogHeader({description, onClose, title}) {
+function DialogHeader({description, onClose, title}: {description: string; onClose: () => void; title: string}) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
@@ -122,7 +134,7 @@ function DialogHeader({description, onClose, title}) {
   )
 }
 
-function TlsToggle({checked, onChange}) {
+function TlsToggle({checked, onChange}: {checked: boolean; onChange: (checked: boolean) => void}) {
   return (
     <label className="flex h-[42px] items-center gap-2 rounded-md border border-slate-800 bg-slate-950 px-3 text-sm text-slate-300">
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
@@ -131,7 +143,7 @@ function TlsToggle({checked, onChange}) {
   )
 }
 
-function DialogActions({confirmLabel, onClose}) {
+function DialogActions({confirmLabel, onClose}: {confirmLabel: string; onClose: () => void}) {
   return (
     <div className="mt-5 flex gap-3">
       <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>Cancel</button>

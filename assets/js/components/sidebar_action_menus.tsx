@@ -1,11 +1,18 @@
 import {offset, shift, useFloating} from "@floating-ui/react"
 import React, {useState} from "react"
+import type {Channel, ServerConnection} from "../types.ts"
 
-function ActionMenu({ariaLabel, buttonClass, items}) {
+interface ActionItem {
+  label: string
+  action?: () => void
+  danger?: boolean
+}
+
+function ActionMenu({ariaLabel, buttonClass, items}: {ariaLabel: string; buttonClass: string; items: ActionItem[]}) {
   const [open, setOpen] = useState(false)
   const {refs, floatingStyles} = useFloating({placement: "bottom-end", middleware: [offset(6), shift({padding: 8})]})
 
-  function run(action) {
+  function run(action?: () => void) {
     action?.()
     setOpen(false)
   }
@@ -44,7 +51,7 @@ function ActionMenu({ariaLabel, buttonClass, items}) {
   )
 }
 
-export function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMarkRead}) {
+export function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMarkRead}: {channel: Channel; onCopyChannel: () => void; onLeaveChannel?: () => void; onMarkRead?: () => void}) {
   return (
     <ActionMenu
       ariaLabel={`Channel actions for ${channel.channel}`}
@@ -58,7 +65,7 @@ export function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMar
   )
 }
 
-export function ServerActionMenu({server, onDisconnect, onEdit, onLeave, onReconnect}) {
+export function ServerActionMenu({server, onDisconnect, onEdit, onLeave, onReconnect}: {server: ServerConnection; onDisconnect?: () => void; onEdit: () => void; onLeave: () => void; onReconnect?: () => void}) {
   return (
     <ActionMenu
       ariaLabel={`Server actions for ${server.name}`}

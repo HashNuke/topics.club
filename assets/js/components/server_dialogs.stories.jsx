@@ -1,4 +1,4 @@
-import {EditServerDialog, LabeledInput, LeaveServerDialog, ManualJoinDialog} from "./server_dialogs.jsx"
+import {EditServerDialog, LabeledInput, LeaveServerDialog, ManualJoinDialog} from "./server_dialogs.tsx"
 
 export default {
   title: "Servers/Dialogs",

@@ -1,4 +1,4 @@
-import TopBar, {ConnectionHealthIndicator} from "./top_bar.jsx"
+import TopBar, {ConnectionHealthIndicator} from "./top_bar.tsx"
 
 export default {title: "Navigation/TopBar", component: TopBar, decorators: [(Story) => <div className="w-[64rem] max-w-full"><Story /></div>], args: {activeChannel: {channel: "#elixir", topic: "Elixir help", connection: {host: "irc.example.net"}}, activeServer: {name: "Example", host: "irc.example.net"}, connectionHealth: "connected", notificationState: "default", showsUserSidebar: true, view: "chat", onOpenMobileMenu: () => {}, onOpenMobileUsers: () => {}, onRequestNotifications: () => {}, onRetryRealtime: () => {}}}
 export const Channel = {}

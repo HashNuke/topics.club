@@ -1,7 +1,25 @@
 import React from "react"
-import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.jsx"
+import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.tsx"
+import type {AppView, Channel, ServerConnection} from "../types.ts"
 
-export default function SidebarConnection({activeChannel, activeServer, connection, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, view}) {
+export interface SidebarConnectionProps {
+  activeChannel?: Channel
+  activeServer?: ServerConnection
+  connection: ServerConnection
+  onDisconnectServer?: (server: ServerConnection) => void
+  onEditServer: (server: ServerConnection) => void
+  onLeaveChannel?: (channel: Channel) => void
+  onLeaveServer: (server: ServerConnection) => void
+  onMarkChannelRead?: (channel: Channel) => void
+  onOpenChannelDirectory?: (server: ServerConnection) => void
+  onReconnectServer?: (server: ServerConnection) => void
+  onSelectChannel: (channel: Channel) => void
+  onSelectServer: (server: ServerConnection) => void
+  view: AppView
+}
+
+export default function SidebarConnection(props: SidebarConnectionProps) {
+  const {activeChannel, activeServer, connection, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, view} = props
   return (
     <section className="mb-5">
       <div className={[
@@ -31,7 +49,7 @@ export default function SidebarConnection({activeChannel, activeServer, connecti
           ].join(" ")}>
             <button className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left" onClick={() => onSelectChannel(channel)} type="button">
               <span className="min-w-0 flex-1 truncate">{channel.channel}</span>
-              {channel.mention_count > 0 && <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-rose-950">{channel.mention_count}</span>}
+              {(channel.mention_count || 0) > 0 && <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-rose-950">{channel.mention_count}</span>}
             </button>
             <ChannelActionMenu channel={channel} onCopyChannel={() => navigator.clipboard?.writeText(channel.channel)} onLeaveChannel={() => onLeaveChannel?.(channel)} onMarkRead={() => onMarkChannelRead?.(channel)} />
           </div>
