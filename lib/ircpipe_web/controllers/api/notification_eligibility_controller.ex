@@ -1,14 +1,14 @@
 defmodule IrcpipeWeb.Api.NotificationEligibilityController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.Delivery
 
   def show(conn, %{"id" => id, "session_generation" => session_generation}) do
     conn
     |> put_resp_header("cache-control", "no-store")
     |> json(%{
       eligible:
-        Notifications.notification_eligible?(
+        Delivery.eligible?(
           conn.assigns.current_scope,
           conn.assigns.notification_session_token,
           id,

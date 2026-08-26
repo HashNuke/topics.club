@@ -1,4 +1,4 @@
-defmodule Ircpipe.Notifications do
+defmodule Ircpipe.Notifications.Delivery do
   import Ecto.Query
 
   alias Ircpipe.Accounts.{Scope, UserToken}
@@ -17,7 +17,7 @@ defmodule Ircpipe.Notifications do
   @max_delivery_subscriptions_per_user 5
   @max_notification_id 9_223_372_036_854_775_807
 
-  def notification_eligible?(%Scope{user: user}, session_token, notification_id, generation)
+  def eligible?(%Scope{user: user}, session_token, notification_id, generation)
       when is_binary(session_token) and is_integer(notification_id) and notification_id > 0 and
              notification_id <= @max_notification_id and is_binary(generation) do
     current_generation = UserToken.session_token_fingerprint(session_token)
@@ -33,17 +33,17 @@ defmodule Ircpipe.Notifications do
     end
   end
 
-  def notification_eligible?(scope, session_token, notification_id, generation)
+  def eligible?(scope, session_token, notification_id, generation)
       when is_binary(notification_id) do
     case Integer.parse(notification_id) do
-      {parsed_id, ""} -> notification_eligible?(scope, session_token, parsed_id, generation)
+      {parsed_id, ""} -> eligible?(scope, session_token, parsed_id, generation)
       _invalid_id -> false
     end
   end
 
-  def notification_eligible?(_scope, _session_token, _notification_id, _generation), do: false
+  def eligible?(_scope, _session_token, _notification_id, _generation), do: false
 
-  def enqueue_delivery(%Notification{id: notification_id}) do
+  def enqueue(%Notification{id: notification_id}) do
     if WebPush.configured?() do
       %{"notification_id" => notification_id}
       |> PushWorker.new()
@@ -53,7 +53,7 @@ defmodule Ircpipe.Notifications do
     end
   end
 
-  def deliver_notification(notification_id) do
+  def deliver(notification_id) do
     case notification_server_connection_id(notification_id) do
       nil ->
         {:cancel, :notification_not_found}

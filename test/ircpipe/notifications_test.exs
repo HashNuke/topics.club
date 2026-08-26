@@ -7,9 +7,9 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Notification
-  alias Ircpipe.Notifications
 
   alias Ircpipe.Notifications.{
+    Delivery,
     Preferences,
     PushSubscription,
     PushRegistrations,
@@ -338,7 +338,7 @@ defmodule Ircpipe.NotificationsTest do
     end
 
     notification = mention_notification(connection, membership)
-    assert :ok = Notifications.deliver_notification(notification.id)
+    assert :ok = Delivery.deliver(notification.id)
 
     for _index <- 1..5 do
       assert_receive {:push_sent, _subscription, _payload}
@@ -363,7 +363,7 @@ defmodule Ircpipe.NotificationsTest do
 
     notification = Repo.get_by!(Notification, message_id: message.id)
 
-    assert :ok = Notifications.deliver_notification(notification.id)
+    assert :ok = Delivery.deliver(notification.id)
 
     assert_receive {:push_sent, _subscription, payload}
     assert payload.type == "notification:mention"
@@ -404,7 +404,7 @@ defmodule Ircpipe.NotificationsTest do
 
     notification = Repo.get_by!(Notification, message_id: message.id)
     assert notification.direct_message_thread_id == thread.id
-    assert :ok = Notifications.deliver_notification(notification.id)
+    assert :ok = Delivery.deliver(notification.id)
 
     assert_receive {:push_sent, _subscription, payload}
     assert payload.type == "notification:direct_message"
@@ -453,7 +453,7 @@ defmodule Ircpipe.NotificationsTest do
 
     refute channel.mention_notifications_enabled
     channel_notification = mention_notification(connection, membership)
-    assert :ok = Notifications.deliver_notification(channel_notification.id)
+    assert :ok = Delivery.deliver(channel_notification.id)
     refute_receive {:push_sent, _, _}
 
     assert {:ok, _channel} = Preferences.update_channel(scope, membership.id, true)
@@ -461,7 +461,7 @@ defmodule Ircpipe.NotificationsTest do
     refute server.mention_notifications_enabled
 
     server_notification = mention_notification(connection, membership)
-    assert :ok = Notifications.deliver_notification(server_notification.id)
+    assert :ok = Delivery.deliver(server_notification.id)
     refute_receive {:push_sent, _, _}
   end
 
@@ -474,7 +474,7 @@ defmodule Ircpipe.NotificationsTest do
     generation = UserToken.session_token_fingerprint(session_token)
     notification = mention_notification(connection, membership)
 
-    assert Notifications.notification_eligible?(
+    assert Delivery.eligible?(
              scope,
              session_token,
              notification.id,
@@ -483,7 +483,7 @@ defmodule Ircpipe.NotificationsTest do
 
     assert :ok = Chat.mark_read(scope.user, membership)
 
-    refute Notifications.notification_eligible?(
+    refute Delivery.eligible?(
              scope,
              session_token,
              notification.id,
@@ -507,7 +507,7 @@ defmodule Ircpipe.NotificationsTest do
     session_token = Accounts.generate_user_session_token(scope.user)
     generation = UserToken.session_token_fingerprint(session_token)
 
-    refute Notifications.notification_eligible?(
+    refute Delivery.eligible?(
              scope,
              session_token,
              foreign_notification.id,
@@ -526,7 +526,7 @@ defmodule Ircpipe.NotificationsTest do
 
     assert {:ok, _server} = Preferences.update_server(scope, connection.id, false)
 
-    refute Notifications.notification_eligible?(
+    refute Delivery.eligible?(
              scope,
              session_token,
              server_muted.id,
@@ -537,7 +537,7 @@ defmodule Ircpipe.NotificationsTest do
     channel_muted = mention_notification(connection, membership)
     assert {:ok, _channel} = Preferences.update_channel(scope, membership.id, false)
 
-    refute Notifications.notification_eligible?(
+    refute Delivery.eligible?(
              scope,
              session_token,
              channel_muted.id,
@@ -564,7 +564,7 @@ defmodule Ircpipe.NotificationsTest do
 
     close_notification = Repo.get_by!(Notification, message_id: close_message.id)
 
-    assert Notifications.notification_eligible?(
+    assert Delivery.eligible?(
              scope,
              session_token,
              close_notification.id,
@@ -573,7 +573,7 @@ defmodule Ircpipe.NotificationsTest do
 
     assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
 
-    refute Notifications.notification_eligible?(
+    refute Delivery.eligible?(
              scope,
              session_token,
              close_notification.id,
@@ -592,7 +592,7 @@ defmodule Ircpipe.NotificationsTest do
 
     block_notification = Repo.get_by!(Notification, message_id: block_message.id)
 
-    assert Notifications.notification_eligible?(
+    assert Delivery.eligible?(
              scope,
              session_token,
              block_notification.id,
@@ -601,7 +601,7 @@ defmodule Ircpipe.NotificationsTest do
 
     assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, reopened.id, true)
 
-    refute Notifications.notification_eligible?(
+    refute Delivery.eligible?(
              scope,
              session_token,
              block_notification.id,
@@ -617,7 +617,7 @@ defmodule Ircpipe.NotificationsTest do
              Chat.record_inbound_message(connection, membership.channel, "akash", "hello room")
 
     refute Repo.get_by(Notification, message_id: message.id)
-    assert {:cancel, :notification_not_found} = Notifications.deliver_notification(-1)
+    assert {:cancel, :notification_not_found} = Delivery.deliver(-1)
     refute_receive {:push_sent, _, _}
   end
 
@@ -645,7 +645,7 @@ defmodule Ircpipe.NotificationsTest do
     assert {:ok, _read} = Chat.mark_direct_message_read(scope, thread.id)
 
     assert {:cancel, :notification_not_found} =
-             Notifications.deliver_notification(first_notification.id)
+             Delivery.deliver(first_notification.id)
 
     assert {:ok, %{message: second}} =
              Chat.record_direct_message(
@@ -661,7 +661,7 @@ defmodule Ircpipe.NotificationsTest do
     assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
 
     assert {:cancel, :notification_not_found} =
-             Notifications.deliver_notification(second_notification.id)
+             Delivery.deliver(second_notification.id)
 
     refute_receive {:push_sent, _, _}
   end
@@ -693,7 +693,7 @@ defmodule Ircpipe.NotificationsTest do
 
     delivery =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.deliver_notification(notification.id)
+        Delivery.deliver(notification.id)
       end)
 
     assert_receive {:push_delivery_paused, sender_pid}
@@ -732,7 +732,7 @@ defmodule Ircpipe.NotificationsTest do
 
     delivery =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.deliver_notification(notification.id)
+        Delivery.deliver(notification.id)
       end)
 
     assert_receive {:push_delivery_paused, sender_pid}
@@ -772,7 +772,7 @@ defmodule Ircpipe.NotificationsTest do
 
     delivery =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.deliver_notification(notification.id)
+        Delivery.deliver(notification.id)
       end)
 
     assert_receive {:push_delivery_snapshot_paused, delivery_pid}
@@ -820,7 +820,7 @@ defmodule Ircpipe.NotificationsTest do
     |> Repo.update_all(set: [inserted_at: expired_at])
 
     notification = mention_notification(connection, membership)
-    assert :ok = Notifications.deliver_notification(notification.id)
+    assert :ok = Delivery.deliver(notification.id)
     refute_receive {:push_sent, _subscription, _payload}
     refute Repo.get_by(PushSubscription, user_id: scope.user.id)
   end
@@ -935,7 +935,7 @@ defmodule Ircpipe.NotificationsTest do
     Application.put_env(:ircpipe, :push_test_result, {:error, :expired})
     expired_notification = mention_notification(connection, membership)
 
-    assert :ok = Notifications.deliver_notification(expired_notification.id)
+    assert :ok = Delivery.deliver(expired_notification.id)
     assert Repo.aggregate(PushSubscription, :count) == 0
 
     assert {:ok, _subscription} =
@@ -948,7 +948,7 @@ defmodule Ircpipe.NotificationsTest do
     retry_notification = mention_notification(connection, membership)
 
     assert {:error, :push_service_unavailable} =
-             Notifications.deliver_notification(retry_notification.id)
+             Delivery.deliver(retry_notification.id)
 
     assert Repo.aggregate(PushSubscription, :count) == 1
   end

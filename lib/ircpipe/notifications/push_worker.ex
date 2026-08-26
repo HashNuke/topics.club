@@ -4,10 +4,10 @@ defmodule Ircpipe.Notifications.PushWorker do
     max_attempts: 5,
     unique: [period: :infinity, keys: [:notification_id]]
 
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.Delivery
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"notification_id" => notification_id}}) do
-    Notifications.deliver_notification(notification_id)
+    Delivery.deliver(notification_id)
   end
 end

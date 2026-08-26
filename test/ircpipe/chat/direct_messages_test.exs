@@ -4,7 +4,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, Notification}
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.Delivery
 
   setup do
     user = AccountsFixtures.user_fixture()
@@ -460,7 +460,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert Repo.get!(Notification, delayed_notification.id).read_at
 
     assert {:cancel, :notification_not_found} =
-             Notifications.deliver_notification(delayed_notification.id)
+             Delivery.deliver(delayed_notification.id)
 
     assert {:ok, %{thread: same_a, message: message}} =
              Chat.record_direct_message(

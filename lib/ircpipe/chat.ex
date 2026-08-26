@@ -15,8 +15,8 @@ defmodule Ircpipe.Chat do
     Topic
   }
 
+  alias Ircpipe.Notifications.Delivery
   alias Ircpipe.Realtime.Event
-  alias Ircpipe.Notifications
   alias Ircpipe.Repo
   alias Ircxd.Casemapping
 
@@ -928,7 +928,7 @@ defmodule Ircpipe.Chat do
     end)
     |> case do
       {:ok, {message, notification}} ->
-        if notification, do: Notifications.enqueue_delivery(notification)
+        if notification, do: Delivery.enqueue(notification)
         broadcast_message(message, membership, connection)
 
         {:ok, %{message | channel_membership: membership, server_connection: connection}}
@@ -1098,7 +1098,7 @@ defmodule Ircpipe.Chat do
        } =
            recorded} ->
         Enum.each(archived_threads, &broadcast_direct_message_closed/1)
-        if notification, do: Notifications.enqueue_delivery(notification)
+        if notification, do: Delivery.enqueue(notification)
         broadcast_direct_message_thread(thread)
         broadcast_direct_message(message, thread)
 
