@@ -6,7 +6,7 @@ defmodule IrcpipeWeb.UserAuth do
 
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.Scope
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.SessionBindings
   alias IrcpipeWeb.UserSocket
 
   # Make the remember me cookie valid for 14 days. This should match
@@ -220,7 +220,7 @@ defmodule IrcpipeWeb.UserAuth do
        )
        when not is_nil(current_user) and current_user.id == user.id and
               is_binary(previous_token) do
-    case Notifications.rotate_session_with_subscriptions(
+    case SessionBindings.rotate(
            Scope.for_user(user),
            previous_token
          ) do

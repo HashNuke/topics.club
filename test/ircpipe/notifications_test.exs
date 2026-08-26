@@ -14,6 +14,7 @@ defmodule Ircpipe.NotificationsTest do
     PushSubscription,
     PushRegistrations,
     PushWorker,
+    SessionBindings,
     WebPush
   }
 
@@ -104,14 +105,14 @@ defmodule Ircpipe.NotificationsTest do
 
     first_rotation =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.rotate_session_with_subscriptions(scope, session_token)
+        SessionBindings.rotate(scope, session_token)
       end)
 
     assert_receive {:session_rotation_paused, rotation_pid}
 
     second_rotation =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.rotate_session_with_subscriptions(scope, session_token)
+        SessionBindings.rotate(scope, session_token)
       end)
 
     refute Task.yield(second_rotation, 100)
@@ -152,7 +153,7 @@ defmodule Ircpipe.NotificationsTest do
 
     rotation =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.rotate_session_with_subscriptions(scope, session_token)
+        SessionBindings.rotate(scope, session_token)
       end)
 
     refute Task.yield(rotation, 100)
@@ -189,7 +190,7 @@ defmodule Ircpipe.NotificationsTest do
 
     reauthentication =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.authenticate_and_rotate_session_with_subscriptions(
+        SessionBindings.authenticate_and_rotate(
           user.email,
           AccountsFixtures.valid_user_password(),
           session_token
@@ -227,7 +228,7 @@ defmodule Ircpipe.NotificationsTest do
               session_token: next_token,
               replaced_session_token: ^previous_token
             }} =
-             Notifications.authenticate_and_rotate_session_with_subscriptions(
+             SessionBindings.authenticate_and_rotate(
                user.email,
                AccountsFixtures.valid_user_password(),
                previous_token
@@ -784,8 +785,7 @@ defmodule Ircpipe.NotificationsTest do
        fn ->
          send(
            test_pid,
-           {:snapshot_rotation,
-            Notifications.rotate_session_with_subscriptions(scope, session_token)}
+           {:snapshot_rotation, SessionBindings.rotate(scope, session_token)}
          )
        end}
     )

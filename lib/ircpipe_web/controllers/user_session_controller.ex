@@ -2,7 +2,7 @@ defmodule IrcpipeWeb.UserSessionController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Accounts
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.SessionBindings
   alias IrcpipeWeb.UserAuth
 
   def new(conn, _params) do
@@ -40,7 +40,7 @@ defmodule IrcpipeWeb.UserSessionController do
 
   # email + password login
   def create(conn, %{"user" => %{"email" => email, "password" => password} = user_params}) do
-    case Notifications.authenticate_and_rotate_session_with_subscriptions(
+    case SessionBindings.authenticate_and_rotate(
            email,
            password,
            get_session(conn, :user_token)

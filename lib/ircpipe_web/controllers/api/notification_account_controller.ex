@@ -1,12 +1,12 @@
 defmodule IrcpipeWeb.Api.NotificationAccountController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.SessionBindings
 
   def show(conn, _params) do
     json(
       conn,
-      Notifications.notification_account(
+      SessionBindings.notification_account(
         conn.assigns.current_scope,
         conn.assigns.notification_session_token
       )
