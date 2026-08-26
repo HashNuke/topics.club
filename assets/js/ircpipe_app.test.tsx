@@ -467,7 +467,7 @@ describe("IrcpipeApp UI prototype", () => {
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
     await user.click(screen.getByRole("button", {name: /discover/i}))
-    expect(screen.getByRole("heading", {name: "Discover topics"})).toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
 
     await user.click(await screen.findByRole("button", {name: /#backend/i}))
 
@@ -1247,7 +1247,7 @@ describe("IrcpipeApp UI prototype", () => {
       channel_membership_id: null,
     })
 
-    expect(await screen.findByRole("heading", {name: "Discover topics"})).toBeInTheDocument()
+    expect(await screen.findByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
     expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
     expect(screen.queryByRole("button", {name: /^local$/i})).not.toBeInTheDocument()
   })
@@ -1817,7 +1817,7 @@ describe("IrcpipeApp UI prototype", () => {
         expect.objectContaining({method: "DELETE", body: "{}"})
       )
     )
-    expect(await screen.findByRole("heading", {name: "Discover topics"})).toBeInTheDocument()
+    expect(await screen.findByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
     expect(screen.queryByRole("button", {name: /#testing/i})).not.toBeInTheDocument()
   })
 

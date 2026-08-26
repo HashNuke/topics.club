@@ -184,3 +184,16 @@ export interface ChannelDirectory {
   server_connection_id?: EntityId
   channels: ChannelDirectoryEntry[]
 }
+
+export interface DiscoverChannel {
+  id: EntityId
+  name: string
+  topic?: string | null
+  user_count: number
+  network_id: EntityId
+  network_name: string
+  server_host: string
+  server_port: number
+  use_tls: boolean
+  refreshed_at?: string | null
+}
