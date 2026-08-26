@@ -94,7 +94,15 @@ defmodule Ircpipe.MixProject do
         "esbuild ircpipe --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "cmd --cd assets npm run typecheck",
+        "cmd --cd assets npm test",
+        "cmd --cd assets npm run build-storybook",
+        "test"
+      ]
     ]
   end
 end
