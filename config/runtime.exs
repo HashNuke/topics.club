@@ -52,6 +52,27 @@ config :ircpipe, :email_from,
   address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
 
 if config_env() == :prod do
+  credentials_key =
+    System.get_env("IRC_CREDENTIALS_KEY") ||
+      raise """
+      environment variable IRC_CREDENTIALS_KEY is missing.
+      Generate one with: 32 |> :crypto.strong_rand_bytes() |> Base.encode64()
+      """
+
+  credentials_key =
+    case Base.decode64(credentials_key) do
+      {:ok, key} when byte_size(key) == 32 ->
+        key
+
+      _ ->
+        raise "IRC_CREDENTIALS_KEY must be a Base64-encoded 32-byte key"
+    end
+
+  config :ircpipe, Ircpipe.Vault,
+    ciphers: [
+      default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: credentials_key, iv_length: 12}
+    ]
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

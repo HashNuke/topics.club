@@ -920,10 +920,11 @@ defmodule Ircpipe.Chat do
   end
 
   defp put_attr(attrs, key, value) do
-    if Map.has_key?(attrs, key) do
-      Map.put(attrs, key, value)
-    else
-      Map.put(attrs, Atom.to_string(key), value)
+    cond do
+      Map.has_key?(attrs, key) -> Map.put(attrs, key, value)
+      Map.has_key?(attrs, Atom.to_string(key)) -> Map.put(attrs, Atom.to_string(key), value)
+      Enum.any?(Map.keys(attrs), &is_atom/1) -> Map.put(attrs, key, value)
+      true -> Map.put(attrs, Atom.to_string(key), value)
     end
   end
 

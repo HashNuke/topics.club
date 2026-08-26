@@ -1,5 +1,14 @@
 import Config
 
+config :ircpipe, Ircpipe.Vault,
+  ciphers: [
+    default:
+      {Cloak.Ciphers.AES.GCM,
+       tag: "AES.GCM.V1",
+       key: Base.decode64!("cLVEdS1Q2lCOQjU+YqgNwPjP9xsNwbpnXknH3P80MlU="),
+       iv_length: 12}
+  ]
+
 # Only in tests, remove the complexity from the password hashing algorithm
 config :bcrypt_elixir, :log_rounds, 1
 

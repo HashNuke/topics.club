@@ -58,7 +58,11 @@ PHX_HOST=your-host.example.com
 IRCPIPE_POSTGRES_DATA=/srv/ircpipe/postgres
 POSTGRES_PASSWORD=use-a-long-random-password
 SECRET_KEY_BASE=the-value-from-mix-phx-gen-secret
+IRC_CREDENTIALS_KEY=the-value-from-32-random-bytes-encoded-with-base64
 ```
+
+Generate `IRC_CREDENTIALS_KEY` with
+`mix run -e 'IO.puts(32 |> :crypto.strong_rand_bytes() |> Base.encode64())'`.
 
 `IRCPIPE_POSTGRES_DATA` is a host directory that you choose. Compose bind-mounts
 it to `/var/lib/postgresql/data`, so that directory is where all database data is

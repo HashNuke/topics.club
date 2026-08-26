@@ -1,5 +1,14 @@
 import Config
 
+config :ircpipe, Ircpipe.Vault,
+  ciphers: [
+    default:
+      {Cloak.Ciphers.AES.GCM,
+       tag: "AES.GCM.V1",
+       key: Base.decode64!("fRmXbEDcBN/ho4mJzfvUJh4aYwNKbBd32vqJ0b2w3YI="),
+       iv_length: 12}
+  ]
+
 # Configure your database
 config :ircpipe, Ircpipe.Repo,
   username: "postgres",

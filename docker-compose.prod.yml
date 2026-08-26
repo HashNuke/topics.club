@@ -9,6 +9,7 @@ services:
     environment:
       DATABASE_URL: ecto://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres/ircpipe_prod
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in .env}
+      IRC_CREDENTIALS_KEY: ${IRC_CREDENTIALS_KEY:?Set IRC_CREDENTIALS_KEY in .env}
       PHX_HOST: ${PHX_HOST:?Set PHX_HOST in .env}
       PORT: 4000
       POOL_SIZE: ${POOL_SIZE:-10}

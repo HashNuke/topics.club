@@ -15,9 +15,9 @@ defmodule Ircpipe.Chat.ServerConnection do
     field :nickname, :string
     field :username, :string
     field :realname, :string
-    field :server_password, :string, redact: true
+    field :server_password, Ircpipe.Encrypted.Binary, redact: true
     field :sasl_username, :string
-    field :sasl_password, :string, redact: true
+    field :sasl_password, Ircpipe.Encrypted.Binary, redact: true
     field :status, :string, default: "disconnected"
     field :casemapping, :string
     field :last_connected_at, :utc_datetime

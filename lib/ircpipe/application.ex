@@ -9,6 +9,7 @@ defmodule Ircpipe.Application do
   def start(_type, _args) do
     children = [
       IrcpipeWeb.Telemetry,
+      Ircpipe.Vault,
       Ircpipe.Repo,
       {DNSCluster, query: Application.get_env(:ircpipe, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Ircpipe.PubSub},

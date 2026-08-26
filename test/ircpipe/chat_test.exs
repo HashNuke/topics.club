@@ -38,10 +38,37 @@ defmodule Ircpipe.ChatTest do
         "server_password" => "network-secret"
       })
 
-    assert connection.nickname == "mira"
+    stored_connection = Repo.get!(Ircpipe.Chat.ServerConnection, connection.id)
+
+    assert stored_connection.nickname == "mira"
+    assert stored_connection.sasl_username == "mira"
+    assert stored_connection.sasl_password == "account-secret"
+    assert stored_connection.server_password == "network-secret"
+
+    assert %{rows: [[encrypted_server_password, encrypted_sasl_password]]} =
+             Repo.query!(
+               "SELECT server_password, sasl_password FROM server_connections WHERE id = $1",
+               [connection.id]
+             )
+
+    refute encrypted_server_password == "network-secret"
+    refute encrypted_sasl_password == "account-secret"
+    assert Ircpipe.Vault.decrypt!(encrypted_server_password) == "network-secret"
+    assert Ircpipe.Vault.decrypt!(encrypted_sasl_password) == "account-secret"
+  end
+
+  test "defaults the SASL account in atom-keyed connection attributes" do
+    user = AccountsFixtures.user_fixture(%{email: "mira@example.com"})
+
+    assert {:ok, connection} =
+             Chat.create_connection(user, %{
+               name: "authenticated",
+               host: "irc.example.com",
+               nickname: "mira",
+               sasl_password: "account-secret"
+             })
+
     assert connection.sasl_username == "mira"
-    assert connection.sasl_password == "account-secret"
-    assert connection.server_password == "network-secret"
   end
 
   test "lists bouncer connections by user activity" do
