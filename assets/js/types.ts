@@ -185,7 +185,7 @@ export interface ChannelDirectory {
   channels: ChannelDirectoryEntry[]
 }
 
-export interface DiscoverChannel {
+export interface ServerChannel {
   id: EntityId
   name: string
   topic?: string | null

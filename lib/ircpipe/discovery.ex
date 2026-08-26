@@ -1,7 +1,7 @@
 defmodule Ircpipe.Discovery do
   import Ecto.Query
 
-  alias Ircpipe.Discovery.{Channel, Network}
+  alias Ircpipe.Discovery.{Network, ServerChannel}
   alias Ircpipe.Repo
 
   @channel_refresh_seconds :timer.hours(24) |> div(1_000)
@@ -40,9 +40,11 @@ defmodule Ircpipe.Discovery do
     end)
   end
 
-  def replace_channels(%Network{} = network, channels, listed_at) when is_list(channels) do
+  def replace_server_channels(%Network{} = network, channels, listed_at) when is_list(channels) do
     Repo.transaction(fn ->
-      from(channel in Channel, where: channel.irc_network_id == ^network.id)
+      from(server_channel in ServerChannel,
+        where: server_channel.irc_network_id == ^network.id
+      )
       |> Repo.delete_all()
 
       now = DateTime.utc_now(:second)
@@ -60,7 +62,7 @@ defmodule Ircpipe.Discovery do
           }
         end)
 
-      {_count, _rows} = Repo.insert_all(Channel, rows)
+      {_count, _rows} = Repo.insert_all(ServerChannel, rows)
 
       network
       |> Ecto.Changeset.change(channels_refreshed_at: listed_at, last_refresh_error: nil)
@@ -70,17 +72,23 @@ defmodule Ircpipe.Discovery do
     end)
   end
 
-  def list_popular_channels do
-    Channel
-    |> join(:inner, [channel], network in assoc(channel, :network))
-    |> where([_channel, network], network.active)
-    |> order_by([channel, network],
-      desc: channel.user_count,
+  def list_popular_server_channels do
+    ServerChannel
+    |> join(:inner, [server_channel], network in assoc(server_channel, :network))
+    |> where([_server_channel, network], network.active)
+    |> order_by([server_channel, network],
+      desc: server_channel.user_count,
       asc: network.rank,
-      asc: channel.name
+      asc: server_channel.name
     )
-    |> preload([_channel, network], network: network)
+    |> preload([_server_channel, network], network: network)
     |> Repo.all()
+  end
+
+  def get_server_channel!(id) do
+    ServerChannel
+    |> preload(:network)
+    |> Repo.get!(id)
   end
 
   def list_active_networks do

@@ -1,4 +1,4 @@
-defmodule Ircpipe.Discovery.ChannelLister do
+defmodule Ircpipe.Discovery.ServerChannelLister do
   alias Ircpipe.Discovery.Network
   alias Ircxd.Client
 

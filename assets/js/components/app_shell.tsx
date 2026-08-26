@@ -7,7 +7,6 @@ import MobileDrawer, {MobileDrawerHeader} from "./mobile_drawer.tsx"
 import RightSidebar from "./right_sidebar.tsx"
 import ServerBufferPane from "./server_buffer_pane.tsx"
 import TopBar from "./top_bar.tsx"
-import {normalizeTopic} from "../chat_store.ts"
 import type {ChannelDirectoryState} from "../hooks/use_channel_directory.ts"
 import type {EditServerForm, ManualServerForm} from "../hooks/use_server_connections.ts"
 import type {
@@ -18,6 +17,7 @@ import type {
   CommandCatalogEntry,
   ConnectionHealth,
   CurrentUser,
+  ServerChannel,
   ServerConnection,
   Topic,
   TopicInput,
@@ -33,6 +33,10 @@ export interface AppShellProps {
   composerError?: string | null
   connectionHealth: ConnectionHealth
   draft: string
+  discoverServerChannels: ServerChannel[]
+  discoverError?: string | null
+  discoverLoading: boolean
+  joiningDiscoveryServerChannelId?: string | number | null
   initialMobileMenuOpen?: boolean
   initialMobileUsersOpen?: boolean
   messages: ChatMessage[]
@@ -44,6 +48,8 @@ export interface AppShellProps {
   onDiscover: () => void
   onDisconnectServer: (server: ServerConnection) => void
   onJoinDirectoryChannel: (channel: string) => void
+  onJoinDiscoverServerChannel: (serverChannel: ServerChannel) => void
+  onJoinThisServerChannel: (channel: string) => void
   onJoinManualServer: (form: ManualServerForm) => void
   onLeaveChannel: (channel: Channel) => void
   onLeaveServer: (server: ServerConnection) => void
@@ -68,27 +74,13 @@ export default function AppShell(props: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(Boolean(props.initialMobileMenuOpen))
   const [mobileUsersOpen, setMobileUsersOpen] = useState(Boolean(props.initialMobileUsersOpen))
   const showsUserSidebar = props.view === "chat"
-  const discoverChannels = props.topics.map((topic, index) => ({
-    id: topic.id || `${topic.server_host}:${topic.channel || topic.name || index}`,
-    name: topic.channel || topic.name || "#channel",
-    topic: topic.description,
-    user_count: topic.member_count || topic.members || 0,
-    network_id: topic.server_host,
-    network_name: topic.server_host,
-    server_host: topic.server_host,
-    server_port: topic.server_port || 6697,
-    use_tls: true,
-  }))
 
   return <main className="min-h-dvh overflow-hidden bg-[#0a0d12] text-slate-100">
     <div className={["grid h-dvh grid-cols-1", showsUserSidebar ? "lg:grid-cols-[260px_minmax(0,1fr)_220px]" : "lg:grid-cols-[260px_minmax(0,1fr)]"].join(" ")}>
       <LeftSidebar {...props} />
       <section className="flex min-h-0 min-w-0 flex-col">
         <TopBar {...props} showsUserSidebar={showsUserSidebar} onOpenMobileMenu={() => setMobileMenuOpen(true)} onOpenMobileUsers={() => setMobileUsersOpen(true)} />
-        {props.view === "discover" ? <DiscoverPane activeServer={props.activeServer} channels={discoverChannels} onJoinChannel={(channel) => {
-          const topic = props.topics.find((candidate) => String(candidate.id) === String(channel.id))
-          if (topic) props.onSelectTopic(normalizeTopic(topic))
-        }} onJoinThisServer={props.onJoinDirectoryChannel} />
+        {props.view === "discover" ? <DiscoverPane activeServer={props.activeServer} serverChannels={props.discoverServerChannels} error={props.discoverError} joiningServerChannelId={props.joiningDiscoveryServerChannelId} loading={props.discoverLoading} onJoinServerChannel={props.onJoinDiscoverServerChannel} onJoinThisServer={props.onJoinThisServerChannel} />
           : props.view === "directory" ? <ChannelDirectoryPane directory={props.channelDirectory} onJoinChannel={props.onJoinDirectoryChannel} onRefresh={() => props.activeServer && props.onOpenChannelDirectory(props.activeServer)} server={props.activeServer} />
             : props.view === "server" ? <ServerBufferPane commandCatalog={props.commandCatalog} composerError={props.composerError} draft={props.draft} messages={props.serverMessages} onLoadOlderMessages={props.onLoadOlderMessages} onReadingStateChange={props.onReadingStateChange} onReconnectServer={props.onReconnectServer} server={props.activeServer} onSendMessage={props.onSendMessage} onUpdateDraft={props.onUpdateDraft} connectionHealth={props.connectionHealth} />
               : <ChatPane {...props} />}

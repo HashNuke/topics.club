@@ -11,7 +11,7 @@ interface TopBarContext {
 }
 
 export function topBarCopyFor({activeChannel, activeServer, view}: TopBarContext) {
-  if (view === "discover") return {title: "Discover", context: null, subtitle: "Find more topics to join."}
+  if (view === "discover") return {title: "Discover", context: null, subtitle: "Find channels to join."}
   if (view === "directory") return {title: `Channels on ${activeServer?.name || "server"}`, context: null, subtitle: "Browse public conversations and join with one click."}
   if (view === "server") return {title: activeServer?.host || "Server", context: null, subtitle: "Server notices, services, and connection details."}
   return {title: activeChannel?.channel || "Chat", context: activeChannel?.connection?.host ? `on ${activeChannel.connection.host}` : null, subtitle: activeChannel?.topic || "Pick a topic from the sidebar or discover view."}
@@ -42,7 +42,7 @@ export default function TopBar({activeChannel, activeServer, connectionHealth, n
         <ConnectionHealthIndicator status={connectionHealth} onRetry={onRetryRealtime} />
         {showsUserSidebar && <button className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden" onClick={onOpenMobileUsers} aria-label="Show users" type="button"><span className="hero-users size-5" aria-hidden="true" /></button>}
         <Tooltip label={notificationLabel(notificationState)}>
-          <button id="notification-bell" className={["grid size-9 place-items-center rounded-md border transition", notificationState === "granted" ? "border-emerald-400 bg-emerald-400/10 text-emerald-200" : "border-slate-700 text-slate-300 hover:border-cyan-300 hover:text-white"].join(" ")} onClick={onRequestNotifications} aria-label="Enable browser notifications" type="button"><span className="hero-bell size-4" aria-hidden="true" /></button>
+          <button id="notification-bell" className={["grid size-9 place-items-center rounded-md border transition", notificationState === "granted" ? "border-emerald-300 bg-emerald-300 text-emerald-950 hover:bg-emerald-200" : "border-slate-700 text-white/75 hover:border-cyan-300 hover:text-white"].join(" ")} onClick={onRequestNotifications} aria-label="Enable browser notifications" type="button"><span className="hero-bell size-4" aria-hidden="true" /></button>
         </Tooltip>
       </div>
     </header>

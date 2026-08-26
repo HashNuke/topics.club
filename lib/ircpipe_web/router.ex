@@ -51,6 +51,8 @@ defmodule IrcpipeWeb.Router do
     pipe_through :authenticated_api
 
     get "/bootstrap", BootstrapController, :show
+    get "/discovery/server_channels", DiscoveryController, :index
+    post "/discovery/server_channels/:id/join", DiscoveryController, :join
     post "/topics/:id/join", TopicController, :join
     get "/connections", ConnectionController, :index
     post "/connections", ConnectionController, :create

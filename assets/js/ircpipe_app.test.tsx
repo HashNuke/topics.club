@@ -197,67 +197,39 @@ function mockBootstrapFetch({
   })
 }
 
-function mockJoinTopicFetch() {
-  const topics = [
-    {
-      id: 101,
-      name: "#backend",
-      description: "Backend implementation work.",
-      server_host: "127.0.0.1",
-      server_port: 6669,
-      use_tls: false,
-      channel: "#backend",
-    },
-  ]
+function mockDiscoveryFetch() {
+  const channel = {
+    id: 501,
+    name: "#backend",
+    topic: "Backend implementation work.",
+    user_count: 86,
+    network_id: 9,
+    network_name: "Local IRC",
+    server_host: "127.0.0.1",
+    server_port: 6669,
+    use_tls: false,
+  }
 
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (path) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/bootstrap") {
+      return {ok: true, json: async () => ({connections: [], buffers: [], messages_by_buffer: {}, users_by_buffer: {}, topics: [], notification_state: "default"})}
+    }
+
+    if (path === "/api/discovery/server_channels") {
+      return {ok: true, json: async () => ({server_channels: [channel]})}
+    }
+
+    if (path === "/api/discovery/server_channels/501/join" && options.method === "POST") {
       return {
         ok: true,
         json: async () => ({
-          connections: [],
-          buffers: [],
-          messages_by_buffer: {},
-          users_by_buffer: {},
-          topics,
-          notification_state: "default",
+          connection: {id: 55, name: "Local IRC", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected"},
+          buffer: {buffer_id: "channel:88", buffer_type: "channel", server_connection_id: 55, channel_membership_id: 88, title: "#backend", subtitle: "Backend implementation work.", status: "connected", unread_count: 0, mention_count: 0},
         }),
       }
     }
 
-    if (path === "/api/topics/101/join") {
-      return {
-        ok: true,
-        json: async () => ({
-          topic: topics[0],
-          connection: {
-            id: 55,
-            name: "127.0.0.1",
-            host: "127.0.0.1",
-            port: 6669,
-            use_tls: false,
-            nickname: "mira",
-            status: "connected",
-          },
-          buffer: {
-            buffer_id: "channel:88",
-            buffer_type: "channel",
-            server_connection_id: 55,
-            channel_membership_id: 88,
-            title: "#backend",
-            subtitle: "on 127.0.0.1",
-            status: "connected",
-            unread_count: 0,
-            mention_count: 0,
-          },
-        }),
-      }
-    }
-
-    return {
-      ok: true,
-      json: async () => ({topics}),
-    }
+    return {ok: true, json: async () => ({topics: []})}
   })
 }
 
@@ -462,7 +434,7 @@ describe("IrcpipeApp UI prototype", () => {
 
   test("opens discover and joins a backend topic in the app shell", async () => {
     const user = userEvent.setup()
-    mockJoinTopicFetch()
+    mockDiscoveryFetch()
 
     render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
@@ -474,6 +446,27 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "#backend"})).toBeInTheDocument()
     expect(screen.getByText("on 127.0.0.1")).toBeInTheDocument()
     expect(screen.queryByText(/placeholder chat until the IRC backend is wired/i)).not.toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/discovery/server_channels", expect.objectContaining({credentials: "same-origin"}))
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/discovery/server_channels/501/join", expect.objectContaining({method: "POST"}))
+  })
+
+  test("joins a typed channel from the current-server discover tab", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    await user.click(screen.getByRole("button", {name: /discover/i}))
+    await user.click(screen.getByRole("tab", {name: "This server · local"}))
+    await user.type(screen.getByLabelText("Channel name"), "elixir")
+    await user.click(screen.getByRole("button", {name: "Join channel"}))
+
+    expect(await screen.findByRole("heading", {name: "#elixir"})).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/connections/42/channels",
+      expect.objectContaining({method: "POST", body: JSON.stringify({channel: "#elixir"})})
+    )
   })
 
   test("loads the authenticated chat shell from bootstrap", async () => {
@@ -545,23 +538,6 @@ describe("IrcpipeApp UI prototype", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/buffer_messages?limit=50&buffer_id=channel%3A7",
       expect.objectContaining({credentials: "same-origin"})
-    )
-  })
-
-  test("joins numeric backend topics through the topic join API", async () => {
-    const user = userEvent.setup()
-    mockJoinTopicFetch()
-
-    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
-
-    await user.click(screen.getByRole("button", {name: /discover/i}))
-    await user.click(await screen.findByRole("button", {name: /#backend/i}))
-
-    expect(await screen.findByRole("heading", {name: "#backend"})).toBeInTheDocument()
-    expect(screen.getByText("on 127.0.0.1")).toBeInTheDocument()
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "/api/topics/101/join",
-      expect.objectContaining({method: "POST", credentials: "same-origin"})
     )
   })
 
@@ -1507,7 +1483,7 @@ describe("IrcpipeApp UI prototype", () => {
       await user.click(screen.getByLabelText("Enable browser notifications"))
 
       expect(requestPermission).toHaveBeenCalledTimes(1)
-      expect(await screen.findByLabelText("Enable browser notifications")).toHaveClass("text-emerald-200")
+      expect(await screen.findByLabelText("Enable browser notifications")).toHaveClass("text-emerald-950")
     } finally {
       if (originalNotification) {
         Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})

@@ -1,7 +1,7 @@
 import {fireEvent, render, screen} from "@testing-library/react"
 import {describe, expect, test, vi} from "vitest"
 import DiscoverPane from "./discover_pane.tsx"
-import type {DiscoverChannel, ServerConnection} from "../types.ts"
+import type {ServerChannel, ServerConnection} from "../types.ts"
 
 const activeServer: ServerConnection = {
   id: "server:42",
@@ -12,7 +12,7 @@ const activeServer: ServerConnection = {
   channels: [],
 }
 
-const channels: DiscoverChannel[] = [
+const serverChannels: ServerChannel[] = [
   {id: 1, name: "#small", topic: "A small room", user_count: 12, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true},
   {id: 2, name: "#largest", topic: "The largest room", user_count: 900, network_id: 2, network_name: "OFTC", server_host: "irc.oftc.net", server_port: 6697, use_tls: true},
   {id: 3, name: "#medium", topic: "A medium room", user_count: 120, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true},
@@ -20,7 +20,7 @@ const channels: DiscoverChannel[] = [
 
 describe("DiscoverPane", () => {
   test("shows popular channels across networks in descending user order", () => {
-    render(<DiscoverPane activeServer={activeServer} channels={channels} onJoinChannel={() => {}} onJoinThisServer={() => {}} />)
+    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} onJoinServerChannel={() => {}} onJoinThisServer={() => {}} />)
 
     const cards = screen.getAllByTestId("discover-channel")
     expect(cards.map((card) => card.textContent)).toEqual([
@@ -32,7 +32,7 @@ describe("DiscoverPane", () => {
   })
 
   test("paginates the catalog in the browser", () => {
-    render(<DiscoverPane activeServer={activeServer} channels={channels} pageSize={2} onJoinChannel={() => {}} onJoinThisServer={() => {}} />)
+    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} pageSize={2} onJoinServerChannel={() => {}} onJoinThisServer={() => {}} />)
 
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", {name: "Next page"}))
@@ -41,16 +41,16 @@ describe("DiscoverPane", () => {
   })
 
   test("joins a catalog channel from its card", () => {
-    const onJoinChannel = vi.fn()
-    render(<DiscoverPane activeServer={activeServer} channels={channels} onJoinChannel={onJoinChannel} onJoinThisServer={() => {}} />)
+    const onJoinServerChannel = vi.fn()
+    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} onJoinServerChannel={onJoinServerChannel} onJoinThisServer={() => {}} />)
 
     fireEvent.click(screen.getByRole("button", {name: "Join #largest on OFTC"}))
-    expect(onJoinChannel).toHaveBeenCalledWith(channels[1])
+    expect(onJoinServerChannel).toHaveBeenCalledWith(serverChannels[1])
   })
 
   test("joins a typed channel on the active server", () => {
     const onJoinThisServer = vi.fn()
-    render(<DiscoverPane activeServer={activeServer} channels={channels} onJoinChannel={() => {}} onJoinThisServer={onJoinThisServer} />)
+    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} onJoinServerChannel={() => {}} onJoinThisServer={onJoinThisServer} />)
 
     fireEvent.click(screen.getByRole("tab", {name: "This server · Libera.Chat"}))
     fireEvent.change(screen.getByLabelText("Channel name"), {target: {value: "elixir"}})
@@ -60,10 +60,11 @@ describe("DiscoverPane", () => {
   })
 
   test("hides the current-server tab when there is no active server", () => {
-    render(<DiscoverPane channels={channels} onJoinChannel={() => {}} onJoinThisServer={() => {}} />)
+    render(<DiscoverPane serverChannels={[]} onJoinServerChannel={() => {}} onJoinThisServer={() => {}} />)
 
     expect(screen.queryByRole("tab", {name: "This server"})).not.toBeInTheDocument()
     expect(screen.getByRole("tab", {name: "All IRC servers"})).toBeInTheDocument()
     expect(screen.queryByLabelText("Channel name")).not.toBeInTheDocument()
+    expect(screen.getByText("Connect to an IRC server or wait for the directory refresh.")).toBeInTheDocument()
   })
 })

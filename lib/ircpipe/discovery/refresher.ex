@@ -4,7 +4,7 @@ defmodule Ircpipe.Discovery.Refresher do
   require Logger
 
   alias Ircpipe.Discovery
-  alias Ircpipe.Discovery.{ChannelLister, Netsplit}
+  alias Ircpipe.Discovery.{Netsplit, ServerChannelLister}
 
   @check_interval :timer.hours(1)
 
@@ -14,7 +14,7 @@ defmodule Ircpipe.Discovery.Refresher do
 
   def run(now \\ DateTime.utc_now(:second), opts \\ []) do
     fetch_networks = Keyword.get(opts, :fetch_networks, &Netsplit.fetch_networks/0)
-    list_channels = Keyword.get(opts, :list_channels, &ChannelLister.fetch/1)
+    list_channels = Keyword.get(opts, :list_channels, &ServerChannelLister.fetch/1)
     max_concurrency = Keyword.get(opts, :max_concurrency, 2)
 
     with :ok <- maybe_refresh_networks(now, fetch_networks) do
@@ -91,7 +91,7 @@ defmodule Ircpipe.Discovery.Refresher do
 
   defp refresh_channel_list(network, now, list_channels) do
     case list_channels.(network) do
-      {:ok, channels} -> Discovery.replace_channels(network, channels, now)
+      {:ok, channels} -> Discovery.replace_server_channels(network, channels, now)
       {:error, reason} -> Discovery.mark_channel_refresh_error(network, reason)
     end
   end

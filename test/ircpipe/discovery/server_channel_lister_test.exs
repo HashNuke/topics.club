@@ -1,7 +1,7 @@
-defmodule Ircpipe.Discovery.ChannelListerTest do
+defmodule Ircpipe.Discovery.ServerChannelListerTest do
   use ExUnit.Case, async: true
 
-  alias Ircpipe.Discovery.ChannelLister
+  alias Ircpipe.Discovery.ServerChannelLister
   alias Ircpipe.Discovery.Network
   alias Ircpipe.IrcTestServer
 
@@ -15,7 +15,7 @@ defmodule Ircpipe.Discovery.ChannelListerTest do
       use_tls: false
     }
 
-    assert {:ok, channels} = ChannelLister.fetch(network, timeout: 1_000)
+    assert {:ok, channels} = ServerChannelLister.fetch(network, timeout: 1_000)
 
     assert channels == [
              %{name: "#elixir", topic: "Elixir, OTP, and Phoenix", user_count: 42},

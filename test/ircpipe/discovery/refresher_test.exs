@@ -41,7 +41,7 @@ defmodule Ircpipe.Discovery.RefresherTest do
     assert_received {:listed_irc, "irc.local.test"}
 
     assert [%{name: "#elixir", user_count: 42, network: %{name: "Local IRC"}}] =
-             Discovery.list_popular_channels()
+             Discovery.list_popular_server_channels()
   end
 
   test "does no external work while both caches are fresh" do
@@ -63,7 +63,7 @@ defmodule Ircpipe.Discovery.RefresherTest do
         now
       )
 
-    assert {:ok, 0} = Discovery.replace_channels(network, [], now)
+    assert {:ok, 0} = Discovery.replace_server_channels(network, [], now)
 
     reject = fn -> flunk("network source should not be called") end
     reject_network = fn _network -> flunk("IRC LIST should not be called") end

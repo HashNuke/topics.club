@@ -1,16 +1,16 @@
 import React, {useMemo, useState} from "react"
-import type {DiscoverChannel, ServerConnection} from "../types.ts"
+import type {ServerChannel, ServerConnection} from "../types.ts"
 
 type DiscoverTab = "all" | "server"
 
 export interface DiscoverPaneProps {
   activeServer?: ServerConnection
-  channels: DiscoverChannel[]
+  serverChannels: ServerChannel[]
   error?: string | null
   initialTab?: DiscoverTab
-  joiningChannelId?: string | number | null
+  joiningServerChannelId?: string | number | null
   loading?: boolean
-  onJoinChannel: (channel: DiscoverChannel) => void
+  onJoinServerChannel: (serverChannel: ServerChannel) => void
   onJoinThisServer: (channel: string) => void
   pageSize?: number
 }
@@ -25,8 +25,8 @@ function formatUsers(count: number): string {
   return new Intl.NumberFormat().format(count)
 }
 
-function refreshedLabel(channels: DiscoverChannel[]): string | null {
-  const value = channels.find((channel) => channel.refreshed_at)?.refreshed_at
+function refreshedLabel(serverChannels: ServerChannel[]): string | null {
+  const value = serverChannels.find((serverChannel) => serverChannel.refreshed_at)?.refreshed_at
   if (!value) return null
 
   const date = new Date(value)
@@ -34,22 +34,22 @@ function refreshedLabel(channels: DiscoverChannel[]): string | null {
   return `Updated ${date.toLocaleDateString(undefined, {month: "short", day: "numeric"})}`
 }
 
-function ChannelCard({channel, joining, onJoin}: {channel: DiscoverChannel; joining: boolean; onJoin: () => void}) {
+function ChannelCard({serverChannel, joining, onJoin}: {serverChannel: ServerChannel; joining: boolean; onJoin: () => void}) {
   return (
     <article data-testid="discover-channel" className="group flex min-h-44 flex-col rounded-2xl border border-white/8 bg-[#111722] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.18)] transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/45 hover:bg-[#141c29]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-lg font-semibold tracking-tight text-white">{channel.name}</h3>
-          <p className="mt-1 truncate text-xs font-medium text-slate-500">{channel.network_name} · {channel.server_host}</p>
+          <h3 className="truncate text-lg font-semibold tracking-tight text-white">{serverChannel.name}</h3>
+          <p className="mt-1 truncate text-xs font-medium text-slate-500">{serverChannel.network_name} · {serverChannel.server_host}</p>
         </div>
         <div className="shrink-0 rounded-full border border-emerald-300/15 bg-emerald-300/8 px-2.5 py-1 text-xs font-semibold tabular-nums text-emerald-200">
-          {formatUsers(channel.user_count)} online
+          {formatUsers(serverChannel.user_count)} online
         </div>
       </div>
-      <p className="mt-4 line-clamp-2 min-h-10 text-sm leading-5 text-slate-400">{channel.topic || "A public IRC channel open for conversation."}</p>
+      <p className="mt-4 line-clamp-2 min-h-10 text-sm leading-5 text-slate-400">{serverChannel.topic || "A public IRC channel open for conversation."}</p>
       <div className="mt-auto flex items-end justify-between gap-3 pt-4">
-        <span className="text-[11px] text-slate-600">{channel.use_tls ? "Secure connection" : `Port ${channel.server_port}`}</span>
-        <button type="button" disabled={joining} aria-label={`Join ${channel.name} on ${channel.network_name}`} onClick={onJoin} className="rounded-lg bg-cyan-300 px-3 py-2 text-xs font-bold text-cyan-950 transition hover:bg-cyan-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-wait disabled:opacity-60">
+        <span className="text-[11px] text-slate-600">{serverChannel.use_tls ? "Secure connection" : `Port ${serverChannel.server_port}`}</span>
+        <button type="button" disabled={joining} aria-label={`Join ${serverChannel.name} on ${serverChannel.network_name}`} onClick={onJoin} className="rounded-lg bg-cyan-300 px-3 py-2 text-xs font-bold text-cyan-950 transition hover:bg-cyan-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-wait disabled:opacity-60">
           {joining ? "Joining…" : "Join channel"}
         </button>
       </div>
@@ -57,15 +57,15 @@ function ChannelCard({channel, joining, onJoin}: {channel: DiscoverChannel; join
   )
 }
 
-export default function DiscoverPane({activeServer, channels, error, initialTab = "all", joiningChannelId, loading = false, onJoinChannel, onJoinThisServer, pageSize = 12}: DiscoverPaneProps) {
+export default function DiscoverPane({activeServer, serverChannels, error, initialTab = "all", joiningServerChannelId, loading = false, onJoinServerChannel, onJoinThisServer, pageSize = 12}: DiscoverPaneProps) {
   const [tab, setTab] = useState<DiscoverTab>(initialTab === "server" && !activeServer ? "all" : initialTab)
   const [page, setPage] = useState(1)
   const [manualChannel, setManualChannel] = useState("")
   const serverLabel = activeServer?.name || activeServer?.host
 
   const sortedChannels = useMemo(
-    () => [...channels].sort((left, right) => right.user_count - left.user_count || left.name.localeCompare(right.name)),
-    [channels]
+    () => [...serverChannels].sort((left, right) => right.user_count - left.user_count || left.name.localeCompare(right.name)),
+    [serverChannels]
   )
   const visibleChannels = tab === "server" && activeServer
     ? sortedChannels.filter((channel) => channel.server_host.toLowerCase() === activeServer.host.toLowerCase())
@@ -127,12 +127,12 @@ export default function DiscoverPane({activeServer, channels, error, initialTab 
           <div aria-label="Loading channel directory" className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{Array.from({length: 6}, (_, index) => <div key={index} className="h-44 animate-pulse rounded-2xl border border-white/6 bg-white/[0.035]" />)}</div>
         ) : paginatedChannels.length ? (
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {paginatedChannels.map((channel) => <ChannelCard key={channel.id} channel={channel} joining={String(joiningChannelId) === String(channel.id)} onJoin={() => onJoinChannel(channel)} />)}
+            {paginatedChannels.map((serverChannel) => <ChannelCard key={serverChannel.id} serverChannel={serverChannel} joining={String(joiningServerChannelId) === String(serverChannel.id)} onJoin={() => onJoinServerChannel(serverChannel)} />)}
           </div>
         ) : (
           <div className="mt-5 rounded-2xl border border-dashed border-white/10 px-6 py-14 text-center">
             <p className="text-sm font-semibold text-slate-300">No cached channels yet</p>
-            <p className="mt-1 text-xs text-slate-600">You can still enter a channel name above and join it directly.</p>
+            <p className="mt-1 text-xs text-slate-600">{activeServer ? "Use the current-server tab to enter a channel name directly." : "Connect to an IRC server or wait for the directory refresh."}</p>
           </div>
         )}
 

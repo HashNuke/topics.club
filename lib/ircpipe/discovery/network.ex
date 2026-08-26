@@ -2,7 +2,7 @@ defmodule Ircpipe.Discovery.Network do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Ircpipe.Discovery.Channel
+  alias Ircpipe.Discovery.ServerChannel
 
   schema "irc_networks" do
     field :name, :string
@@ -17,7 +17,7 @@ defmodule Ircpipe.Discovery.Network do
     field :last_refresh_error, :string
     field :active, :boolean, default: true
 
-    has_many :channels, Channel, foreign_key: :irc_network_id
+    has_many :server_channels, ServerChannel, foreign_key: :irc_network_id
 
     timestamps(type: :utc_datetime)
   end

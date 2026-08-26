@@ -32,6 +32,7 @@ import type {
   ChatMessage,
   CommandCatalogEntry,
   CurrentUser,
+  ServerChannel,
   PresenceDiffPayload,
   PresenceSyncPayload,
   ServerConnection,
@@ -66,10 +67,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [usersByChannel, setUsersByChannel] = useState<UsersByBuffer>({})
   const [draft, setDraft] = useState("")
   const [composerError, setComposerError] = useState<string | null>(null)
+  const [discoverServerChannels, setDiscoverServerChannels] = useState<ServerChannel[]>([])
+  const [discoverError, setDiscoverError] = useState<string | null>(null)
+  const [discoverLoading, setDiscoverLoading] = useState(false)
+  const [joiningDiscoveryServerChannelId, setJoiningDiscoveryServerChannelId] = useState<string | number | null>(null)
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalogEntry[]>([])
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef<ServerConnection[]>([])
+  const discoverRequestedRef = useRef(false)
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
@@ -218,6 +224,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       .then((bootstrap) => applyBootstrap(bootstrap))
       .catch(() => {})
   }, [apiClient, currentUser?.id, mode])
+
+  useEffect(() => {
+    if (mode === "landing" || view !== "discover" || discoverRequestedRef.current) return
+
+    discoverRequestedRef.current = true
+    setDiscoverLoading(true)
+    setDiscoverError(null)
+
+    apiClient
+      .discoveryServerChannels()
+      .then(({server_channels}) => setDiscoverServerChannels(server_channels || []))
+      .catch(() => setDiscoverError("The IRC directory could not be loaded. Try again later."))
+      .finally(() => setDiscoverLoading(false))
+  }, [apiClient, mode, view])
 
   useActivityHeartbeat(apiClient, Boolean(currentUser && mode !== "landing"))
 
@@ -373,6 +393,32 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
   }
 
+  async function joinDiscoveredServerChannel(serverChannel: ServerChannel): Promise<void> {
+    setJoiningDiscoveryServerChannelId(serverChannel.id)
+    setDiscoverError(null)
+
+    try {
+      const joined = await apiClient.joinDiscoveryServerChannel(serverChannel.id)
+      applyAuthoritativeJoinedTopic(joined)
+    } catch (_error) {
+      setDiscoverError(`Could not join ${serverChannel.name} on ${serverChannel.network_name}.`)
+    } finally {
+      setJoiningDiscoveryServerChannelId(null)
+    }
+  }
+
+  async function joinThisServerChannel(channel: string): Promise<void> {
+    if (!activeServer?.server_connection_id) return
+    setDiscoverError(null)
+
+    try {
+      const joined = await apiClient.joinChannel(activeServer.server_connection_id, channel)
+      applyJoinedChannel({...activeServer, id: activeServer.server_connection_id}, joined.channel)
+    } catch (_error) {
+      setDiscoverError(`Could not join ${channel} on ${activeServer.name || activeServer.host}.`)
+    }
+  }
+
   function currentBufferId(): string | undefined {
     if (view === "server" && activeServer) return `server:${activeServer.server_connection_id || activeServer.id}`
     return activeChannel?.id
@@ -455,7 +501,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       currentUser={currentUser}
       commandCatalog={commandCatalog}
       composerError={composerError}
+      discoverServerChannels={discoverServerChannels}
+      discoverError={discoverError}
+      discoverLoading={discoverLoading}
       draft={draft}
+      joiningDiscoveryServerChannelId={joiningDiscoveryServerChannelId}
       messages={messages}
       notificationState={notificationState}
       serverMessages={serverMessages}
@@ -468,6 +518,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         setView("discover")
       }}
       onJoinDirectoryChannel={joinDirectoryChannel}
+      onJoinDiscoverServerChannel={joinDiscoveredServerChannel}
+      onJoinThisServerChannel={joinThisServerChannel}
       onJoinManualServer={joinManualServer}
       onLeaveChannel={leaveChannel}
       onMarkChannelRead={markChannelRead}

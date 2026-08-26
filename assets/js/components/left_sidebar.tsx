@@ -44,7 +44,7 @@ export default function LeftSidebar(props: LeftSidebarProps) {
         </button>
       </div>
       <div className="space-y-2 border-b border-slate-800/80 p-3">
-        <button id="discover-topics-button" className="flex w-full items-center justify-between rounded-md border border-slate-700/80 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-200 transition hover:border-cyan-300" onClick={onDiscover} type="button">
+        <button id="discover-channels-button" className="flex w-full items-center justify-between rounded-md border border-slate-700/80 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-200 transition hover:border-cyan-300" onClick={onDiscover} type="button">
           <span>Discover</span>
           <span className="hero-magnifying-glass size-4 text-slate-500" aria-hidden="true" />
         </button>
