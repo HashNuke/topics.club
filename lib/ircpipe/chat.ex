@@ -12,6 +12,7 @@ defmodule Ircpipe.Chat do
     DirectMessageThread,
     Message,
     Notification,
+    Presence,
     Retention,
     ServerConnection
   }
@@ -638,14 +639,6 @@ defmodule Ircpipe.Chat do
     end
   end
 
-  def list_channel_users(%ChannelMembership{} = membership) do
-    ChannelUser
-    |> where([u], u.channel_membership_id == ^membership.id)
-    |> order_by([u], asc: u.nick)
-    |> Repo.all()
-    |> Enum.map(&channel_user_json/1)
-  end
-
   def record_inbound_message(
         %ServerConnection{} = connection,
         channel,
@@ -982,7 +975,7 @@ defmodule Ircpipe.Chat do
   def record_channel_system_message_all(%ServerConnection{} = connection, kind, nick, body_fun)
       when is_function(body_fun, 1) do
     connection
-    |> presence_memberships(nil)
+    |> Presence.memberships(nil)
     |> Enum.each(fn membership ->
       record_channel_system_message(
         connection,
@@ -1013,7 +1006,7 @@ defmodule Ircpipe.Chat do
       )
       when is_binary(present_nick) and is_function(body_fun, 1) do
     connection
-    |> presence_memberships_with_nick(present_nick)
+    |> Presence.memberships_with_nick(present_nick)
     |> Enum.each(fn membership ->
       record_channel_system_message(
         connection,
@@ -1066,63 +1059,6 @@ defmodule Ircpipe.Chat do
     })
 
     :ok
-  end
-
-  def broadcast_presence_sync(
-        %ServerConnection{} = connection,
-        channel,
-        names,
-        casemapping \\ :rfc1459
-      ) do
-    case channel_membership(connection, channel, casemapping) do
-      %ChannelMembership{} = membership ->
-        users = Enum.map(names, &presence_user/1)
-        sync_channel_users(membership, users)
-
-        event =
-          Event.presence_sync(%{
-            buffer_id: "channel:#{membership.id}",
-            server_connection_id: connection.id,
-            channel_membership_id: membership.id,
-            users: users
-          })
-
-        Phoenix.PubSub.broadcast(
-          Ircpipe.PubSub,
-          "user:#{connection.user_id}",
-          {:presence_sync, event}
-        )
-
-      nil ->
-        :ok
-    end
-  end
-
-  def broadcast_presence_diff(
-        %ServerConnection{} = connection,
-        channel,
-        diff,
-        casemapping \\ :rfc1459
-      ) do
-    connection
-    |> presence_memberships(channel, casemapping)
-    |> Enum.each(fn membership ->
-      apply_presence_diff(membership, diff)
-
-      event =
-        Event.presence_diff(%{
-          buffer_id: "channel:#{membership.id}",
-          server_connection_id: connection.id,
-          channel_membership_id: membership.id,
-          diff: diff
-        })
-
-      Phoenix.PubSub.broadcast(
-        Ircpipe.PubSub,
-        "user:#{connection.user_id}",
-        {:presence_diff, event}
-      )
-    end)
   end
 
   def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
@@ -1542,136 +1478,6 @@ defmodule Ircpipe.Chat do
   defp membership_for_message(%Message{channel_membership_id: membership_id}),
     do: Repo.get!(ChannelMembership, membership_id)
 
-  defp presence_user(name) do
-    %{
-      nick: name.nick,
-      role: role_for_prefixes(Map.get(name, :prefixes, [])),
-      status: "online",
-      hostmask: Map.get(name, :raw_source),
-      last_observed_at: DateTime.utc_now(:second)
-    }
-  end
-
-  defp channel_user_json(%ChannelUser{} = user) do
-    %{
-      nick: user.nick,
-      role: user.role,
-      status: user.status,
-      hostmask: user.hostmask,
-      last_observed_at: user.last_observed_at
-    }
-  end
-
-  defp sync_channel_users(%ChannelMembership{} = membership, users) do
-    now = DateTime.utc_now(:second)
-
-    Repo.transaction(fn ->
-      from(u in ChannelUser, where: u.channel_membership_id == ^membership.id)
-      |> Repo.delete_all()
-
-      entries =
-        Enum.map(users, fn user ->
-          user
-          |> channel_user_attrs(now)
-          |> Map.merge(%{
-            channel_membership_id: membership.id,
-            inserted_at: now,
-            updated_at: now
-          })
-        end)
-
-      if entries != [] do
-        Repo.insert_all(ChannelUser, entries)
-      end
-    end)
-  end
-
-  defp apply_presence_diff(%ChannelMembership{} = membership, %{action: "join", user: user}) do
-    upsert_channel_user(membership, user)
-  end
-
-  defp apply_presence_diff(%ChannelMembership{} = membership, %{action: action, nick: nick})
-       when action in ["part", "quit"] and is_binary(nick) do
-    from(u in ChannelUser, where: u.channel_membership_id == ^membership.id and u.nick == ^nick)
-    |> Repo.delete_all()
-  end
-
-  defp apply_presence_diff(%ChannelMembership{} = membership, %{
-         action: "nick",
-         old_nick: old_nick,
-         new_nick: new_nick
-       })
-       when is_binary(old_nick) and is_binary(new_nick) do
-    now = DateTime.utc_now(:second)
-
-    from(u in ChannelUser,
-      where: u.channel_membership_id == ^membership.id and u.nick == ^old_nick
-    )
-    |> Repo.update_all(set: [nick: new_nick, last_observed_at: now, updated_at: now])
-  end
-
-  defp apply_presence_diff(%ChannelMembership{} = membership, %{
-         action: "away",
-         nick: nick,
-         status: status
-       })
-       when is_binary(nick) and is_binary(status) do
-    update_channel_user(membership, nick, %{status: status})
-  end
-
-  defp apply_presence_diff(%ChannelMembership{} = membership, %{
-         action: "role",
-         nick: nick,
-         role: role
-       })
-       when is_binary(nick) and is_binary(role) do
-    update_channel_user(membership, nick, %{role: role})
-  end
-
-  defp apply_presence_diff(_membership, _diff), do: :ok
-
-  defp upsert_channel_user(%ChannelMembership{} = membership, user) do
-    now = DateTime.utc_now(:second)
-
-    attrs =
-      user
-      |> channel_user_attrs(now)
-      |> Map.merge(%{
-        channel_membership_id: membership.id,
-        inserted_at: now,
-        updated_at: now
-      })
-
-    Repo.insert_all(ChannelUser, [attrs],
-      on_conflict: {:replace, [:role, :status, :hostmask, :last_observed_at, :updated_at]},
-      conflict_target: [:channel_membership_id, :nick]
-    )
-  end
-
-  defp update_channel_user(%ChannelMembership{} = membership, nick, attrs) do
-    now = DateTime.utc_now(:second)
-
-    updates =
-      attrs
-      |> Map.take([:role, :status, :hostmask])
-      |> Map.put(:last_observed_at, now)
-      |> Map.put(:updated_at, now)
-      |> Map.to_list()
-
-    from(u in ChannelUser, where: u.channel_membership_id == ^membership.id and u.nick == ^nick)
-    |> Repo.update_all(set: updates)
-  end
-
-  defp channel_user_attrs(user, observed_at) do
-    %{
-      nick: metadata_value(user, :nick),
-      role: metadata_value(user, :role) || "user",
-      status: metadata_value(user, :status) || "online",
-      hostmask: metadata_value(user, :hostmask),
-      last_observed_at: metadata_value(user, :last_observed_at) || observed_at
-    }
-  end
-
   defp pubsub_event(%{type: "buffer:error"}), do: :buffer_error
   defp pubsub_event(%{type: "buffer:system"}), do: :buffer_system
   defp pubsub_event(_event), do: :buffer_message
@@ -1746,9 +1552,7 @@ defmodule Ircpipe.Chat do
       from(notification in Notification, where: notification.channel_membership_id == ^loser.id)
       |> Repo.update_all(set: [channel_membership_id: winner.id])
 
-      loser
-      |> list_channel_users()
-      |> Enum.each(&upsert_channel_user(winner, &1))
+      Presence.merge_users(loser, winner)
 
       Repo.delete!(loser)
     end)
@@ -1804,42 +1608,4 @@ defmodule Ircpipe.Chat do
   end
 
   defp stored_casemapping(%ServerConnection{}), do: nil
-
-  defp presence_memberships(connection, channel),
-    do: presence_memberships(connection, channel, :rfc1459)
-
-  defp presence_memberships(connection, nil, _casemapping) do
-    ChannelMembership
-    |> where([m], m.server_connection_id == ^connection.id and m.status == "joined")
-    |> Repo.all()
-  end
-
-  defp presence_memberships(connection, channel, casemapping) do
-    case channel_membership(connection, channel, casemapping, "joined") do
-      %ChannelMembership{} = membership -> [membership]
-      nil -> []
-    end
-  end
-
-  defp presence_memberships_with_nick(connection, nick) do
-    ChannelMembership
-    |> join(:inner, [m], u in ChannelUser, on: u.channel_membership_id == m.id)
-    |> where(
-      [m, u],
-      m.server_connection_id == ^connection.id and m.status == "joined" and
-        fragment("lower(?)", u.nick) == fragment("lower(?)", ^nick)
-    )
-    |> Repo.all()
-  end
-
-  defp role_for_prefixes(prefixes) do
-    cond do
-      "~" in prefixes -> "owner"
-      "&" in prefixes -> "admin"
-      "@" in prefixes -> "op"
-      "%" in prefixes -> "halfop"
-      "+" in prefixes -> "voice"
-      true -> "user"
-    end
-  end
 end

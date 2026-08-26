@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.MessageHistory
@@ -846,7 +847,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Chat.broadcast_presence_sync(connection, "#elixir", [
+    Presence.sync(connection, "#elixir", [
       %{nick: "mira", prefixes: ["@"]},
       %{nick: "akash", prefixes: []}
     ])
@@ -880,7 +881,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Chat.broadcast_presence_diff(connection, "#elixir", %{
+    Presence.diff(connection, "#elixir", %{
       action: "join",
       user: %{nick: "akash", role: "user", status: "online"}
     })
@@ -911,7 +912,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Chat.broadcast_presence_diff(connection, "#elixir", %{
+    Presence.diff(connection, "#elixir", %{
       action: "away",
       nick: "akash",
       status: "away"
@@ -943,7 +944,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Chat.broadcast_presence_diff(connection, "#elixir", %{
+    Presence.diff(connection, "#elixir", %{
       action: "role",
       nick: "akash",
       role: "op"

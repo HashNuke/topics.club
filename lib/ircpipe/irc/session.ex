@@ -6,6 +6,7 @@ defmodule Ircpipe.Irc.Session do
   require Logger
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.CommandResult
@@ -404,7 +405,7 @@ defmodule Ircpipe.Irc.Session do
     names = Map.get(names_buffers, normalized, [])
 
     if names != [] do
-      Chat.broadcast_presence_sync(state.connection, channel, names, casemapping(state))
+      Presence.sync(state.connection, channel, names, casemapping(state))
     end
 
     state =
@@ -423,7 +424,7 @@ defmodule Ircpipe.Irc.Session do
         Chat.confirm_channel_join(state.connection, channel, casemapping(state), "connected")
     end
 
-    Chat.broadcast_presence_diff(
+    Presence.diff(
       state.connection,
       channel,
       %{action: "join", user: %{nick: nick, role: "user", status: "online"}},
@@ -445,7 +446,7 @@ defmodule Ircpipe.Irc.Session do
   def handle_info({:ircxd, {:part, %{channel: channel, nick: nick} = payload}}, state) do
     self? = source_self?(state, payload, nick)
 
-    Chat.broadcast_presence_diff(
+    Presence.diff(
       state.connection,
       channel,
       %{action: "part", nick: nick},
@@ -475,7 +476,7 @@ defmodule Ircpipe.Irc.Session do
       "#{nick} quit."
     end)
 
-    Chat.broadcast_presence_diff(state.connection, nil, %{action: "quit", nick: nick})
+    Presence.diff(state.connection, nil, %{action: "quit", nick: nick})
     {:noreply, state}
   end
 
@@ -493,7 +494,7 @@ defmodule Ircpipe.Irc.Session do
       fn _membership -> "#{old_nick} is now #{new_nick}." end
     )
 
-    Chat.broadcast_presence_diff(state.connection, nil, %{
+    Presence.diff(state.connection, nil, %{
       action: "nick",
       old_nick: old_nick,
       new_nick: new_nick
@@ -525,7 +526,7 @@ defmodule Ircpipe.Irc.Session do
   def handle_info({:ircxd, {:away, %{nick: nick} = payload}}, state) do
     status = if Map.get(payload, :away?), do: "away", else: "online"
 
-    Chat.broadcast_presence_diff(state.connection, nil, %{
+    Presence.diff(state.connection, nil, %{
       action: "away",
       nick: nick,
       status: status
@@ -539,7 +540,7 @@ defmodule Ircpipe.Irc.Session do
       payload
       |> mode_presence_diffs()
       |> Enum.each(
-        &Chat.broadcast_presence_diff(
+        &Presence.diff(
           state.connection,
           target,
           &1,
@@ -567,7 +568,7 @@ defmodule Ircpipe.Irc.Session do
       ) do
     target_self? = self_identity_event?(state, payload, :target_self?, target_nick)
 
-    Chat.broadcast_presence_diff(
+    Presence.diff(
       state.connection,
       channel,
       %{action: "part", nick: target_nick},

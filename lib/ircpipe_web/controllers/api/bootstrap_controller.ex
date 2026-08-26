@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Chat.Topics
   alias Ircpipe.Irc.Commands
@@ -216,7 +217,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   defp users_by_buffer(connections) do
     connections
     |> Enum.flat_map(&visible_memberships/1)
-    |> Map.new(&{channel_buffer_id(&1), Chat.list_channel_users(&1)})
+    |> Map.new(&{channel_buffer_id(&1), Presence.list_users(&1)})
   end
 
   defp topic_json(topic) do

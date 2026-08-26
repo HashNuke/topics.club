@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.{Session, SessionSupervisor}
@@ -40,7 +41,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     {:ok, channel_message} =
       Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
 
-    Chat.broadcast_presence_sync(connection, "#elixir", [
+    Presence.sync(connection, "#elixir", [
       %{nick: "mira", prefixes: ["@"], raw_source: "mira!user@example.test"},
       %{nick: "akash", prefixes: []}
     ])

@@ -3,6 +3,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.{DirectMessageThread, MessageHistory, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
@@ -92,12 +93,12 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_message, %{kind: "part", body: "akash left #pipe."}}
 
-    Chat.broadcast_presence_sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
+    Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
 
     assert {:noreply, ^state} = Session.handle_info({:ircxd, {:quit, %{nick: "akash"}}}, state)
     assert_receive {:irc_message, %{kind: "quit", body: "akash quit."}}
 
-    Chat.broadcast_presence_sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
+    Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
 
     assert {:noreply, ^state} =
              Session.handle_info(
@@ -474,7 +475,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:presence_sync, %{users: users}}, 1_000
     assert Enum.map(users, & &1.nick) == ["mira", "akash", "sam", "zoe"]
 
-    assert Enum.map(Chat.list_channel_users(membership), & &1.nick) == [
+    assert Enum.map(Presence.list_users(membership), & &1.nick) == [
              "akash",
              "mira",
              "sam",

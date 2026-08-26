@@ -1,0 +1,266 @@
+defmodule Ircpipe.Chat.Presence do
+  @moduledoc false
+
+  import Ecto.Query
+
+  alias Ircpipe.Chat.{ChannelMembership, ChannelUser, ServerConnection}
+  alias Ircpipe.Irc.Identifier
+  alias Ircpipe.Realtime.Event
+  alias Ircpipe.Repo
+
+  def list_users(%ChannelMembership{} = membership) do
+    ChannelUser
+    |> where([user], user.channel_membership_id == ^membership.id)
+    |> order_by([user], asc: user.nick)
+    |> Repo.all()
+    |> Enum.map(&user_json/1)
+  end
+
+  def sync(%ServerConnection{} = connection, channel, names, casemapping \\ :rfc1459) do
+    case channel_membership(connection, channel, casemapping) do
+      %ChannelMembership{} = membership ->
+        users = Enum.map(names, &presence_user/1)
+        replace_users(membership, users)
+
+        event =
+          Event.presence_sync(%{
+            buffer_id: "channel:#{membership.id}",
+            server_connection_id: connection.id,
+            channel_membership_id: membership.id,
+            users: users
+          })
+
+        Phoenix.PubSub.broadcast(
+          Ircpipe.PubSub,
+          "user:#{connection.user_id}",
+          {:presence_sync, event}
+        )
+
+      nil ->
+        :ok
+    end
+  end
+
+  def diff(%ServerConnection{} = connection, channel, diff, casemapping \\ :rfc1459) do
+    connection
+    |> memberships(channel, casemapping)
+    |> Enum.each(fn membership ->
+      apply_diff(membership, diff)
+
+      event =
+        Event.presence_diff(%{
+          buffer_id: "channel:#{membership.id}",
+          server_connection_id: connection.id,
+          channel_membership_id: membership.id,
+          diff: diff
+        })
+
+      Phoenix.PubSub.broadcast(
+        Ircpipe.PubSub,
+        "user:#{connection.user_id}",
+        {:presence_diff, event}
+      )
+    end)
+  end
+
+  def memberships(connection, channel, casemapping \\ :rfc1459)
+
+  def memberships(%ServerConnection{} = connection, nil, _casemapping) do
+    ChannelMembership
+    |> where(
+      [membership],
+      membership.server_connection_id == ^connection.id and membership.status == "joined"
+    )
+    |> Repo.all()
+  end
+
+  def memberships(%ServerConnection{} = connection, channel, casemapping) do
+    case channel_membership(connection, channel, casemapping, "joined") do
+      %ChannelMembership{} = membership -> [membership]
+      nil -> []
+    end
+  end
+
+  def memberships_with_nick(%ServerConnection{} = connection, nick) do
+    ChannelMembership
+    |> join(:inner, [membership], user in ChannelUser,
+      on: user.channel_membership_id == membership.id
+    )
+    |> where(
+      [membership, user],
+      membership.server_connection_id == ^connection.id and membership.status == "joined" and
+        fragment("lower(?)", user.nick) == fragment("lower(?)", ^nick)
+    )
+    |> Repo.all()
+  end
+
+  def merge_users(%ChannelMembership{} = source, %ChannelMembership{} = destination) do
+    source
+    |> list_users()
+    |> Enum.each(&upsert_user(destination, &1))
+  end
+
+  defp presence_user(name) do
+    %{
+      nick: name.nick,
+      role: role_for_prefixes(Map.get(name, :prefixes, [])),
+      status: "online",
+      hostmask: Map.get(name, :raw_source),
+      last_observed_at: DateTime.utc_now(:second)
+    }
+  end
+
+  defp user_json(%ChannelUser{} = user) do
+    %{
+      nick: user.nick,
+      role: user.role,
+      status: user.status,
+      hostmask: user.hostmask,
+      last_observed_at: user.last_observed_at
+    }
+  end
+
+  defp replace_users(%ChannelMembership{} = membership, users) do
+    now = DateTime.utc_now(:second)
+
+    Repo.transaction(fn ->
+      from(user in ChannelUser, where: user.channel_membership_id == ^membership.id)
+      |> Repo.delete_all()
+
+      entries =
+        Enum.map(users, fn user ->
+          user
+          |> user_attrs(now)
+          |> Map.merge(%{
+            channel_membership_id: membership.id,
+            inserted_at: now,
+            updated_at: now
+          })
+        end)
+
+      if entries != [], do: Repo.insert_all(ChannelUser, entries)
+    end)
+  end
+
+  defp apply_diff(%ChannelMembership{} = membership, %{action: "join", user: user}) do
+    upsert_user(membership, user)
+  end
+
+  defp apply_diff(%ChannelMembership{} = membership, %{action: action, nick: nick})
+       when action in ["part", "quit"] and is_binary(nick) do
+    from(
+      user in ChannelUser,
+      where: user.channel_membership_id == ^membership.id and user.nick == ^nick
+    )
+    |> Repo.delete_all()
+  end
+
+  defp apply_diff(%ChannelMembership{} = membership, %{
+         action: "nick",
+         old_nick: old_nick,
+         new_nick: new_nick
+       })
+       when is_binary(old_nick) and is_binary(new_nick) do
+    now = DateTime.utc_now(:second)
+
+    from(
+      user in ChannelUser,
+      where: user.channel_membership_id == ^membership.id and user.nick == ^old_nick
+    )
+    |> Repo.update_all(set: [nick: new_nick, last_observed_at: now, updated_at: now])
+  end
+
+  defp apply_diff(%ChannelMembership{} = membership, %{
+         action: "away",
+         nick: nick,
+         status: status
+       })
+       when is_binary(nick) and is_binary(status) do
+    update_user(membership, nick, %{status: status})
+  end
+
+  defp apply_diff(%ChannelMembership{} = membership, %{
+         action: "role",
+         nick: nick,
+         role: role
+       })
+       when is_binary(nick) and is_binary(role) do
+    update_user(membership, nick, %{role: role})
+  end
+
+  defp apply_diff(_membership, _diff), do: :ok
+
+  defp upsert_user(%ChannelMembership{} = membership, user) do
+    now = DateTime.utc_now(:second)
+
+    attrs =
+      user
+      |> user_attrs(now)
+      |> Map.merge(%{
+        channel_membership_id: membership.id,
+        inserted_at: now,
+        updated_at: now
+      })
+
+    Repo.insert_all(ChannelUser, [attrs],
+      on_conflict: {:replace, [:role, :status, :hostmask, :last_observed_at, :updated_at]},
+      conflict_target: [:channel_membership_id, :nick]
+    )
+  end
+
+  defp update_user(%ChannelMembership{} = membership, nick, attrs) do
+    now = DateTime.utc_now(:second)
+
+    updates =
+      attrs
+      |> Map.take([:role, :status, :hostmask])
+      |> Map.put(:last_observed_at, now)
+      |> Map.put(:updated_at, now)
+      |> Map.to_list()
+
+    from(
+      user in ChannelUser,
+      where: user.channel_membership_id == ^membership.id and user.nick == ^nick
+    )
+    |> Repo.update_all(set: updates)
+  end
+
+  defp user_attrs(user, observed_at) do
+    %{
+      nick: value(user, :nick),
+      role: value(user, :role) || "user",
+      status: value(user, :status) || "online",
+      hostmask: value(user, :hostmask),
+      last_observed_at: value(user, :last_observed_at) || observed_at
+    }
+  end
+
+  defp value(metadata, key) do
+    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
+  end
+
+  defp channel_membership(connection, channel, casemapping, status \\ nil) do
+    query =
+      from(membership in ChannelMembership,
+        where: membership.server_connection_id == ^connection.id
+      )
+
+    query = if status, do: where(query, [membership], membership.status == ^status), else: query
+    key = Identifier.key(channel, casemapping)
+
+    query
+    |> Repo.all()
+    |> Enum.find(&(Identifier.key(&1.channel, casemapping) == key))
+  end
+
+  defp role_for_prefixes(prefixes) do
+    cond do
+      "~" in prefixes -> "owner"
+      "&" in prefixes -> "admin"
+      "@" in prefixes -> "op"
+      "%" in prefixes -> "halfop"
+      "+" in prefixes -> "voice"
+      true -> "user"
+    end
+  end
+end
