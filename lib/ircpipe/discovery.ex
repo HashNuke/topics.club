@@ -1,0 +1,116 @@
+defmodule Ircpipe.Discovery do
+  import Ecto.Query
+
+  alias Ircpipe.Discovery.{Channel, Network}
+  alias Ircpipe.Repo
+
+  @channel_refresh_seconds :timer.hours(24) |> div(1_000)
+  @network_refresh_seconds :timer.hours(24 * 7) |> div(1_000)
+
+  def sync_networks(entries, refreshed_at) when is_list(entries) do
+    Repo.transaction(fn ->
+      slugs = Enum.map(entries, &Map.fetch!(&1, :slug))
+
+      from(network in Network, where: network.active and network.slug not in ^slugs)
+      |> Repo.update_all(set: [active: false, updated_at: refreshed_at])
+
+      Enum.map(entries, fn attrs ->
+        attrs = Map.merge(attrs, %{active: true, source_refreshed_at: refreshed_at})
+
+        %Network{}
+        |> Network.changeset(attrs)
+        |> Repo.insert!(
+          conflict_target: :slug,
+          on_conflict:
+            {:replace,
+             [
+               :name,
+               :host,
+               :port,
+               :use_tls,
+               :rank,
+               :source_url,
+               :source_refreshed_at,
+               :active,
+               :updated_at
+             ]},
+          returning: true
+        )
+      end)
+    end)
+  end
+
+  def replace_channels(%Network{} = network, channels, listed_at) when is_list(channels) do
+    Repo.transaction(fn ->
+      from(channel in Channel, where: channel.irc_network_id == ^network.id)
+      |> Repo.delete_all()
+
+      now = DateTime.utc_now(:second)
+
+      rows =
+        Enum.map(channels, fn channel ->
+          %{
+            irc_network_id: network.id,
+            name: Map.fetch!(channel, :name),
+            topic: Map.get(channel, :topic),
+            user_count: Map.get(channel, :user_count, 0),
+            listed_at: listed_at,
+            inserted_at: now,
+            updated_at: now
+          }
+        end)
+
+      {_count, _rows} = Repo.insert_all(Channel, rows)
+
+      network
+      |> Ecto.Changeset.change(channels_refreshed_at: listed_at, last_refresh_error: nil)
+      |> Repo.update!()
+
+      length(rows)
+    end)
+  end
+
+  def list_popular_channels do
+    Channel
+    |> join(:inner, [channel], network in assoc(channel, :network))
+    |> where([_channel, network], network.active)
+    |> order_by([channel, network],
+      desc: channel.user_count,
+      asc: network.rank,
+      asc: channel.name
+    )
+    |> preload([_channel, network], network: network)
+    |> Repo.all()
+  end
+
+  def list_active_networks do
+    Network
+    |> where([network], network.active)
+    |> order_by([network], asc: network.rank)
+    |> Repo.all()
+  end
+
+  def networks_due_for_channel_refresh(now) do
+    cutoff = DateTime.add(now, -@channel_refresh_seconds, :second)
+
+    Network
+    |> where(
+      [network],
+      network.active and
+        (is_nil(network.channels_refreshed_at) or network.channels_refreshed_at <= ^cutoff)
+    )
+    |> order_by([network], asc: network.rank)
+    |> Repo.all()
+  end
+
+  def network_catalog_due?(now) do
+    cutoff = DateTime.add(now, -@network_refresh_seconds, :second)
+
+    not Repo.exists?(from(network in Network, where: network.active)) or
+      Repo.exists?(
+        from(network in Network,
+          where: network.active and network.source_refreshed_at <= ^cutoff
+        )
+      )
+  end
+end
