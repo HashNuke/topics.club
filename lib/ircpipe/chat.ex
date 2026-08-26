@@ -11,6 +11,7 @@ defmodule Ircpipe.Chat do
     DirectMessageThread,
     Message,
     Notification,
+    Retention,
     ServerConnection,
     Topic
   }
@@ -317,7 +318,7 @@ defmodule Ircpipe.Chat do
               })
               |> Repo.insert!()
 
-            prune_old_messages(Repo.get!(User, user_id))
+            Retention.prune(Repo.get!(User, user_id))
 
             %{thread: thread, message: message}
         end
@@ -807,7 +808,7 @@ defmodule Ircpipe.Chat do
           notification
         end
 
-      prune_old_messages(user)
+      Retention.prune(user)
       {message, notification}
     end)
     |> case do
@@ -854,7 +855,7 @@ defmodule Ircpipe.Chat do
           inc: [unread_count: 1]
         )
 
-      prune_old_messages(user)
+      Retention.prune(user)
       broadcast_server_message(message, connection)
       message
     end)
@@ -951,7 +952,7 @@ defmodule Ircpipe.Chat do
                   |> Repo.insert!()
                 end
 
-              prune_old_messages(user)
+              Retention.prune(user)
 
               %{
                 thread: thread,
@@ -1023,7 +1024,7 @@ defmodule Ircpipe.Chat do
         })
         |> Repo.insert()
 
-      prune_old_messages(user)
+      Retention.prune(user)
       broadcast_message(message, membership, connection)
       message
     end)
@@ -1055,7 +1056,7 @@ defmodule Ircpipe.Chat do
         })
         |> Repo.insert()
 
-      prune_old_messages(user)
+      Retention.prune(user)
       broadcast_command_message(message, membership, connection)
       message
     end)
@@ -1276,25 +1277,6 @@ defmodule Ircpipe.Chat do
       "user:#{connection.user_id}",
       {:buffer_joined, Event.buffer_joined(connection, membership, status || connection.status)}
     )
-  end
-
-  def update_retention_days(%User{} = user, days) do
-    days =
-      days
-      |> to_int(3)
-      |> min(3)
-      |> max(1)
-
-    user
-    |> Ecto.Changeset.change(message_retention_days: days)
-    |> Repo.update()
-  end
-
-  def prune_old_messages(%User{} = user) do
-    cutoff = DateTime.add(DateTime.utc_now(:second), -user.message_retention_days, :day)
-
-    from(m in Message, where: m.user_id == ^user.id and m.occurred_at < ^cutoff)
-    |> Repo.delete_all()
   end
 
   def normalize_channel(<<prefix, _rest::binary>> = channel) when prefix in [?#, ?&, ?+, ?!],
@@ -2051,15 +2033,4 @@ defmodule Ircpipe.Chat do
       true -> "user"
     end
   end
-
-  defp to_int(value, _default) when is_integer(value), do: value
-
-  defp to_int(value, default) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} -> int
-      _ -> default
-    end
-  end
-
-  defp to_int(_, default), do: default
 end

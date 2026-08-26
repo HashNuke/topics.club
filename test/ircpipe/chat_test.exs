@@ -3,7 +3,7 @@ defmodule Ircpipe.ChatTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelMembership, Message, MessageHistory}
+  alias Ircpipe.Chat.{ChannelMembership, Message, MessageHistory, Retention}
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Repo
 
@@ -377,7 +377,7 @@ defmodule Ircpipe.ChatTest do
 
   test "prunes messages older than the user's retention window after inbound persistence" do
     user = AccountsFixtures.user_fixture()
-    {:ok, user} = Chat.update_retention_days(user, 1)
+    {:ok, user} = Retention.update_days(user, 1)
 
     {:ok, connection} =
       Chat.create_connection(user, %{
