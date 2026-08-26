@@ -57,13 +57,29 @@ defmodule Ircpipe.Accounts.UserToken do
   """
   def verify_session_token_query(token) do
     query =
-      from token in by_token_and_context_query(token, "session"),
+      from token in valid_session_token_query(),
+        where: token.token == ^token,
         join: user in assoc(token, :user),
-        where: token.inserted_at > ago(@session_validity_in_days, "day"),
         select: {%{user | authenticated_at: token.authenticated_at}, token.inserted_at}
 
     {:ok, query}
   end
+
+  def valid_session_token_query do
+    from token in UserToken,
+      where:
+        token.context == "session" and
+          token.inserted_at > ago(@session_validity_in_days, "day")
+  end
+
+  def session_token_valid?(%UserToken{context: "session", inserted_at: inserted_at}) do
+    DateTime.after?(
+      inserted_at,
+      DateTime.utc_now(:second) |> DateTime.add(-@session_validity_in_days, :day)
+    )
+  end
+
+  def session_token_valid?(_token), do: false
 
   @doc """
   Builds a token and its hash to be delivered to the user's email.

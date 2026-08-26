@@ -2,6 +2,8 @@ defmodule Ircpipe.NotificationsTest do
   use Ircpipe.DataCase, async: false
   use Oban.Testing, repo: Ircpipe.Repo
 
+  alias Ircpipe.Accounts
+  alias Ircpipe.Accounts.{UserToken}
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Notification
@@ -13,6 +15,7 @@ defmodule Ircpipe.NotificationsTest do
     previous_pid = Application.get_env(:ircpipe, :push_test_pid)
     previous_result = Application.get_env(:ircpipe, :push_test_result)
     previous_pause = Application.get_env(:ircpipe, :pause_push_delivery)
+    previous_registration_pause = Application.get_env(:ircpipe, :pause_push_registration)
 
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
@@ -23,6 +26,7 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:push_test_pid, previous_pid)
       restore_env(:push_test_result, previous_result)
       restore_env(:pause_push_delivery, previous_pause)
+      restore_env(:pause_push_registration, previous_registration_pause)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -44,7 +48,7 @@ defmodule Ircpipe.NotificationsTest do
   test "stores one encrypted push subscription per installation", %{scope: scope} do
     attrs = subscription_attrs("https://push.example.test/subscription/one")
 
-    assert {:ok, first} = Notifications.upsert_subscription(scope, attrs, "test browser")
+    assert {:ok, first} = upsert_subscription(scope, attrs, "test browser")
     assert first.endpoint == attrs["endpoint"]
     assert first.user_agent == "test browser"
 
@@ -56,7 +60,7 @@ defmodule Ircpipe.NotificationsTest do
     refute raw_endpoint == attrs["endpoint"]
 
     assert {:ok, replacement} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                %{attrs | "endpoint" => "https://push.example.test/subscription/two"}
              )
@@ -68,13 +72,56 @@ defmodule Ircpipe.NotificationsTest do
     assert Repo.aggregate(PushSubscription, :count) == 0
   end
 
+  test "registration and logout serialize on the authenticated session", %{scope: scope} do
+    supervisor = start_supervised!(Task.Supervisor)
+    session_token = Accounts.generate_user_session_token(scope.user)
+    Application.put_env(:ircpipe, :pause_push_registration, self())
+
+    registration =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.upsert_subscription(
+          scope,
+          session_token,
+          subscription_attrs("https://push.example.test/subscription/logout-race")
+        )
+      end)
+
+    assert_receive {:push_registration_paused, registration_pid}
+
+    logout =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Accounts.delete_user_session_token(session_token)
+      end)
+
+    refute Task.yield(logout, 100)
+    send(registration_pid, :continue_push_registration)
+
+    assert {:ok, _subscription} = Task.await(registration)
+    assert :ok = Task.await(logout)
+    refute Repo.get_by(PushSubscription, user_id: scope.user.id)
+  end
+
+  test "rejects registration after its authenticated session is revoked", %{scope: scope} do
+    session_token = Accounts.generate_user_session_token(scope.user)
+    assert :ok = Accounts.delete_user_session_token(session_token)
+
+    assert {:error, :session_expired} =
+             Notifications.upsert_subscription(
+               scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/revoked-session")
+             )
+
+    refute Repo.get_by(PushSubscription, user_id: scope.user.id)
+  end
+
   test "cannot replace another user's endpoint subscription", %{scope: scope} do
     attrs = subscription_attrs("https://push.example.test/subscription/shared")
-    assert {:ok, original} = Notifications.upsert_subscription(scope, attrs)
+    assert {:ok, original} = upsert_subscription(scope, attrs)
 
     other_scope = AccountsFixtures.user_scope_fixture()
 
-    assert {:error, changeset} = Notifications.upsert_subscription(other_scope, attrs)
+    assert {:error, changeset} = upsert_subscription(other_scope, attrs)
     assert "has already been taken" in errors_on(changeset).endpoint_hash
     assert Repo.get!(PushSubscription, original.id).user_id == scope.user.id
   end
@@ -85,7 +132,7 @@ defmodule Ircpipe.NotificationsTest do
         subscription_attrs("https://push.example.test/subscription/cap-#{index}")
         |> Map.put("installation_id", "browser-#{index}")
 
-      assert {:ok, _subscription} = Notifications.upsert_subscription(scope, attrs)
+      assert {:ok, _subscription} = upsert_subscription(scope, attrs)
     end
 
     overflow =
@@ -93,7 +140,7 @@ defmodule Ircpipe.NotificationsTest do
       |> Map.put("installation_id", "browser-overflow")
 
     assert {:error, :too_many_push_subscriptions} =
-             Notifications.upsert_subscription(scope, overflow)
+             upsert_subscription(scope, overflow)
 
     assert Repo.aggregate(PushSubscription, :count) == 5
   end
@@ -106,7 +153,7 @@ defmodule Ircpipe.NotificationsTest do
         subscription_attrs("https://push.example.test/subscription/rotation-#{index}")
         |> Map.put("installation_id", installation_id)
 
-      assert {:ok, _subscription} = Notifications.upsert_subscription(scope, attrs)
+      assert {:ok, _subscription} = upsert_subscription(scope, attrs)
       assert :ok = Notifications.delete_subscription(scope, installation_id)
     end
 
@@ -115,7 +162,7 @@ defmodule Ircpipe.NotificationsTest do
       |> Map.put("installation_id", "rate-limited-browser")
 
     assert {:error, :push_subscription_rate_limited} =
-             Notifications.upsert_subscription(scope, limited)
+             upsert_subscription(scope, limited)
   end
 
   test "validates Web Push key material at registration", %{scope: scope} do
@@ -124,7 +171,7 @@ defmodule Ircpipe.NotificationsTest do
       |> Map.put("p256dh", Base.url_encode64(<<4, 0::512>>, padding: false))
       |> Map.put("auth", Base.url_encode64(:crypto.strong_rand_bytes(15), padding: false))
 
-    assert {:error, changeset} = Notifications.upsert_subscription(scope, attrs)
+    assert {:error, changeset} = upsert_subscription(scope, attrs)
     assert "must be a 65-byte uncompressed P-256 public key" in errors_on(changeset).p256dh
     assert "must decode to 16 bytes" in errors_on(changeset).auth
   end
@@ -134,6 +181,9 @@ defmodule Ircpipe.NotificationsTest do
     connection: connection,
     membership: membership
   } do
+    session_token = Accounts.generate_user_session_token(scope.user)
+    user_token = Repo.get_by!(UserToken, token: session_token, context: "session")
+
     for index <- 1..6 do
       attrs =
         subscription_attrs("https://push.example.test/subscription/legacy-#{index}")
@@ -141,6 +191,7 @@ defmodule Ircpipe.NotificationsTest do
 
       %PushSubscription{
         user_id: scope.user.id,
+        user_token_id: user_token.id,
         endpoint_hash: :crypto.hash(:sha256, attrs["endpoint"])
       }
       |> PushSubscription.changeset(attrs)
@@ -163,7 +214,7 @@ defmodule Ircpipe.NotificationsTest do
     membership: membership
   } do
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                subscription_attrs("https://push.example.test/subscription/mention")
              )
@@ -178,6 +229,8 @@ defmodule Ircpipe.NotificationsTest do
     assert_receive {:push_sent, _subscription, payload}
     assert payload.buffer_id == "channel:#{membership.id}"
     assert payload.body == "akash: hello mira"
+    assert payload.tag == "notification_mention:message:#{message.id}"
+    assert payload.user_id == scope.user.id
     assert payload.url == "/app?buffer=channel:#{membership.id}"
   end
 
@@ -186,7 +239,7 @@ defmodule Ircpipe.NotificationsTest do
     connection: connection
   } do
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                subscription_attrs("https://push.example.test/subscription/direct-message")
              )
@@ -213,6 +266,8 @@ defmodule Ircpipe.NotificationsTest do
     assert payload.title == "akash on Libera"
     assert payload.body == "akash: hello privately"
     assert payload.buffer_id == "direct:#{thread.id}"
+    assert payload.tag == "notification_direct_message:message:#{message.id}"
+    assert payload.user_id == scope.user.id
     assert payload.url == "/app?buffer=direct:#{thread.id}"
 
     assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, thread.id, true)
@@ -239,7 +294,7 @@ defmodule Ircpipe.NotificationsTest do
     membership: membership
   } do
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                subscription_attrs("https://push.example.test/subscription/gates")
              )
@@ -278,7 +333,7 @@ defmodule Ircpipe.NotificationsTest do
     connection: connection
   } do
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                subscription_attrs("https://push.example.test/subscription/read-direct")
              )
@@ -326,7 +381,7 @@ defmodule Ircpipe.NotificationsTest do
     Application.put_env(:ircpipe, :pause_push_delivery, true)
 
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                subscription_attrs("https://push.example.test/subscription/serialized")
              )
@@ -362,6 +417,72 @@ defmodule Ircpipe.NotificationsTest do
     assert {:ok, _read_thread} = Task.await(read)
     assert_receive {:push_sent, _subscription, %{body: "akash: race"}}
     assert Repo.reload(notification).read_at
+  end
+
+  test "logout waits for an in-flight delivery and prevents later sends", %{
+    scope: scope,
+    connection: connection,
+    membership: membership
+  } do
+    supervisor = start_supervised!(Task.Supervisor)
+    session_token = Accounts.generate_user_session_token(scope.user)
+    Application.put_env(:ircpipe, :pause_push_delivery, true)
+
+    assert {:ok, _subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/logout-delivery")
+             )
+
+    notification = mention_notification(connection, membership)
+
+    delivery =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.deliver_notification(notification.id)
+      end)
+
+    assert_receive {:push_delivery_paused, sender_pid}
+
+    logout =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Accounts.delete_user_session_token(session_token)
+      end)
+
+    refute Task.yield(logout, 100)
+    send(sender_pid, :continue_push_delivery)
+
+    assert :ok = Task.await(delivery)
+    assert_receive {:push_sent, _subscription, _payload}
+    assert :ok = Task.await(logout)
+    refute Repo.get_by(PushSubscription, user_id: scope.user.id)
+    refute_receive {:push_sent, _subscription, _payload}
+  end
+
+  test "expired authenticated sessions are revalidated before delivery", %{
+    scope: scope,
+    connection: connection,
+    membership: membership
+  } do
+    session_token = Accounts.generate_user_session_token(scope.user)
+
+    assert {:ok, _subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/expired-session")
+             )
+
+    expired_at = DateTime.utc_now(:second) |> DateTime.add(-15, :day)
+
+    UserToken
+    |> where([token], token.token == ^session_token and token.context == "session")
+    |> Repo.update_all(set: [inserted_at: expired_at])
+
+    notification = mention_notification(connection, membership)
+    assert :ok = Notifications.deliver_notification(notification.id)
+    refute_receive {:push_sent, _subscription, _payload}
+    refute Repo.get_by(PushSubscription, user_id: scope.user.id)
   end
 
   test "outgoing messages neither create attention counters nor notifications", %{
@@ -466,7 +587,7 @@ defmodule Ircpipe.NotificationsTest do
     membership: membership
   } do
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                subscription_attrs("https://push.example.test/subscription/retry")
              )
@@ -478,7 +599,7 @@ defmodule Ircpipe.NotificationsTest do
     assert Repo.aggregate(PushSubscription, :count) == 0
 
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             upsert_subscription(
                scope,
                subscription_attrs("https://push.example.test/subscription/retry")
              )
@@ -508,6 +629,11 @@ defmodule Ircpipe.NotificationsTest do
       "p256dh" => Base.url_encode64(public_key, padding: false),
       "auth" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
     }
+  end
+
+  defp upsert_subscription(scope, attrs, user_agent \\ nil) do
+    session_token = Accounts.generate_user_session_token(scope.user)
+    Notifications.upsert_subscription(scope, session_token, attrs, user_agent)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)

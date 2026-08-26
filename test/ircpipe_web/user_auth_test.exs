@@ -2,7 +2,7 @@ defmodule IrcpipeWeb.UserAuthTest do
   use IrcpipeWeb.ConnCase, async: true
 
   alias Ircpipe.Accounts
-  alias Ircpipe.Accounts.Scope
+  alias Ircpipe.Accounts.{Scope, UserToken}
   alias Ircpipe.Notifications
   alias Ircpipe.Notifications.PushSubscription
   alias Ircpipe.Repo
@@ -65,24 +65,60 @@ defmodule IrcpipeWeb.UserAuthTest do
       user: user
     } do
       installation_id = "account-switch-browser"
+      session_token = Accounts.generate_user_session_token(user)
       {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
 
       assert {:ok, _subscription} =
-               Notifications.upsert_subscription(Scope.for_user(user), %{
-                 "installation_id" => installation_id,
-                 "endpoint" => "https://push.example.test/account-switch",
-                 "p256dh" => Base.url_encode64(public_key, padding: false),
-                 "auth" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
-               })
+               Notifications.upsert_subscription(
+                 Scope.for_user(user),
+                 session_token,
+                 %{
+                   "installation_id" => installation_id,
+                   "endpoint" => "https://push.example.test/account-switch",
+                   "p256dh" => Base.url_encode64(public_key, padding: false),
+                   "auth" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+                 }
+               )
 
       other_user = user_fixture()
 
       conn
       |> assign(:current_scope, Scope.for_user(user))
+      |> put_session(:user_token, session_token)
       |> put_session(:push_installation_id, installation_id)
       |> UserAuth.log_in_user(other_user)
 
       refute Repo.get_by(PushSubscription, user_id: user.id)
+    end
+
+    test "rebinds a push installation when the same account rotates its session", %{
+      conn: conn,
+      user: user
+    } do
+      session_token = Accounts.generate_user_session_token(user)
+      {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+
+      assert {:ok, subscription} =
+               Notifications.upsert_subscription(
+                 Scope.for_user(user),
+                 session_token,
+                 %{
+                   "installation_id" => "rotating-auth-session",
+                   "endpoint" => "https://push.example.test/session-rotation",
+                   "p256dh" => Base.url_encode64(public_key, padding: false),
+                   "auth" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+                 }
+               )
+
+      logged_in =
+        conn
+        |> assign(:current_scope, Scope.for_user(user))
+        |> put_session(:user_token, session_token)
+        |> UserAuth.log_in_user(user)
+
+      next_token = get_session(logged_in, :user_token)
+      next_user_token = Repo.get_by!(UserToken, token: next_token, context: "session")
+      assert Repo.reload(subscription).user_token_id == next_user_token.id
     end
 
     test "redirects to the configured path", %{conn: conn, user: user} do

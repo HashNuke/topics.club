@@ -1,5 +1,9 @@
 import {afterEach, describe, expect, test, vi} from "vitest"
-import {notificationControlState, synchronizeNotificationDevice} from "./push_notifications.ts"
+import {
+  notificationControlState,
+  notificationDeliveryCoveredByPush,
+  synchronizeNotificationDevice,
+} from "./push_notifications.ts"
 import type {NotificationDeviceState} from "./browser_notifications.ts"
 
 const INSTALLATION_KEY = "ircpipe.notification-installation"
@@ -130,6 +134,80 @@ describe("notificationControlState", () => {
       subscribed: false,
       error: "Notifications are enabled locally but could not be synchronized.",
     })
+  })
+
+  test("preserves a confirmed server registration during a transient resync failure", async () => {
+    const subscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/confirmed-account",
+        keys: {p256dh: "public-key", auth: "auth"},
+      }),
+    }
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(subscription),
+        subscribe: vi.fn(),
+      },
+    }
+    configurePushBrowser(registration)
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
+      installation_id: "confirmed",
+      user_id: "2",
+      server_registration_confirmed: true,
+    }))
+
+    const state = await synchronizeNotificationDevice(
+      {savePushSubscription: vi.fn().mockRejectedValue(new Error("temporary outage"))} as any,
+      {configured: true, vapid_public_key: "AQ"},
+      2
+    )
+
+    expect(state).toMatchObject({
+      loading: false,
+      subscribed: true,
+      error: "Notifications are enabled locally but could not be synchronized.",
+    })
+  })
+
+  test("a second tab observes a server registration confirmed by the first", async () => {
+    const subscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/shared-tabs",
+        keys: {p256dh: "public-key", auth: "auth"},
+      }),
+    }
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(subscription),
+        subscribe: vi.fn(),
+      },
+    }
+    configurePushBrowser(registration)
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
+      installation_id: "shared-browser",
+      user_id: "2",
+      server_registration_confirmed: false,
+    }))
+
+    const firstTab = await synchronizeNotificationDevice(
+      {savePushSubscription: vi.fn().mockResolvedValue({subscription: {installation_id: "shared-browser"}})} as any,
+      {configured: true, vapid_public_key: "AQ"},
+      2
+    )
+    const secondTab = await synchronizeNotificationDevice(
+      {savePushSubscription: vi.fn().mockRejectedValue(new Error("temporary outage"))} as any,
+      {configured: true, vapid_public_key: "AQ"},
+      2
+    )
+
+    expect(firstTab.subscribed).toBe(true)
+    expect(secondTab.subscribed).toBe(true)
+    expect(JSON.parse(localStorage.getItem(INSTALLATION_KEY)!)).toMatchObject({
+      server_registration_confirmed: true,
+    })
+
+    const staleSecondTabState = device({subscribed: false})
+    expect(notificationDeliveryCoveredByPush(staleSecondTabState, 2)).toBe(true)
   })
 })
 

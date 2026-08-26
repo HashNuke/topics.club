@@ -16,8 +16,10 @@ import {
   type NotificationDeviceState,
 } from "./browser_notifications.ts"
 import {
+  clearNotificationServerRegistration,
   enableNotificationDevice,
   notificationControlState,
+  notificationDeliveryCoveredByPush,
   synchronizeNotificationDevice,
 } from "./push_notifications.ts"
 import AppShell from "./components/app_shell.tsx"
@@ -121,6 +123,21 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       }
     }
   }, [notificationCoordinatorScope])
+
+  useEffect(() => {
+    if (!currentUser) clearNotificationServerRegistration()
+    if (!("serviceWorker" in navigator)) return
+
+    navigator.serviceWorker.ready
+      .then((registration) => {
+        const worker = registration.active || registration.waiting || registration.installing
+        worker?.postMessage({
+          type: "notification:account",
+          userId: currentUser ? String(currentUser.id) : null,
+        })
+      })
+      .catch(() => undefined)
+  }, [currentUser?.id])
 
   const {
     appendSystemMessage,
@@ -684,7 +701,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       return
     }
 
-    if (notificationDeviceStateRef.current.subscribed) return
+    if (
+      currentUser &&
+      notificationDeliveryCoveredByPush(notificationDeviceStateRef.current, currentUser.id)
+    ) return
 
     const server = connectionsRef.current.find(
       (connection) =>
@@ -711,7 +731,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         }),
         visible: document.visibilityState !== "hidden",
         display: () => {
-          if (notificationDeviceStateRef.current.subscribed) return false
+          if (
+            currentUser &&
+            notificationDeliveryCoveredByPush(notificationDeviceStateRef.current, currentUser.id)
+          ) return false
 
           return showMentionNotification(message, {
             currentUser,
@@ -722,7 +745,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       return
     }
 
-    if (notificationDeviceStateRef.current.subscribed) return
+    if (
+      currentUser &&
+      notificationDeliveryCoveredByPush(notificationDeviceStateRef.current, currentUser.id)
+    ) return
 
     showMentionNotification(message, {
       currentUser,

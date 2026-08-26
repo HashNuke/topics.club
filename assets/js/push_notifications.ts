@@ -11,21 +11,8 @@ const INSTALLATION_KEY = "ircpipe.notification-installation"
 
 interface NotificationInstallation {
   installation_id: string
+  server_registration_confirmed: boolean
   user_id: string
-}
-
-export async function inspectNotificationDevice(push: PushConfig): Promise<NotificationDeviceState> {
-  const base = deviceBase(push)
-  if (notificationUnavailableReason(base)) return {...base, loading: false}
-  if (base.capability !== "granted") return {...base, loading: false}
-
-  try {
-    const registration = await navigator.serviceWorker.ready
-    const subscription = await registration.pushManager.getSubscription()
-    return {...base, loading: false, subscribed: Boolean(subscription)}
-  } catch (_error) {
-    return {...base, loading: false, error: "Could not inspect this device's push subscription."}
-  }
 }
 
 export async function synchronizeNotificationDevice(
@@ -36,15 +23,20 @@ export async function synchronizeNotificationDevice(
   const base = deviceBase(push)
   const unavailable = notificationUnavailableReason(base)
   if (unavailable || base.capability !== "granted") return {...base, loading: false}
+  let serverRegistrationConfirmed = notificationServerRegistrationConfirmed(userId)
 
   try {
     const registration = await navigator.serviceWorker.ready
     let subscription = await registration.pushManager.getSubscription()
-    if (!subscription) return {...base, loading: false, subscribed: false}
+    if (!subscription) {
+      setServerRegistrationConfirmed(userId, false)
+      return {...base, loading: false, subscribed: false}
+    }
 
     if (!installationOwnedBy(userId)) {
       await subscription.unsubscribe()
       subscription = await subscribe(registration, push)
+      serverRegistrationConfirmed = false
     }
 
     await persistSubscription(apiClient, userId, subscription)
@@ -53,7 +45,7 @@ export async function synchronizeNotificationDevice(
     return {
       ...base,
       loading: false,
-      subscribed: false,
+      subscribed: serverRegistrationConfirmed,
       error: "Notifications are enabled locally but could not be synchronized.",
     }
   }
@@ -67,6 +59,7 @@ export async function enableNotificationDevice(
   const base = deviceBase(push)
   const unavailable = notificationUnavailableReason(base)
   if (unavailable) return {...base, loading: false, error: unavailable}
+  let serverRegistrationConfirmed = notificationServerRegistrationConfirmed(userId)
 
   const permission = base.capability === "granted"
     ? "granted"
@@ -83,6 +76,7 @@ export async function enableNotificationDevice(
     if (existing && !installationOwnedBy(userId)) {
       await existing.unsubscribe()
       existing = null
+      serverRegistrationConfirmed = false
     }
 
     const subscription = existing || await subscribe(registration, push)
@@ -90,7 +84,13 @@ export async function enableNotificationDevice(
     await persistSubscription(apiClient, userId, subscription)
     return {...base, capability: "granted", loading: false, subscribed: true}
   } catch (_error) {
-    return {...base, capability: "granted", loading: false, error: "This device could not finish notification setup."}
+    return {
+      ...base,
+      capability: "granted",
+      loading: false,
+      subscribed: serverRegistrationConfirmed,
+      error: "This device could not finish notification setup.",
+    }
   }
 }
 
@@ -107,6 +107,23 @@ export function notificationControlState(
   if (!scopeEnabled) return {kind: "disabled"}
   if (device.error) return {kind: "enabled", reason: device.error}
   return {kind: "enabled"}
+}
+
+export function notificationServerRegistrationConfirmed(userId: EntityId): boolean {
+  const installation = storedNotificationInstallation()
+  return installation?.user_id === String(userId) && installation.server_registration_confirmed
+}
+
+export function notificationDeliveryCoveredByPush(
+  device: NotificationDeviceState,
+  userId: EntityId
+): boolean {
+  return device.subscribed || notificationServerRegistrationConfirmed(userId)
+}
+
+export function clearNotificationServerRegistration(): void {
+  const installation = storedNotificationInstallation()
+  if (installation) storeNotificationInstallation({...installation, server_registration_confirmed: false})
 }
 
 function deviceBase(push: PushConfig): NotificationDeviceState {
@@ -127,11 +144,13 @@ async function persistSubscription(
   subscription: PushSubscription
 ): Promise<void> {
   const json = subscription.toJSON()
-  await apiClient.savePushSubscription(notificationInstallation(userId).installation_id, {
+  const installation = notificationInstallation(userId)
+  await apiClient.savePushSubscription(installation.installation_id, {
     endpoint: json.endpoint,
     expirationTime: json.expirationTime,
     keys: json.keys,
   })
+  storeNotificationInstallation({...installation, server_registration_confirmed: true})
 }
 
 function installationOwnedBy(userId: EntityId): boolean {
@@ -145,14 +164,11 @@ function notificationInstallation(userId: EntityId): NotificationInstallation {
 
   const installation = {
     installation_id: newInstallationId(),
+    server_registration_confirmed: false,
     user_id: normalizedUserId,
   }
 
-  try {
-    localStorage.setItem(INSTALLATION_KEY, JSON.stringify(installation))
-  } catch (_error) {
-    // The in-memory installation still identifies this registration request.
-  }
+  storeNotificationInstallation(installation)
 
   return installation
 }
@@ -167,12 +183,32 @@ function storedNotificationInstallation(): NotificationInstallation | null {
       parsed &&
       typeof parsed.installation_id === "string" &&
       typeof parsed.user_id === "string"
-    ) return parsed
+    ) {
+      return {
+        installation_id: parsed.installation_id,
+        server_registration_confirmed: parsed.server_registration_confirmed === true,
+        user_id: parsed.user_id,
+      }
+    }
   } catch (_error) {
     return null
   }
 
   return null
+}
+
+function setServerRegistrationConfirmed(userId: EntityId, confirmed: boolean): void {
+  const installation = storedNotificationInstallation()
+  if (installation?.user_id !== String(userId)) return
+  storeNotificationInstallation({...installation, server_registration_confirmed: confirmed})
+}
+
+function storeNotificationInstallation(installation: NotificationInstallation): void {
+  try {
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify(installation))
+  } catch (_error) {
+    // A private browser context may deny durable storage; this synchronization still proceeds.
+  }
 }
 
 function newInstallationId(): string {

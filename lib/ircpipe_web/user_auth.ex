@@ -37,7 +37,7 @@ defmodule IrcpipeWeb.UserAuth do
     user_return_to = get_session(conn, :user_return_to)
 
     conn
-    |> revoke_push_installation_for_account_change(user)
+    |> revoke_auth_session_for_account_change(user)
     |> create_or_extend_session(user, params)
     |> redirect(to: user_return_to || signed_in_path(conn))
   end
@@ -50,7 +50,6 @@ defmodule IrcpipeWeb.UserAuth do
   def log_out_user(conn) do
     user_token = get_session(conn, :user_token)
     user_token && Accounts.delete_user_session_token(user_token)
-    revoke_push_installation(conn)
 
     if live_socket_id = get_session(conn, :live_socket_id) do
       IrcpipeWeb.Endpoint.broadcast(live_socket_id, "disconnect", %{})
@@ -100,26 +99,19 @@ defmodule IrcpipeWeb.UserAuth do
     end
   end
 
-  defp revoke_push_installation(conn) do
-    with installation_id when is_binary(installation_id) <-
-           get_session(conn, :push_installation_id),
-         %Scope{user: user} = scope when not is_nil(user) <- conn.assigns[:current_scope] do
-      Notifications.delete_subscription(scope, installation_id)
-    else
-      _missing -> :ok
-    end
-  end
-
-  defp revoke_push_installation_for_account_change(
+  defp revoke_auth_session_for_account_change(
          %{assigns: %{current_scope: %Scope{user: current_user}}} = conn,
          next_user
        )
        when not is_nil(current_user) and current_user.id != next_user.id do
-    revoke_push_installation(conn)
+    if user_token = get_session(conn, :user_token) do
+      Accounts.delete_user_session_token(user_token)
+    end
+
     conn
   end
 
-  defp revoke_push_installation_for_account_change(conn, _next_user), do: conn
+  defp revoke_auth_session_for_account_change(conn, _next_user), do: conn
 
   # Reissue the session token if it is older than the configured reissue age.
   defp maybe_reissue_user_session_token(conn, user, token_inserted_at) do
@@ -141,14 +133,36 @@ defmodule IrcpipeWeb.UserAuth do
   # function will clear the session to avoid fixation attacks. See the
   # renew_session function to customize this behaviour.
   defp create_or_extend_session(conn, user, params) do
+    previous_token = get_session(conn, :user_token)
     token = Accounts.generate_user_session_token(user)
     remember_me = get_session(conn, :user_remember_me)
+
+    maybe_rebind_push_subscriptions(conn, user, previous_token, token)
 
     conn
     |> renew_session(user)
     |> put_token_in_session(token)
     |> maybe_write_remember_me_cookie(token, params, remember_me)
   end
+
+  defp maybe_rebind_push_subscriptions(
+         %{assigns: %{current_scope: %Scope{user: current_user}}},
+         user,
+         previous_token,
+         next_token
+       )
+       when not is_nil(current_user) and current_user.id == user.id and
+              is_binary(previous_token) do
+    Notifications.rebind_session_subscriptions(
+      Scope.for_user(user),
+      previous_token,
+      next_token
+    )
+
+    :ok
+  end
+
+  defp maybe_rebind_push_subscriptions(_conn, _user, _previous_token, _next_token), do: :ok
 
   # Do not renew session if the user is already logged in
   # to prevent CSRF errors or data being lost in tabs that are still open

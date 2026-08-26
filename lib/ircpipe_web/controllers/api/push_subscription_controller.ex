@@ -24,6 +24,7 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
 
     case Notifications.upsert_subscription(
            conn.assigns.current_scope,
+           get_session(conn, :user_token),
            attrs,
            get_req_header(conn, "user-agent") |> List.first()
          ) do
@@ -48,6 +49,11 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
         |> put_resp_header("retry-after", "3600")
         |> put_status(:too_many_requests)
         |> json(%{error: "push_subscription_limit_reached"})
+
+      {:error, :session_expired} ->
+        conn
+        |> put_status(:unauthorized)
+        |> json(%{error: "session_expired"})
     end
   end
 

@@ -2,7 +2,7 @@ defmodule Ircpipe.Notifications.PushSubscription do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Ircpipe.Accounts.User
+  alias Ircpipe.Accounts.{User, UserToken}
 
   schema "push_subscriptions" do
     field :installation_id, :string
@@ -15,6 +15,7 @@ defmodule Ircpipe.Notifications.PushSubscription do
     field :last_success_at, :utc_datetime
 
     belongs_to :user, User
+    belongs_to :user_token, UserToken
 
     timestamps(type: :utc_datetime)
   end

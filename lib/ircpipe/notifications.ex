@@ -1,7 +1,7 @@
 defmodule Ircpipe.Notifications do
   import Ecto.Query
 
-  alias Ircpipe.Accounts.{Scope, User}
+  alias Ircpipe.Accounts.{Scope, User, UserToken}
 
   alias Ircpipe.Chat.{
     ChannelMembership,
@@ -22,7 +22,10 @@ defmodule Ircpipe.Notifications do
     %{configured: WebPush.configured?(), vapid_public_key: WebPush.public_key()}
   end
 
-  def upsert_subscription(%Scope{user: user}, attrs, user_agent \\ nil) do
+  def upsert_subscription(scope, session_token, attrs, user_agent \\ nil)
+
+  def upsert_subscription(%Scope{user: user}, session_token, attrs, user_agent)
+      when is_binary(session_token) do
     endpoint = Map.get(attrs, "endpoint") || Map.get(attrs, :endpoint)
     endpoint_hash = endpoint_hash(endpoint)
     installation_id = installation_id(attrs)
@@ -34,6 +37,11 @@ defmodule Ircpipe.Notifications do
     if changeset.valid? do
       Repo.transaction(fn ->
         lock_subscription_user!(user.id)
+
+        user_token =
+          lock_session_token(user.id, session_token) || Repo.rollback(:session_expired)
+
+        maybe_pause_push_registration()
 
         existing? =
           Repo.exists?(
@@ -58,7 +66,9 @@ defmodule Ircpipe.Notifications do
         )
         |> Repo.delete_all()
 
-        case Repo.insert(changeset) do
+        case changeset
+             |> Ecto.Changeset.put_change(:user_token_id, user_token.id)
+             |> Repo.insert() do
           {:ok, subscription} -> subscription
           {:error, failed_changeset} -> Repo.rollback(failed_changeset)
         end
@@ -66,6 +76,44 @@ defmodule Ircpipe.Notifications do
     else
       {:error, changeset}
     end
+  end
+
+  def upsert_subscription(%Scope{}, _session_token, _attrs, _user_agent),
+    do: {:error, :session_expired}
+
+  def rebind_session_subscriptions(
+        %Scope{user: user},
+        previous_session_token,
+        next_session_token
+      )
+      when is_binary(previous_session_token) and is_binary(next_session_token) do
+    Repo.transaction(fn ->
+      tokens =
+        UserToken
+        |> where(
+          [token],
+          token.user_id == ^user.id and token.context == "session" and
+            token.token in ^[previous_session_token, next_session_token]
+        )
+        |> order_by([token], asc: token.id)
+        |> lock("FOR UPDATE")
+        |> Repo.all()
+
+      previous = Enum.find(tokens, &(&1.token == previous_session_token))
+      next = Enum.find(tokens, &(&1.token == next_session_token))
+
+      if previous && next && UserToken.session_token_valid?(next) do
+        from(subscription in PushSubscription,
+          where:
+            subscription.user_id == ^user.id and
+              subscription.user_token_id == ^previous.id
+        )
+        |> Repo.update_all(set: [user_token_id: next.id])
+        |> elem(0)
+      else
+        Repo.rollback(:invalid_session)
+      end
+    end)
   end
 
   defp enforce_subscription_cap!(user_id) do
@@ -123,6 +171,30 @@ defmodule Ircpipe.Notifications do
     |> where([user], user.id == ^user_id)
     |> lock("FOR UPDATE")
     |> Repo.one!()
+  end
+
+  defp lock_session_token(user_id, session_token) do
+    token =
+      UserToken
+      |> where(
+        [token],
+        token.user_id == ^user_id and token.token == ^session_token and
+          token.context == "session"
+      )
+      |> lock("FOR SHARE")
+      |> Repo.one()
+
+    if UserToken.session_token_valid?(token), do: token
+  end
+
+  defp maybe_pause_push_registration do
+    if test_pid = Application.get_env(:ircpipe, :pause_push_registration) do
+      send(test_pid, {:push_registration_paused, self()})
+
+      receive do
+        :continue_push_registration -> :ok
+      end
+    end
   end
 
   def delete_subscription(%Scope{user: user}, installation_id) do
@@ -285,11 +357,46 @@ defmodule Ircpipe.Notifications do
       |> limit(^@max_push_subscriptions_per_user)
       |> Repo.all()
 
+    deliverable_subscriptions =
+      Enum.flat_map(subscriptions, fn subscription ->
+        session_token =
+          UserToken
+          |> where(
+            [token],
+            token.id == ^subscription.user_token_id and
+              token.user_id == ^record.user_id and token.context == "session"
+          )
+          |> lock("FOR SHARE")
+          |> Repo.one()
+
+        current_subscription =
+          PushSubscription
+          |> where(
+            [current],
+            current.id == ^subscription.id and
+              current.user_token_id == ^subscription.user_token_id
+          )
+          |> lock("FOR UPDATE")
+          |> Repo.one()
+
+        cond do
+          is_nil(current_subscription) ->
+            []
+
+          not UserToken.session_token_valid?(session_token) ->
+            Repo.delete!(current_subscription)
+            []
+
+          true ->
+            [current_subscription]
+        end
+      end)
+
     results =
       Task.async_stream(
-        subscriptions,
+        deliverable_subscriptions,
         &send_to_subscription(&1, record),
-        timeout: 15_000,
+        timeout: 20_000,
         ordered: false
       )
       |> Enum.to_list()
@@ -305,7 +412,7 @@ defmodule Ircpipe.Notifications do
   defp finalize_deliveries(deliveries) do
     Enum.each(deliveries, fn
       {:ok, {subscription, :ok}} -> mark_success(subscription)
-      {:ok, {subscription, {:error, :expired}}} -> Repo.delete(subscription)
+      {:ok, {subscription, {:error, :expired}}} -> delete_expired(subscription)
       _delivery -> :ok
     end)
 
@@ -318,9 +425,10 @@ defmodule Ircpipe.Notifications do
     %{
       title: "#{record.channel} on #{record.server_name}",
       body: "#{record.nick}: #{String.slice(record.body, 0, 240)}",
-      tag: "mention:#{record.notification_id}",
+      tag: "notification_mention:message:#{record.message_id}",
       notification_id: record.notification_id,
       message_id: record.message_id,
+      user_id: record.user_id,
       buffer_id: "channel:#{record.channel_membership_id}",
       url: "/app?buffer=channel:#{record.channel_membership_id}"
     }
@@ -330,18 +438,29 @@ defmodule Ircpipe.Notifications do
     %{
       title: "#{record.peer_nick} on #{record.server_name}",
       body: "#{record.nick}: #{String.slice(record.body, 0, 240)}",
-      tag: "direct-message:#{record.notification_id}",
+      tag: "notification_direct_message:message:#{record.message_id}",
       notification_id: record.notification_id,
       message_id: record.message_id,
+      user_id: record.user_id,
       buffer_id: "direct:#{record.direct_message_thread_id}",
       url: "/app?buffer=direct:#{record.direct_message_thread_id}"
     }
   end
 
   defp mark_success(subscription) do
-    subscription
-    |> Ecto.Changeset.change(last_success_at: DateTime.utc_now(:second))
-    |> Repo.update()
+    PushSubscription
+    |> where([current], current.id == ^subscription.id)
+    |> Repo.update_all(set: [last_success_at: DateTime.utc_now(:second)])
+
+    :ok
+  end
+
+  defp delete_expired(subscription) do
+    PushSubscription
+    |> where([current], current.id == ^subscription.id)
+    |> Repo.delete_all()
+
+    :ok
   end
 
   defp retryable_result?({:ok, {_subscription, {:error, {:retryable, _status}}}}), do: true
