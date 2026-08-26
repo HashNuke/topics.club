@@ -56,7 +56,7 @@ if config_env() == :prod do
     System.get_env("IRC_CREDENTIALS_KEY") ||
       raise """
       environment variable IRC_CREDENTIALS_KEY is missing.
-      Generate one with: 32 |> :crypto.strong_rand_bytes() |> Base.encode64()
+      Generate one with: mix ircpipe.gen_credentials_key
       """
 
   credentials_key =
