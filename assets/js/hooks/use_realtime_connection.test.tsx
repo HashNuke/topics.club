@@ -34,6 +34,14 @@ describe("useRealtimeConnection", () => {
     expect(result.current.connectionHealth).toBe("connected")
     expect(onConnected).toHaveBeenCalledTimes(1)
 
+    await act(async () => realtimeHandlers.onJoinOk())
+    expect(result.current.connectionHealth).toBe("connected")
+    expect(onConnected).toHaveBeenCalledTimes(1)
+
+    act(() => realtimeHandlers.onClose())
+    await act(async () => realtimeHandlers.onJoinOk())
+    expect(onConnected).toHaveBeenCalledTimes(2)
+
     act(() => result.current.retryRealtimeConnection())
     expect(result.current.connectionHealth).toBe("reconnecting")
     expect(reconnect).toHaveBeenCalledTimes(1)

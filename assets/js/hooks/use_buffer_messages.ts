@@ -217,14 +217,18 @@ export default function useBufferMessages({
     [server.id, ...server.channels.map((channel) => channel.id)].forEach(reconcileBufferMessages)
   }
 
-  function reconcileAllBuffers(): void {
-    connectionsRef.current.forEach((server) => {
-      [server.id, ...server.channels.map((channel) => channel.id)].forEach(reconcileBufferMessages)
-    })
+  function reconcileAllBuffers(): Promise<void> {
+    return Promise.all(
+      connectionsRef.current.flatMap((server) =>
+        [server.id, ...server.channels.map((channel) => channel.id)].map(reconcileBufferMessages)
+      )
+    ).then(() => undefined)
   }
 
-  function reconcileBufferMessages(bufferId: string): void {
-    if (!isBackendBufferId(bufferId) || reconcilingBuffersRef.current.has(bufferId)) return
+  function reconcileBufferMessages(bufferId: string): Promise<void> {
+    if (!isBackendBufferId(bufferId) || reconcilingBuffersRef.current.has(bufferId)) {
+      return Promise.resolve()
+    }
 
     reconcilingBuffersRef.current.add(bufferId)
 
@@ -245,7 +249,7 @@ export default function useBufferMessages({
       commandIdChunks.push(commandIds.slice(index, index + 50))
     }
 
-    Promise.all([
+    return Promise.all([
       apiClient.bufferMessages(bufferId, {limit: 50}),
       ...commandIdChunks.map((ids) => apiClient.bufferMessages(bufferId, {commandIds: ids})),
     ])
@@ -270,6 +274,16 @@ export default function useBufferMessages({
       .finally(() => reconcilingBuffersRef.current.delete(bufferId))
   }
 
+  function replaceBootstrapMessages(
+    channels: MessagesByBuffer,
+    servers: MessagesByBuffer
+  ): void {
+    messagesByChannelRef.current = channels
+    messagesByServerRef.current = servers
+    setMessagesByChannel(channels)
+    setMessagesByServer(servers)
+  }
+
   return {
     appendSystemMessage,
     applyRealtimeMessage,
@@ -280,6 +294,7 @@ export default function useBufferMessages({
     reconcileAllBuffers,
     reconcileBootstrapCursors,
     reconcileServerBuffers,
+    replaceBootstrapMessages,
     replacePendingMessage,
     setMessagesByChannel,
     setMessagesByServer,

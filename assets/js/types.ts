@@ -16,7 +16,9 @@ export interface CommandMetadata {
 
 export interface ChatMessage {
   id?: EntityId
+  event_id?: string
   buffer_id?: string
+  server_connection_id?: EntityId
   channel_membership_id?: EntityId
   direct_message_thread_id?: EntityId
   peer_nick?: string

@@ -46,7 +46,6 @@ export interface RealtimeHandlers {
   onJoinError?(payload: RealtimePayload): void
   onJoinTimeout?(): void
   onMessage?(payload: ChatMessage): void
-  onMention?(payload: ChatMessage): void
   onBufferMessage?(payload: ChatMessage): void
   onBufferRead?(payload: BufferReadPayload): void
   onBufferLeft?(payload: BufferLeftPayload): void
@@ -93,7 +92,6 @@ export function createRealtimeClient({
   socket.onError?.((error) => handlers.onError?.(error))
 
   channel.on("message", (payload) => handlers.onMessage?.(payload as unknown as ChatMessage))
-  channel.on("mention", (payload) => handlers.onMention?.(payload as unknown as ChatMessage))
   channel.on("buffer:message", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
   channel.on("buffer:error", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
   channel.on("buffer:system", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))

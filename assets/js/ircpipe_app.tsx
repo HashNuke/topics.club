@@ -90,11 +90,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [joiningDiscoveryServerChannelId, setJoiningDiscoveryServerChannelId] = useState<string | number | null>(null)
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalogEntry[]>([])
   const [bootstrapLoading, setBootstrapLoading] = useState(Boolean(currentUser && mode !== "landing"))
+  const [bootstrapReady, setBootstrapReady] = useState(false)
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef<ServerConnection[]>([])
   const discoverRequestedRef = useRef(false)
   const notificationDeviceStateRef = useRef(notificationDeviceState)
+  const notificationEventIdsRef = useRef<Set<string>>(new Set())
+  const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
+  const realtimeRefreshInFlightRef = useRef(false)
   const requestedBufferIdRef = useRef(requestedBufferId())
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
@@ -110,6 +114,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     reconcileAllBuffers,
     reconcileBootstrapCursors,
     reconcileServerBuffers,
+    replaceBootstrapMessages,
     replacePendingMessage,
     setMessagesByChannel,
     setMessagesByServer,
@@ -182,25 +187,24 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   const {connectionHealth, retryRealtimeConnection} = useRealtimeConnection({
     handlers: {
-      onMessage: applyRealtimeMessage,
-      onMention: handleMentionNotification,
-      onBufferMessage: applyRealtimeMessage,
-      onBufferJoined: applyAuthoritativeJoinedTopic,
-      onBufferLeft: applyBufferLeft,
-      onBufferRead: applyBufferRead,
-      onDirectMessageThread: applyDirectMessageThread,
-      onDirectMessageClosed: applyDirectMessageClosed,
-      onPresenceDiff: applyPresenceDiff,
-      onPresenceSync: applyPresenceSync,
-      onServerStatus: applyServerStatus,
-      onNotificationMention: handleMentionNotification,
-      onNotificationDirectMessage: handleMentionNotification,
-      onNotificationPreference: applyNotificationPreference,
+      onMessage: (payload) => applyOrQueueRealtimeEvent(() => applyRealtimeMessage(payload)),
+      onBufferMessage: (payload) => applyOrQueueRealtimeEvent(() => applyRealtimeMessage(payload)),
+      onBufferJoined: (payload) => applyOrQueueRealtimeEvent(() => applyAuthoritativeJoinedTopic(payload)),
+      onBufferLeft: (payload) => applyOrQueueRealtimeEvent(() => applyBufferLeft(payload)),
+      onBufferRead: (payload) => applyOrQueueRealtimeEvent(() => applyBufferRead(payload)),
+      onDirectMessageThread: (payload) => applyOrQueueRealtimeEvent(() => applyDirectMessageThread(payload)),
+      onDirectMessageClosed: (payload) => applyOrQueueRealtimeEvent(() => applyDirectMessageClosed(payload)),
+      onPresenceDiff: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceDiff(payload)),
+      onPresenceSync: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceSync(payload)),
+      onServerStatus: (payload) => applyOrQueueRealtimeEvent(() => applyServerStatus(payload)),
+      onNotificationMention: (payload) => applyOrQueueRealtimeEvent(() => handleMentionNotification(payload)),
+      onNotificationDirectMessage: (payload) => applyOrQueueRealtimeEvent(() => handleMentionNotification(payload)),
+      onNotificationPreference: (payload) => applyOrQueueRealtimeEvent(() => applyNotificationPreference(payload)),
     },
-    onConnected: reconcileAllBuffers,
+    onConnected: refreshAuthoritativeBootstrap,
     realtimeClientFactory,
     realtimeClientRef,
-    sessionKey: currentUser && mode !== "landing" ? currentUser.id : null,
+    sessionKey: currentUser && mode !== "landing" && bootstrapReady ? currentUser.id : null,
   })
 
   useEffect(() => {
@@ -281,11 +285,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   useEffect(() => {
     if (!currentUser || mode === "landing") {
       setBootstrapLoading(false)
+      setBootstrapReady(false)
       return
     }
 
     let active = true
     setBootstrapLoading(true)
+    setBootstrapReady(false)
 
     apiClient
       .bootstrap()
@@ -294,7 +300,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       })
       .catch(() => {})
       .finally(() => {
-        if (active) setBootstrapLoading(false)
+        if (active) {
+          setBootstrapLoading(false)
+          setBootstrapReady(true)
+        }
       })
 
     return () => {
@@ -649,19 +658,43 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   function handleMentionNotification(message: ChatMessage): void {
     if (notificationDeviceStateRef.current.subscribed) return
 
+    if (message.event_id) {
+      if (notificationEventIdsRef.current.has(message.event_id)) return
+      notificationEventIdsRef.current.add(message.event_id)
+      if (notificationEventIdsRef.current.size > 500) {
+        const oldest = notificationEventIdsRef.current.values().next().value
+        if (oldest) notificationEventIdsRef.current.delete(oldest)
+      }
+    }
+
+    const server = connectionsRef.current.find(
+      (connection) =>
+        String(connection.server_connection_id || connection.id) === String(message.server_connection_id)
+    )
+    if (!server) return
+
+    const buffer = server.channels.find((channel) => channel.id === message.buffer_id)
+    if (!buffer || buffer.blocked) return
+
+    if (
+      buffer.buffer_type !== "direct_message" &&
+      (!server.mention_notifications_enabled || !buffer.mention_notifications_enabled)
+    ) return
+
     showMentionNotification(message, {
       currentUser,
       notificationState: notificationDeviceStateRef.current.capability,
     })
   }
 
-  function applyBootstrap(bootstrap: BootstrapPayload): void {
+  function applyBootstrap(bootstrap: BootstrapPayload, preserveSelection = false): void {
     const state = buildBootstrapState(bootstrap)
     if (!state) return
 
     const preferredBuffer = selectPreferredBuffer(
       state.connections,
-      requestedBufferIdRef.current || (currentUser && loadActiveBufferPreference(currentUser.id))
+      (preserveSelection ? currentBufferId() : requestedBufferIdRef.current) ||
+        (currentUser && loadActiveBufferPreference(currentUser.id))
     )
 
     requestedBufferIdRef.current = null
@@ -675,8 +708,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setNotificationDeviceState((current) => ({...current, configured: state.push.configured, loading: true}))
     synchronizeNotificationDevice(apiClient, state.push).then(setNotificationDeviceState)
     setConnections(state.connections)
-    setMessagesByServer(state.messagesByServer)
-    setMessagesByChannel(state.messagesByChannel)
+    connectionsRef.current = state.connections
+    replaceBootstrapMessages(state.messagesByChannel, state.messagesByServer)
     setUsersByChannel(state.usersByChannel)
     if (preferredBuffer) {
       setActiveChannelId(preferredBuffer.activeChannelId)
@@ -687,7 +720,33 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       if (state.activeServerId) setActiveServerId(state.activeServerId)
       if (state.view) setView(state.view)
     }
-    reconcileBootstrapCursors(state.cursorsByBuffer)
+    if (!preserveSelection) reconcileBootstrapCursors(state.cursorsByBuffer)
+  }
+
+  function applyOrQueueRealtimeEvent(callback: () => void): void {
+    if (realtimeRefreshInFlightRef.current) {
+      queuedRealtimeEventsRef.current.push(callback)
+    } else {
+      callback()
+    }
+  }
+
+  function refreshAuthoritativeBootstrap(): void {
+    if (realtimeRefreshInFlightRef.current) return
+
+    realtimeRefreshInFlightRef.current = true
+    apiClient
+      .bootstrap()
+      .then((bootstrap) => {
+        applyBootstrap(bootstrap, true)
+        return reconcileAllBuffers()
+      })
+      .catch(() => reconcileAllBuffers())
+      .finally(() => {
+        realtimeRefreshInFlightRef.current = false
+        const queuedEvents = queuedRealtimeEventsRef.current.splice(0)
+        queuedEvents.forEach((callback) => callback())
+      })
   }
 
   function selectBuffer(bufferId: string): void {

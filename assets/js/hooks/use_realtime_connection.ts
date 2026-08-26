@@ -23,14 +23,18 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
   useEffect(() => {
     if (!sessionKey || !realtimeClientFactory) return
 
+    let reconciledThisCycle = false
+
     const connected = () => {
       setConnectionHealth("connected")
-      defer(() => onConnectedRef.current?.())
+      if (!reconciledThisCycle) {
+        reconciledThisCycle = true
+        onConnectedRef.current?.()
+      }
     }
     const realtimeClient = realtimeClientFactory({
       handlers: {
         onMessage: (payload) => handlersRef.current.onMessage?.(payload),
-        onMention: (payload) => handlersRef.current.onMention?.(payload),
         onBufferMessage: (payload) => handlersRef.current.onBufferMessage?.(payload),
         onBufferJoined: (payload) => handlersRef.current.onBufferJoined?.(payload),
         onDirectMessageThread: (payload) => handlersRef.current.onDirectMessageThread?.(payload),
@@ -44,7 +48,10 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
         onNotificationDirectMessage: (payload) => handlersRef.current.onNotificationDirectMessage?.(payload),
         onNotificationPreference: (payload) => handlersRef.current.onNotificationPreference?.(payload),
         onOpen: connected,
-        onClose: () => setConnectionHealth("reconnecting"),
+        onClose: () => {
+          reconciledThisCycle = false
+          setConnectionHealth("reconnecting")
+        },
         onError: () => setConnectionHealth("degraded"),
         onJoinOk: connected,
         onJoinError: () => setConnectionHealth("degraded"),
@@ -69,13 +76,4 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
   }
 
   return {connectionHealth, realtimeClientRef, retryRealtimeConnection}
-}
-
-function defer(callback: () => void): void {
-  if (typeof queueMicrotask === "function") {
-    queueMicrotask(callback)
-    return
-  }
-
-  Promise.resolve().then(callback)
 }

@@ -1,6 +1,6 @@
 import React from "react"
 import {describe, expect, test, vi} from "vitest"
-import {fireEvent, render, screen, waitFor, within} from "@testing-library/react"
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import IrcpipeApp, {appendTimelineMessage, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.tsx"
 
@@ -38,6 +38,8 @@ function mockBootstrapFetch({
   joinOk = true,
   messageCursorsByBuffer = {"channel:7": 99},
   push = {configured: false, vapid_public_key: null},
+  serverNotificationsEnabled = true,
+  channelNotificationsEnabled = true,
 } = {}) {
   let bufferMessageRequestCount = 0
   let joinRequestCount = 0
@@ -202,6 +204,7 @@ function mockBootstrapFetch({
               use_tls: false,
               nickname: "mira",
               status: connectionStatus,
+              mention_notifications_enabled: serverNotificationsEnabled,
               channels: [7],
             },
           ],
@@ -226,6 +229,7 @@ function mockBootstrapFetch({
               status: connectionStatus,
               unread_count: channelUnreadCount,
               mention_count: channelMentionCount,
+              mention_notifications_enabled: channelNotificationsEnabled,
             },
           ],
           active_buffer_id: "channel:7",
@@ -621,6 +625,63 @@ describe("IrcpipeApp UI prototype", () => {
     await userEvent.click(within(nav).getByText("akash"))
     expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
     expect(screen.getByText("incoming DM")).toBeInTheDocument()
+  })
+
+  test("authoritatively refreshes on reconnect and replays events that arrive during refresh", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    let resolveRefresh
+    const refreshed = {
+      ...initial,
+      buffers: [
+        ...initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9"),
+        {buffer_id: "direct:10", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 10, title: "Bella", unread_count: 1, blocked: false},
+      ],
+      messages_by_buffer: {},
+    }
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi
+        .fn()
+        .mockResolvedValueOnce(initial)
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve })),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    expect(apiClient.bootstrap).toHaveBeenCalledTimes(1)
+
+    await act(async () => realtimeHandlers.onOpen())
+    expect(apiClient.bootstrap).toHaveBeenCalledTimes(2)
+
+    act(() => {
+      realtimeHandlers.onDirectMessageThread({
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected"},
+        buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 12, title: "Mona", unread_count: 1, blocked: false},
+      })
+    })
+
+    expect(screen.queryByText("Mona")).not.toBeInTheDocument()
+    await act(async () => resolveRefresh(refreshed))
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    expect(await within(nav).findByText("Bella")).toBeInTheDocument()
+    expect(within(nav).getByText("Mona")).toBeInTheDocument()
+    expect(within(nav).queryByText("Zed")).not.toBeInTheDocument()
   })
 
   test("auto-opens a direct-message thread returned by msg", async () => {
@@ -1106,7 +1167,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     mockBootstrapFetch({
       bootstrapChannelMessages: [sentCommand],
-      bufferMessageResponses: [[], [completedCommand]],
+      bufferMessageResponses: [[], [], [], [completedCommand]],
     })
 
     render(
@@ -1125,7 +1186,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     await waitFor(() => {
       const requests = globalThis.fetch.mock.calls.filter(([path]) => String(path).startsWith("/api/buffer_messages"))
-      expect(requests).toHaveLength(1)
+      expect(requests).toHaveLength(2)
     })
 
     realtimeHandlers.onOpen()
@@ -1623,9 +1684,69 @@ describe("IrcpipeApp UI prototype", () => {
 
       expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-      realtimeHandlers.onNotificationMention({channel: "#testing", nick: "akash", body: "hello mira"})
+      realtimeHandlers.onNotificationMention({
+        event_id: "notification:1",
+        buffer_id: "channel:7",
+        server_connection_id: 42,
+        channel: "#testing",
+        nick: "akash",
+        body: "hello mira",
+      })
+      realtimeHandlers.onNotificationMention({
+        event_id: "notification:1",
+        buffer_id: "channel:7",
+        server_connection_id: 42,
+        channel: "#testing",
+        nick: "akash",
+        body: "hello mira",
+      })
 
+      expect(NotificationMock).toHaveBeenCalledTimes(1)
       expect(NotificationMock).toHaveBeenCalledWith("#testing", {body: "akash: hello mira"})
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
+  test("does not show local mention notifications for muted servers", async () => {
+    mockBootstrapFetch({serverNotificationsEnabled: false})
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+    const originalVisibilityState = document.visibilityState
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+
+    try {
+      render(
+        <IrcpipeApp
+          currentUser={{id: 1, email: "mira@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+      realtimeHandlers.onNotificationMention({
+        event_id: "notification:muted",
+        buffer_id: "channel:7",
+        server_connection_id: 42,
+        channel: "#testing",
+        nick: "akash",
+        body: "hello mira",
+      })
+
+      expect(NotificationMock).not.toHaveBeenCalled()
     } finally {
       if (originalNotification) {
         Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
