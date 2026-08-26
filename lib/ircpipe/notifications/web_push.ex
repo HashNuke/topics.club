@@ -118,9 +118,16 @@ defmodule Ircpipe.Notifications.WebPush do
   end
 
   defp endpoint_authority(%URI{host: host, port: port}) when port not in [nil, 443],
-    do: "#{host}:#{port}"
+    do: "#{authority_host(host)}:#{port}"
 
-  defp endpoint_authority(%URI{host: host}), do: host
+  defp endpoint_authority(%URI{host: host}), do: authority_host(host)
+
+  defp authority_host(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, address} when tuple_size(address) == 8 -> "[#{host}]"
+      _result -> host
+    end
+  end
 
   defp resolve_addresses(host) do
     case :inet.parse_address(String.to_charlist(host)) do
@@ -245,7 +252,7 @@ defmodule Ircpipe.Notifications.WebPush do
     %URI{scheme: scheme, host: host, port: port} = URI.parse(endpoint)
     default_port = if scheme == "https", do: 443, else: 80
     port_part = if port && port != default_port, do: ":#{port}", else: ""
-    "#{scheme}://#{host}#{port_part}"
+    "#{scheme}://#{authority_host(host)}#{port_part}"
   end
 
   defp der_signature_to_raw(<<0x30, _length, 0x02, r_length, rest::binary>>),

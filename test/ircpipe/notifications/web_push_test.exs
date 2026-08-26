@@ -99,6 +99,40 @@ defmodule Ircpipe.Notifications.WebPushTest do
     assert is_function(into, 2)
   end
 
+  test "brackets an IPv6 literal in the Host header and VAPID audience" do
+    test_pid = self()
+    vapid = WebPush.generate_keypair()
+    {user_agent_public, _user_agent_private} = :crypto.generate_key(:ecdh, :prime256v1)
+
+    finch_request = fn request, finch_request, _finch_name, _finch_options ->
+      Kernel.send(test_pid, {:ipv6_web_push_request, finch_request.headers})
+      {request, Req.Response.new(status: 201, body: "")}
+    end
+
+    Application.put_env(:ircpipe, WebPush,
+      public_key: vapid.public_key,
+      private_key: vapid.private_key,
+      subject: "mailto:notifications@example.com",
+      req_options: [finch_request: finch_request, retry: false]
+    )
+
+    subscription = %PushSubscription{
+      endpoint: "https://[2606:4700:4700::1111]:8443/subscription/ipv6",
+      p256dh: Base.url_encode64(user_agent_public, padding: false),
+      auth: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+    }
+
+    assert :ok = WebPush.send(subscription, %{title: "Mention"})
+    assert_receive {:ipv6_web_push_request, headers}
+    assert header(headers, "host") == "[2606:4700:4700::1111]:8443"
+
+    authorization = header(headers, "authorization")
+    [jwt | _rest] = authorization |> String.replace_prefix("vapid t=", "") |> String.split(",")
+    [_header, claims, _signature] = String.split(jwt, ".")
+    assert {:ok, claims_json} = Base.url_decode64(claims, padding: false)
+    assert Jason.decode!(claims_json)["aud"] == "https://[2606:4700:4700::1111]:8443"
+  end
+
   test "rejects loopback, private, local DNS, and mixed DNS answers before sending" do
     vapid = WebPush.generate_keypair()
     {user_agent_public, _user_agent_private} = :crypto.generate_key(:ecdh, :prime256v1)
