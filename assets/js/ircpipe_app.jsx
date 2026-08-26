@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
 import {channelDirectoryError, commandErrorMessage} from "./app_feedback.js"
+import {buildBootstrapState} from "./bootstrap_state.js"
 import AppShell from "./components/app_shell.jsx"
 import LandingPage from "./components/landing_page.jsx"
 import {
@@ -848,76 +849,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function applyBootstrap(bootstrap) {
-    if (!bootstrap?.buffers || !bootstrap?.connections) return
+    const state = buildBootstrapState(bootstrap)
+    if (!state) return
 
-    if (bootstrap.topics?.length) setTopics(bootstrap.topics.map(normalizeTopic))
-    if (bootstrap.notification_state) setNotificationState(bootstrap.notification_state)
-    setCommandCatalog(bootstrap.command_catalog || [])
-
-    const nextConnections = bootstrap.connections.map((connection) => {
-      const channelBuffers = bootstrap.buffers.filter(
-        (buffer) => buffer.buffer_type === "channel" && buffer.server_connection_id === connection.id
-      )
-
-      return {
-        id: `server:${connection.id}`,
-        server_connection_id: connection.id,
-        name: connection.name,
-        host: connection.host,
-        port: connection.port,
-        use_tls: connection.use_tls,
-        nickname: connection.nickname,
-        status: connection.status,
-        unread_count: connection.unread_count || 0,
-        mention_count: connection.mention_count || 0,
-        channels: channelBuffers.map((buffer) => ({
-          id: buffer.buffer_id,
-          channel_membership_id: buffer.channel_membership_id,
-          channel: buffer.title,
-          topic: buffer.subtitle,
-          unread_count: buffer.unread_count,
-          mention_count: buffer.mention_count,
-        })),
-      }
-    })
-
-    if (nextConnections.length > 0) {
-      setConnections(nextConnections)
-      setMessagesByServer(
-        Object.fromEntries(
-          nextConnections.map((connection) => [
-            connection.id,
-            (bootstrap.messages_by_buffer || {})[connection.id]?.map(normalizeMessage) || [],
-          ])
-        )
-      )
-    } else {
-      setConnections([])
-      setMessagesByServer({})
-    }
-
-    setMessagesByChannel(
-      Object.fromEntries(
-        Object.entries(bootstrap.messages_by_buffer || {}).map(([bufferId, messages]) => [
-          bufferId,
-          messages.map(normalizeMessage),
-        ])
-      )
-    )
-    setUsersByChannel(bootstrap.users_by_buffer || {})
-
-    if (bootstrap.active_buffer_id?.startsWith("channel:")) {
-      setActiveChannelId(bootstrap.active_buffer_id)
-      const activeConnection = nextConnections.find((connection) =>
-        connection.channels.some((channel) => channel.id === bootstrap.active_buffer_id)
-      )
-      if (activeConnection) setActiveServerId(activeConnection.id)
-    } else if (bootstrap.active_buffer_id?.startsWith("server:")) {
-      setActiveServerId(bootstrap.active_buffer_id)
-      setView("server")
-    }
-
-    reconcileBootstrapCursors(bootstrap.message_cursors_by_buffer || {})
+    if (state.topics) setTopics(state.topics)
+    if (state.notificationState) setNotificationState(state.notificationState)
+    setCommandCatalog(state.commandCatalog)
+    setConnections(state.connections)
+    setMessagesByServer(state.messagesByServer)
+    setMessagesByChannel(state.messagesByChannel)
+    setUsersByChannel(state.usersByChannel)
+    if (state.activeChannelId) setActiveChannelId(state.activeChannelId)
+    if (state.activeServerId) setActiveServerId(state.activeServerId)
+    if (state.view) setView(state.view)
+    reconcileBootstrapCursors(state.cursorsByBuffer)
   }
 
   if (mode === "landing") {
