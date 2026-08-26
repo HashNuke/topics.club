@@ -5,12 +5,12 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Accounts.Scope
   alias Ircpipe.Chat
-  alias Ircpipe.Irc.Commands
-  alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
+  alias IrcpipeWeb.UserChannel.ChannelDirectory
+  alias IrcpipeWeb.UserChannel.CommandHandler
   alias IrcpipeWeb.UserChannel.ErrorResponse
   alias IrcpipeWeb.UserChannel.Reply
 
@@ -138,30 +138,15 @@ defmodule IrcpipeWeb.UserChannel do
 
   @impl true
   def handle_in("command:suggest", %{"input" => input}, socket) do
-    Reply.ok(socket, %{commands: Commands.suggest(input)})
+    CommandHandler.suggest(input, socket)
   end
 
   def handle_in("command:parse", %{"input" => input}, socket) do
-    reply_with_command(input, socket)
+    CommandHandler.parse(input, socket)
   end
 
-  def handle_in("command:run", %{"input" => input} = payload, socket) do
-    command_id = Map.get(payload, "command_id") || Ecto.UUID.generate()
-    socket = assign(socket, :command_id, command_id)
-
-    result =
-      case Commands.parse(input) do
-        {:ok, command} ->
-          run_command(command, socket.assigns.current_user, Map.get(payload, "buffer_id"), socket)
-
-        {:error, :not_a_command} ->
-          Reply.error(socket, %{reason: "not_a_command"})
-
-        {:error, {:unknown_command, command}} ->
-          Reply.error(socket, %{reason: "unknown_command", command: command})
-      end
-
-    put_reply_command_id(result, command_id)
+  def handle_in("command:run", %{"input" => _input} = payload, socket) do
+    CommandHandler.run(payload, socket)
   end
 
   def handle_in(
@@ -351,9 +336,9 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
     connection = Chat.get_connection!(user, connection_id)
 
-    case list_channels(connection) do
-      {:ok, channels} ->
-        Reply.ok(socket, %{directory: channel_directory(connection, channels)})
+    case ChannelDirectory.fetch(connection) do
+      {:ok, directory} ->
+        Reply.ok(socket, %{directory: directory})
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
@@ -388,272 +373,6 @@ defmodule IrcpipeWeb.UserChannel do
     end
   rescue
     Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
-  end
-
-  defp reply_with_command(input, socket) do
-    case Commands.parse(input) do
-      {:ok, command} ->
-        Reply.ok(socket, %{command: command})
-
-      {:error, :not_a_command} ->
-        Reply.error(socket, %{reason: "not_a_command"})
-
-      {:error, {:unknown_command, command}} ->
-        Reply.error(socket, %{reason: "unknown_command", command: command})
-    end
-  end
-
-  defp run_command(command, _user, nil, socket),
-    do: Reply.error(socket, %{reason: "invalid_buffer", command: command})
-
-  defp run_command(%{name: "join", args: [channel]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, result} <- execute_intent(connection, "JOIN #{channel}", buffer_id, socket),
-         {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel) do
-      Reply.ok(
-        socket,
-        result
-        |> Map.put(:command, command)
-        |> Map.put(:buffer_id, "channel:#{membership.id}")
-      )
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(%{name: "list", args: []} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, channels} <- list_channels(connection) do
-      Reply.ok(socket, %{
-        command: command,
-        directory: channel_directory(connection, channels)
-      })
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(%{name: name, args: args} = command, user, buffer_id, socket)
-       when name in ["part", "leave"] do
-    with {:ok, membership} <- BufferResolver.part_membership(user, buffer_id, args),
-         {:ok, result} <-
-           execute_intent(
-             membership.server_connection,
-             "PART #{membership.channel} :leaving",
-             "channel:#{membership.id}",
-             socket
-           ) do
-      Reply.ok(
-        socket,
-        result
-        |> Map.put(:command, command)
-        |> Map.put(:buffer_id, "channel:#{membership.id}")
-      )
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(
-         %{name: "me", args: [body]} = command,
-         user,
-         "channel:" <> membership_id,
-         socket
-       ) do
-    with {:ok, membership} <- BufferResolver.membership(user, membership_id),
-         {:ok, result} <-
-           execute_intent(
-             membership.server_connection,
-             "PRIVMSG #{membership.channel} :\x01ACTION #{body}\x01",
-             "channel:#{membership.id}",
-             socket
-           ),
-         message <- latest_message(user, membership) do
-      Reply.ok(socket, %{
-        command: command,
-        command_id: result.command_id,
-        status: result.status,
-        message: Event.message(message, "channel:#{membership.id}")
-      })
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, client_info} <- session_connection_info(connection),
-         true <- Chat.valid_nick?(target, Map.get(client_info, :isupport, %{})),
-         {:ok, result} <-
-           resolve_and_execute_intent(
-             connection,
-             client_info,
-             "PRIVMSG #{target} :#{body}",
-             "server:#{connection.id}",
-             socket
-           ),
-         [%{thread: thread, message: message}] <- result.direct_messages do
-      event = Event.direct_message_thread(thread, connection)
-
-      Reply.ok(
-        socket,
-        Map.merge(event, %{
-          command: command,
-          command_id: result.command_id,
-          status: result.status,
-          message: Event.message(message, "direct:#{thread.id}", %{peer_nick: thread.peer_nick})
-        })
-      )
-    else
-      false ->
-        Reply.error(socket, %{reason: "invalid_nick", command: command})
-
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-
-      [] ->
-        Reply.error(socket, %{reason: "send_failed", command: command})
-    end
-  rescue
-    Ecto.NoResultsError -> Reply.error(socket, %{reason: "send_failed", command: command})
-  end
-
-  defp run_command(%{name: "nick", args: [nick]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, result} <- execute_intent(connection, "NICK #{nick}", buffer_id, socket) do
-      Reply.ok(socket, Map.put(result, :command, command))
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(%{name: "topic", args: [channel]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel),
-         {:ok, client_info} <- session_connection_info(connection),
-         {:ok, intent} <- CommandRegistry.resolve("TOPIC #{membership.channel}", client_info),
-         {:ok, result} <-
-           Session.execute(
-             connection,
-             intent,
-             socket.assigns.command_id,
-             "channel:#{membership.id}"
-           ) do
-      Reply.ok(socket, Map.put(result, :command, command))
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(%{name: "topic", args: [channel, topic]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel),
-         {:ok, result} <-
-           execute_intent(
-             connection,
-             "TOPIC #{membership.channel} :#{topic}",
-             "channel:#{membership.id}",
-             socket
-           ) do
-      Reply.ok(
-        socket,
-        result
-        |> Map.put(:command, command)
-        |> Map.put(:buffer_id, "channel:#{membership.id}")
-      )
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(%{name: "quote", args: [line]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, client_info} <- session_connection_info(connection),
-         {:ok, intent} <- CommandRegistry.resolve(line, client_info),
-         {:ok, result} <-
-           Session.execute(connection, intent, socket.assigns.command_id, buffer_id) do
-      Reply.ok(socket, Map.put(result, :command, command))
-    else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
-
-      {:error, reason} ->
-        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
-    end
-  end
-
-  defp run_command(command, _user, _buffer_id, socket) do
-    Reply.error(socket, %{reason: "invalid_command_args", command: command})
-  end
-
-  defp put_reply_command_id({:reply, {status, payload}, socket}, command_id) do
-    {:reply, {status, Map.put(payload, :command_id, command_id)}, socket}
-  end
-
-  defp channel_directory(connection, channels) do
-    %{
-      server_connection_id: connection.id,
-      server_name: connection.name,
-      server_host: connection.host,
-      channels: channels
-    }
-  end
-
-  defp list_channels(connection) do
-    Session.list_channels(connection)
-  catch
-    :exit, _reason -> {:error, :not_connected}
-  end
-
-  defp session_connection_info(connection) do
-    Session.connection_info(connection)
-  catch
-    :exit, _reason -> {:error, :not_connected}
-  end
-
-  defp execute_intent(connection, line, buffer_id, socket) do
-    with {:ok, client_info} <- session_connection_info(connection),
-         {:ok, result} <-
-           resolve_and_execute_intent(connection, client_info, line, buffer_id, socket) do
-      {:ok, result}
-    end
-  end
-
-  defp resolve_and_execute_intent(connection, client_info, line, buffer_id, socket) do
-    with {:ok, intent} <- CommandRegistry.resolve(line, client_info) do
-      Session.execute(connection, intent, socket.assigns.command_id, buffer_id)
-    end
   end
 
   defp say(membership, body) do
