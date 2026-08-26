@@ -1,8 +1,9 @@
 import {mergeConfig} from "vite"
 import tailwindcss from "@tailwindcss/vite"
+import type {StorybookConfig} from "@storybook/react-vite"
 
-export default {
-  stories: ["../js/**/*.stories.@(js|jsx)"],
+const config: StorybookConfig = {
+  stories: ["../js/**/*.stories.@(ts|tsx)"],
   framework: "@storybook/react-vite",
   addons: [],
   async viteFinal(config) {
@@ -11,3 +12,5 @@ export default {
     })
   },
 }
+
+export default config

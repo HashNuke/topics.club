@@ -6,7 +6,7 @@ export default {
   title: "Chat/MessageRow",
   component: MessageRow,
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="w-[42rem] max-w-[calc(100vw-2rem)]">
         <Story />
       </div>

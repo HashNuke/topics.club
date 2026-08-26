@@ -3,7 +3,7 @@ import UserListItem from "./user_list_item.tsx"
 export default {
   title: "People/UserListItem",
   component: UserListItem,
-  decorators: [(Story) => <div className="w-64 max-w-full"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="w-64 max-w-full"><Story /></div>],
   args: {
     user: {nick: "mira", role: "user", status: "online"},
   },

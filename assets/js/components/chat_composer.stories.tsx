@@ -1,5 +1,6 @@
 import {useState} from "react"
 import ChatComposer from "./chat_composer.tsx"
+import type {ComponentProps} from "react"
 
 const commandCatalog = [
   {
@@ -25,7 +26,9 @@ const commandCatalog = [
   },
 ]
 
-function InteractiveComposer(args) {
+type ComposerArgs = ComponentProps<typeof ChatComposer>
+
+function InteractiveComposer(args: ComposerArgs) {
   const [draft, setDraft] = useState(args.draft)
 
   return (
@@ -41,7 +44,7 @@ function InteractiveComposer(args) {
 export default {
   title: "Chat/ChatComposer",
   component: ChatComposer,
-  render: (args) => <InteractiveComposer {...args} />,
+  render: (args: ComposerArgs) => <InteractiveComposer {...args} />,
   parameters: {
     layout: "fullscreen",
   },
@@ -103,7 +106,7 @@ export const Reconnecting = {
 
 export const MobileWidth = {
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="w-80 max-w-full">
         <Story />
       </div>

@@ -11,7 +11,7 @@ const connection = {
 export default {
   title: "Navigation/LeftSidebar",
   component: LeftSidebar,
-  decorators: [(Story) => <div className="flex h-[44rem] w-72 overflow-hidden border border-slate-800"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="flex h-[44rem] w-72 overflow-hidden border border-slate-800"><Story /></div>],
   args: {
     activeChannel: connection.channels[0], activeServer: connection, connections: [connection], currentUser: {email: "mira@example.com"}, mobile: true, view: "chat",
     onDiscover: () => {}, onDisconnectServer: () => {}, onJoinManualServer: () => {}, onLeaveChannel: () => {}, onLeaveServer: () => {}, onMarkChannelRead: () => {}, onOpenChannelDirectory: () => {}, onReconnectServer: () => {}, onSelectChannel: () => {}, onSelectServer: () => {}, onShowChat: () => {}, onUpdateServer: () => {},

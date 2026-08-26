@@ -1,7 +1,10 @@
 import {useState} from "react"
 import ChannelDirectoryControls from "./channel_directory_controls.tsx"
+import type {ComponentProps} from "react"
 
-function InteractiveControls(args) {
+type ControlsArgs = ComponentProps<typeof ChannelDirectoryControls>
+
+function InteractiveControls(args: ControlsArgs) {
   const [query, setQuery] = useState(args.query)
   const [manualChannel, setManualChannel] = useState(args.manualChannel)
 
@@ -20,8 +23,8 @@ function InteractiveControls(args) {
 export default {
   title: "Directory/ChannelDirectoryControls",
   component: ChannelDirectoryControls,
-  render: (args) => <InteractiveControls {...args} />,
-  decorators: [(Story) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
+  render: (args: ControlsArgs) => <InteractiveControls {...args} />,
+  decorators: [(Story: React.ComponentType) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
   args: {manualChannel: "", query: ""},
 }
 
@@ -32,5 +35,5 @@ export const Filled = {
 }
 
 export const MobileWidth = {
-  decorators: [(Story) => <div className="w-80 max-w-full"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="w-80 max-w-full"><Story /></div>],
 }

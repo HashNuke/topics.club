@@ -12,7 +12,7 @@ export default {
   title: "People/RightSidebar",
   component: RightSidebar,
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="h-[42rem] w-72 overflow-hidden border border-slate-800">
         <Story />
       </div>

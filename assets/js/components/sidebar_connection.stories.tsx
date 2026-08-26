@@ -13,7 +13,7 @@ const connection = {
 export default {
   title: "Navigation/SidebarConnection",
   component: SidebarConnection,
-  decorators: [(Story) => <div className="w-72 max-w-full p-3"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="w-72 max-w-full p-3"><Story /></div>],
   args: {
     activeChannel: connection.channels[0], activeServer: connection, connection, view: "chat",
     onDisconnectServer: () => {}, onEditServer: () => {}, onLeaveChannel: () => {}, onLeaveServer: () => {}, onMarkChannelRead: () => {}, onOpenChannelDirectory: () => {}, onReconnectServer: () => {}, onSelectChannel: () => {}, onSelectServer: () => {},

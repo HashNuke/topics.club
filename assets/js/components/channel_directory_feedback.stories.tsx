@@ -3,7 +3,7 @@ import ChannelDirectoryFeedback from "./channel_directory_feedback.tsx"
 export default {
   title: "Directory/ChannelDirectoryFeedback",
   component: ChannelDirectoryFeedback,
-  decorators: [(Story) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
   args: {error: null, joinError: null, onRefresh: () => {}},
 }
 

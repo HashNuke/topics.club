@@ -1,5 +1,6 @@
 import {useState} from "react"
 import ServerBufferPane from "./server_buffer_pane.tsx"
+import type {ComponentProps} from "react"
 
 const server = {
   id: "server:42",
@@ -19,7 +20,9 @@ const commandCatalog = [
   {name: "/quote", usage: "/quote command", description: "Send a raw IRC command", contexts: ["server"], availability: "enabled"},
 ]
 
-function InteractiveServerBuffer(args) {
+type ServerBufferArgs = ComponentProps<typeof ServerBufferPane>
+
+function InteractiveServerBuffer(args: ServerBufferArgs) {
   const [draft, setDraft] = useState(args.draft)
 
   return (
@@ -38,9 +41,9 @@ function InteractiveServerBuffer(args) {
 export default {
   title: "Chat/ServerBufferPane",
   component: ServerBufferPane,
-  render: (args) => <InteractiveServerBuffer {...args} />,
+  render: (args: ServerBufferArgs) => <InteractiveServerBuffer {...args} />,
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="flex h-[36rem] w-[52rem] max-w-[calc(100vw-2rem)] overflow-hidden border border-slate-800">
         <Story />
       </div>
@@ -84,7 +87,7 @@ export const ComposerError = {
 
 export const MobileWidth = {
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="flex h-[36rem] w-80 max-w-full overflow-hidden border border-slate-800">
         <Story />
       </div>

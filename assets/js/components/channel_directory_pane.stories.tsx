@@ -10,7 +10,7 @@ export default {
   title: "Directory/ChannelDirectoryPane",
   component: ChannelDirectoryPane,
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="h-[42rem] w-[64rem] max-w-[calc(100vw-2rem)] overflow-hidden border border-slate-800">
         <Story />
       </div>
@@ -50,7 +50,7 @@ export const JoiningChannel = {
 
 export const MobileWidth = {
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="h-[42rem] w-80 max-w-full overflow-hidden border border-slate-800">
         <Story />
       </div>

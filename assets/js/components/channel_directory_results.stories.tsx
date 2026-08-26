@@ -9,7 +9,7 @@ const channels = [
 export default {
   title: "Directory/ChannelDirectoryResults",
   component: ChannelDirectoryResults,
-  decorators: [(Story) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
   args: {
     channels,
     directory: {status: "ready", joiningChannel: null},
@@ -33,5 +33,5 @@ export const Empty = {
 }
 
 export const MobileWidth = {
-  decorators: [(Story) => <div className="w-80 max-w-full"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="w-80 max-w-full"><Story /></div>],
 }

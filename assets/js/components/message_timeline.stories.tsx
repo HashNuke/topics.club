@@ -21,7 +21,7 @@ export default {
   title: "Chat/MessageTimeline",
   component: MessageTimeline,
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="w-[42rem] max-w-[calc(100vw-2rem)] space-y-1">
         <Story />
       </div>
@@ -105,7 +105,7 @@ export const RetryableMessage = {
 
 export const MobileWidth = {
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="w-80 max-w-full">
         <Story />
       </div>

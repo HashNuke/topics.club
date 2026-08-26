@@ -1,5 +1,6 @@
 import {useState} from "react"
 import ChatPane from "./chat_pane.tsx"
+import type {ComponentProps} from "react"
 
 const commandCatalog = [
   {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["channel"], availability: "enabled"},
@@ -18,7 +19,9 @@ const messages = [
   {id: "pane-3", body: "lena joined #elixir", kind: "system", occurredAt: "2026-08-25T15:03:00Z"},
 ]
 
-function InteractiveChatPane(args) {
+type ChatPaneArgs = ComponentProps<typeof ChatPane>
+
+function InteractiveChatPane(args: ChatPaneArgs) {
   const [draft, setDraft] = useState(args.draft)
 
   return (
@@ -37,9 +40,9 @@ function InteractiveChatPane(args) {
 export default {
   title: "Chat/ChatPane",
   component: ChatPane,
-  render: (args) => <InteractiveChatPane {...args} />,
+  render: (args: ChatPaneArgs) => <InteractiveChatPane {...args} />,
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="flex h-[36rem] w-[52rem] max-w-[calc(100vw-2rem)] overflow-hidden border border-slate-800">
         <Story />
       </div>
@@ -90,7 +93,7 @@ export const FailedMessage = {
 
 export const MobileWidth = {
   decorators: [
-    (Story) => (
+    (Story: React.ComponentType) => (
       <div className="flex h-[36rem] w-80 max-w-full overflow-hidden border border-slate-800">
         <Story />
       </div>

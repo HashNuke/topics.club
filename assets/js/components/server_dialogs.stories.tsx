@@ -18,16 +18,16 @@ export const EditServer = {
     <EditServerDialog
       onClose={() => {}}
       onSave={() => {}}
-      server={{host: "irc.example.net", nickname: "mira", port: 6697, use_tls: true}}
+      server={{id: "server:1", host: "irc.example.net", nickname: "mira", port: 6697, use_tls: true, channels: []}}
     />
   ),
 }
 
 export const LeaveServer = {
-  render: () => <LeaveServerDialog onClose={() => {}} onConfirm={() => {}} server={{name: "Libera Chat"}} />,
+  render: () => <LeaveServerDialog onClose={() => {}} onConfirm={() => {}} server={{id: "server:1", name: "Libera Chat", host: "irc.libera.chat", channels: []}} />,
 }
 
 export const InputField = {
-  decorators: [(Story) => <div className="mx-auto mt-12 w-80"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="mx-auto mt-12 w-80"><Story /></div>],
   render: () => <LabeledInput id="storybook-server-name" label="Server" value="irc.example.net" onChange={() => {}} />,
 }
