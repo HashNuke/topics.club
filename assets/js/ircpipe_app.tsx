@@ -120,6 +120,12 @@ function parsedDirectMessageBody(input: string): string | null {
   return match?.[1] || null
 }
 
+function notificationBufferId(value: unknown): string | null {
+  return typeof value === "string" && /^(channel|direct):[1-9][0-9]{0,18}$/.test(value)
+    ? value
+    : null
+}
+
 interface NotificationPreferenceOperation {
   baseRevision: number
   epoch: number
@@ -161,6 +167,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
   const realtimeRefreshInFlightRef = useRef(false)
   const realtimeRefreshRequestedRef = useRef(false)
+  const notificationBufferRequestRef = useRef<string | null>(null)
   const requestedBufferIdRef = useRef(requestedBufferId())
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
@@ -267,10 +274,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     handlers: {
       onMessage: (payload) => applyOrQueueRealtimeEvent(() => applyRealtimeMessage(payload)),
       onBufferMessage: (payload) => applyOrQueueRealtimeEvent(() => applyRealtimeMessage(payload)),
-      onBufferJoined: (payload) => applyOrQueueRealtimeEvent(() => applyAuthoritativeJoinedTopic(payload)),
+      onBufferJoined: (payload) => applyOrQueueRealtimeEvent(() => {
+        applyAuthoritativeJoinedTopic(payload)
+        selectPendingNotificationBuffer()
+      }),
       onBufferLeft: (payload) => applyOrQueueRealtimeEvent(() => applyBufferLeft(payload)),
       onBufferRead: (payload) => applyOrQueueRealtimeEvent(() => applyBufferRead(payload)),
-      onDirectMessageThread: (payload) => applyOrQueueRealtimeEvent(() => applyDirectMessageThread(payload)),
+      onDirectMessageThread: (payload) => applyOrQueueRealtimeEvent(() => {
+        if (applyDirectMessageThread(payload)) selectPendingNotificationBuffer()
+      }),
       onDirectMessageClosed: (payload) => applyOrQueueRealtimeEvent(() => applyDirectMessageClosed(payload)),
       onPresenceDiff: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceDiff(payload)),
       onPresenceSync: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceSync(payload)),
@@ -360,8 +372,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const serviceWorker = navigator.serviceWorker
 
     const navigateFromNotification = (event: MessageEvent) => {
-      if (event.data?.type !== "notification:navigate" || !event.data.bufferId) return
-      selectBuffer(event.data.bufferId)
+      if (event.data?.type !== "notification:navigate") return
+      const bufferId = notificationBufferId(event.data.bufferId)
+      if (!bufferId) return
+
+      notificationBufferRequestRef.current = bufferId
+      if (!selectBuffer(bufferId)) refreshAuthoritativeBootstrap()
     }
 
     serviceWorker.addEventListener("message", navigateFromNotification)
@@ -907,13 +923,22 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const state = buildBootstrapState(bootstrap)
     if (!state) return
 
+    const notificationRequest = notificationBufferRequestRef.current
     const preferredBuffer = selectPreferredBuffer(
       state.connections,
-      (preserveSelection ? currentBufferId() : requestedBufferIdRef.current) ||
+      notificationRequest ||
+        (preserveSelection ? currentBufferId() : requestedBufferIdRef.current) ||
         (currentUser && loadActiveBufferPreference(currentUser.id))
     )
 
     requestedBufferIdRef.current = null
+    if (
+      notificationRequest &&
+      preferredBuffer &&
+      (preferredBuffer.activeChannelId || preferredBuffer.activeServerId) === notificationRequest
+    ) {
+      notificationBufferRequestRef.current = null
+    }
     if (preferredBuffer && window.history?.replaceState && new URLSearchParams(window.location.search).has("buffer")) {
       window.history.replaceState(null, "", window.location.pathname)
     }
@@ -987,9 +1012,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       })
   }
 
-  function selectBuffer(bufferId: string): void {
+  function selectBuffer(bufferId: string): boolean {
     const selected = selectPreferredBuffer(connectionsRef.current, bufferId)
-    if (!selected) return
+    if (!selected) return false
 
     activeChannelIdRef.current = selected.activeChannelId
     activeServerIdRef.current = selected.activeServerId
@@ -997,6 +1022,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setActiveChannelId(selected.activeChannelId)
     setActiveServerId(selected.activeServerId)
     setView(selected.view)
+    if (notificationBufferRequestRef.current === bufferId) {
+      notificationBufferRequestRef.current = null
+    }
+    return true
+  }
+
+  function selectPendingNotificationBuffer(): void {
+    const bufferId = notificationBufferRequestRef.current
+    if (bufferId) selectBuffer(bufferId)
   }
 
   if (mode === "landing") {
