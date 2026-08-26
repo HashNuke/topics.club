@@ -38,7 +38,7 @@ interface Window {
 }
 
 declare const process: {
-  env: {NODE_ENV?: string}
+  env: {CI?: string; NODE_ENV?: string}
 }
 
 declare module "*.css"

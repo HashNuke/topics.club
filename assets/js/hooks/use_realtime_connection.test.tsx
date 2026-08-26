@@ -1,7 +1,7 @@
 import {useRef} from "react"
 import {act, renderHook} from "@testing-library/react"
 import {describe, expect, test, vi} from "vitest"
-import useRealtimeConnection from "./use_realtime_connection.js"
+import useRealtimeConnection from "./use_realtime_connection.ts"
 
 describe("useRealtimeConnection", () => {
   test("connects, forwards events, tracks health, and retries", async () => {

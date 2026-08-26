@@ -1,6 +1,6 @@
 import {renderHook} from "@testing-library/react"
 import {describe, expect, test, vi} from "vitest"
-import useActivityHeartbeat from "./use_activity_heartbeat.js"
+import useActivityHeartbeat from "./use_activity_heartbeat.ts"
 
 describe("useActivityHeartbeat", () => {
   test("touches activity initially and on focus, then removes its listener", () => {

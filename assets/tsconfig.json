@@ -14,5 +14,13 @@
     "strict": true,
     "target": "ES2022"
   },
-  "include": [".storybook/**/*", "js/**/*"]
+  "include": [
+    ".storybook/**/*",
+    "e2e/**/*",
+    "js/**/*",
+    "playwright.config.ts",
+    "test/**/*",
+    "vitest.config.ts"
+  ],
+  "exclude": ["js/**/*.test.ts", "js/**/*.test.tsx"]
 }
