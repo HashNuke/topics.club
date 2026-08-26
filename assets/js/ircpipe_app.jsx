@@ -36,6 +36,7 @@ import {
 import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.js"
 import useChannelDirectory from "./hooks/use_channel_directory.js"
+import useRealtimeConnection from "./hooks/use_realtime_connection.js"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
 export {default as TopicGrid} from "./components/topic_grid.jsx"
@@ -51,7 +52,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [authTopic, setAuthTopic] = useState(null)
   const [view, setView] = useState("chat")
   const [notificationState, setNotificationState] = useState(notificationPermission())
-  const [connectionHealth, setConnectionHealth] = useState("disconnected")
   const [connections, setConnections] = useState([])
   const [activeChannelId, setActiveChannelId] = useState(null)
   const [activeServerId, setActiveServerId] = useState(null)
@@ -71,10 +71,27 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const reconcilingBuffersRef = useRef(new Set())
   const rejectedBufferIdsRef = useRef(new Set())
   const joinRejectionVersionsRef = useRef(new Map())
-  const realtimeClientRef = useRef(null)
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
   const viewRef = useRef(view)
+
+  const {connectionHealth, realtimeClientRef, retryRealtimeConnection} = useRealtimeConnection({
+    handlers: {
+      onMessage: applyRealtimeMessage,
+      onMention: handleMentionNotification,
+      onBufferMessage: applyRealtimeMessage,
+      onBufferJoined: applyAuthoritativeJoinedTopic,
+      onBufferLeft: applyBufferLeft,
+      onBufferRead: applyBufferRead,
+      onPresenceDiff: applyPresenceDiff,
+      onPresenceSync: applyPresenceSync,
+      onServerStatus: applyServerStatus,
+      onNotificationMention: handleMentionNotification,
+    },
+    onConnected: reconcileAllBuffers,
+    realtimeClientFactory,
+    sessionKey: currentUser && mode !== "landing" ? currentUser.id : null,
+  })
 
   const {
     applyChannelDirectory,
@@ -157,45 +174,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [apiClient, currentUser?.id, mode])
 
   useActivityHeartbeat(apiClient, Boolean(currentUser && mode !== "landing"))
-
-  useEffect(() => {
-    if (!currentUser || mode === "landing" || !realtimeClientFactory) return
-
-    const realtimeClient = realtimeClientFactory({
-      handlers: {
-        onMessage: applyRealtimeMessage,
-        onMention: handleMentionNotification,
-        onBufferMessage: applyRealtimeMessage,
-        onBufferJoined: applyAuthoritativeJoinedTopic,
-        onBufferLeft: applyBufferLeft,
-        onBufferRead: applyBufferRead,
-        onPresenceDiff: applyPresenceDiff,
-        onPresenceSync: applyPresenceSync,
-        onServerStatus: applyServerStatus,
-        onNotificationMention: handleMentionNotification,
-        onOpen: () => {
-          setConnectionHealth("connected")
-          defer(reconcileAllBuffers)
-        },
-        onClose: () => setConnectionHealth("reconnecting"),
-        onError: () => setConnectionHealth("degraded"),
-        onJoinOk: () => {
-          setConnectionHealth("connected")
-          defer(reconcileAllBuffers)
-        },
-        onJoinError: () => setConnectionHealth("degraded"),
-        onJoinTimeout: () => setConnectionHealth("degraded"),
-      },
-    })
-
-    realtimeClientRef.current = realtimeClient.connect()
-
-    return () => {
-      realtimeClient.disconnect()
-      realtimeClientRef.current = null
-      setConnectionHealth("disconnected")
-    }
-  }, [currentUser?.id, mode, realtimeClientFactory])
 
   const channels = useMemo(
     () => connections.flatMap((connection) => connection.channels.map((channel) => ({...channel, connection}))),
@@ -876,13 +854,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       .finally(() => {
         reconcilingBuffersRef.current.delete(bufferId)
       })
-  }
-
-  function retryRealtimeConnection() {
-    if (!realtimeClientRef.current?.reconnect) return
-
-    setConnectionHealth("reconnecting")
-    realtimeClientRef.current.reconnect()
   }
 
   async function leaveChannel(channel) {
