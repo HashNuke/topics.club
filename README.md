@@ -63,6 +63,10 @@ IRC_CREDENTIALS_KEY=the-value-from-32-random-bytes-encoded-with-base64
 
 Generate `IRC_CREDENTIALS_KEY` with `mix ircpipe.gen_credentials_key`.
 
+Discovery refresh workers start automatically in development. They are disabled
+by default in production; set `ENABLE_DISCOVERY=true` on only the deployment that
+should fetch the Netsplit server catalog and IRC channel lists.
+
 `IRCPIPE_POSTGRES_DATA` is a host directory that you choose. Compose bind-mounts
 it to `/var/lib/postgresql/data`, so that directory is where all database data is
 stored.

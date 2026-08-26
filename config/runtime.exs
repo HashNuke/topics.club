@@ -52,6 +52,8 @@ config :ircpipe, :email_from,
   address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
 
 if config_env() == :prod do
+  config :ircpipe, :discovery_refresh_enabled, System.get_env("ENABLE_DISCOVERY") == "true"
+
   credentials_key =
     System.get_env("IRC_CREDENTIALS_KEY") ||
       raise """
