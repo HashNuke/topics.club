@@ -12,6 +12,7 @@ defmodule Ircpipe.Chat do
     DirectMessageThread,
     MembershipReconciler,
     Message,
+    MentionDetection,
     Notification,
     PeerIdentity,
     Presence,
@@ -22,7 +23,6 @@ defmodule Ircpipe.Chat do
   alias Ircpipe.Notifications.Delivery
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
-  alias Ircxd.Casemapping
 
   def list_direct_message_threads(
         %User{id: user_id},
@@ -595,7 +595,7 @@ defmodule Ircpipe.Chat do
 
     user = Repo.get!(User, connection.user_id)
     attention? = metadata_value(metadata, :direction) != "outgoing"
-    mentioned = attention? and mention?(body, connection.nickname, casemapping)
+    mentioned = attention? and MentionDetection.mentioned?(body, connection.nickname, casemapping)
 
     Repo.transaction(fn ->
       {:ok, message} =
@@ -1201,20 +1201,6 @@ defmodule Ircpipe.Chat do
     )
     |> Repo.update_all(set: [read_at: now, updated_at: now])
   end
-
-  defp mention?(body, nickname, casemapping)
-       when is_binary(body) and is_binary(nickname) and nickname != "" do
-    body = Casemapping.normalize(body, casemapping)
-    nickname = nickname |> Casemapping.normalize(casemapping) |> Regex.escape()
-    nick_character = "A-Za-z0-9_\\-\\[\\]\\\\`^{}|"
-
-    Regex.match?(
-      Regex.compile!("(?:^|[^#{nick_character}])#{nickname}(?:$|[^#{nick_character}])", "u"),
-      body
-    )
-  end
-
-  defp mention?(_, _, _), do: false
 
   defp metadata_value(metadata, key) do
     Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
