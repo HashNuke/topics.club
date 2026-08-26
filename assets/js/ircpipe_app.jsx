@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from "react"
+import React, {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
 import {commandErrorMessage} from "./app_feedback.js"
 import {buildBootstrapState} from "./bootstrap_state.js"
