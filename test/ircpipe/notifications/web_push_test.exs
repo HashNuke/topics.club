@@ -57,6 +57,48 @@ defmodule Ircpipe.Notifications.WebPushTest do
     assert byte_size(body) > byte_size(Jason.encode!(%{title: "Mention", body: "mira: ping"}))
   end
 
+  test "streams and discards arbitrarily large response bodies" do
+    test_pid = self()
+    vapid = WebPush.generate_keypair()
+    {user_agent_public, _user_agent_private} = :crypto.generate_key(:ecdh, :prime256v1)
+
+    finch_request = fn request, _finch_request, _finch_name, _finch_options ->
+      response = Req.Response.new(status: 201, body: "")
+      chunk = String.duplicate("x", 1_000_000)
+
+      assert is_function(request.into, 2)
+
+      assert {:cont, {streamed_request, streamed_response}} =
+               request.into.({:data, chunk}, {request, response})
+
+      Kernel.send(test_pid, {
+        :discarded_web_push_response,
+        streamed_request.into,
+        streamed_response.body
+      })
+
+      {request, response}
+    end
+
+    Application.put_env(:ircpipe, WebPush,
+      public_key: vapid.public_key,
+      private_key: vapid.private_key,
+      subject: "mailto:notifications@example.com",
+      endpoint_resolver: fn _host, _family -> {:ok, [{93, 184, 216, 34}]} end,
+      req_options: [finch_request: finch_request, retry: false]
+    )
+
+    subscription = %PushSubscription{
+      endpoint: "https://push.example.test/subscription/large-response",
+      p256dh: Base.url_encode64(user_agent_public, padding: false),
+      auth: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+    }
+
+    assert :ok = WebPush.send(subscription, %{title: "Mention"})
+    assert_receive {:discarded_web_push_response, into, ""}
+    assert is_function(into, 2)
+  end
+
   test "rejects loopback, private, local DNS, and mixed DNS answers before sending" do
     vapid = WebPush.generate_keypair()
     {user_agent_public, _user_agent_private} = :crypto.generate_key(:ecdh, :prime256v1)

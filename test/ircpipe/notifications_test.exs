@@ -12,6 +12,7 @@ defmodule Ircpipe.NotificationsTest do
     previous_sender = Application.get_env(:ircpipe, :push_sender)
     previous_pid = Application.get_env(:ircpipe, :push_test_pid)
     previous_result = Application.get_env(:ircpipe, :push_test_result)
+    previous_pause = Application.get_env(:ircpipe, :pause_push_delivery)
 
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
@@ -21,6 +22,7 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:push_sender, previous_sender)
       restore_env(:push_test_pid, previous_pid)
       restore_env(:push_test_result, previous_result)
+      restore_env(:pause_push_delivery, previous_pause)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -236,6 +238,52 @@ defmodule Ircpipe.NotificationsTest do
              Notifications.deliver_notification(second_notification.id)
 
     refute_receive {:push_sent, _, _}
+  end
+
+  test "delivery and read are serialized across the final network-send boundary", %{
+    scope: scope,
+    connection: connection
+  } do
+    supervisor = start_supervised!(Task.Supervisor)
+    Application.put_env(:ircpipe, :pause_push_delivery, true)
+
+    assert {:ok, _subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               subscription_attrs("https://push.example.test/subscription/serialized")
+             )
+
+    assert {:ok, %{thread: thread, message: message}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "race",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    notification = Repo.get_by!(Notification, message_id: message.id)
+
+    delivery =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.deliver_notification(notification.id)
+      end)
+
+    assert_receive {:push_delivery_paused, sender_pid}
+
+    read =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Chat.mark_direct_message_read(scope, thread.id)
+      end)
+
+    refute Task.yield(read, 100)
+    send(sender_pid, :continue_push_delivery)
+
+    assert :ok = Task.await(delivery)
+    assert {:ok, _read_thread} = Task.await(read)
+    assert_receive {:push_sent, _subscription, %{body: "akash: race"}}
+    assert Repo.reload(notification).read_at
   end
 
   test "outgoing messages neither create attention counters nor notifications", %{

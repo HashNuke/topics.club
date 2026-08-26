@@ -93,6 +93,7 @@ defmodule Ircpipe.Notifications.WebPush do
         ]
       ]
       |> Keyword.merge(config()[:req_options] || [])
+      |> Keyword.merge(into: &discard_response_body/2, raw: true, compressed: false)
 
     case Req.post(pinned_endpoint, options) do
       {:ok, %{status: status}} when status in [200, 201, 202, 204] ->
@@ -110,6 +111,10 @@ defmodule Ircpipe.Notifications.WebPush do
       {:error, reason} ->
         {:error, {:transport, reason}}
     end
+  end
+
+  defp discard_response_body({:data, _chunk}, {request, response}) do
+    {:cont, {request, response}}
   end
 
   defp endpoint_authority(%URI{host: host, port: port}) when port not in [nil, 443],

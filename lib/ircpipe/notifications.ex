@@ -53,26 +53,35 @@ defmodule Ircpipe.Notifications do
   end
 
   def update_server_preference(%Scope{user: user}, id, enabled) when is_boolean(enabled) do
-    connection =
-      ServerConnection
-      |> where([connection], connection.id == ^id and connection.user_id == ^user.id)
-      |> Repo.one!()
+    Repo.transaction(fn ->
+      connection =
+        ServerConnection
+        |> where([connection], connection.id == ^id and connection.user_id == ^user.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one!()
 
-    connection
-    |> Ecto.Changeset.change(mention_notifications_enabled: enabled)
-    |> Repo.update()
+      connection
+      |> Ecto.Changeset.change(mention_notifications_enabled: enabled)
+      |> Repo.update!()
+    end)
+    |> unwrap_transaction()
     |> broadcast_preference(user.id, :server)
   end
 
   def update_channel_preference(%Scope{user: user}, id, enabled) when is_boolean(enabled) do
-    membership =
-      ChannelMembership
-      |> where([membership], membership.id == ^id and membership.user_id == ^user.id)
-      |> Repo.one!()
+    Repo.transaction(fn ->
+      membership =
+        ChannelMembership
+        |> where([membership], membership.id == ^id and membership.user_id == ^user.id)
+        |> Repo.one!()
 
-    membership
-    |> Ecto.Changeset.change(mention_notifications_enabled: enabled)
-    |> Repo.update()
+      lock_server_connection!(membership.server_connection_id)
+
+      membership
+      |> Ecto.Changeset.change(mention_notifications_enabled: enabled)
+      |> Repo.update!()
+    end)
+    |> unwrap_transaction()
     |> broadcast_preference(user.id, :channel)
   end
 
@@ -87,11 +96,42 @@ defmodule Ircpipe.Notifications do
   end
 
   def deliver_notification(notification_id) do
-    case delivery_record(notification_id) do
-      nil -> {:cancel, :notification_not_found}
-      %{server_enabled: false} -> :ok
-      %{channel_enabled: false} -> :ok
-      record -> deliver_to_subscriptions(record)
+    case notification_server_connection_id(notification_id) do
+      nil ->
+        {:cancel, :notification_not_found}
+
+      server_connection_id ->
+        Repo.transaction(fn ->
+          lock_server_connection!(server_connection_id)
+
+          case delivery_record(notification_id) do
+            nil -> {:result, {:cancel, :notification_not_found}}
+            %{server_enabled: false} -> {:result, :ok}
+            %{channel_enabled: false} -> {:result, :ok}
+            record -> {:deliveries, send_to_subscriptions(record)}
+          end
+        end)
+        |> case do
+          {:ok, {:result, result}} -> result
+          {:ok, {:deliveries, deliveries}} -> finalize_deliveries(deliveries)
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp notification_server_connection_id(notification_id) do
+    from(notification in Notification,
+      left_join: membership in ChannelMembership,
+      on: membership.id == notification.channel_membership_id,
+      left_join: thread in DirectMessageThread,
+      on: thread.id == notification.direct_message_thread_id,
+      where: notification.id == ^notification_id,
+      select: {membership.server_connection_id, thread.server_connection_id}
+    )
+    |> Repo.one()
+    |> case do
+      {channel_server_id, direct_server_id} -> channel_server_id || direct_server_id
+      nil -> nil
     end
   end
 
@@ -155,7 +195,7 @@ defmodule Ircpipe.Notifications do
     |> Repo.one()
   end
 
-  defp deliver_to_subscriptions(record) do
+  defp send_to_subscriptions(record) do
     subscriptions =
       PushSubscription
       |> where([subscription], subscription.user_id == ^record.user_id)
@@ -164,27 +204,30 @@ defmodule Ircpipe.Notifications do
     results =
       Task.async_stream(
         subscriptions,
-        &deliver_to_subscription(&1, record),
+        &send_to_subscription(&1, record),
         timeout: 15_000,
         ordered: false
       )
       |> Enum.to_list()
 
-    if Enum.any?(results, &retryable_result?/1),
-      do: {:error, :push_service_unavailable},
-      else: :ok
+    results
   end
 
-  defp deliver_to_subscription(subscription, record) do
+  defp send_to_subscription(subscription, record) do
     payload = notification_payload(record)
+    {subscription, push_sender().send(subscription, payload)}
+  end
 
-    case push_sender().send(subscription, payload) do
-      :ok -> mark_success(subscription)
-      {:error, :expired} -> Repo.delete(subscription)
-      {:error, {:retryable, _status}} = error -> error
-      {:error, {:transport, _reason}} = error -> error
-      {:error, _reason} -> :ok
-    end
+  defp finalize_deliveries(deliveries) do
+    Enum.each(deliveries, fn
+      {:ok, {subscription, :ok}} -> mark_success(subscription)
+      {:ok, {subscription, {:error, :expired}}} -> Repo.delete(subscription)
+      _delivery -> :ok
+    end)
+
+    if Enum.any?(deliveries, &retryable_result?/1),
+      do: {:error, :push_service_unavailable},
+      else: :ok
   end
 
   defp notification_payload(%{kind: "mention"} = record) do
@@ -217,9 +260,20 @@ defmodule Ircpipe.Notifications do
     |> Repo.update()
   end
 
-  defp retryable_result?({:ok, {:error, _reason}}), do: true
+  defp retryable_result?({:ok, {_subscription, {:error, {:retryable, _status}}}}), do: true
+  defp retryable_result?({:ok, {_subscription, {:error, {:transport, _reason}}}}), do: true
   defp retryable_result?({:exit, _reason}), do: true
   defp retryable_result?(_result), do: false
+
+  defp lock_server_connection!(server_connection_id) do
+    ServerConnection
+    |> where([connection], connection.id == ^server_connection_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
+  end
+
+  defp unwrap_transaction({:ok, value}), do: {:ok, value}
+  defp unwrap_transaction({:error, reason}), do: {:error, reason}
 
   defp broadcast_preference({:ok, record} = result, user_id, scope) do
     payload = %{
