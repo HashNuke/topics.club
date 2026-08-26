@@ -86,7 +86,6 @@ defmodule Ircpipe.Irc.Bouncer do
 
   defp disconnect_session(connection) do
     SessionSupervisor.stop_session(connection, "idle timeout")
-    Chat.update_connection_status(connection, "disconnected")
     :ok
   rescue
     DBConnection.ConnectionError -> :ok

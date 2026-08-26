@@ -58,7 +58,7 @@ defmodule IrcpipeWeb.Api.TopicController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: connection.status
+      status: Session.status(connection)
     }
   end
 
@@ -70,7 +70,7 @@ defmodule IrcpipeWeb.Api.TopicController do
       channel_membership_id: membership.id,
       title: membership.channel,
       subtitle: "on #{connection.host}",
-      status: connection.status,
+      status: Session.status(connection),
       unread_count: membership.unread_count,
       mention_count: membership.mention_count
     }

@@ -33,7 +33,7 @@ defmodule Ircpipe.Realtime.Event do
     })
   end
 
-  def server_status(connection) do
+  def server_status(connection, status \\ nil) do
     occurred_at = DateTime.utc_now(:second)
 
     %{
@@ -42,7 +42,7 @@ defmodule Ircpipe.Realtime.Event do
       event_id: "server_status:#{connection.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
       server_connection_id: connection.id,
       nickname: connection.nickname,
-      status: connection.status,
+      status: status || connection.status,
       occurred_at: occurred_at
     }
   end
@@ -87,8 +87,9 @@ defmodule Ircpipe.Realtime.Event do
     })
   end
 
-  def buffer_joined(connection, membership) do
+  def buffer_joined(connection, membership, status \\ nil) do
     occurred_at = DateTime.utc_now(:second)
+    status = status || connection.status
 
     %{
       type: "buffer:joined",
@@ -102,7 +103,7 @@ defmodule Ircpipe.Realtime.Event do
         channel_membership_id: membership.id,
         title: membership.channel,
         subtitle: "on #{connection.host}",
-        status: connection.status,
+        status: status,
         membership_status: membership.status,
         unread_count: membership.unread_count,
         mention_count: membership.mention_count
@@ -114,7 +115,7 @@ defmodule Ircpipe.Realtime.Event do
         port: connection.port,
         use_tls: connection.use_tls,
         nickname: connection.nickname,
-        status: connection.status
+        status: status
       },
       occurred_at: occurred_at
     }

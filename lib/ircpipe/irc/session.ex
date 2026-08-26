@@ -76,6 +76,21 @@ defmodule Ircpipe.Irc.Session do
     GenServer.call(via(connection), :connection_info)
   end
 
+  def status(%ServerConnection{} = connection) do
+    case Registry.lookup(Ircpipe.Irc.SessionRegistry, {connection.user_id, connection.id}) do
+      [] ->
+        "disconnected"
+
+      [{_pid, _value}] ->
+        case connection_info(connection) do
+          {:ok, %Info{registered?: true}} -> "connected"
+          _other -> "connecting"
+        end
+    end
+  catch
+    :exit, _reason -> "disconnected"
+  end
+
   def execute(%ServerConnection{} = connection, intent, command_id, buffer_id) do
     GenServer.call(via(connection), {:execute, intent, command_id, buffer_id})
   end
@@ -393,7 +408,7 @@ defmodule Ircpipe.Irc.Session do
 
     if self? do
       {:ok, _membership} =
-        Chat.confirm_channel_join(state.connection, channel, casemapping(state))
+        Chat.confirm_channel_join(state.connection, channel, casemapping(state), "connected")
     end
 
     Chat.broadcast_presence_diff(
@@ -474,7 +489,7 @@ defmodule Ircpipe.Irc.Session do
 
     state =
       if self? do
-        case Chat.update_connection_nickname(state.connection, new_nick) do
+        case Chat.update_connection_nickname(state.connection, new_nick, "connected") do
           {:ok, connection} -> %{state | connection: connection}
           {:error, _changeset} -> state
         end
@@ -952,7 +967,18 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp update_status(connection, status) do
-    Chat.update_connection_status(connection, status)
+    connection =
+      if status == "connected" do
+        case Chat.touch_connection_connected(connection) do
+          {:ok, updated} -> updated
+          {:error, _changeset} -> connection
+        end
+      else
+        connection
+      end
+
+    Chat.broadcast_server_status(connection, status)
+    {:ok, connection}
   rescue
     DBConnection.ConnectionError -> {:ok, connection}
     Ecto.NoResultsError -> {:ok, connection}

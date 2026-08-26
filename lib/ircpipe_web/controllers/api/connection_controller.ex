@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
 
@@ -44,7 +45,6 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     connection = Chat.get_connection!(user, id)
 
     :ok = SessionSupervisor.stop_session(connection)
-    {:ok, connection} = Chat.update_connection_status(connection, "disconnected")
 
     json(conn, %{connection: connection_json(connection)})
   end
@@ -67,7 +67,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: connection.status,
+      status: Session.status(connection),
       channels:
         Enum.map(
           (Ecto.assoc_loaded?(connection.channel_memberships) && connection.channel_memberships) ||

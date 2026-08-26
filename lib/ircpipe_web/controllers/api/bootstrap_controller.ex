@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Commands
+  alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
 
@@ -12,9 +13,13 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     user = conn.assigns.current_scope.user
     connections = Chat.list_connections(user)
     topics = Chat.list_topics()
+    messages_by_buffer = messages_by_buffer(user, connections)
+    users_by_buffer = users_by_buffer(connections)
+
+    Enum.each(connections, &start_session/1)
+
     buffers = Enum.flat_map(connections, &connection_buffers/1)
     active_buffer_id = active_buffer_id(buffers)
-    messages_by_buffer = messages_by_buffer(user, connections)
 
     payload = %{
       user: user_json(user),
@@ -25,12 +30,10 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       active_buffer_id: active_buffer_id,
       messages_by_buffer: messages_by_buffer,
       message_cursors_by_buffer: message_cursors_by_buffer(messages_by_buffer),
-      users_by_buffer: users_by_buffer(connections),
+      users_by_buffer: users_by_buffer,
       command_catalog: Commands.all(),
       topics: Enum.map(topics, &topic_json/1)
     }
-
-    Enum.each(connections, &start_session/1)
 
     json(conn, payload)
   end
@@ -53,7 +56,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: connection.status,
+      status: Session.status(connection),
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
       channels: Enum.map(memberships, & &1.id)
@@ -69,7 +72,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         channel_membership_id: nil,
         title: connection.host,
         subtitle: connection.name,
-        status: connection.status,
+        status: Session.status(connection),
         unread_count: connection.unread_count,
         mention_count: connection.mention_count
       }
@@ -85,7 +88,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       channel_membership_id: membership.id,
       title: membership.channel,
       subtitle: "on #{connection.host}",
-      status: connection.status,
+      status: Session.status(connection),
       membership_status: membership.status,
       unread_count: membership.unread_count,
       mention_count: membership.mention_count

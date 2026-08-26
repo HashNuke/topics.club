@@ -14,6 +14,7 @@ defmodule IrcpipeWeb.UserChannel do
     if Integer.to_string(socket.assigns.current_user.id) == user_id do
       Accounts.touch_last_seen(socket.assigns.current_user)
       Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user_id}")
+      send(self(), {:sync_server_statuses, socket.assigns.current_user})
 
       {:ok,
        %{
@@ -54,6 +55,14 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_info({:server_status, payload}, socket) do
     push(socket, "server:status", payload)
+    {:noreply, socket}
+  end
+
+  def handle_info({:sync_server_statuses, user}, socket) do
+    Enum.each(Chat.list_connections(user), fn connection ->
+      push(socket, "server:status", Event.server_status(connection, Session.status(connection)))
+    end)
+
     {:noreply, socket}
   end
 
@@ -233,9 +242,8 @@ defmodule IrcpipeWeb.UserChannel do
     connection = Chat.get_connection!(user, connection_id)
 
     :ok = SessionSupervisor.stop_session(connection)
-    {:ok, connection} = Chat.update_connection_status(connection, "disconnected")
 
-    reply_ok(socket, Event.server_status(connection))
+    reply_ok(socket, Event.server_status(connection, Session.status(connection)))
   rescue
     Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
   end
@@ -245,7 +253,7 @@ defmodule IrcpipeWeb.UserChannel do
     connection = Chat.get_connection!(user, connection_id)
 
     with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
-      reply_ok(socket, Event.server_status(%{connection | status: "connecting"}))
+      reply_ok(socket, Event.server_status(connection, Session.status(connection)))
     else
       _error -> reply_error(socket, %{reason: "reconnect_failed"})
     end

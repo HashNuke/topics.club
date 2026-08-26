@@ -76,11 +76,39 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
     conn = post(conn, ~p"/api/connections/#{connection.id}/connect")
 
-    assert %{"connection" => %{"id" => connection_id, "status" => "disconnected"}} =
+    assert %{"connection" => %{"id" => connection_id, "status" => "connecting"}} =
              json_response(conn, 200)
 
     assert connection_id == connection.id
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert :ok = Session.quit(connection)
+  end
+
+  test "reports live session status instead of stale database status", %{conn: conn, user: user} do
+    server = start_supervised!({IrcTestServer, self()})
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira",
+        "status" => "connecting"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = Ircpipe.Irc.SessionSupervisor.start_session(connection)
+
+    assert_receive {:server_status, %{status: "connected"}}, 1_000
+    assert Chat.get_connection!(user, connection.id).status == "connecting"
+
+    list_conn = get(conn, ~p"/api/connections")
+
+    assert %{"connections" => [%{"id" => connection_id, "status" => "connected"}]} =
+             json_response(list_conn, 200)
+
+    assert connection_id == connection.id
     assert :ok = Session.quit(connection)
   end
 
@@ -101,7 +129,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
              json_response(conn, 200)
 
     assert connection_id == connection.id
-    assert Chat.get_connection!(user, connection.id).status == "disconnected"
+    assert Session.status(connection) == "disconnected"
   end
 
   test "updates an owned server connection", %{conn: conn, user: user} do
@@ -168,13 +196,6 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
              json_response(conn, 200)
 
     assert connection_id == connection.id
-
-    assert_receive {:server_status,
-                    %{
-                      type: "server:status",
-                      server_connection_id: ^connection_id,
-                      status: "disconnected"
-                    }}
 
     assert_receive {:buffer_left,
                     %{

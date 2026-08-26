@@ -52,7 +52,6 @@ defmodule Ircpipe.Chat do
   def list_inactive_connections(cutoff) do
     ServerConnection
     |> join(:inner, [c], u in User, on: u.id == c.user_id)
-    |> where([c, u], c.status != "disconnected")
     |> where([_c, u], is_nil(u.last_seen_at) or u.last_seen_at < ^cutoff)
     |> preload(:channel_memberships)
     |> order_by([c], asc: c.user_id, asc: c.name)
@@ -93,8 +92,6 @@ defmodule Ircpipe.Chat do
   def delete_connection(%User{} = user, id) do
     connection = get_connection!(user, id)
 
-    {:ok, disconnected} = update_connection_status(connection, "disconnected")
-
     Enum.each(connection.channel_memberships, fn membership ->
       broadcast_buffer_left(%{
         user_id: user.id,
@@ -111,7 +108,7 @@ defmodule Ircpipe.Chat do
       channel_membership_id: nil
     })
 
-    Repo.delete(disconnected)
+    Repo.delete(connection)
   end
 
   def join_topic(%User{} = user, %Topic{} = topic) do
@@ -143,12 +140,18 @@ defmodule Ircpipe.Chat do
     end)
   end
 
-  def update_connection_nickname(%ServerConnection{} = connection, nickname) do
+  def touch_connection_connected(%ServerConnection{} = connection) do
+    connection
+    |> Ecto.Changeset.change(last_connected_at: DateTime.utc_now(:second))
+    |> Repo.update()
+  end
+
+  def update_connection_nickname(%ServerConnection{} = connection, nickname, status \\ nil) do
     connection
     |> ServerConnection.changeset(%{nickname: nickname})
     |> Repo.update()
     |> tap(fn
-      {:ok, updated} -> broadcast_server_status(updated)
+      {:ok, updated} -> broadcast_server_status(updated, status || updated.status)
       _other -> :ok
     end)
   end
@@ -221,7 +224,12 @@ defmodule Ircpipe.Chat do
     end
   end
 
-  def confirm_channel_join(%ServerConnection{} = connection, channel, casemapping \\ :rfc1459) do
+  def confirm_channel_join(
+        %ServerConnection{} = connection,
+        channel,
+        casemapping \\ :rfc1459,
+        connection_status \\ nil
+      ) do
     now = DateTime.utc_now(:second)
 
     {result, broadcast?} =
@@ -255,7 +263,7 @@ defmodule Ircpipe.Chat do
       end
 
     with {:ok, membership} <- result do
-      if broadcast?, do: broadcast_buffer_joined(connection, membership)
+      if broadcast?, do: broadcast_buffer_joined(connection, membership, connection_status)
       {:ok, membership}
     end
   end
@@ -838,11 +846,15 @@ defmodule Ircpipe.Chat do
     )
   end
 
-  def broadcast_buffer_joined(%ServerConnection{} = connection, %ChannelMembership{} = membership) do
+  def broadcast_buffer_joined(
+        %ServerConnection{} = connection,
+        %ChannelMembership{} = membership,
+        status \\ nil
+      ) do
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {:buffer_joined, Event.buffer_joined(connection, membership)}
+      {:buffer_joined, Event.buffer_joined(connection, membership, status || connection.status)}
     )
   end
 
@@ -1098,13 +1110,16 @@ defmodule Ircpipe.Chat do
   defp membership_for_message(%Message{channel_membership_id: membership_id}),
     do: Repo.get!(ChannelMembership, membership_id)
 
-  defp broadcast_server_status(connection) do
+  def broadcast_server_status(connection, status) do
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {:server_status, Event.server_status(connection)}
+      {:server_status, Event.server_status(connection, status)}
     )
   end
+
+  defp broadcast_server_status(connection),
+    do: broadcast_server_status(connection, connection.status)
 
   defp presence_user(name) do
     %{

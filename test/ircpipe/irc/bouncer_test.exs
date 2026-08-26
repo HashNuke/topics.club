@@ -61,7 +61,7 @@ defmodule Ircpipe.Irc.BouncerTest do
     _ = :sys.get_state(pid)
 
     assert_receive {:irc_server_line, "QUIT :idle timeout"}, 1_000
-    assert Chat.get_connection!(user, connection.id).status == "disconnected"
+    assert Session.status(connection) == "disconnected"
   end
 
   test "stays disabled when configured off" do

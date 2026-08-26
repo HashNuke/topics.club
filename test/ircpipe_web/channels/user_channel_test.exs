@@ -457,6 +457,35 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert connection_id == connection.id
   end
 
+  test "syncs live IRC status when the browser channel rejoins" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira",
+        "status" => "connecting"
+      })
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:server_status, %{status: "connected"}}, 1_000
+
+    join_user_channel(user)
+
+    assert_push "server:status", %{
+      server_connection_id: connection_id,
+      status: "connected"
+    }
+
+    assert connection_id == connection.id
+    assert :ok = Session.quit(connection)
+  end
+
   test "pushes server buffer messages over the user channel" do
     user = AccountsFixtures.user_fixture()
 
@@ -993,8 +1022,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       status: "disconnected"
     }
 
-    reloaded = Chat.get_connection!(user, connection.id)
-    assert reloaded.status == "disconnected"
+    assert Session.status(connection) == "disconnected"
   end
 
   defp join_user_channel(user) do

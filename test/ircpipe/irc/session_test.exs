@@ -765,7 +765,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert buffer_id == "server:#{connection.id}"
     assert connection_id == connection.id
-    assert Chat.get_connection!(user, connection.id).status == "errored"
+    assert Session.status(connection) == "disconnected"
   end
 
   test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do
