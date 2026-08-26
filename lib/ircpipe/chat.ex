@@ -130,7 +130,22 @@ defmodule Ircpipe.Chat do
         peer_nick
       ) do
     if valid_nick?(peer_nick) do
-      ensure_direct_message_thread(user, connection, peer_nick, %{}, false)
+      Repo.transaction(fn ->
+        lock_direct_message_connection!(connection.id)
+
+        case ensure_direct_message_thread(user, connection, peer_nick, %{}, false) do
+          {:ok, thread, archived_threads} -> {thread, archived_threads}
+          {:error, changeset} -> Repo.rollback(changeset)
+        end
+      end)
+      |> case do
+        {:ok, {thread, archived_threads}} ->
+          Enum.each(archived_threads, &broadcast_direct_message_closed/1)
+          {:ok, thread}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     else
       {:error, :invalid_nick}
     end
@@ -236,32 +251,49 @@ defmodule Ircpipe.Chat do
         metadata \\ %{},
         casemapping \\ nil
       ) do
-    mapping = casemapping || stored_casemapping(connection) || :ascii
-    old_key = channel_key(old_nick, mapping)
-    account = normalized_account(metadata_value(metadata, :account))
-    hostmask = normalized_metadata_text(metadata_value(metadata, :hostmask))
-    identity_key = direct_message_identity(account, hostmask)
+    result =
+      Repo.transaction(fn ->
+        lock_direct_message_connection!(connection.id)
+        mapping = casemapping || stored_casemapping(connection) || :ascii
+        old_key = channel_key(old_nick, mapping)
+        new_key = channel_key(new_nick, mapping)
+        account = normalized_account(metadata_value(metadata, :account))
+        hostmask = normalized_metadata_text(metadata_value(metadata, :hostmask))
+        identity_key = direct_message_identity(account, hostmask)
+        identity_keys = direct_message_identity_keys(account, hostmask)
 
-    identity_keys = direct_message_identity_keys(account, hostmask)
+        case find_direct_message_thread(connection, identity_keys, old_key, new_key) do
+          {nil, archived_threads} ->
+            {:unchanged, archived_threads}
 
-    case find_direct_message_thread(connection, identity_keys, old_key) do
-      nil ->
+          {thread, archived_threads} ->
+            case thread
+                 |> DirectMessageThread.changeset(%{
+                   peer_nick: new_nick,
+                   peer_key: new_key,
+                   account: account || thread.account,
+                   hostmask: hostmask || thread.hostmask,
+                   identity_key: thread.identity_key || identity_key
+                 })
+                 |> Repo.update() do
+              {:ok, updated} -> {updated, archived_threads}
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+        end
+      end)
+
+    case result do
+      {:ok, {:unchanged, archived_threads}} ->
+        Enum.each(archived_threads, &broadcast_direct_message_closed/1)
         :ok
 
-      thread ->
-        thread
-        |> DirectMessageThread.changeset(%{
-          peer_nick: new_nick,
-          peer_key: channel_key(new_nick, mapping),
-          account: account || thread.account,
-          hostmask: hostmask || thread.hostmask,
-          identity_key: identity_key || thread.identity_key
-        })
-        |> Repo.update()
-        |> tap(fn
-          {:ok, updated} -> broadcast_direct_message_thread(updated)
-          _result -> :ok
-        end)
+      {:ok, {updated, archived_threads}} ->
+        Enum.each(archived_threads, &broadcast_direct_message_closed/1)
+        broadcast_direct_message_thread(updated)
+        {:ok, updated}
+
+      {:error, changeset} ->
+        {:error, changeset}
     end
   end
 
@@ -840,91 +872,104 @@ defmodule Ircpipe.Chat do
             message: nil,
             notification: nil,
             notify?: false,
-            dropped?: true
+            dropped?: true,
+            archived_threads: []
           }
         else
-          {:ok, thread} =
-            ensure_direct_message_thread(
-              user,
-              connection,
-              peer_nick,
-              metadata,
-              incoming?,
-              mapping
-            )
-
-          if incoming? and thread.blocked_at do
-            %{
-              thread: thread,
-              message: nil,
-              notification: nil,
-              notify?: false,
-              dropped?: true
-            }
-          else
-            notify? = incoming?
-
-            thread =
-              if notify? do
-                thread
-                |> DirectMessageThread.changeset(%{
-                  closed_at: nil,
-                  unread_count: thread.unread_count + 1
-                })
-                |> Repo.update!()
-              else
-                thread
-              end
-
-            message =
-              %Message{
-                user_id: connection.user_id,
-                server_connection_id: connection.id,
-                direct_message_thread_id: thread.id
+          with {:ok, thread, archived_threads} <-
+                 ensure_direct_message_thread(
+                   user,
+                   connection,
+                   peer_nick,
+                   metadata,
+                   incoming?,
+                   mapping
+                 ) do
+            if incoming? and thread.blocked_at do
+              %{
+                thread: thread,
+                message: nil,
+                notification: nil,
+                notify?: false,
+                dropped?: true,
+                archived_threads: archived_threads
               }
-              |> Message.changeset(%{
-                kind: kind,
-                nick: nick,
-                hostmask: metadata_value(metadata, :hostmask),
-                service: metadata_value(metadata, :service),
-                metadata: stringify_metadata(metadata),
-                body: body,
-                mentioned: false,
-                occurred_at: DateTime.utc_now(:second)
-              })
-              |> Repo.insert!()
+            else
+              notify? = incoming?
 
-            notification =
-              if notify? do
-                %Notification{
-                  user_id: user.id,
-                  message_id: message.id,
+              thread =
+                if notify? do
+                  thread
+                  |> DirectMessageThread.changeset(%{
+                    closed_at: nil,
+                    unread_count: thread.unread_count + 1
+                  })
+                  |> Repo.update!()
+                else
+                  thread
+                end
+
+              message =
+                %Message{
+                  user_id: connection.user_id,
+                  server_connection_id: connection.id,
                   direct_message_thread_id: thread.id
                 }
-                |> Notification.changeset(%{})
+                |> Message.changeset(%{
+                  kind: kind,
+                  nick: nick,
+                  hostmask: metadata_value(metadata, :hostmask),
+                  service: metadata_value(metadata, :service),
+                  metadata: stringify_metadata(metadata),
+                  body: body,
+                  mentioned: false,
+                  occurred_at: DateTime.utc_now(:second)
+                })
                 |> Repo.insert!()
-              end
 
-            prune_old_messages(user)
+              notification =
+                if notify? do
+                  %Notification{
+                    user_id: user.id,
+                    message_id: message.id,
+                    direct_message_thread_id: thread.id
+                  }
+                  |> Notification.changeset(%{})
+                  |> Repo.insert!()
+                end
 
-            %{
-              thread: thread,
-              message: message,
-              notification: notification,
-              notify?: notify?,
-              dropped?: false
-            }
+              prune_old_messages(user)
+
+              %{
+                thread: thread,
+                message: message,
+                notification: notification,
+                notify?: notify?,
+                dropped?: false,
+                archived_threads: archived_threads
+              }
+            end
+          else
+            {:error, changeset} -> Repo.rollback({:direct_message_thread, changeset})
           end
         end
       end)
 
     case result do
-      {:ok, %{dropped?: true} = recorded} ->
-        {:ok, recorded}
+      {:ok, %{dropped?: true, archived_threads: archived_threads} = recorded} ->
+        Enum.each(archived_threads, &broadcast_direct_message_closed/1)
+        {:ok, Map.delete(recorded, :archived_threads)}
 
       {:ok,
-       %{thread: thread, message: message, notification: notification, notify?: notify?} =
+       %{
+         thread: thread,
+         message: message,
+         notification: notification,
+         notify?: notify?,
+         archived_threads: archived_threads
+       } =
            recorded} ->
+        Enum.each(archived_threads, &broadcast_direct_message_closed/1)
         if notification, do: Notifications.enqueue_delivery(notification)
         broadcast_direct_message_thread(thread)
         event = broadcast_direct_message(message, thread)
@@ -937,7 +982,7 @@ defmodule Ircpipe.Chat do
           )
         end
 
-        {:ok, recorded}
+        {:ok, Map.delete(recorded, :archived_threads)}
 
       error ->
         error
@@ -1077,14 +1122,19 @@ defmodule Ircpipe.Chat do
   def mark_read(%User{id: user_id}, %ChannelMembership{} = membership) do
     now = DateTime.utc_now(:second)
 
-    from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
-    |> Repo.update_all(set: [last_read_at: now, unread_count: 0, mention_count: 0])
+    Repo.transaction(fn ->
+      lock_direct_message_connection!(membership.server_connection_id)
 
-    from(n in Notification,
-      where:
-        n.user_id == ^user_id and n.channel_membership_id == ^membership.id and is_nil(n.read_at)
-    )
-    |> Repo.update_all(set: [read_at: now])
+      from(m in ChannelMembership, where: m.id == ^membership.id and m.user_id == ^user_id)
+      |> Repo.update_all(set: [last_read_at: now, unread_count: 0, mention_count: 0])
+
+      from(n in Notification,
+        where:
+          n.user_id == ^user_id and n.channel_membership_id == ^membership.id and
+            is_nil(n.read_at)
+      )
+      |> Repo.update_all(set: [read_at: now])
+    end)
 
     broadcast_buffer_read(%{
       user_id: user_id,
@@ -1278,9 +1328,10 @@ defmodule Ircpipe.Chat do
     identity_key = direct_message_identity(account, hostmask)
     identity_keys = direct_message_identity_keys(account, hostmask)
 
+    {thread, archived_threads} = find_direct_message_thread(connection, identity_keys, peer_key)
+
     thread =
-      find_direct_message_thread(connection, identity_keys, peer_key) ||
-        %DirectMessageThread{user_id: user.id, server_connection_id: connection.id}
+      thread || %DirectMessageThread{user_id: user.id, server_connection_id: connection.id}
 
     reopen? = not incoming? or is_nil(thread.blocked_at)
 
@@ -1297,9 +1348,13 @@ defmodule Ircpipe.Chat do
     thread
     |> DirectMessageThread.changeset(attrs)
     |> Repo.insert_or_update()
+    |> case do
+      {:ok, saved} -> {:ok, saved, archived_threads}
+      {:error, changeset} -> {:error, changeset}
+    end
   end
 
-  defp find_direct_message_thread(connection, identity_keys, peer_key) do
+  defp find_direct_message_thread(connection, identity_keys, peer_key, desired_peer_key \\ nil) do
     threads =
       DirectMessageThread
       |> where([thread], thread.server_connection_id == ^connection.id)
@@ -1314,19 +1369,30 @@ defmodule Ircpipe.Chat do
 
     by_peer = Enum.find(threads, &(&1.peer_key == peer_key))
 
+    desired_peer =
+      if desired_peer_key, do: Enum.find(threads, &(&1.peer_key == desired_peer_key))
+
     cond do
+      by_identity && desired_peer && by_identity.id != desired_peer.id ->
+        {by_identity, [archive_direct_message_thread(desired_peer)]}
+
+      is_nil(by_identity) && by_peer && desired_peer && by_peer.id != desired_peer.id ->
+        {by_peer, [archive_direct_message_thread(desired_peer)]}
+
+      by_identity && by_peer && by_identity.id != by_peer.id ->
+        {by_identity, [archive_direct_message_thread(by_peer)]}
+
       by_identity ->
-        by_identity
+        {by_identity, []}
 
       is_nil(by_peer) ->
-        nil
+        {nil, []}
 
       identity_keys == [] or direct_message_thread_identity_keys(by_peer) == [] ->
-        by_peer
+        {by_peer, []}
 
       true ->
-        archive_direct_message_thread(by_peer)
-        nil
+        {nil, [archive_direct_message_thread(by_peer)]}
     end
   end
 

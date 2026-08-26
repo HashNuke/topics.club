@@ -273,6 +273,67 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert identified.peer_nick == "renamed"
   end
 
+  test "an identified peer can adopt a departed peer's nick without a unique-key crash", %{
+    user: user,
+    connection: connection
+  } do
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:ok, %{thread: account_a}} =
+             Chat.record_direct_message(
+               connection,
+               "alpha",
+               "alpha",
+               "from A",
+               "message",
+               %{direction: "incoming", account: "account-a", hostmask: "alpha!a@example.test"}
+             )
+
+    assert {:ok, %{thread: account_b}} =
+             Chat.record_direct_message(
+               connection,
+               "beta",
+               "beta",
+               "from B",
+               "message",
+               %{direction: "incoming", account: "account-b", hostmask: "beta!b@example.test"}
+             )
+
+    flush_mailbox()
+
+    assert {:ok, renamed} =
+             Chat.rename_direct_message_peer(
+               connection,
+               "alpha",
+               "beta",
+               %{account: "account-a", hostmask: "beta!a@example.test"},
+               :rfc1459
+             )
+
+    assert renamed.id == account_a.id
+    assert renamed.peer_nick == "beta"
+    displaced_buffer_id = "direct:#{account_b.id}"
+
+    assert_receive {:direct_message_closed, %{buffer_id: ^displaced_buffer_id}}
+
+    displaced = Chat.get_direct_message_thread!(user, account_b.id)
+    assert displaced.closed_at
+    assert String.starts_with?(displaced.peer_key, "archived:")
+
+    assert {:ok, %{thread: same_a, message: message}} =
+             Chat.record_direct_message(
+               connection,
+               "beta",
+               "beta",
+               "A after rename",
+               "message",
+               %{direction: "incoming", account: "account-a", hostmask: "beta!a@example.test"}
+             )
+
+    assert same_a.id == account_a.id
+    assert message.body == "A after rename"
+  end
+
   test "server history never includes direct-message rows", %{
     user: user,
     connection: connection

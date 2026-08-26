@@ -154,6 +154,56 @@ defmodule Ircpipe.Irc.SessionTest do
     assert updated_state.pending_echoes == []
   end
 
+  test "consumes self echoes using negotiated RFC1459 casemapping" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "rfc1459-echo",
+        "host" => "localhost",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "nick["
+      })
+
+    connection = connection |> Ecto.Changeset.change(casemapping: "rfc1459") |> Repo.update!()
+    {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
+
+    Chat.record_inbound_message(
+      connection,
+      "#pipe",
+      "nick[",
+      "hello from app",
+      "message",
+      %{direction: "outgoing"},
+      :rfc1459
+    )
+
+    state = %{
+      connection: connection,
+      pending_echoes: [%{target: "#pipe", body: "hello from app", kind: "message"}]
+    }
+
+    assert {:noreply, updated_state} =
+             Session.handle_info(
+               {:ircxd,
+                {:privmsg,
+                 %{
+                   target: "#pipe",
+                   nick: "nick{",
+                   raw_source: "nick{!user@test",
+                   body: "hello from app"
+                 }}},
+               state
+             )
+
+    assert [%{body: "hello from app", nick: "nick["}] =
+             Chat.list_messages(user, membership.id)
+
+    assert updated_state.pending_echoes == []
+    assert Repo.reload(membership).unread_count == 0
+  end
+
   test "records unmatched same-nick channel messages" do
     user = AccountsFixtures.user_fixture()
 

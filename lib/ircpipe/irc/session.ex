@@ -2147,7 +2147,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp pop_pending_echo(state, channel, body, kind, %{nick: nick}) do
-    if same_nick?(nick, state.connection.nickname) do
+    if identifier_self?(state, nick) do
       pending_echoes = Map.get(state, :pending_echoes, [])
 
       case Enum.split_while(
