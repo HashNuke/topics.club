@@ -833,6 +833,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     {:ok, membership} = Chat.join_channel(user, connection, "#room")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    on_exit(fn -> SessionSupervisor.stop_session(connection) end)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
 
     assert_receive {:irc_server_line, "JOIN #room"}, 1_000
@@ -847,6 +848,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert Chat.get_membership!(user, membership.id).status == "joined"
     membership_id = membership.id
     refute_receive {:buffer_left, %{channel_membership_id: ^membership_id}}
+    assert :ok = Session.quit(connection)
   end
 
   test "removes a visible auto-join buffer when reconnect JOIN is rejected" do

@@ -67,6 +67,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
       })
     )
 
+    on_exit(fn -> SessionSupervisor.stop_session(connection) end)
     conn = get(conn, ~p"/api/bootstrap")
 
     assert %{
@@ -195,6 +196,8 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              get_in(json_response(conn, 200), ["buffers"]),
              &(&1["channel_membership_id"] == archived_membership.id)
            )
+
+    assert :ok = SessionSupervisor.stop_session(connection)
   end
 
   test "starts persisted IRC sessions and rejoins channels on bootstrap", %{

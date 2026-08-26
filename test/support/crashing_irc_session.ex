@@ -1,4 +1,4 @@
-defmodule Ircpipe.ClosedIrcSession do
+defmodule Ircpipe.CrashingIrcSession do
   use GenServer
 
   alias Ircpipe.Irc.Session
@@ -20,6 +20,6 @@ defmodule Ircpipe.ClosedIrcSession do
 
   @impl true
   def handle_call({:quit, _reason}, _from, connection) do
-    {:reply, {:error, :closed}, connection}
+    {:stop, :quit_failed, connection}
   end
 end

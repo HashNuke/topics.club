@@ -3,7 +3,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
 
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Topic
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
 
@@ -69,7 +69,7 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
     assert :ok = Session.quit(connection)
   end
 
-  test "joining a suggested topic is idempotent", %{conn: conn} do
+  test "joining a suggested topic is idempotent", %{conn: conn, user: user} do
     topic =
       Repo.insert!(
         Topic.changeset(%Topic{}, %{
@@ -83,6 +83,12 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
         })
       )
 
+    on_exit(fn ->
+      user
+      |> Chat.list_connections()
+      |> Enum.each(&SessionSupervisor.stop_session/1)
+    end)
+
     first = post(conn, ~p"/api/topics/#{topic.id}/join")
     second = post(conn, ~p"/api/topics/#{topic.id}/join")
 
@@ -93,5 +99,8 @@ defmodule IrcpipeWeb.Api.TopicControllerTest do
 
     assert first_body["buffer"]["channel_membership_id"] ==
              second_body["buffer"]["channel_membership_id"]
+
+    connection = Chat.get_connection!(user, first_body["connection"]["id"])
+    assert :ok = SessionSupervisor.stop_session(connection)
   end
 end
