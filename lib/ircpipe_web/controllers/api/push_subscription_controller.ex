@@ -1,7 +1,7 @@
 defmodule IrcpipeWeb.Api.PushSubscriptionController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.PushRegistrations
 
   def create(
         conn,
@@ -22,7 +22,7 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
       "expiration_time" => subscription_expiration(subscription)
     }
 
-    case Notifications.upsert_subscription(
+    case PushRegistrations.register(
            conn.assigns.current_scope,
            get_session(conn, :user_token),
            attrs,
@@ -69,7 +69,7 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
   end
 
   def delete(conn, %{"installation_id" => installation_id}) do
-    :ok = Notifications.delete_subscription(conn.assigns.current_scope, installation_id)
+    :ok = PushRegistrations.unregister(conn.assigns.current_scope, installation_id)
 
     conn =
       if get_session(conn, :push_installation_id) == installation_id,

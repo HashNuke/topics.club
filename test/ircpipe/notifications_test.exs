@@ -8,7 +8,14 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Notification
   alias Ircpipe.Notifications
-  alias Ircpipe.Notifications.{Preferences, PushSubscription, PushWorker, WebPush}
+
+  alias Ircpipe.Notifications.{
+    Preferences,
+    PushSubscription,
+    PushRegistrations,
+    PushWorker,
+    WebPush
+  }
 
   setup do
     previous_sender = Application.get_env(:ircpipe, :push_sender)
@@ -51,59 +58,6 @@ defmodule Ircpipe.NotificationsTest do
     %{scope: scope, connection: connection, membership: membership}
   end
 
-  test "stores one encrypted push subscription per installation", %{scope: scope} do
-    attrs = subscription_attrs("https://push.example.test/subscription/one")
-
-    assert {:ok, first} = upsert_subscription(scope, attrs, "test browser")
-    assert first.endpoint == attrs["endpoint"]
-    assert first.user_agent == "test browser"
-
-    raw_endpoint =
-      Repo.query!("SELECT endpoint FROM push_subscriptions WHERE id = $1", [first.id]).rows
-      |> List.first()
-      |> List.first()
-
-    refute raw_endpoint == attrs["endpoint"]
-
-    assert {:ok, replacement} =
-             upsert_subscription(
-               scope,
-               %{attrs | "endpoint" => "https://push.example.test/subscription/two"}
-             )
-
-    assert replacement.installation_id == first.installation_id
-    assert Repo.aggregate(PushSubscription, :count) == 1
-
-    assert :ok = Notifications.delete_subscription(scope, first.installation_id)
-    assert Repo.aggregate(PushSubscription, :count) == 0
-  end
-
-  test "reports push registration for the exact authenticated session", %{scope: scope} do
-    session_token = Accounts.generate_user_session_token(scope.user)
-
-    assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
-               scope,
-               session_token,
-               subscription_attrs("https://push.example.test/subscription/session-bootstrap")
-             )
-
-    assert %{
-             session_generation: session_generation,
-             session_installation_id: "browser-installation",
-             session_registration_confirmed: true
-           } = Notifications.push_config(scope, session_token)
-
-    assert session_generation == UserToken.session_token_fingerprint(session_token)
-
-    other_session_token = Accounts.generate_user_session_token(scope.user)
-
-    assert %{
-             session_installation_id: nil,
-             session_registration_confirmed: false
-           } = Notifications.push_config(scope, other_session_token)
-  end
-
   test "registration and logout serialize on the authenticated session", %{scope: scope} do
     supervisor = start_supervised!(Task.Supervisor)
     session_token = Accounts.generate_user_session_token(scope.user)
@@ -111,7 +65,7 @@ defmodule Ircpipe.NotificationsTest do
 
     registration =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Notifications.upsert_subscription(
+        PushRegistrations.register(
           scope,
           session_token,
           subscription_attrs("https://push.example.test/subscription/logout-race")
@@ -140,7 +94,7 @@ defmodule Ircpipe.NotificationsTest do
     session_token = Accounts.generate_user_session_token(scope.user)
 
     assert {:ok, subscription} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                scope,
                session_token,
                subscription_attrs("https://push.example.test/subscription/rotation-race")
@@ -181,7 +135,7 @@ defmodule Ircpipe.NotificationsTest do
     session_token = Accounts.generate_user_session_token(scope.user)
 
     assert {:ok, subscription} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                scope,
                session_token,
                subscription_attrs("https://push.example.test/subscription/reset-rotation-race")
@@ -218,7 +172,7 @@ defmodule Ircpipe.NotificationsTest do
     session_token = Accounts.generate_user_session_token(user)
 
     assert {:ok, subscription} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                authenticated_scope,
                session_token,
                subscription_attrs("https://push.example.test/subscription/password-reset-race")
@@ -257,7 +211,7 @@ defmodule Ircpipe.NotificationsTest do
     previous_token = Accounts.generate_user_session_token(user)
 
     assert {:ok, subscription} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                authenticated_scope,
                previous_token,
                subscription_attrs("https://push.example.test/subscription/expired-reauth")
@@ -289,7 +243,7 @@ defmodule Ircpipe.NotificationsTest do
     assert :ok = Accounts.delete_user_session_token(session_token)
 
     assert {:error, :session_expired} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                scope,
                session_token,
                subscription_attrs("https://push.example.test/subscription/revoked-session")
@@ -338,7 +292,7 @@ defmodule Ircpipe.NotificationsTest do
         |> Map.put("installation_id", installation_id)
 
       assert {:ok, _subscription} = upsert_subscription(scope, attrs)
-      assert :ok = Notifications.delete_subscription(scope, installation_id)
+      assert :ok = PushRegistrations.unregister(scope, installation_id)
     end
 
     limited =
@@ -767,7 +721,7 @@ defmodule Ircpipe.NotificationsTest do
     Application.put_env(:ircpipe, :pause_push_delivery, true)
 
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                scope,
                session_token,
                subscription_attrs("https://push.example.test/subscription/logout-delivery")
@@ -806,7 +760,7 @@ defmodule Ircpipe.NotificationsTest do
     session_token = Accounts.generate_user_session_token(scope.user)
 
     assert {:ok, subscription} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                scope,
                session_token,
                subscription_attrs("https://push.example.test/subscription/rebound-delivery")
@@ -853,7 +807,7 @@ defmodule Ircpipe.NotificationsTest do
     session_token = Accounts.generate_user_session_token(scope.user)
 
     assert {:ok, _subscription} =
-             Notifications.upsert_subscription(
+             PushRegistrations.register(
                scope,
                session_token,
                subscription_attrs("https://push.example.test/subscription/expired-session")
@@ -1019,7 +973,7 @@ defmodule Ircpipe.NotificationsTest do
 
   defp upsert_subscription(scope, attrs, user_agent \\ nil) do
     session_token = Accounts.generate_user_session_token(scope.user)
-    Notifications.upsert_subscription(scope, session_token, attrs, user_agent)
+    PushRegistrations.register(scope, session_token, attrs, user_agent)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)

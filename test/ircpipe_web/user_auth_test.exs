@@ -3,8 +3,7 @@ defmodule IrcpipeWeb.UserAuthTest do
 
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.{Scope, UserToken}
-  alias Ircpipe.Notifications
-  alias Ircpipe.Notifications.PushSubscription
+  alias Ircpipe.Notifications.{PushSubscription, PushRegistrations}
   alias Ircpipe.Repo
   alias IrcpipeWeb.UserAuth
   alias IrcpipeWeb.UserSocket
@@ -70,7 +69,7 @@ defmodule IrcpipeWeb.UserAuthTest do
       {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
 
       assert {:ok, _subscription} =
-               Notifications.upsert_subscription(
+               PushRegistrations.register(
                  Scope.for_user(user),
                  session_token,
                  %{
@@ -100,7 +99,7 @@ defmodule IrcpipeWeb.UserAuthTest do
       {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
 
       assert {:ok, subscription} =
-               Notifications.upsert_subscription(
+               PushRegistrations.register(
                  Scope.for_user(user),
                  session_token,
                  %{

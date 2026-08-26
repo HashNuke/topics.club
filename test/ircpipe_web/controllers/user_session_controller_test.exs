@@ -4,8 +4,7 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
   import Ircpipe.AccountsFixtures
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.{Scope, UserToken}
-  alias Ircpipe.Notifications
-  alias Ircpipe.Notifications.PushSubscription
+  alias Ircpipe.Notifications.{PushSubscription, PushRegistrations}
   alias Ircpipe.Repo
   alias IrcpipeWeb.UserSocket
 
@@ -132,7 +131,7 @@ defmodule IrcpipeWeb.UserSessionControllerTest do
       {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
 
       assert {:ok, subscription} =
-               Notifications.upsert_subscription(
+               PushRegistrations.register(
                  Scope.for_user(user),
                  previous_token,
                  %{

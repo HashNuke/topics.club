@@ -11,26 +11,11 @@ defmodule Ircpipe.Notifications do
     ServerConnection
   }
 
-  alias Ircpipe.Notifications.{PushSubscription, PushSubscriptionRateLimit, PushWorker, WebPush}
+  alias Ircpipe.Notifications.{PushSubscription, PushWorker, WebPush}
   alias Ircpipe.Repo
 
-  @max_push_subscriptions_per_user 5
+  @max_delivery_subscriptions_per_user 5
   @max_notification_id 9_223_372_036_854_775_807
-  @push_subscription_creation_limit 10
-  @push_subscription_window_seconds 3_600
-
-  def push_config do
-    %{configured: WebPush.configured?(), vapid_public_key: WebPush.public_key()}
-  end
-
-  def push_config(%Scope{user: user}, session_token) when is_binary(session_token) do
-    installation_id = current_session_installation_id(user.id, session_token)
-
-    push_config()
-    |> Map.put(:session_generation, UserToken.session_token_fingerprint(session_token))
-    |> Map.put(:session_registration_confirmed, is_binary(installation_id))
-    |> Map.put(:session_installation_id, installation_id)
-  end
 
   def notification_account(%Scope{user: user}, session_token) when is_binary(session_token) do
     case Ircpipe.Accounts.get_user_by_session_token(session_token) do
@@ -76,99 +61,6 @@ defmodule Ircpipe.Notifications do
   end
 
   def notification_eligible?(_scope, _session_token, _notification_id, _generation), do: false
-
-  defp current_session_installation_id(user_id, session_token) do
-    UserToken.valid_session_token_query()
-    |> where([token], token.user_id == ^user_id and token.token == ^session_token)
-    |> join(:inner, [token], subscription in PushSubscription,
-      on: subscription.user_token_id == token.id and subscription.user_id == ^user_id
-    )
-    |> order_by([_token, subscription], desc: subscription.updated_at)
-    |> select([_token, subscription], subscription.installation_id)
-    |> limit(1)
-    |> Repo.one()
-  end
-
-  def upsert_subscription(scope, session_token, attrs, user_agent \\ nil)
-
-  def upsert_subscription(%Scope{user: user}, session_token, attrs, user_agent)
-      when is_binary(session_token) do
-    endpoint = Map.get(attrs, "endpoint") || Map.get(attrs, :endpoint)
-    endpoint_hash = endpoint_hash(endpoint)
-    installation_id = installation_id(attrs)
-
-    changeset =
-      %PushSubscription{user_id: user.id, endpoint_hash: endpoint_hash}
-      |> PushSubscription.changeset(Map.put(stringify_keys(attrs), "user_agent", user_agent))
-
-    if changeset.valid? do
-      Repo.transaction(fn ->
-        lock_subscription_user!(user.id)
-
-        user_token =
-          lock_session_token(user.id, session_token) || Repo.rollback(:session_expired)
-
-        maybe_pause_push_registration()
-
-        if Repo.exists?(
-             from(subscription in PushSubscription,
-               where:
-                 subscription.endpoint_hash == ^endpoint_hash and
-                   subscription.user_id != ^user.id
-             )
-           ) do
-          Repo.rollback(:endpoint_owned_by_another_account)
-        end
-
-        existing =
-          PushSubscription
-          |> where(
-            [subscription],
-            subscription.user_id == ^user.id and
-              (subscription.endpoint_hash == ^endpoint_hash or
-                 subscription.installation_id == ^installation_id)
-          )
-          |> order_by(
-            [subscription],
-            desc: subscription.endpoint_hash == ^endpoint_hash,
-            desc: subscription.updated_at
-          )
-          |> limit(1)
-          |> Repo.one()
-
-        canonical_installation_id =
-          if existing && existing.endpoint_hash == endpoint_hash,
-            do: existing.installation_id,
-            else: installation_id
-
-        if is_nil(existing) do
-          enforce_subscription_cap!(user.id)
-          record_subscription_creation!(user.id)
-        end
-
-        from(subscription in PushSubscription,
-          where:
-            subscription.user_id == ^user.id and
-              (subscription.endpoint_hash == ^endpoint_hash or
-                 subscription.installation_id == ^installation_id)
-        )
-        |> Repo.delete_all()
-
-        case changeset
-             |> Ecto.Changeset.put_change(:installation_id, canonical_installation_id)
-             |> Ecto.Changeset.put_change(:user_token_id, user_token.id)
-             |> Repo.insert() do
-          {:ok, subscription} -> subscription
-          {:error, failed_changeset} -> Repo.rollback(failed_changeset)
-        end
-      end)
-    else
-      {:error, changeset}
-    end
-  end
-
-  def upsert_subscription(%Scope{}, _session_token, _attrs, _user_agent),
-    do: {:error, :session_expired}
 
   def rotate_session_with_subscriptions(%Scope{user: user}, previous_session_token)
       when is_binary(previous_session_token) do
@@ -255,75 +147,11 @@ defmodule Ircpipe.Notifications do
     end
   end
 
-  defp enforce_subscription_cap!(user_id) do
-    count =
-      PushSubscription
-      |> where([subscription], subscription.user_id == ^user_id)
-      |> Repo.aggregate(:count)
-
-    if count >= @max_push_subscriptions_per_user,
-      do: Repo.rollback(:too_many_push_subscriptions)
-  end
-
-  defp record_subscription_creation!(user_id) do
-    now = DateTime.utc_now(:second)
-
-    Repo.insert_all(
-      PushSubscriptionRateLimit,
-      [
-        %{
-          user_id: user_id,
-          window_started_at: now,
-          creation_count: 0,
-          inserted_at: now,
-          updated_at: now
-        }
-      ],
-      on_conflict: :nothing,
-      conflict_target: [:user_id]
-    )
-
-    limit =
-      PushSubscriptionRateLimit
-      |> where([rate_limit], rate_limit.user_id == ^user_id)
-      |> lock("FOR UPDATE")
-      |> Repo.one!()
-
-    if DateTime.diff(now, limit.window_started_at, :second) >=
-         @push_subscription_window_seconds do
-      limit
-      |> Ecto.Changeset.change(window_started_at: now, creation_count: 1)
-      |> Repo.update!()
-    else
-      if limit.creation_count >= @push_subscription_creation_limit do
-        Repo.rollback(:push_subscription_rate_limited)
-      end
-
-      limit
-      |> Ecto.Changeset.change(creation_count: limit.creation_count + 1)
-      |> Repo.update!()
-    end
-  end
-
   defp lock_subscription_user!(user_id) do
     User
     |> where([user], user.id == ^user_id)
     |> lock("FOR UPDATE")
     |> Repo.one!()
-  end
-
-  defp lock_session_token(user_id, session_token) do
-    token =
-      UserToken
-      |> where(
-        [token],
-        token.user_id == ^user_id and token.token == ^session_token and
-          token.context == "session"
-      )
-      |> lock("FOR SHARE")
-      |> Repo.one()
-
-    if UserToken.session_token_valid?(token), do: token
   end
 
   defp lock_replaceable_session_token(user_id, session_token) when is_binary(session_token) do
@@ -338,25 +166,6 @@ defmodule Ircpipe.Notifications do
   end
 
   defp lock_replaceable_session_token(_user_id, _session_token), do: nil
-
-  defp maybe_pause_push_registration do
-    if test_pid = Application.get_env(:ircpipe, :pause_push_registration) do
-      send(test_pid, {:push_registration_paused, self()})
-
-      receive do
-        :continue_push_registration -> :ok
-      end
-    end
-  end
-
-  def delete_subscription(%Scope{user: user}, installation_id) do
-    from(subscription in PushSubscription,
-      where: subscription.user_id == ^user.id and subscription.installation_id == ^installation_id
-    )
-    |> Repo.delete_all()
-
-    :ok
-  end
 
   def enqueue_delivery(%Notification{id: notification_id}) do
     if WebPush.configured?() do
@@ -486,7 +295,7 @@ defmodule Ircpipe.Notifications do
       PushSubscription
       |> where([subscription], subscription.user_id == ^record.user_id)
       |> order_by([subscription], desc: subscription.updated_at)
-      |> limit(^@max_push_subscriptions_per_user)
+      |> limit(^@max_delivery_subscriptions_per_user)
       |> Repo.all()
 
     maybe_pause_push_delivery_snapshot()
@@ -654,15 +463,6 @@ defmodule Ircpipe.Notifications do
     |> lock("FOR UPDATE")
     |> Repo.one!()
   end
-
-  defp endpoint_hash(endpoint) when is_binary(endpoint), do: :crypto.hash(:sha256, endpoint)
-  defp endpoint_hash(_endpoint), do: <<>>
-
-  defp installation_id(attrs),
-    do: Map.get(attrs, "installation_id") || Map.get(attrs, :installation_id)
-
-  defp stringify_keys(attrs),
-    do: Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
 
   defp push_sender,
     do: Application.get_env(:ircpipe, :push_sender, WebPush)

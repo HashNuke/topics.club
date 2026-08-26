@@ -5,7 +5,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
-  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.PushRegistrations
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
@@ -38,7 +38,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     payload = %{
       user: user_json(user),
       push:
-        Notifications.push_config(
+        PushRegistrations.session_config(
           conn.assigns.current_scope,
           get_session(conn, :user_token)
         ),
