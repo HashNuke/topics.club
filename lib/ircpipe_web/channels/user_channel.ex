@@ -10,6 +10,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
+  alias IrcpipeWeb.UserChannel.BufferResolver
   alias IrcpipeWeb.UserChannel.ErrorResponse
 
   @impl true
@@ -171,7 +172,7 @@ defmodule IrcpipeWeb.UserChannel do
     client_message_id = Map.get(payload, "client_message_id")
 
     with true <- String.trim(body) != "",
-         {:ok, membership} <- fetch_membership(user, membership_id) do
+         {:ok, membership} <- BufferResolver.membership(user, membership_id) do
       case say(membership, body) do
         :ok ->
           message = latest_message(user, membership)
@@ -216,7 +217,7 @@ defmodule IrcpipeWeb.UserChannel do
     client_message_id = Map.get(payload, "client_message_id")
 
     with true <- String.trim(body) != "",
-         {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+         {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, %{thread: sent_thread, message: message}} <- direct_message(thread, body) do
       reply_ok(socket, %{
         client_message_id: client_message_id,
@@ -247,7 +248,7 @@ defmodule IrcpipeWeb.UserChannel do
   def handle_in("buffer:read", %{"buffer_id" => "channel:" <> membership_id}, socket) do
     user = socket.assigns.current_user
 
-    with {:ok, membership} <- fetch_membership(user, membership_id),
+    with {:ok, membership} <- BufferResolver.membership(user, membership_id),
          :ok <- Chat.mark_read(user, membership) do
       reply_ok(socket, %{buffer_id: "channel:#{membership.id}", unread_count: 0, mention_count: 0})
     else
@@ -269,7 +270,7 @@ defmodule IrcpipeWeb.UserChannel do
   def handle_in("buffer:read", %{"buffer_id" => "direct:" <> thread_id}, socket) do
     user = socket.assigns.current_user
 
-    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+    with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, updated} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
       reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
@@ -289,7 +290,7 @@ defmodule IrcpipeWeb.UserChannel do
       when is_boolean(blocked?) do
     user = socket.assigns.current_user
 
-    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+    with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, updated} <-
            Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
       reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
@@ -309,7 +310,7 @@ defmodule IrcpipeWeb.UserChannel do
       ) do
     user = socket.assigns.current_user
 
-    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+    with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
       reply_ok(socket, Event.direct_message_closed(closed))
     else
@@ -325,7 +326,7 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
     reason = Map.get(payload, "reason", "leaving")
 
-    with {:ok, membership} <- fetch_membership(user, membership_id),
+    with {:ok, membership} <- BufferResolver.membership(user, membership_id),
          :ok <- part(membership, reason) do
       reply_ok(
         socket,
@@ -405,9 +406,9 @@ defmodule IrcpipeWeb.UserChannel do
     do: reply_error(socket, %{reason: "invalid_buffer", command: command})
 
   defp run_command(%{name: "join", args: [channel]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, result} <- execute_intent(connection, "JOIN #{channel}", buffer_id, socket),
-         {:ok, membership} <- membership_for_channel(user, connection, channel) do
+         {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel) do
       reply_ok(
         socket,
         result
@@ -424,7 +425,7 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "list", args: []} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, channels} <- list_channels(connection) do
       reply_ok(socket, %{
         command: command,
@@ -441,7 +442,7 @@ defmodule IrcpipeWeb.UserChannel do
 
   defp run_command(%{name: name, args: args} = command, user, buffer_id, socket)
        when name in ["part", "leave"] do
-    with {:ok, membership} <- membership_from_part_command(user, buffer_id, args),
+    with {:ok, membership} <- BufferResolver.part_membership(user, buffer_id, args),
          {:ok, result} <-
            execute_intent(
              membership.server_connection,
@@ -470,7 +471,7 @@ defmodule IrcpipeWeb.UserChannel do
          "channel:" <> membership_id,
          socket
        ) do
-    with {:ok, membership} <- fetch_membership(user, membership_id),
+    with {:ok, membership} <- BufferResolver.membership(user, membership_id),
          {:ok, result} <-
            execute_intent(
              membership.server_connection,
@@ -495,7 +496,7 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, client_info} <- session_connection_info(connection),
          true <- Chat.valid_nick?(target, Map.get(client_info, :isupport, %{})),
          {:ok, result} <-
@@ -536,7 +537,7 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "nick", args: [nick]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, result} <- execute_intent(connection, "NICK #{nick}", buffer_id, socket) do
       reply_ok(socket, Map.put(result, :command, command))
     else
@@ -549,8 +550,8 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "topic", args: [channel]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
-         {:ok, membership} <- membership_for_channel(user, connection, channel),
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
+         {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel),
          {:ok, client_info} <- session_connection_info(connection),
          {:ok, intent} <- CommandRegistry.resolve("TOPIC #{membership.channel}", client_info),
          {:ok, result} <-
@@ -571,8 +572,8 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "topic", args: [channel, topic]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
-         {:ok, membership} <- membership_for_channel(user, connection, channel),
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
+         {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel),
          {:ok, result} <-
            execute_intent(
              connection,
@@ -596,7 +597,7 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "quote", args: [line]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, client_info} <- session_connection_info(connection),
          {:ok, intent} <- CommandRegistry.resolve(line, client_info),
          {:ok, result} <-
@@ -621,70 +622,6 @@ defmodule IrcpipeWeb.UserChannel do
 
   defp reply_error(socket, payload) do
     {:reply, {:error, Map.put(payload, :reply, "error")}, socket}
-  end
-
-  defp fetch_membership(user, membership_id) do
-    membership = Chat.get_membership!(user, membership_id)
-
-    if membership.status in ["pending", "joined"],
-      do: {:ok, membership},
-      else: {:error, :invalid_buffer}
-  rescue
-    Ecto.NoResultsError -> {:error, :invalid_buffer}
-  end
-
-  defp fetch_direct_message_thread(user, thread_id) do
-    {:ok, Chat.get_direct_message_thread!(user, thread_id)}
-  rescue
-    Ecto.NoResultsError -> {:error, :invalid_direct_message}
-  end
-
-  defp connection_from_buffer(user, "channel:" <> membership_id) do
-    with {:ok, membership} <- fetch_membership(user, membership_id) do
-      {:ok, membership.server_connection}
-    end
-  end
-
-  defp connection_from_buffer(user, "server:" <> connection_id) do
-    {:ok, Chat.get_connection!(user, connection_id)}
-  rescue
-    Ecto.NoResultsError -> {:error, :invalid_server}
-  end
-
-  defp connection_from_buffer(user, "direct:" <> thread_id) do
-    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id) do
-      {:ok, thread.server_connection}
-    end
-  end
-
-  defp connection_from_buffer(_user, _buffer_id), do: {:error, :invalid_buffer}
-
-  defp membership_from_part_command(user, "channel:" <> membership_id, []) do
-    fetch_membership(user, membership_id)
-  end
-
-  defp membership_from_part_command(user, buffer_id, [channel]) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id) do
-      membership_for_channel(user, connection, channel)
-    end
-  end
-
-  defp membership_from_part_command(_user, _buffer_id, _args), do: {:error, :invalid_command_args}
-
-  defp membership_for_channel(user, connection, channel) do
-    casemapping =
-      case session_connection_info(connection) do
-        {:ok, client_info} -> client_info.casemapping
-        {:error, _reason} -> nil
-      end
-
-    membership = Chat.get_membership_by_channel!(user, connection, channel, casemapping)
-
-    if membership.status in ["pending", "joined"],
-      do: {:ok, membership},
-      else: {:error, :invalid_buffer}
-  rescue
-    Ecto.NoResultsError -> {:error, :invalid_buffer}
   end
 
   defp put_reply_command_id({:reply, {status, payload}, socket}, command_id) do
