@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
   @moduledoc false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
@@ -121,7 +122,7 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
              "channel:#{membership.id}",
              socket
            ),
-         message <- user |> Chat.list_messages(membership.id, 1) |> List.first() do
+         message <- user |> MessageHistory.list_messages(membership.id, 1) |> List.first() do
       Reply.ok(socket, %{
         command: command,
         command_id: result.command_id,

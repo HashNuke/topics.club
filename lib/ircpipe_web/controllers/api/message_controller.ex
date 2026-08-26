@@ -2,12 +2,13 @@ defmodule IrcpipeWeb.Api.MessageController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Realtime.Event
 
   def index(conn, %{"channel_id" => channel_id}) do
     user = conn.assigns.current_scope.user
-    messages = Chat.list_messages(user, channel_id)
+    messages = MessageHistory.list_messages(user, channel_id)
     json(conn, %{messages: Enum.map(messages, &message_json/1)})
   end
 
@@ -18,10 +19,14 @@ defmodule IrcpipeWeb.Api.MessageController do
     messages =
       case Map.get(params, "command_ids") do
         command_ids when is_binary(command_ids) ->
-          Chat.list_buffer_command_messages(user, buffer_id, String.split(command_ids, ","))
+          MessageHistory.list_buffer_command_messages(
+            user,
+            buffer_id,
+            String.split(command_ids, ",")
+          )
 
         _command_ids ->
-          Chat.list_buffer_messages(user, buffer_id,
+          MessageHistory.list_buffer_messages(user, buffer_id,
             limit: Map.get(params, "limit", 150),
             before: Map.get(params, "before"),
             after: Map.get(params, "after")

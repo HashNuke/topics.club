@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -159,7 +160,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       |> Map.new(fn membership ->
         messages =
           user
-          |> Chat.list_messages(membership.id, @message_limit)
+          |> MessageHistory.list_messages(membership.id, @message_limit)
           |> Enum.map(&message_json(&1, membership))
 
         {channel_buffer_id(membership), messages}
@@ -171,7 +172,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
         messages =
           user
-          |> Chat.list_buffer_messages(buffer_id, limit: @message_limit)
+          |> MessageHistory.list_buffer_messages(buffer_id, limit: @message_limit)
           |> Enum.map(&server_message_json(&1, connection))
 
         {buffer_id, messages}
@@ -185,7 +186,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
         messages =
           user
-          |> Chat.list_buffer_messages(buffer_id, limit: @message_limit)
+          |> MessageHistory.list_buffer_messages(buffer_id, limit: @message_limit)
           |> Enum.map(&Event.message(&1, buffer_id, %{peer_nick: thread.peer_nick}))
 
         {buffer_id, messages}

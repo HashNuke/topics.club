@@ -3,7 +3,7 @@ defmodule Ircpipe.ChatTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelMembership, Message}
+  alias Ircpipe.Chat.{ChannelMembership, Message, MessageHistory}
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Repo
 
@@ -247,7 +247,7 @@ defmodule Ircpipe.ChatTest do
     assert left.status == "left"
     refute left.auto_join
     assert left.left_at
-    assert [%Message{body: "history survives"}] = Chat.list_messages(user, left.id)
+    assert [%Message{body: "history survives"}] = MessageHistory.list_messages(user, left.id)
 
     {:ok, duplicate_left} = Chat.confirm_channel_left(connection, "#elixir")
     assert duplicate_left.left_at == left.left_at
@@ -347,7 +347,7 @@ defmodule Ircpipe.ChatTest do
     membership = Chat.get_channel_membership(connection, "#" <> "{OPS}", :rfc1459)
     assert membership.id in [first.id, second.id]
 
-    assert Enum.map(Chat.list_messages(user, membership.id), & &1.body) == [
+    assert Enum.map(MessageHistory.list_messages(user, membership.id), & &1.body) == [
              "first history",
              "second history"
            ]
@@ -404,7 +404,7 @@ defmodule Ircpipe.ChatTest do
     assert Chat.get_membership_by_channel!(user, connection, "#elixir").id == membership.id
 
     assert [%Message{body: "scoped"}] =
-             Chat.list_buffer_messages(user, "channel:#{membership.id}")
+             MessageHistory.list_buffer_messages(user, "channel:#{membership.id}")
 
     assert_raise Ecto.NoResultsError, fn -> Chat.get_membership!(other_user, membership.id) end
 
@@ -413,7 +413,7 @@ defmodule Ircpipe.ChatTest do
     end
 
     assert_raise Ecto.NoResultsError, fn ->
-      Chat.list_buffer_messages(other_user, "channel:#{membership.id}")
+      MessageHistory.list_buffer_messages(other_user, "channel:#{membership.id}")
     end
   end
 
@@ -449,7 +449,7 @@ defmodule Ircpipe.ChatTest do
     Chat.record_inbound_message(connection, "#elixir", "akash", "new")
 
     assert is_nil(Repo.get(Message, expired.id))
-    assert [%Message{body: "new"}] = Chat.list_messages(user, membership.id)
+    assert [%Message{body: "new"}] = MessageHistory.list_messages(user, membership.id)
   end
 
   test "records server buffer messages without a channel membership" do
@@ -484,7 +484,7 @@ defmodule Ircpipe.ChatTest do
     assert connection_id == connection.id
 
     assert [%Message{body: "Connected"}] =
-             Chat.list_buffer_messages(user, "server:#{connection.id}")
+             MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
 
     assert Chat.get_connection!(user, connection.id).unread_count == 1
   end
@@ -745,6 +745,6 @@ defmodule Ircpipe.ChatTest do
     assert membership_id == membership.id
 
     assert [%Message{hostmask: "akash!user@example.test", sender_role: "voice"}] =
-             Chat.list_messages(user, membership.id)
+             MessageHistory.list_messages(user, membership.id)
   end
 end

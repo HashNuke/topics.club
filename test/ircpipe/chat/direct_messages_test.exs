@@ -3,7 +3,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, Notification}
+  alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, MessageHistory, Notification}
   alias Ircpipe.Notifications.Delivery
 
   setup do
@@ -74,7 +74,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert_receive {:buffer_message, %{buffer_id: ^buffer_id, body: "hello privately"}}
 
     assert [%Message{id: message_id}] =
-             Chat.list_buffer_messages(user, "direct:#{thread.id}")
+             MessageHistory.list_buffer_messages(user, "direct:#{thread.id}")
 
     assert message_id == message.id
   end
@@ -496,12 +496,15 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
                }
              )
 
-    assert Enum.map(Chat.list_buffer_messages(user, "server:#{connection.id}"), & &1.body) == [
+    assert Enum.map(
+             MessageHistory.list_buffer_messages(user, "server:#{connection.id}"),
+             & &1.body
+           ) == [
              "server line"
            ]
 
     refute direct_message.id in Enum.map(
-             Chat.list_buffer_command_messages(user, "server:#{connection.id}", [
+             MessageHistory.list_buffer_command_messages(user, "server:#{connection.id}", [
                "private-command"
              ]),
              & &1.id

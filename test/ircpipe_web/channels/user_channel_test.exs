@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
@@ -138,7 +139,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
 
     assert Enum.any?(
-             Chat.list_buffer_messages(user, "server:#{connection.id}"),
+             MessageHistory.list_buffer_messages(user, "server:#{connection.id}"),
              &(&1.kind == "command" and &1.body == "JOIN #ops")
            )
 
@@ -182,7 +183,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_receive {:irc_server_line, "PRIVMSG #elixir :\x01ACTION waves\x01"}, 1_000
 
     assert Enum.any?(
-             Chat.list_messages(user, membership.id),
+             MessageHistory.list_messages(user, membership.id),
              &(&1.kind == "action" and &1.body == "waves" and &1.nick == "mira")
            )
 
@@ -245,8 +246,10 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_receive {:irc_server_line, "PRIVMSG akash :hello privately"}, 1_000
     assert_push "direct_message:thread", %{buffer: %{buffer_id: ^buffer_id, title: "akash"}}
 
-    server_history = Chat.list_buffer_messages(user, "server:#{connection.id}")
-    repair_rows = Chat.list_buffer_command_messages(user, "server:#{connection.id}", [command_id])
+    server_history = MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
+
+    repair_rows =
+      MessageHistory.list_buffer_command_messages(user, "server:#{connection.id}", [command_id])
 
     assert repair_rows != []
 
@@ -465,7 +468,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_receive {:irc_server_line, "PRIVMSG #elixir :hello from channel"}, 1_000
 
     assert Enum.any?(
-             Chat.list_messages(user, membership.id),
+             MessageHistory.list_messages(user, membership.id),
              &(&1.body == "hello from channel" and &1.nick == "mira")
            )
 
@@ -1162,7 +1165,7 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     _ = :sys.get_state(Session.via(connection))
 
-    messages = Chat.list_buffer_messages(user, "server:#{connection.id}")
+    messages = MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
 
     assert Enum.any?(messages, fn message ->
              message.metadata["command_id"] == "whois-mira-1" and

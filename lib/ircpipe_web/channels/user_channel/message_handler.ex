@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
   @moduledoc false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
@@ -106,7 +107,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
 
   defp latest_message(user, membership) do
     user
-    |> Chat.list_messages(membership.id, 1)
+    |> MessageHistory.list_messages(membership.id, 1)
     |> List.first()
   end
 end

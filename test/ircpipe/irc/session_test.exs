@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{DirectMessageThread, Notification}
+  alias Ircpipe.Chat.{DirectMessageThread, MessageHistory, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.IrcTestServer
@@ -54,7 +54,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_message, %{body: "hello ircpipe", nick: "akash"}}, 1_000
 
-    messages = Chat.list_messages(user, membership.id)
+    messages = MessageHistory.list_messages(user, membership.id)
     assert Enum.any?(messages, &(&1.body == "hello ircpipe" and &1.nick == "akash"))
 
     assert :ok = Session.quit(connection)
@@ -106,14 +106,14 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_message, %{kind: "nick", body: "akash is now ak."}}
 
-    assert Enum.map(Chat.list_messages(user, membership.id), & &1.kind) == [
+    assert Enum.map(MessageHistory.list_messages(user, membership.id), & &1.kind) == [
              "join",
              "part",
              "quit",
              "nick"
            ]
 
-    assert Chat.list_messages(user, other_membership.id) == []
+    assert MessageHistory.list_messages(user, other_membership.id) == []
   end
 
   test "consumes matching echoed channel messages from the current connection nick" do
@@ -152,7 +152,9 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    assert [%{body: "hello from app", nick: "mira"}] = Chat.list_messages(user, membership.id)
+    assert [%{body: "hello from app", nick: "mira"}] =
+             MessageHistory.list_messages(user, membership.id)
+
     assert PendingEchoes.empty?(updated_state.pending_echoes)
   end
 
@@ -202,7 +204,7 @@ defmodule Ircpipe.Irc.SessionTest do
              )
 
     assert [%{body: "hello from app", nick: "nick["}] =
-             Chat.list_messages(user, membership.id)
+             MessageHistory.list_messages(user, membership.id)
 
     assert PendingEchoes.empty?(updated_state.pending_echoes)
     assert Repo.reload(membership).unread_count == 0
@@ -258,7 +260,7 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    messages = Chat.list_messages(user, membership.id)
+    messages = MessageHistory.list_messages(user, membership.id)
     assert Enum.count(messages, &(&1.body == body)) == 2
     assert Enum.all?(messages, &(not &1.mentioned))
     assert Repo.reload(membership).unread_count == 0
@@ -408,7 +410,7 @@ defmodule Ircpipe.Irc.SessionTest do
                       body: "hello local channel"
                     }}
 
-    assert [%{body: "hello local channel"}] = Chat.list_messages(user, membership.id)
+    assert [%{body: "hello local channel"}] = MessageHistory.list_messages(user, membership.id)
   end
 
   test "accumulates IRC names chunks until names end before syncing presence" do
@@ -617,7 +619,7 @@ defmodule Ircpipe.Irc.SessionTest do
     Chat.record_inbound_message(updated_state.connection, "#pipe", "mira_", "after nick")
 
     assert Enum.any?(
-             Chat.list_messages(user, membership.id),
+             MessageHistory.list_messages(user, membership.id),
              &(&1.nick == "mira_" and &1.body == "after nick")
            )
   end
@@ -663,7 +665,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert buffer_id == "channel:#{membership.id}"
 
     assert [%{kind: "kick", body: "akash was kicked by mira: too loud"}] =
-             Chat.list_messages(user, membership.id)
+             MessageHistory.list_messages(user, membership.id)
   end
 
   test "records IRC error numerics in the affected channel buffer when possible" do
@@ -1008,7 +1010,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_message, %{kind: "topic", body: "mira changed the topic to: new topic"}}
 
-    channel_messages = Chat.list_messages(user, membership.id)
+    channel_messages = MessageHistory.list_messages(user, membership.id)
 
     assert Enum.any?(
              channel_messages,
@@ -1018,7 +1020,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert Enum.any?(channel_messages, &(&1.kind == "topic" and &1.body =~ "new topic"))
 
-    server_messages = Chat.list_buffer_messages(user, "server:#{connection.id}")
+    server_messages = MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
     assert Enum.any?(server_messages, &(&1.body == "Welcome to local"))
     assert Enum.any?(server_messages, &(&1.kind == "notice" and &1.body == "- Be kind"))
 
@@ -1061,7 +1063,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     [persisted] =
       user
-      |> Chat.list_buffer_messages("server:#{connection.id}")
+      |> MessageHistory.list_buffer_messages("server:#{connection.id}")
       |> Enum.filter(&(&1.body == "IRC reply 799: A future server reply"))
 
     assert persisted.metadata == %{"irc_event" => "raw", "numeric" => "799"}
@@ -1158,7 +1160,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     results =
       user
-      |> Chat.list_buffer_messages(buffer_id)
+      |> MessageHistory.list_buffer_messages(buffer_id)
       |> Enum.filter(&(&1.metadata["command_status"] == "result"))
 
     assert length(results) == 2
@@ -1235,7 +1237,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     results =
       user
-      |> Chat.list_buffer_messages(buffer_id)
+      |> MessageHistory.list_buffer_messages(buffer_id)
       |> Enum.filter(fn message ->
         message.metadata["command_id"] == command_id and
           message.metadata["command_status"] == "result"
@@ -1567,7 +1569,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     Process.cancel_timer(returned_state.pending_commands["motd-1"].timer)
 
-    messages = Chat.list_buffer_messages(user, buffer_id)
+    messages = MessageHistory.list_buffer_messages(user, buffer_id)
     results = Enum.filter(messages, &(&1.metadata["command_status"] == "result"))
 
     assert Enum.count(results, &(&1.body =~ "Message of the day")) == 1
@@ -1636,7 +1638,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert {:noreply, returned_state} = Session.handle_info({:ircxd, event}, state)
     Process.cancel_timer(returned_state.pending_commands["who-alice-1"].timer)
 
-    assert Enum.any?(Chat.list_buffer_messages(user, buffer_id), fn message ->
+    assert Enum.any?(MessageHistory.list_buffer_messages(user, buffer_id), fn message ->
              message.metadata["command_id"] == "who-alice-1" and
                message.metadata["irc_event"] == "who_reply"
            end)
@@ -2061,7 +2063,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_server_line, "PRIVMSG +#pipe :hello voiced users"}, 1_000
 
-    messages = Chat.list_messages(user, membership.id)
+    messages = MessageHistory.list_messages(user, membership.id)
     assert Enum.any?(messages, &(&1.body == "operators only" and &1.nick == "akash"))
     assert Enum.any?(messages, &(&1.body == "hello voiced users" and &1.nick == "ircpipe"))
     assert Chat.list_direct_message_threads(user, connection) == []

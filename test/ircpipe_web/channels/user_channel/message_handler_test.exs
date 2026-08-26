@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
@@ -90,7 +91,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
     assert_receive {:irc_server_line, "PRIVMSG akash :hello privately"}, 1_000
 
     assert Enum.any?(
-             Chat.list_buffer_messages(user, buffer_id),
+             MessageHistory.list_buffer_messages(user, buffer_id),
              &(&1.body == "hello privately" and &1.direct_message_thread_id == thread.id)
            )
 
