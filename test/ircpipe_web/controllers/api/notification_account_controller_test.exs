@@ -5,6 +5,9 @@ defmodule IrcpipeWeb.Api.NotificationAccountControllerTest do
 
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Repo
+  alias IrcpipeWeb.UserAuth
+
+  @remember_me_cookie "_ircpipe_web_user_remember_me"
 
   setup :register_and_log_in_user
 
@@ -41,5 +44,30 @@ defmodule IrcpipeWeb.Api.NotificationAccountControllerTest do
 
     assert json_response(checked, 200)["session_generation"] ==
              UserToken.session_token_fingerprint(token)
+  end
+
+  test "authenticates read-only from the signed remember cookie after a browser restart", %{
+    conn: conn,
+    user: user
+  } do
+    remembered =
+      conn
+      |> Map.replace!(:secret_key_base, IrcpipeWeb.Endpoint.config(:secret_key_base))
+      |> fetch_cookies()
+      |> UserAuth.log_in_user(user, %{"remember_me" => "true"})
+
+    %{value: signed_remember_token} = remembered.resp_cookies[@remember_me_cookie]
+
+    restarted =
+      build_conn()
+      |> put_req_cookie(@remember_me_cookie, signed_remember_token)
+      |> get(~p"/api/notification-account")
+
+    assert %{"user_id" => user_id, "session_generation" => generation} =
+             json_response(restarted, 200)
+
+    assert user_id == user.id
+    assert is_binary(generation)
+    refute get_session(restarted, :user_token)
   end
 end

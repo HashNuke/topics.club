@@ -22,7 +22,10 @@ import {
   notificationDeliveryCoveredByPush,
   synchronizeNotificationDevice,
 } from "./push_notifications.ts"
-import {synchronizeServiceWorkerAccount} from "./service_worker_account.ts"
+import {
+  synchronizeServiceWorkerAccount,
+  synchronizeServiceWorkerClientLease,
+} from "./service_worker_account.ts"
 import AppShell from "./components/app_shell.tsx"
 import LandingPage from "./components/landing_page.tsx"
 import {
@@ -101,6 +104,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const connectionsRef = useRef<ServerConnection[]>([])
   const discoverRequestedRef = useRef(false)
   const notificationDeviceStateRef = useRef(notificationDeviceState)
+  const notificationOperationIdRef = useRef(0)
   const notificationEventCoordinatorRef = useRef<ReturnType<typeof createNotificationEventCoordinator> | null>(null)
   const queuedNotificationEventsRef = useRef<ChatMessage[]>([])
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
@@ -110,6 +114,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
   const viewRef = useRef(view)
+  const pushConfigRef = useRef(pushConfig)
 
   const notificationCoordinatorScope = String(currentUser?.id || "anonymous")
 
@@ -126,7 +131,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [notificationCoordinatorScope])
 
   useEffect(() => {
-    if (!currentUser) clearNotificationServerRegistration()
+    if (!currentUser) {
+      notificationOperationIdRef.current += 1
+      clearNotificationServerRegistration()
+    }
     if (!("serviceWorker" in navigator)) return
 
     return synchronizeServiceWorkerAccount()
@@ -236,6 +244,27 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   })
 
   useEffect(() => {
+    if (!("serviceWorker" in navigator)) return
+
+    return synchronizeServiceWorkerClientLease({
+      healthy: Boolean(
+        currentUser &&
+        mode !== "landing" &&
+        bootstrapReady &&
+        connectionHealth === "connected" &&
+        pushConfig.session_generation
+      ),
+      sessionGeneration: pushConfig.session_generation || null,
+    })
+  }, [
+    bootstrapReady,
+    connectionHealth,
+    currentUser?.id,
+    mode,
+    pushConfig.session_generation,
+  ])
+
+  useEffect(() => {
     viewRef.current = view
   }, [view])
 
@@ -263,16 +292,28 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [notificationDeviceState])
 
   useEffect(() => {
+    pushConfigRef.current = pushConfig
+  }, [pushConfig])
+
+  useEffect(() => {
     if (!currentUser || mode === "landing" || !pushConfig.configured) return
 
     const refresh = () => {
-      applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
-      synchronizeNotificationDevice(apiClient, pushConfig, currentUser.id).then(applyNotificationDeviceState)
+      refreshNotificationDevice(pushConfig)
     }
 
     window.addEventListener("focus", refresh)
     return () => window.removeEventListener("focus", refresh)
-  }, [apiClient, currentUser?.id, mode, pushConfig.configured, pushConfig.vapid_public_key])
+  }, [
+    apiClient,
+    currentUser?.id,
+    mode,
+    pushConfig.configured,
+    pushConfig.session_generation,
+    pushConfig.session_installation_id,
+    pushConfig.session_registration_confirmed,
+    pushConfig.vapid_public_key,
+  ])
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return
@@ -556,10 +597,17 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   async function enableNotificationsOnDevice(): Promise<boolean> {
     if (!currentUser) return false
+    const operationId = ++notificationOperationIdRef.current
+    const sessionGeneration = pushConfig.session_generation || null
     applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
     const next = await enableNotificationDevice(apiClient, pushConfig, currentUser.id)
-    applyNotificationDeviceState(next)
-    return next.subscribed
+
+    const currentOperation =
+      operationId === notificationOperationIdRef.current &&
+      (pushConfigRef.current.session_generation || null) === sessionGeneration
+
+    if (currentOperation) applyNotificationDeviceState(next)
+    return currentOperation && next.subscribed
   }
 
   async function toggleServerNotifications(server: ServerConnection): Promise<void> {
@@ -771,6 +819,23 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     queued.forEach(handleMentionNotification)
   }
 
+  function refreshNotificationDevice(authoritativePush: PushConfig): void {
+    if (!currentUser) return
+
+    const operationId = ++notificationOperationIdRef.current
+    const sessionGeneration = authoritativePush.session_generation || null
+    applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
+
+    synchronizeNotificationDevice(apiClient, authoritativePush, currentUser.id).then((next) => {
+      if (
+        operationId === notificationOperationIdRef.current &&
+        (pushConfigRef.current.session_generation || null) === sessionGeneration
+      ) {
+        applyNotificationDeviceState(next)
+      }
+    })
+  }
+
   function applyBootstrap(bootstrap: BootstrapPayload, preserveSelection = false): void {
     const state = buildBootstrapState(bootstrap)
     if (!state) return
@@ -788,6 +853,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     if (state.topics) setTopics(state.topics)
     setCommandCatalog(state.commandCatalog)
+    pushConfigRef.current = state.push
     setPushConfig(state.push)
     applyNotificationDeviceState({
       ...notificationDeviceStateRef.current,
@@ -795,7 +861,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       loading: true,
     })
     if (currentUser) {
-      synchronizeNotificationDevice(apiClient, state.push, currentUser.id).then(applyNotificationDeviceState)
+      refreshNotificationDevice(state.push)
     }
     setConnections(state.connections)
     connectionsRef.current = state.connections

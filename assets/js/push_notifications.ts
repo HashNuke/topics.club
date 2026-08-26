@@ -9,6 +9,15 @@ import type {EntityId, PushConfig} from "./types.ts"
 
 const INSTALLATION_KEY = "ircpipe.notification-installation"
 let inMemoryInstallation: NotificationInstallation | null = null
+let latestSynchronizationEpoch = 0
+let latestSynchronizationGeneration: string | null = null
+
+interface SynchronizationContext {
+  epoch: number
+  sessionGeneration: string | null
+}
+
+class SupersededNotificationSynchronization extends Error {}
 
 interface NotificationInstallation {
   installation_id: string
@@ -22,6 +31,7 @@ export async function synchronizeNotificationDevice(
   push: PushConfig,
   userId: EntityId
 ): Promise<NotificationDeviceState> {
+  const synchronization = beginSynchronization(push)
   reconcileNotificationInstallation(userId, push)
   const base = deviceBase(push)
   const unavailable = notificationUnavailableReason(base)
@@ -30,7 +40,9 @@ export async function synchronizeNotificationDevice(
 
   try {
     const registration = await navigator.serviceWorker.ready
+    ensureCurrentSynchronization(synchronization)
     let subscription = await registration.pushManager.getSubscription()
+    ensureCurrentSynchronization(synchronization)
     if (!subscription) {
       setServerRegistrationConfirmed(userId, push, false)
       return {...base, loading: false, subscribed: false}
@@ -38,19 +50,25 @@ export async function synchronizeNotificationDevice(
 
     if (!installationOwnedBy(userId, push)) {
       try {
-        await persistSubscription(apiClient, userId, push, subscription)
+        await persistSubscription(apiClient, userId, push, subscription, synchronization)
         return {...base, loading: false, subscribed: true}
       } catch (error) {
         if (!subscriptionOwnedByAnotherAccount(error)) throw error
         await subscription.unsubscribe()
+        ensureCurrentSynchronization(synchronization)
         subscription = await subscribe(registration, push)
+        ensureCurrentSynchronization(synchronization)
         serverRegistrationConfirmed = false
       }
     }
 
-    await persistSubscription(apiClient, userId, push, subscription)
+    await persistSubscription(apiClient, userId, push, subscription, synchronization)
     return {...base, loading: false, subscribed: true}
-  } catch (_error) {
+  } catch (error) {
+    if (error instanceof SupersededNotificationSynchronization) {
+      return {...base, loading: false, subscribed: false}
+    }
+
     return {
       ...base,
       loading: false,
@@ -65,6 +83,7 @@ export async function enableNotificationDevice(
   push: PushConfig,
   userId: EntityId
 ): Promise<NotificationDeviceState> {
+  const synchronization = beginSynchronization(push)
   reconcileNotificationInstallation(userId, push)
   const base = deviceBase(push)
   const unavailable = notificationUnavailableReason(base)
@@ -81,25 +100,33 @@ export async function enableNotificationDevice(
 
   try {
     const registration = await navigator.serviceWorker.ready
+    ensureCurrentSynchronization(synchronization)
     let existing = await registration.pushManager.getSubscription()
+    ensureCurrentSynchronization(synchronization)
 
     if (existing && !installationOwnedBy(userId, push)) {
       try {
-        await persistSubscription(apiClient, userId, push, existing)
+        await persistSubscription(apiClient, userId, push, existing, synchronization)
         return {...base, capability: "granted", loading: false, subscribed: true}
       } catch (error) {
         if (!subscriptionOwnedByAnotherAccount(error)) throw error
         await existing.unsubscribe()
+        ensureCurrentSynchronization(synchronization)
         existing = null
         serverRegistrationConfirmed = false
       }
     }
 
     const subscription = existing || await subscribe(registration, push)
+    ensureCurrentSynchronization(synchronization)
 
-    await persistSubscription(apiClient, userId, push, subscription)
+    await persistSubscription(apiClient, userId, push, subscription, synchronization)
     return {...base, capability: "granted", loading: false, subscribed: true}
-  } catch (_error) {
+  } catch (error) {
+    if (error instanceof SupersededNotificationSynchronization) {
+      return {...base, capability: "granted", loading: false, subscribed: false}
+    }
+
     return {
       ...base,
       capability: "granted",
@@ -144,6 +171,8 @@ export function notificationDeliveryCoveredByPush(
 }
 
 export function clearNotificationServerRegistration(): void {
+  latestSynchronizationEpoch += 1
+  latestSynchronizationGeneration = null
   const installation = storedNotificationInstallation()
   if (installation) storeNotificationInstallation({...installation, server_registration_confirmed: false})
 }
@@ -164,8 +193,10 @@ async function persistSubscription(
   apiClient: ApiClient,
   userId: EntityId,
   push: PushConfig,
-  subscription: PushSubscription
+  subscription: PushSubscription,
+  synchronization: SynchronizationContext
 ): Promise<void> {
+  ensureCurrentSynchronization(synchronization)
   const json = subscription.toJSON()
   const installation = notificationInstallation(userId)
   const response = await apiClient.savePushSubscription(installation.installation_id, {
@@ -173,12 +204,32 @@ async function persistSubscription(
     expirationTime: json.expirationTime,
     keys: json.keys,
   })
+  ensureCurrentSynchronization(synchronization)
   storeNotificationInstallation({
     ...installation,
     installation_id: response.subscription.installation_id,
     server_registration_confirmed: true,
     session_generation: push.session_generation || null,
   })
+}
+
+function beginSynchronization(push: PushConfig): SynchronizationContext {
+  latestSynchronizationEpoch += 1
+  latestSynchronizationGeneration = push.session_generation || null
+
+  return {
+    epoch: latestSynchronizationEpoch,
+    sessionGeneration: latestSynchronizationGeneration,
+  }
+}
+
+function ensureCurrentSynchronization(synchronization: SynchronizationContext): void {
+  if (
+    synchronization.epoch !== latestSynchronizationEpoch ||
+    synchronization.sessionGeneration !== latestSynchronizationGeneration
+  ) {
+    throw new SupersededNotificationSynchronization()
+  }
 }
 
 function installationOwnedBy(userId: EntityId, push: PushConfig): boolean {

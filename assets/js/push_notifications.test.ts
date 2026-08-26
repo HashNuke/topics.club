@@ -306,6 +306,68 @@ describe("notificationControlState", () => {
     expect(state.subscribed).toBe(false)
     expect(notificationDeliveryCoveredByPush(state, 2, push)).toBe(false)
   })
+
+  test("a late old-generation synchronization cannot overwrite the newer session", async () => {
+    const subscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/overlapping-generations",
+        keys: {p256dh: "public-key", auth: "auth"},
+      }),
+    }
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(subscription),
+        subscribe: vi.fn(),
+      },
+    }
+    configurePushBrowser(registration)
+
+    let resolveOldSynchronization!: (value: unknown) => void
+    const oldResponse = new Promise((resolve) => {
+      resolveOldSynchronization = resolve
+    })
+    const oldSave = vi.fn().mockReturnValue(oldResponse)
+    const newSave = vi.fn().mockResolvedValue({
+      subscription: {installation_id: "new-generation-installation"},
+    })
+    const oldPush = {
+      configured: true,
+      vapid_public_key: "AQ",
+      session_generation: "old-generation",
+      session_installation_id: "old-generation-installation",
+      session_registration_confirmed: true,
+    }
+    const newPush = {
+      ...oldPush,
+      session_generation: "new-generation",
+      session_installation_id: "new-generation-installation",
+    }
+
+    const oldSynchronization = synchronizeNotificationDevice(
+      {savePushSubscription: oldSave} as any,
+      oldPush,
+      2
+    )
+    await vi.waitFor(() => expect(oldSave).toHaveBeenCalledOnce())
+
+    const newState = await synchronizeNotificationDevice(
+      {savePushSubscription: newSave} as any,
+      newPush,
+      2
+    )
+    expect(newState.subscribed).toBe(true)
+
+    resolveOldSynchronization({
+      subscription: {installation_id: "old-generation-installation"},
+    })
+    await oldSynchronization
+
+    expect(JSON.parse(localStorage.getItem(INSTALLATION_KEY)!)).toMatchObject({
+      installation_id: "new-generation-installation",
+      session_generation: "new-generation",
+      server_registration_confirmed: true,
+    })
+  })
 })
 
 function configurePushBrowser(registration: unknown) {

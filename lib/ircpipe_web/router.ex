@@ -58,6 +58,7 @@ defmodule IrcpipeWeb.Router do
     pipe_through :notification_account_api
 
     get "/notification-account", NotificationAccountController, :show
+    get "/notifications/:id/eligibility", NotificationEligibilityController, :show
   end
 
   scope "/api", IrcpipeWeb.Api do

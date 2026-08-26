@@ -9,6 +9,14 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   const handlers = new Map<string, (event: any) => void>()
   const storedResponses = new Map<string, Response>()
   const showNotification = vi.fn().mockResolvedValue(undefined)
+  const oldNotification = {
+    data: {sessionGeneration: "session-a"},
+    close: vi.fn(),
+  }
+  const currentNotification = {
+    data: {sessionGeneration: "session-b"},
+    close: vi.fn(),
+  }
   const worker = {
     addEventListener: (type: string, handler: (event: any) => void) => handlers.set(type, handler),
     clients: {
@@ -17,7 +25,10 @@ test("ignores a stale tab account during replacement and trusts the server sessi
       openWindow: vi.fn(),
     },
     location: {origin: "https://topics.example.test"},
-    registration: {showNotification},
+    registration: {
+      getNotifications: vi.fn().mockResolvedValue([oldNotification, currentNotification]),
+      showNotification,
+    },
     skipWaiting: vi.fn(),
   }
   const cache = {
@@ -29,17 +40,28 @@ test("ignores a stale tab account during replacement and trusts the server sessi
 
   vi.stubGlobal("self", worker)
   vi.stubGlobal("caches", {open: vi.fn().mockResolvedValue(cache)})
-  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () =>
-    new Response(JSON.stringify({
-      user_id: "account-b",
-      session_generation: "session-b",
-    }), {status: 200, headers: {"content-type": "application/json"}})
-  ))
+  let notificationEligible = true
+  let currentAccount: {user_id: string | null; session_generation: string | null} = {
+    user_id: "account-b",
+    session_generation: "session-b",
+  }
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+    const body = url.includes("/eligibility")
+      ? {eligible: notificationEligible}
+      : currentAccount
+
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: {"content-type": "application/json"},
+    })
+  }))
 
   await import("../../priv/static/service-worker.js")
 
   await dispatchExtendableEvent(handlers.get("activate"), {})
   expect(worker.clients.claim).toHaveBeenCalledOnce()
+  expect(oldNotification.close).toHaveBeenCalled()
+  expect(currentNotification.close).not.toHaveBeenCalled()
 
   await dispatchExtendableEvent(handlers.get("message"), {
     data: {
@@ -56,6 +78,7 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   await dispatchExtendableEvent(handlers.get("push"), {
     data: {json: () => ({
       title: "Private message",
+      notification_id: "notification-a",
       user_id: "account-a",
       session_generation: "session-a",
     })},
@@ -66,12 +89,92 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   await dispatchExtendableEvent(handlers.get("push"), {
     data: {json: () => ({
       title: "Private message",
+      notification_id: "notification-b",
       user_id: "account-b",
       session_generation: "session-b",
     })},
   })
 
   expect(showNotification).toHaveBeenCalledOnce()
+
+  notificationEligible = false
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => ({
+      title: "Delayed private message",
+      notification_id: "notification-b-delayed",
+      user_id: "account-b",
+      session_generation: "session-b",
+    })},
+  })
+  expect(showNotification).toHaveBeenCalledOnce()
+
+  notificationEligible = true
+  const visibleClient = {
+    id: "visible-chat",
+    url: "https://topics.example.test/app",
+    visibilityState: "visible",
+  }
+  worker.clients.matchAll.mockResolvedValue([visibleClient])
+
+  await dispatchExtendableEvent(handlers.get("message"), {
+    source: {id: visibleClient.id},
+    data: {
+      type: "notification:client-lease",
+      healthy: true,
+      sessionGeneration: "session-a",
+    },
+  })
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => ({
+      title: "New account message",
+      notification_id: "new-account-stale-tab",
+      user_id: "account-b",
+      session_generation: "session-b",
+    })},
+  })
+  expect(showNotification).toHaveBeenCalledTimes(2)
+
+  await dispatchExtendableEvent(handlers.get("message"), {
+    source: {id: visibleClient.id},
+    data: {
+      type: "notification:client-lease",
+      healthy: false,
+      sessionGeneration: "session-b",
+    },
+  })
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => ({
+      title: "Disconnected tab message",
+      notification_id: "disconnected-tab",
+      user_id: "account-b",
+      session_generation: "session-b",
+    })},
+  })
+  expect(showNotification).toHaveBeenCalledTimes(3)
+
+  await dispatchExtendableEvent(handlers.get("message"), {
+    source: {id: visibleClient.id},
+    data: {
+      type: "notification:client-lease",
+      healthy: true,
+      sessionGeneration: "session-b",
+    },
+  })
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => ({
+      title: "Healthy tab message",
+      notification_id: "healthy-tab",
+      user_id: "account-b",
+      session_generation: "session-b",
+    })},
+  })
+  expect(showNotification).toHaveBeenCalledTimes(3)
+
+  currentAccount = {user_id: null, session_generation: null}
+  await dispatchExtendableEvent(handlers.get("message"), {
+    data: {type: "notification:refresh-account"},
+  })
+  expect(currentNotification.close).toHaveBeenCalled()
 })
 
 test("serializes an in-flight stale refresh before checking a new-session push", async () => {
@@ -86,7 +189,10 @@ test("serializes an in-flight stale refresh before checking a new-session push",
       openWindow: vi.fn(),
     },
     location: {origin: "https://topics.example.test"},
-    registration: {showNotification},
+    registration: {
+      getNotifications: vi.fn().mockResolvedValue([]),
+      showNotification,
+    },
     skipWaiting: vi.fn(),
   }
   const cache = {
@@ -100,7 +206,14 @@ test("serializes an in-flight stale refresh before checking a new-session push",
     resolveStaleRefresh = resolve
   })
   let requestCount = 0
-  const fetchAccount = vi.fn().mockImplementation(async () => {
+  const fetchAccount = vi.fn().mockImplementation(async (url: string) => {
+    if (url.includes("/eligibility")) {
+      return new Response(JSON.stringify({eligible: true}), {
+        status: 200,
+        headers: {"content-type": "application/json"},
+      })
+    }
+
     requestCount += 1
     if (requestCount === 1) return staleRefresh
 
@@ -123,6 +236,7 @@ test("serializes an in-flight stale refresh before checking a new-session push",
   const newSessionPush = dispatchExtendableEvent(handlers.get("push"), {
     data: {json: () => ({
       title: "Private message",
+      notification_id: "notification-b",
       user_id: "account-b",
       session_generation: "session-b",
     })},
@@ -138,7 +252,7 @@ test("serializes an in-flight stale refresh before checking a new-session push",
   await staleRequest
   await newSessionPush
 
-  expect(fetchAccount).toHaveBeenCalledTimes(2)
+  expect(fetchAccount).toHaveBeenCalledTimes(3)
   expect(showNotification).toHaveBeenCalledOnce()
 })
 

@@ -8,7 +8,7 @@ defmodule IrcpipeWeb.Api.NotificationAccountController do
       conn,
       Notifications.notification_account(
         conn.assigns.current_scope,
-        get_session(conn, :user_token)
+        conn.assigns.notification_session_token
       )
     )
   end

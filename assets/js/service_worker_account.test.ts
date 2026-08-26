@@ -1,5 +1,8 @@
 import {expect, test, vi} from "vitest"
-import {synchronizeServiceWorkerAccount} from "./service_worker_account.ts"
+import {
+  synchronizeServiceWorkerAccount,
+  synchronizeServiceWorkerClientLease,
+} from "./service_worker_account.ts"
 
 test("asks a replacement worker to refresh the server-authenticated account", async () => {
   let controllerChange: (() => void) | undefined
@@ -38,4 +41,36 @@ test("asks a replacement worker to refresh the server-authenticated account", as
     "controllerchange",
     controllerChange
   )
+})
+
+test("publishes and revokes a bounded healthy-client lease", async () => {
+  const worker = {postMessage: vi.fn()}
+  const registration = {active: worker, waiting: null, installing: null}
+  const serviceWorker = {
+    controller: worker,
+    ready: Promise.resolve(registration),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }
+
+  const stop = synchronizeServiceWorkerClientLease(
+    {healthy: true, sessionGeneration: "session-b"},
+    serviceWorker as unknown as ServiceWorkerContainer
+  )
+  await Promise.resolve()
+
+  expect(worker.postMessage).toHaveBeenCalledWith({
+    type: "notification:client-lease",
+    healthy: true,
+    sessionGeneration: "session-b",
+  })
+
+  stop()
+  await Promise.resolve()
+
+  expect(worker.postMessage).toHaveBeenCalledWith({
+    type: "notification:client-lease",
+    healthy: false,
+    sessionGeneration: "session-b",
+  })
 })

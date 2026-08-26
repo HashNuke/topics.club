@@ -46,6 +46,18 @@ defmodule IrcpipeWeb.UserAuth do
     do_log_in_user(conn, user, params, true)
   end
 
+  def log_in_user_with_issued_session(conn, user, token, params \\ %{}) do
+    user_return_to = get_session(conn, :user_return_to)
+    remember_me = get_session(conn, :user_remember_me)
+
+    conn
+    |> revoke_auth_session_for_account_change(user)
+    |> renew_session(user)
+    |> put_token_in_session(token)
+    |> maybe_write_remember_me_cookie(token, params, remember_me)
+    |> redirect(to: user_return_to || signed_in_path(conn))
+  end
+
   defp do_log_in_user(conn, user, params, session_reset?) do
     user_return_to = get_session(conn, :user_return_to)
 
@@ -92,11 +104,29 @@ defmodule IrcpipeWeb.UserAuth do
   end
 
   def fetch_current_scope_for_user_without_reissue(conn, _opts) do
-    with token when is_binary(token) <- get_session(conn, :user_token),
+    {token, conn} = read_notification_session_token(conn)
+
+    with token when is_binary(token) <- token,
          {user, _token_inserted_at} <- Accounts.get_user_by_session_token(token) do
-      assign(conn, :current_scope, Scope.for_user(user))
+      conn
+      |> assign(:current_scope, Scope.for_user(user))
+      |> assign(:notification_session_token, token)
     else
-      _missing_or_invalid_session -> assign(conn, :current_scope, Scope.for_user(nil))
+      _missing_or_invalid_session ->
+        conn
+        |> assign(:current_scope, Scope.for_user(nil))
+        |> assign(:notification_session_token, nil)
+    end
+  end
+
+  defp read_notification_session_token(conn) do
+    case get_session(conn, :user_token) do
+      token when is_binary(token) ->
+        {token, conn}
+
+      _missing_session_token ->
+        conn = fetch_cookies(conn, signed: [@remember_me_cookie])
+        {conn.cookies[@remember_me_cookie], conn}
     end
   end
 
@@ -169,7 +199,7 @@ defmodule IrcpipeWeb.UserAuth do
         |> put_token_in_session(token)
         |> maybe_write_remember_me_cookie(token, params, remember_me)
 
-      {:error, :invalid_session} ->
+      {:error, reason} when reason in [:invalid_session, :stale_credentials] ->
         conn
     end
   end
@@ -192,7 +222,10 @@ defmodule IrcpipeWeb.UserAuth do
   end
 
   defp session_token_for(_conn, user, previous_token, session_reset?) do
-    {:ok, Accounts.generate_user_session_token(user), session_reset? && is_binary(previous_token)}
+    case Accounts.issue_user_session_token(user) do
+      {:ok, token} -> {:ok, token, session_reset? && is_binary(previous_token)}
+      {:error, :stale_credentials} -> {:error, :stale_credentials}
+    end
   end
 
   defp disconnect_user_socket(token) when is_binary(token) do

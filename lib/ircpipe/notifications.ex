@@ -57,6 +57,31 @@ defmodule Ircpipe.Notifications do
   def notification_account(nil, _session_token),
     do: %{user_id: nil, session_generation: nil}
 
+  def notification_eligible?(%Scope{user: user}, session_token, notification_id, generation)
+      when is_binary(session_token) and is_integer(notification_id) and is_binary(generation) do
+    current_generation = UserToken.session_token_fingerprint(session_token)
+
+    with true <- Plug.Crypto.secure_compare(current_generation, generation),
+         {session_user, _inserted_at} <- Ircpipe.Accounts.get_user_by_session_token(session_token),
+         true <- session_user.id == user.id,
+         %{user_id: notification_user_id, server_enabled: true, channel_enabled: true} <-
+           delivery_record(notification_id) do
+      notification_user_id == user.id
+    else
+      _ineligible -> false
+    end
+  end
+
+  def notification_eligible?(scope, session_token, notification_id, generation)
+      when is_binary(notification_id) do
+    case Integer.parse(notification_id) do
+      {parsed_id, ""} -> notification_eligible?(scope, session_token, parsed_id, generation)
+      _invalid_id -> false
+    end
+  end
+
+  def notification_eligible?(_scope, _session_token, _notification_id, _generation), do: false
+
   defp current_session_installation_id(user_id, session_token) do
     UserToken.valid_session_token_query()
     |> where([token], token.user_id == ^user_id and token.token == ^session_token)
@@ -153,6 +178,8 @@ defmodule Ircpipe.Notifications do
   def rotate_session_with_subscriptions(%Scope{user: user}, previous_session_token)
       when is_binary(previous_session_token) do
     Repo.transaction(fn ->
+      lock_subscription_user!(user.id)
+
       previous =
         UserToken
         |> where(
@@ -410,7 +437,7 @@ defmodule Ircpipe.Notifications do
       on: connection.id == thread.server_connection_id,
       where:
         notification.id == ^notification_id and is_nil(notification.read_at) and
-          is_nil(thread.blocked_at),
+          is_nil(thread.blocked_at) and is_nil(thread.closed_at),
       select: %{
         notification_id: notification.id,
         user_id: notification.user_id,

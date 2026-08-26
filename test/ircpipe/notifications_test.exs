@@ -18,6 +18,7 @@ defmodule Ircpipe.NotificationsTest do
     previous_registration_pause = Application.get_env(:ircpipe, :pause_push_registration)
     previous_rotation_pause = Application.get_env(:ircpipe, :pause_session_rotation)
     previous_snapshot_pause = Application.get_env(:ircpipe, :pause_push_delivery_snapshot)
+    previous_reset_pause = Application.get_env(:ircpipe, :pause_session_reset)
 
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
@@ -31,6 +32,7 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:pause_push_registration, previous_registration_pause)
       restore_env(:pause_session_rotation, previous_rotation_pause)
       restore_env(:pause_push_delivery_snapshot, previous_snapshot_pause)
+      restore_env(:pause_session_reset, previous_reset_pause)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -170,6 +172,43 @@ defmodule Ircpipe.NotificationsTest do
 
     assert :ok = Accounts.delete_user_session_token(successor)
     refute Repo.get(PushSubscription, subscription.id)
+  end
+
+  test "password reset serializes against session rotation and revokes the whole lineage", %{
+    scope: scope
+  } do
+    supervisor = start_supervised!(Task.Supervisor)
+    session_token = Accounts.generate_user_session_token(scope.user)
+
+    assert {:ok, subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               session_token,
+               subscription_attrs("https://push.example.test/subscription/reset-rotation-race")
+             )
+
+    Application.put_env(:ircpipe, :pause_session_reset, self())
+
+    reset =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Accounts.update_user_password(scope.user, %{password: "new secure password"})
+      end)
+
+    assert_receive {:session_reset_paused, reset_pid}
+
+    rotation =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Notifications.rotate_session_with_subscriptions(scope, session_token)
+      end)
+
+    refute Task.yield(rotation, 100)
+    send(reset_pid, :continue_session_reset)
+
+    assert {:ok, {_updated_user, revoked_tokens}} = Task.await(reset)
+    assert Enum.any?(revoked_tokens, &(&1.token == session_token))
+    assert {:error, :invalid_session} = Task.await(rotation)
+    refute Repo.get(PushSubscription, subscription.id)
+    refute Repo.get_by(UserToken, user_id: scope.user.id, context: "session")
   end
 
   test "rejects registration after its authenticated session is revoked", %{scope: scope} do
@@ -388,6 +427,126 @@ defmodule Ircpipe.NotificationsTest do
     server_notification = mention_notification(connection, membership)
     assert :ok = Notifications.deliver_notification(server_notification.id)
     refute_receive {:push_sent, _, _}
+  end
+
+  test "receipt eligibility changes immediately after a mention is read", %{
+    scope: scope,
+    connection: connection,
+    membership: membership
+  } do
+    session_token = Accounts.generate_user_session_token(scope.user)
+    generation = UserToken.session_token_fingerprint(session_token)
+    notification = mention_notification(connection, membership)
+
+    assert Notifications.notification_eligible?(
+             scope,
+             session_token,
+             notification.id,
+             generation
+           )
+
+    assert :ok = Chat.mark_read(scope.user, membership)
+
+    refute Notifications.notification_eligible?(
+             scope,
+             session_token,
+             notification.id,
+             generation
+           )
+  end
+
+  test "receipt eligibility follows server and channel mute changes", %{
+    scope: scope,
+    connection: connection,
+    membership: membership
+  } do
+    session_token = Accounts.generate_user_session_token(scope.user)
+    generation = UserToken.session_token_fingerprint(session_token)
+    server_muted = mention_notification(connection, membership)
+
+    assert {:ok, _server} = Notifications.update_server_preference(scope, connection.id, false)
+
+    refute Notifications.notification_eligible?(
+             scope,
+             session_token,
+             server_muted.id,
+             generation
+           )
+
+    assert {:ok, _server} = Notifications.update_server_preference(scope, connection.id, true)
+    channel_muted = mention_notification(connection, membership)
+    assert {:ok, _channel} = Notifications.update_channel_preference(scope, membership.id, false)
+
+    refute Notifications.notification_eligible?(
+             scope,
+             session_token,
+             channel_muted.id,
+             generation
+           )
+  end
+
+  test "receipt eligibility changes immediately after a direct message is closed or blocked", %{
+    scope: scope,
+    connection: connection
+  } do
+    session_token = Accounts.generate_user_session_token(scope.user)
+    generation = UserToken.session_token_fingerprint(session_token)
+
+    assert {:ok, %{thread: thread, message: close_message}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "close me",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    close_notification = Repo.get_by!(Notification, message_id: close_message.id)
+
+    assert Notifications.notification_eligible?(
+             scope,
+             session_token,
+             close_notification.id,
+             generation
+           )
+
+    assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
+
+    refute Notifications.notification_eligible?(
+             scope,
+             session_token,
+             close_notification.id,
+             generation
+           )
+
+    assert {:ok, %{thread: reopened, message: block_message}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "block me",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    block_notification = Repo.get_by!(Notification, message_id: block_message.id)
+
+    assert Notifications.notification_eligible?(
+             scope,
+             session_token,
+             block_notification.id,
+             generation
+           )
+
+    assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, reopened.id, true)
+
+    refute Notifications.notification_eligible?(
+             scope,
+             session_token,
+             block_notification.id,
+             generation
+           )
   end
 
   test "ordinary messages do not create deliverable notifications", %{

@@ -219,9 +219,47 @@ defmodule Ircpipe.Accounts do
   Generates a session token.
   """
   def generate_user_session_token(user) do
-    {token, user_token} = UserToken.build_session_token(user)
-    Repo.insert!(user_token)
-    token
+    case issue_user_session_token(user) do
+      {:ok, token} -> token
+      {:error, :stale_credentials} -> raise "cannot issue a session from stale credentials"
+    end
+  end
+
+  def issue_user_session_token(%User{} = authenticated_user) do
+    Repo.transaction(fn ->
+      current_user =
+        User
+        |> where([user], user.id == ^authenticated_user.id)
+        |> lock("FOR UPDATE")
+        |> Repo.one()
+
+      if session_credentials_current?(current_user, authenticated_user) do
+        {token, user_token} = UserToken.build_session_token(authenticated_user)
+        Repo.insert!(user_token)
+        token
+      else
+        Repo.rollback(:stale_credentials)
+      end
+    end)
+  end
+
+  def authenticate_and_issue_user_session_token(email, password)
+      when is_binary(email) and is_binary(password) do
+    Repo.transaction(fn ->
+      user =
+        User
+        |> where([user], user.email == ^email)
+        |> lock("FOR UPDATE")
+        |> Repo.one()
+
+      if User.valid_password?(user, password) do
+        {token, user_token} = UserToken.build_session_token(user)
+        Repo.insert!(user_token)
+        {user, token}
+      else
+        Repo.rollback(:invalid_credentials)
+      end
+    end)
   end
 
   @doc """
@@ -332,6 +370,7 @@ defmodule Ircpipe.Accounts do
   defp update_user_and_delete_all_tokens(changeset) do
     Repo.transact(fn ->
       with {:ok, user} <- Repo.update(changeset) do
+        maybe_pause_session_reset()
         tokens_to_expire = Repo.all_by(UserToken, user_id: user.id)
 
         Repo.delete_all(from(t in UserToken, where: t.id in ^Enum.map(tokens_to_expire, & &1.id)))
@@ -339,5 +378,24 @@ defmodule Ircpipe.Accounts do
         {:ok, {user, tokens_to_expire}}
       end
     end)
+  end
+
+  defp session_credentials_current?(%User{} = current_user, %User{} = authenticated_user) do
+    current_user.hashed_password == authenticated_user.hashed_password &&
+      current_user.auth_provider == authenticated_user.auth_provider &&
+      current_user.auth_uid == authenticated_user.auth_uid &&
+      current_user.confirmed_at == authenticated_user.confirmed_at
+  end
+
+  defp session_credentials_current?(_current_user, _authenticated_user), do: false
+
+  defp maybe_pause_session_reset do
+    if test_pid = Application.get_env(:ircpipe, :pause_session_reset) do
+      send(test_pid, {:session_reset_paused, self()})
+
+      receive do
+        :continue_session_reset -> :ok
+      end
+    end
   end
 end
