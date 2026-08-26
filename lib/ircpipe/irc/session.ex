@@ -8,6 +8,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.CommandResult
+  alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Repo
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
   alias Ircpipe.Accounts.User
@@ -19,8 +20,6 @@ defmodule Ircpipe.Irc.Session do
   @command_grace_timeout 300
   @command_timeout 15_000
   @isupport_settle_timeout 100
-  @pending_echo_limit 200
-  @pending_echo_ttl_ms :timer.minutes(5)
 
   def child_spec(%ServerConnection{} = connection) do
     %{
@@ -113,7 +112,7 @@ defmodule Ircpipe.Irc.Session do
        pending_joins: persisted_channels(connection),
        joined_channels: MapSet.new(),
        names_buffers: %{},
-       pending_echoes: [],
+       pending_echoes: PendingEchoes.new(),
        pending_commands: %{},
        ignored_event_logs: %{},
        client_info: nil,
@@ -2190,31 +2189,30 @@ defmodule Ircpipe.Irc.Session do
   defp stored_connection_casemapping(_connection), do: :ascii
 
   defp remember_pending_echo(state, target, body, kind) do
-    pending_echo = %{
-      target: normalize_identifier(state, target),
-      body: body,
-      kind: kind,
-      inserted_at_ms: System.monotonic_time(:millisecond)
-    }
+    pending_echoes =
+      PendingEchoes.remember(
+        state.pending_echoes,
+        normalize_identifier(state, target),
+        body,
+        kind
+      )
 
-    Map.update(state, :pending_echoes, [pending_echo], fn pending_echoes ->
-      [pending_echo | recent_pending_echoes(pending_echoes)] |> Enum.take(@pending_echo_limit)
-    end)
+    %{state | pending_echoes: pending_echoes}
   end
 
   defp pop_pending_echo(state, channel, body, kind, %{nick: nick} = payload) do
     if source_self?(state, payload, nick) do
-      pending_echoes = state |> Map.get(:pending_echoes, []) |> recent_pending_echoes()
-
-      case Enum.split_while(
-             pending_echoes,
-             &(not pending_echo?(&1, normalize_identifier(state, channel), body, kind))
+      case PendingEchoes.pop(
+             state.pending_echoes,
+             normalize_identifier(state, channel),
+             body,
+             kind
            ) do
-        {_before, []} ->
-          {:unmatched_self, Map.put(state, :pending_echoes, pending_echoes)}
+        {:unmatched, pending_echoes} ->
+          {:unmatched_self, %{state | pending_echoes: pending_echoes}}
 
-        {before, [_matched | after_matched]} ->
-          {:matched, Map.put(state, :pending_echoes, before ++ after_matched)}
+        {:matched, pending_echoes} ->
+          {:matched, %{state | pending_echoes: pending_echoes}}
       end
     else
       {:incoming, state}
@@ -2222,24 +2220,6 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp pop_pending_echo(state, _channel, _body, _kind, _payload), do: {:incoming, state}
-
-  defp recent_pending_echoes(pending_echoes) do
-    cutoff = System.monotonic_time(:millisecond) - @pending_echo_ttl_ms
-
-    Enum.filter(pending_echoes, fn pending_echo ->
-      case Map.get(pending_echo, :inserted_at_ms) do
-        inserted_at when is_integer(inserted_at) -> inserted_at >= cutoff
-        _missing_timestamp -> false
-      end
-    end)
-  end
-
-  defp pending_echo?(pending_echo, normalized_target, body, kind) do
-    pending_target = Map.get(pending_echo, :target) || Map.get(pending_echo, :channel)
-
-    pending_target == normalized_target and pending_echo.body == body and
-      pending_echo.kind == kind
-  end
 
   defp record_message_for_echo_status(:matched, _state, _target, _nick, _body, _kind, _payload),
     do: :ok

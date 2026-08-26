@@ -5,6 +5,7 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.{DirectMessageThread, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
+  alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.IrcTestServer
 
   test "connects, joins, sends messages, and persists inbound messages" do
@@ -133,14 +134,9 @@ defmodule Ircpipe.Irc.SessionTest do
 
     state = %{
       connection: connection,
-      pending_echoes: [
-        %{
-          channel: "#pipe",
-          body: "hello from app",
-          kind: "message",
-          inserted_at_ms: System.monotonic_time(:millisecond)
-        }
-      ]
+      pending_echoes:
+        PendingEchoes.new()
+        |> PendingEchoes.remember("#pipe", "hello from app", "message")
     }
 
     assert {:noreply, updated_state} =
@@ -157,7 +153,7 @@ defmodule Ircpipe.Irc.SessionTest do
              )
 
     assert [%{body: "hello from app", nick: "mira"}] = Chat.list_messages(user, membership.id)
-    assert updated_state.pending_echoes == []
+    assert PendingEchoes.empty?(updated_state.pending_echoes)
   end
 
   test "consumes self echoes using negotiated RFC1459 casemapping" do
@@ -187,14 +183,9 @@ defmodule Ircpipe.Irc.SessionTest do
 
     state = %{
       connection: connection,
-      pending_echoes: [
-        %{
-          target: "#pipe",
-          body: "hello from app",
-          kind: "message",
-          inserted_at_ms: System.monotonic_time(:millisecond)
-        }
-      ]
+      pending_echoes:
+        PendingEchoes.new()
+        |> PendingEchoes.remember("#pipe", "hello from app", "message")
     }
 
     assert {:noreply, updated_state} =
@@ -213,7 +204,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert [%{body: "hello from app", nick: "nick["}] =
              Chat.list_messages(user, membership.id)
 
-    assert updated_state.pending_echoes == []
+    assert PendingEchoes.empty?(updated_state.pending_echoes)
     assert Repo.reload(membership).unread_count == 0
   end
 
@@ -244,13 +235,13 @@ defmodule Ircpipe.Irc.SessionTest do
     state = %{
       connection: connection,
       pending_echoes:
-        Enum.map(1..200, fn index ->
-          %{
-            target: "#pipe",
-            body: "newer #{index}",
-            kind: "message",
-            inserted_at_ms: System.monotonic_time(:millisecond)
-          }
+        Enum.reduce(1..200, PendingEchoes.new(), fn index, pending_echoes ->
+          PendingEchoes.remember(
+            pending_echoes,
+            "#pipe",
+            "newer #{index}",
+            "message"
+          )
         end)
     }
 
@@ -302,13 +293,13 @@ defmodule Ircpipe.Irc.SessionTest do
     state = %{
       connection: connection,
       pending_echoes:
-        Enum.map(1..200, fn index ->
-          %{
-            target: "akash",
-            body: "newer #{index}",
-            kind: "message",
-            inserted_at_ms: System.monotonic_time(:millisecond)
-          }
+        Enum.reduce(1..200, PendingEchoes.new(), fn index, pending_echoes ->
+          PendingEchoes.remember(
+            pending_echoes,
+            "akash",
+            "newer #{index}",
+            "message"
+          )
         end)
     }
 
@@ -345,7 +336,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     {:ok, membership} = Chat.join_channel(user, connection, "&local")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
-    state = %{connection: connection, pending_echoes: []}
+    state = %{connection: connection, pending_echoes: PendingEchoes.new()}
 
     assert {:noreply, ^state} =
              Session.handle_info(
