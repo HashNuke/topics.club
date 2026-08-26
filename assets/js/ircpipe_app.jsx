@@ -1,12 +1,12 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
-import {commandErrorMessage} from "./app_feedback.js"
+import {commandErrorMessage} from "./app_feedback.ts"
 import {buildBootstrapState} from "./bootstrap_state.js"
 import {
   notificationPermission,
   requestNotificationPermission,
   showMentionNotification,
-} from "./browser_notifications.js"
+} from "./browser_notifications.ts"
 import AppShell from "./components/app_shell.jsx"
 import LandingPage from "./components/landing_page.jsx"
 import {

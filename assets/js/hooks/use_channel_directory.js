@@ -1,5 +1,5 @@
 import {useRef, useState} from "react"
-import {channelDirectoryError} from "../app_feedback.js"
+import {channelDirectoryError} from "../app_feedback.ts"
 
 const emptyDirectory = {
   serverId: null,

@@ -1,14 +1,28 @@
-export function notificationPermission() {
+interface MentionMessage {
+  body: string
+  channel?: string
+  nick: string
+}
+
+interface MentionNotificationOptions {
+  currentUser?: {email?: string} | null
+  notificationState: NotificationPermission | "unsupported"
+}
+
+export function notificationPermission(): NotificationPermission {
   if (!("Notification" in window)) return "default"
   return window.Notification.permission
 }
 
-export async function requestNotificationPermission() {
+export async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
   if (!("Notification" in window)) return "unsupported"
   return window.Notification.requestPermission()
 }
 
-export function showMentionNotification(message, {currentUser, notificationState}) {
+export function showMentionNotification(
+  message: MentionMessage,
+  {currentUser, notificationState}: MentionNotificationOptions
+): boolean {
   if (!("Notification" in window)) return false
   if (document.visibilityState !== "hidden") return false
   if (notificationState !== "granted" && window.Notification.permission !== "granted") return false

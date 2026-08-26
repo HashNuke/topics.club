@@ -1,5 +1,5 @@
 import {describe, expect, test} from "vitest"
-import {channelDirectoryError, commandErrorMessage} from "./app_feedback.js"
+import {channelDirectoryError, commandErrorMessage} from "./app_feedback.ts"
 
 describe("commandErrorMessage", () => {
   test("uses structured backend messages and usage", () => {

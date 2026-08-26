@@ -3,7 +3,7 @@ import {
   notificationPermission,
   requestNotificationPermission,
   showMentionNotification,
-} from "./browser_notifications.js"
+} from "./browser_notifications.ts"
 
 const originalNotification = window.Notification
 const originalVisibilityState = document.visibilityState
