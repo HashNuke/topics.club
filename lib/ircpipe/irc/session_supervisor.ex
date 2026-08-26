@@ -25,8 +25,15 @@ defmodule Ircpipe.Irc.SessionSupervisor do
 
   def stop_session(%ServerConnection{} = connection, reason \\ "leaving") do
     case Registry.lookup(Ircpipe.Irc.SessionRegistry, {connection.user_id, connection.id}) do
-      [{_pid, _value}] -> Session.quit(connection, reason)
-      [] -> :ok
+      [{_pid, _value}] ->
+        case Session.quit(connection, reason) do
+          :ok -> :ok
+          {:error, :closed} -> :ok
+          error -> error
+        end
+
+      [] ->
+        :ok
     end
   catch
     :exit, _reason -> :ok
