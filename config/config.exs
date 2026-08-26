@@ -23,7 +23,8 @@ config :ircpipe, :scopes,
 config :ircpipe,
   ecto_repos: [Ircpipe.Repo],
   generators: [timestamp_type: :utc_datetime],
-  irc_bouncer_enabled: true
+  irc_bouncer_enabled: true,
+  discovery_refresh_enabled: config_env() == :prod
 
 # Configure the endpoint
 config :ircpipe, IrcpipeWeb.Endpoint,

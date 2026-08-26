@@ -42,4 +42,31 @@ defmodule Ircpipe.Discovery.NetsplitTest do
     assert Netsplit.parse_connection(html) ==
              {:ok, %{host: "irc.example.test", port: 6667, use_tls: false}}
   end
+
+  test "fetches connection configuration for each ranked network" do
+    top_html =
+      "<tr><td>1.</td><td>1.</td><td></td><td><a href=\"/networks/Libera.Chat/\">Libera.Chat</a></td></tr>"
+
+    servers_html =
+      "<tr><td>irc.libera.chat</td><td>6697</td><td>on</td><td>yes</td></tr>"
+
+    get = fn
+      "https://netsplit.de/networks/top100.php" -> {:ok, top_html}
+      "https://netsplit.de/servers/?net=Libera.Chat" -> {:ok, servers_html}
+    end
+
+    assert Netsplit.fetch_networks(limit: 1, get: get) ==
+             {:ok,
+              [
+                %{
+                  name: "Libera.Chat",
+                  rank: 1,
+                  slug: "Libera.Chat",
+                  source_url: "https://netsplit.de/networks/Libera.Chat/",
+                  host: "irc.libera.chat",
+                  port: 6697,
+                  use_tls: true
+                }
+              ]}
+  end
 end

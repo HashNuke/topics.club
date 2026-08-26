@@ -113,4 +113,10 @@ defmodule Ircpipe.Discovery do
         )
       )
   end
+
+  def mark_channel_refresh_error(%Network{} = network, reason) do
+    network
+    |> Ecto.Changeset.change(last_refresh_error: inspect(reason))
+    |> Repo.update()
+  end
 end

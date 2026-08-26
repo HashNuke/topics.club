@@ -16,6 +16,7 @@ defmodule Ircpipe.Application do
       {Registry, keys: :unique, name: Ircpipe.Irc.SessionRegistry},
       {Ircpipe.Irc.SessionSupervisor, []},
       {Ircpipe.Irc.Bouncer, []},
+      {Ircpipe.Discovery.Refresher, []},
       # Start to serve requests, typically the last entry
       IrcpipeWeb.Endpoint
     ]
