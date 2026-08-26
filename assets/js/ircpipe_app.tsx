@@ -77,6 +77,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [discoverLoading, setDiscoverLoading] = useState(false)
   const [joiningDiscoveryServerChannelId, setJoiningDiscoveryServerChannelId] = useState<string | number | null>(null)
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalogEntry[]>([])
+  const [bootstrapLoading, setBootstrapLoading] = useState(Boolean(currentUser && mode !== "landing"))
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef<ServerConnection[]>([])
@@ -233,12 +234,27 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [currentUser?.id, mode, topics, topicsLoaded])
 
   useEffect(() => {
-    if (!currentUser || mode === "landing") return
+    if (!currentUser || mode === "landing") {
+      setBootstrapLoading(false)
+      return
+    }
+
+    let active = true
+    setBootstrapLoading(true)
 
     apiClient
       .bootstrap()
-      .then((bootstrap) => applyBootstrap(bootstrap))
+      .then((bootstrap) => {
+        if (active) applyBootstrap(bootstrap)
+      })
       .catch(() => {})
+      .finally(() => {
+        if (active) setBootstrapLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
   }, [apiClient, currentUser?.id, mode])
 
   useEffect(() => {
@@ -533,6 +549,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       draft={draft}
       joiningDiscoveryServerChannelId={joiningDiscoveryServerChannelId}
       messages={messages}
+      messagesLoading={bootstrapLoading}
       notificationState={notificationState}
       serverMessages={serverMessages}
       topics={topics}

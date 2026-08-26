@@ -55,6 +55,7 @@ export default {
     connectionHealth: "connected",
     draft: "",
     messages,
+    messagesLoading: false,
   },
 }
 
@@ -62,6 +63,10 @@ export const Conversation = {}
 
 export const EmptyChannel = {
   args: {messages: []},
+}
+
+export const LoadingMessages = {
+  args: {messages: [], messagesLoading: true},
 }
 
 export const WithDraft = {

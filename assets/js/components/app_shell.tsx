@@ -40,6 +40,7 @@ export interface AppShellProps {
   initialMobileMenuOpen?: boolean
   initialMobileUsersOpen?: boolean
   messages: ChatMessage[]
+  messagesLoading: boolean
   notificationState: NotificationPermission | "unsupported"
   serverMessages: ChatMessage[]
   topics: TopicInput[]

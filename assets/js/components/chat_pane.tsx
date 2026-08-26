@@ -12,6 +12,7 @@ export interface ChatPaneProps {
   connectionHealth: ConnectionHealth
   draft: string
   messages: ChatMessage[]
+  messagesLoading?: boolean
   onLoadOlderMessages?: (bufferId?: string) => void
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
   onRetryMessage?: (message: ChatMessage) => void
@@ -19,7 +20,7 @@ export interface ChatPaneProps {
   onUpdateDraft: (value: string) => void
 }
 
-export function ChatPane({activeChannel, commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}: ChatPaneProps) {
+export function ChatPane({activeChannel, commandCatalog, composerError, connectionHealth, draft, messages, messagesLoading = false, onLoadOlderMessages, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}: ChatPaneProps) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(activeChannel?.id, nextReadingOlder),
@@ -31,7 +32,7 @@ export function ChatPane({activeChannel, commandCatalog, composerError, connecti
     <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
       <div id="chat-scrollback" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-4xl space-y-1">
-          <MessageTimeline messages={visibleMessages} onRetryMessage={onRetryMessage} />
+          <MessageTimeline loading={messagesLoading} messages={visibleMessages} onRetryMessage={onRetryMessage} />
         </div>
       </div>
       {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}

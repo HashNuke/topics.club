@@ -41,6 +41,13 @@ export const Empty = {
   },
 }
 
+export const Loading = {
+  args: {
+    loading: true,
+    messages: [],
+  },
+}
+
 export const WithTimeGap = {
   args: {
     messages: [
