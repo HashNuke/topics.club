@@ -10,6 +10,7 @@ import type {
   ServerConnection,
   Topic,
   TopicInput,
+  PushConfig,
 } from "./types.ts"
 
 export interface BootstrapPayload {
@@ -20,6 +21,7 @@ export interface BootstrapPayload {
   message_cursors_by_buffer?: Record<string, unknown>
   messages_by_buffer?: MessagesByBuffer
   notification_state?: NotificationPermission | null
+  push?: PushConfig
   topics?: TopicInput[]
   users_by_buffer?: Record<string, ChatUser[]>
 }
@@ -33,6 +35,7 @@ export interface BootstrapState {
   messagesByChannel: MessagesByBuffer
   messagesByServer: MessagesByBuffer
   notificationState: NotificationPermission | null
+  push: PushConfig
   topics: Topic[] | null
   usersByChannel: Record<string, ChatUser[]>
   view: AppView | null
@@ -58,6 +61,7 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
       status: connection.status,
       unread_count: connection.unread_count || 0,
       mention_count: connection.mention_count || 0,
+      mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
       channels: channelBuffers.map((buffer) => ({
         id: buffer.buffer_id,
         channel_membership_id: buffer.channel_membership_id,
@@ -65,6 +69,7 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
         topic: buffer.subtitle,
         unread_count: buffer.unread_count,
         mention_count: buffer.mention_count,
+        mention_notifications_enabled: buffer.mention_notifications_enabled ?? true,
       })),
     }
   })
@@ -105,6 +110,7 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     messagesByChannel,
     messagesByServer,
     notificationState: bootstrap.notification_state || null,
+    push: bootstrap.push || {configured: false, vapid_public_key: null},
     topics: bootstrap.topics?.length ? bootstrap.topics.map(normalizeTopic) : null,
     usersByChannel: bootstrap.users_by_buffer || {},
     view,

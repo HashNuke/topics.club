@@ -13,6 +13,7 @@ defmodule Ircpipe.Chat do
   }
 
   alias Ircpipe.Realtime.Event
+  alias Ircpipe.Notifications
   alias Ircpipe.Repo
   alias Ircxd.Casemapping
 
@@ -549,6 +550,8 @@ defmodule Ircpipe.Chat do
 
           notification
         end
+
+      if notification, do: Notifications.enqueue_delivery(notification)
 
       prune_old_messages(user)
       broadcast_message(message, membership, connection, notification)

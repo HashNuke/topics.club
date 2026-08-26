@@ -11,7 +11,7 @@ Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 
 Ircpipe is a web-based IRC client. Users register or sign in, connect to arbitrary IRC networks, join channels, and chat from a React client backed by Phoenix JSON APIs and Phoenix Channels.
 
-The backend persists channel messages for a short configurable window. Each user can choose 1, 2, or 3 days of scrollback. Mention notifications are delivered over the authenticated user socket; the React client shows mention counts in the sidebar while the app is visible and browser notifications while it is in the background.
+The backend persists channel messages for a short configurable window. Each user can choose 1, 2, or 3 days of scrollback. Mention notifications are delivered in real time over the authenticated user socket and in the background through Web Push. Users can mute mentions per server and per channel.
 
 IRC connections are modeled as one supervised process per user/server connection under `Ircpipe.Irc.SessionSupervisor`.
 
@@ -47,7 +47,7 @@ configuration, and testing migrations and queries against both databases.
 Create a `.env` file from the example and set the required values:
 
 ```bash
-cp env.sample .env
+cp env.example .env
 mix phx.gen.secret
 ```
 
@@ -66,6 +66,25 @@ Generate `IRC_CREDENTIALS_KEY` with `mix ircpipe.gen_credentials_key`.
 Discovery refresh workers start automatically in development. They are disabled
 by default in production; set `ENABLE_DISCOVERY=true` on only the deployment that
 should fetch the Netsplit server catalog and IRC channel lists.
+
+### Mention push notifications
+
+Generate a VAPID keypair once per deployment and keep the private key secret:
+
+```bash
+mix ircpipe.gen_vapid_keys
+```
+
+Copy the generated `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` into `.env`. Set
+`VAPID_SUBJECT` to the plain contact email address for the deployment; Ircpipe
+adds the required `mailto:` prefix. Push setup is unavailable in the UI until all
+three values are configured.
+
+Web Push requires HTTPS in production (browsers allow localhost for development).
+The service worker only shows notifications when no visible Ircpipe window is
+open. Delivery jobs are persisted in PostgreSQL through Oban and retried for
+temporary push-service failures. Subscription endpoints and browser keys are
+encrypted at rest using `IRC_CREDENTIALS_KEY`.
 
 `IRCPIPE_POSTGRES_DATA` is a host directory that you choose. Compose bind-mounts
 it to `/var/lib/postgresql/data`, so that directory is where all database data is

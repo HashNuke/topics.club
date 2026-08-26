@@ -12,6 +12,7 @@ defmodule Ircpipe.Application do
         IrcpipeWeb.Telemetry,
         Ircpipe.Vault,
         Ircpipe.Repo,
+        {Oban, Application.fetch_env!(:ircpipe, Oban)},
         {DNSCluster, query: Application.get_env(:ircpipe, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Ircpipe.PubSub},
         {Registry, keys: :unique, name: Ircpipe.Irc.SessionRegistry},

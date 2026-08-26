@@ -1,11 +1,16 @@
 import React from "react"
 import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.tsx"
 import type {AppView, Channel, ServerConnection} from "../types.ts"
+import type {NotificationDeviceState} from "../browser_notifications.ts"
+import {notificationControlState} from "../push_notifications.ts"
+import NotificationBell from "./notification_bell.tsx"
 
 export interface SidebarConnectionProps {
   activeChannel?: Channel
   activeServer?: ServerConnection
   connection: ServerConnection
+  notificationDeviceState: NotificationDeviceState
+  notificationSavingIds: Set<string>
   onDisconnectServer?: (server: ServerConnection) => void
   onEditServer: (server: ServerConnection) => void
   onLeaveChannel?: (channel: Channel) => void
@@ -15,11 +20,12 @@ export interface SidebarConnectionProps {
   onReconnectServer?: (server: ServerConnection) => void
   onSelectChannel: (channel: Channel) => void
   onSelectServer: (server: ServerConnection) => void
+  onToggleServerNotifications: (server: ServerConnection) => void
   view: AppView
 }
 
 export default function SidebarConnection(props: SidebarConnectionProps) {
-  const {activeChannel, activeServer, connection, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, view} = props
+  const {activeChannel, activeServer, connection, notificationDeviceState, notificationSavingIds, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onToggleServerNotifications, view} = props
   return (
     <section className="mb-5">
       <div className={[
@@ -30,6 +36,14 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
           <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
           <span className="truncate">{connection.name}</span>
         </button>
+        <NotificationBell
+          compact
+          id={`server-notification-bell-${connection.server_connection_id}`}
+          loading={notificationDeviceState.loading || notificationSavingIds.has(connection.id)}
+          onToggle={() => onToggleServerNotifications(connection)}
+          scopeLabel={connection.name || connection.host}
+          state={notificationControlState(notificationDeviceState, connection.mention_notifications_enabled ?? true)}
+        />
         <button
           id={`browse-channels-${connection.server_connection_id}`}
           className="grid size-7 shrink-0 place-items-center rounded text-slate-500 transition hover:bg-slate-700 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
@@ -45,7 +59,7 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
         {connection.channels.map((channel) => (
           <div key={channel.id} className={[
             "group flex w-full items-center gap-1 rounded-md border pr-1 text-sm outline-none transition focus-within:border-cyan-300/50",
-            activeChannel?.id === channel.id ? "border border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-transparent text-slate-300 hover:bg-slate-800/80 hover:text-white",
+            activeChannel?.id === channel.id ? "border border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-transparent text-white/75 hover:bg-slate-800/80 hover:text-white",
           ].join(" ")}>
             <button className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left" onClick={() => onSelectChannel(channel)} type="button">
               <span className="min-w-0 flex-1 truncate">{channel.channel}</span>

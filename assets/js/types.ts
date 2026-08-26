@@ -76,6 +76,7 @@ export interface Channel {
   topic?: string
   unread_count?: number
   mention_count?: number
+  mention_notifications_enabled?: boolean
   connection?: ServerConnection
   [key: string]: unknown
 }
@@ -91,6 +92,7 @@ export interface ServerConnection {
   status?: string
   unread_count?: number
   mention_count?: number
+  mention_notifications_enabled?: boolean
   channels: Channel[]
   [key: string]: unknown
 }
@@ -105,6 +107,7 @@ export interface BackendConnection {
   status?: string
   unread_count?: number
   mention_count?: number
+  mention_notifications_enabled?: boolean
   [key: string]: unknown
 }
 
@@ -117,6 +120,7 @@ export interface BufferRecord {
   subtitle?: string
   unread_count?: number
   mention_count?: number
+  mention_notifications_enabled?: boolean
   status?: string
   [key: string]: unknown
 }
@@ -126,6 +130,7 @@ export interface ChannelMembership {
   channel: string
   unread_count?: number
   mention_count?: number
+  mention_notifications_enabled?: boolean
   [key: string]: unknown
 }
 
@@ -160,6 +165,17 @@ export interface PresenceSyncPayload {
 export interface PresenceDiffPayload {
   buffer_id: string
   diff?: PresenceDiff
+}
+
+export interface PushConfig {
+  configured: boolean
+  vapid_public_key?: string | null
+}
+
+export interface NotificationPreferencePayload {
+  scope: "server" | "channel"
+  id: EntityId
+  mention_notifications_enabled: boolean
 }
 
 export type MessagesByBuffer = Record<string, ChatMessage[]>

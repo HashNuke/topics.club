@@ -5,6 +5,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
+  alias Ircpipe.Notifications
   alias Ircpipe.Realtime.Event
 
   @message_limit 150
@@ -23,7 +24,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
     payload = %{
       user: user_json(user),
-      notification_state: "default",
+      push: Notifications.push_config(),
       server_time: DateTime.utc_now(:second),
       connections: Enum.map(connections, &connection_json/1),
       buffers: buffers,
@@ -59,6 +60,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       status: Session.status(connection),
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
+      mention_notifications_enabled: connection.mention_notifications_enabled,
       channels: Enum.map(memberships, & &1.id)
     }
   end
@@ -74,7 +76,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         subtitle: connection.name,
         status: Session.status(connection),
         unread_count: connection.unread_count,
-        mention_count: connection.mention_count
+        mention_count: connection.mention_count,
+        mention_notifications_enabled: connection.mention_notifications_enabled
       }
       | Enum.map(visible_memberships(connection), &channel_buffer(&1, connection))
     ]
@@ -91,7 +94,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       status: Session.status(connection),
       membership_status: membership.status,
       unread_count: membership.unread_count,
-      mention_count: membership.mention_count
+      mention_count: membership.mention_count,
+      mention_notifications_enabled: membership.mention_notifications_enabled
     }
   end
 

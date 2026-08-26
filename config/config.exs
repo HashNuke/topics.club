@@ -26,6 +26,11 @@ config :ircpipe,
   irc_bouncer_enabled: true,
   discovery_refresh_enabled: config_env() == :dev
 
+config :ircpipe, Oban,
+  repo: Ircpipe.Repo,
+  queues: [notifications: 5],
+  plugins: [Oban.Plugins.Pruner]
+
 # Configure the endpoint
 config :ircpipe, IrcpipeWeb.Endpoint,
   url: [host: "localhost"],

@@ -1,40 +1,42 @@
 import {render, screen} from "@testing-library/react"
 import {describe, expect, test, vi} from "vitest"
 import TopBar from "./top_bar.tsx"
-import type {BrowserNotificationState} from "../browser_notifications.ts"
+import type {NotificationDeviceState} from "../browser_notifications.ts"
 
-function renderTopBar(notificationState: BrowserNotificationState) {
-  const onRequestNotifications = vi.fn()
+function renderTopBar(notificationDeviceState: NotificationDeviceState) {
+  const onToggleChannelNotifications = vi.fn()
   render(
     <TopBar
       activeChannel={{id: "channel:1", channel: "#elixir"}}
+      activeServer={{id: "server:1", name: "Libera Chat", host: "irc.libera.chat", channels: []}}
       connectionHealth="connected"
-      notificationState={notificationState}
+      notificationDeviceState={notificationDeviceState}
+      notificationSavingIds={new Set()}
       showsUserSidebar={false}
       view="chat"
       onOpenMobileMenu={() => {}}
       onOpenMobileUsers={() => {}}
-      onRequestNotifications={onRequestNotifications}
+      onToggleChannelNotifications={onToggleChannelNotifications}
       onRetryRealtime={() => {}}
     />
   )
-  return onRequestNotifications
+  return onToggleChannelNotifications
 }
 
 describe("TopBar notification bell", () => {
   test("allows notification permission requests on a capable device", () => {
-    renderTopBar("default")
+    renderTopBar({capability: "default", configured: true, loading: false, subscribed: false})
 
-    expect(screen.getByRole("button", {name: "Enable browser notifications"})).toBeEnabled()
+    expect(screen.getByRole("button", {name: "Set up mention notifications for #elixir"})).toBeEnabled()
   })
 
   test.each([
-    ["insecure", "Browser notifications require HTTPS"],
-    ["unsupported", "Browser notifications unavailable"],
-    ["denied", "Browser notifications blocked"],
+    ["insecure", "Notifications require HTTPS or localhost."],
+    ["unsupported", "This browser or installation does not support Web Push."],
+    ["denied", "Notifications are blocked in browser or operating-system settings."],
   ] as const)("disables the bell when notifications are %s", (state, label) => {
-    renderTopBar(state)
+    renderTopBar({capability: state, configured: true, loading: false, subscribed: false})
 
-    expect(screen.getByRole("button", {name: label})).toBeDisabled()
+    expect(screen.getByRole("button", {name: `Mention notifications unavailable for #elixir: ${label}`})).toBeDisabled()
   })
 })

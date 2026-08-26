@@ -17,6 +17,7 @@ export function channelFromBuffer(buffer: BufferRecord, topic?: {description?: s
     topic: topic?.description || buffer.subtitle,
     unread_count: buffer.unread_count,
     mention_count: buffer.mention_count,
+    mention_notifications_enabled: buffer.mention_notifications_enabled ?? true,
   }
 }
 
@@ -28,6 +29,7 @@ export function channelFromMembership(membership: ChannelMembership, host: strin
     topic: `on ${host}`,
     unread_count: membership.unread_count,
     mention_count: membership.mention_count,
+    mention_notifications_enabled: membership.mention_notifications_enabled ?? true,
   }
 }
 
@@ -67,6 +69,7 @@ export function upsertJoinedChannel(
       use_tls: connection.use_tls,
       nickname: connection.nickname,
       status: connection.status,
+      mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
       channels: [channel],
     },
   ]

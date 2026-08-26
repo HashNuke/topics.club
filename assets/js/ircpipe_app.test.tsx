@@ -37,11 +37,37 @@ function mockBootstrapFetch({
   joinResponsePromise = null,
   joinOk = true,
   messageCursorsByBuffer = {"channel:7": 99},
+  push = {configured: false, vapid_public_key: null},
 } = {}) {
   let bufferMessageRequestCount = 0
   let joinRequestCount = 0
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
+    if (path === "/api/push_subscriptions" && options.method === "POST") {
+      const {installation_id} = JSON.parse(options.body)
+      return {ok: true, json: async () => ({subscription: {installation_id}})}
+    }
+
+    if (path === "/api/channel_memberships/7/notification_preferences" && options.method === "PUT") {
+      const {mention_notifications_enabled} = JSON.parse(options.body)
+      return {
+        ok: true,
+        json: async () => ({
+          preference: {scope: "channel", id: 7, mention_notifications_enabled},
+        }),
+      }
+    }
+
+    if (path === "/api/connections/42/notification_preferences" && options.method === "PUT") {
+      const {mention_notifications_enabled} = JSON.parse(options.body)
+      return {
+        ok: true,
+        json: async () => ({
+          preference: {scope: "server", id: 42, mention_notifications_enabled},
+        }),
+      }
+    }
+
     if (path === "/api/connections/42" && options.method === "PUT") {
       return {
         ok: true,
@@ -160,6 +186,7 @@ function mockBootstrapFetch({
         json: async () => ({
           user: {id: 1, email: "mira@example.com", message_retention_days: 3},
           notification_state: "default",
+          push,
           server_time: "2026-05-13T10:00:00Z",
           command_catalog: [
             {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["server", "channel"], availability: "enabled"},
@@ -1497,14 +1524,34 @@ describe("IrcpipeApp UI prototype", () => {
 
   test("requests browser notification permission from the bell button", async () => {
     const user = userEvent.setup()
-    mockBootstrapFetch()
+    mockBootstrapFetch({push: {configured: true, vapid_public_key: "AQ"}})
     const requestPermission = vi.fn().mockResolvedValue("granted")
     const NotificationMock = vi.fn()
     NotificationMock.permission = "default"
     NotificationMock.requestPermission = requestPermission
     const originalNotification = window.Notification
+    const originalPushManager = window.PushManager
+    const originalServiceWorker = navigator.serviceWorker
+    const subscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/subscription",
+        expirationTime: null,
+        keys: {p256dh: "p256dh", auth: "auth"},
+      }),
+    }
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(null),
+        subscribe: vi.fn().mockResolvedValue(subscription),
+      },
+    }
 
     Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(window, "PushManager", {value: vi.fn(), configurable: true})
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: {ready: Promise.resolve(registration), addEventListener: vi.fn(), removeEventListener: vi.fn()},
+      configurable: true,
+    })
 
     try {
       render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
@@ -1512,15 +1559,87 @@ describe("IrcpipeApp UI prototype", () => {
       expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
       expect(requestPermission).not.toHaveBeenCalled()
 
-      await user.click(screen.getByLabelText("Enable browser notifications"))
+      await user.click(screen.getByLabelText("Set up mention notifications for #testing"))
 
       expect(requestPermission).toHaveBeenCalledTimes(1)
-      expect(await screen.findByLabelText("Enable browser notifications")).toHaveClass("text-emerald-950")
+      expect(await screen.findByLabelText("Mute mention notifications for #testing")).toHaveClass("text-emerald-950")
     } finally {
       if (originalNotification) {
         Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
       } else {
         delete window.Notification
+      }
+      if (originalPushManager) {
+        Object.defineProperty(window, "PushManager", {value: originalPushManager, configurable: true})
+      } else {
+        delete window.PushManager
+      }
+      if (originalServiceWorker) {
+        Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
+      } else {
+        delete navigator.serviceWorker
+      }
+    }
+  })
+
+  test("persists a channel mention mute when this device is subscribed", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({push: {configured: true, vapid_public_key: "AQ"}})
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    NotificationMock.requestPermission = vi.fn().mockResolvedValue("granted")
+    const originalNotification = window.Notification
+    const originalPushManager = window.PushManager
+    const originalServiceWorker = navigator.serviceWorker
+    const subscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/subscription",
+        expirationTime: null,
+        keys: {p256dh: "p256dh", auth: "auth"},
+      }),
+    }
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn().mockResolvedValue(subscription),
+        subscribe: vi.fn(),
+      },
+    }
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(window, "PushManager", {value: vi.fn(), configurable: true})
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: {ready: Promise.resolve(registration), addEventListener: vi.fn(), removeEventListener: vi.fn()},
+      configurable: true,
+    })
+
+    try {
+      render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+      await user.click(await screen.findByLabelText("Mute mention notifications for #testing"))
+
+      expect(await screen.findByLabelText("Enable mention notifications for #testing")).toBeInTheDocument()
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/channel_memberships/7/notification_preferences",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({mention_notifications_enabled: false}),
+        })
+      )
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      if (originalPushManager) {
+        Object.defineProperty(window, "PushManager", {value: originalPushManager, configurable: true})
+      } else {
+        delete window.PushManager
+      }
+      if (originalServiceWorker) {
+        Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
+      } else {
+        delete navigator.serviceWorker
       }
     }
   })

@@ -53,6 +53,11 @@ defmodule IrcpipeWeb.UserChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:notification_preference, payload}, socket) do
+    push(socket, "notification:preference", payload)
+    {:noreply, socket}
+  end
+
   def handle_info({:server_status, payload}, socket) do
     push(socket, "server:status", payload)
     {:noreply, socket}

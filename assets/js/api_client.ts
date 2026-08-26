@@ -7,6 +7,7 @@ import type {
   ServerChannel,
   EntityId,
   JoinedTopicPayload,
+  NotificationPreferencePayload,
   TopicInput,
 } from "./types.ts"
 
@@ -79,6 +80,26 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch}: ApiCl
       const query = search.toString()
       return request<{messages: ChatMessage[]}>(`/api/buffer_messages?${query}`)
     },
+    savePushSubscription: (installationId: string, subscription: PushSubscriptionJSON) =>
+      request<{subscription: {installation_id: string}}>("/api/push_subscriptions", {
+        method: "POST",
+        body: JSON.stringify({installation_id: installationId, subscription}),
+      }),
+    deletePushSubscription: (installationId: string) =>
+      request<{ok: boolean}>(`/api/push_subscriptions/${encodeURIComponent(installationId)}`, {
+        method: "DELETE",
+        body: JSON.stringify({}),
+      }),
+    updateServerNotificationPreference: (connectionId: EntityId, enabled: boolean) =>
+      request<{preference: NotificationPreferencePayload}>(`/api/connections/${connectionId}/notification_preferences`, {
+        method: "PUT",
+        body: JSON.stringify({mention_notifications_enabled: enabled}),
+      }),
+    updateChannelNotificationPreference: (membershipId: EntityId, enabled: boolean) =>
+      request<{preference: NotificationPreferencePayload}>(`/api/channel_memberships/${membershipId}/notification_preferences`, {
+        method: "PUT",
+        body: JSON.stringify({mention_notifications_enabled: enabled}),
+      }),
   }
 }
 

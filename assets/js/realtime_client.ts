@@ -3,6 +3,7 @@ import type {
   BufferReadPayload,
   ChatMessage,
   JoinedTopicPayload,
+  NotificationPreferencePayload,
   PresenceDiffPayload,
   PresenceSyncPayload,
   ServerStatusPayload,
@@ -52,6 +53,7 @@ export interface RealtimeHandlers {
   onPresenceSync?(payload: PresenceSyncPayload): void
   onPresenceDiff?(payload: PresenceDiffPayload): void
   onNotificationMention?(payload: ChatMessage): void
+  onNotificationPreference?(payload: NotificationPreferencePayload): void
 }
 
 interface RealtimeClientOptions {
@@ -97,6 +99,7 @@ export function createRealtimeClient({
   channel.on("presence:sync", (payload) => handlers.onPresenceSync?.(payload as unknown as PresenceSyncPayload))
   channel.on("presence:diff", (payload) => handlers.onPresenceDiff?.(payload as unknown as PresenceDiffPayload))
   channel.on("notification:mention", (payload) => handlers.onNotificationMention?.(payload as unknown as ChatMessage))
+  channel.on("notification:preference", (payload) => handlers.onNotificationPreference?.(payload as unknown as NotificationPreferencePayload))
 
   function connect() {
     socket.connect()

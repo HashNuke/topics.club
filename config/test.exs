@@ -34,6 +34,8 @@ config :ircpipe, IrcpipeWeb.Endpoint,
 
 config :ircpipe, irc_bouncer_enabled: false
 
+config :ircpipe, Oban, testing: :manual, queues: false, plugins: false
+
 # In test we don't send emails
 config :ircpipe, Ircpipe.Mailer, adapter: Swoosh.Adapters.Test
 

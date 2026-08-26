@@ -70,7 +70,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
     assert %{
              "user" => %{"id" => user_id, "email" => _email, "message_retention_days" => 3},
-             "notification_state" => "default",
+             "push" => %{"configured" => false, "vapid_public_key" => nil},
              "command_catalog" => command_catalog,
              "server_time" => _server_time,
              "connections" => [connection_json],
@@ -85,18 +85,21 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert user_id == user.id
     assert connection_json["id"] == connection.id
     assert connection_json["channels"] == [membership.id]
+    assert connection_json["mention_notifications_enabled"]
     assert Enum.any?(command_catalog, &(&1["name"] == "/quote"))
 
     assert server_buffer["buffer_id"] == "server:#{connection.id}"
     assert server_buffer["buffer_type"] == "server"
     assert server_buffer["title"] == "127.0.0.1"
     assert server_buffer["unread_count"] == 1
+    assert server_buffer["mention_notifications_enabled"]
 
     assert channel_buffer["buffer_id"] == "channel:#{membership.id}"
     assert channel_buffer["buffer_type"] == "channel"
     assert channel_buffer["channel_membership_id"] == membership.id
     assert channel_buffer["title"] == "#elixir"
     assert channel_buffer["unread_count"] == 1
+    assert channel_buffer["mention_notifications_enabled"]
 
     channel_buffer_id = "channel:#{membership.id}"
     server_buffer_id = "server:#{connection.id}"

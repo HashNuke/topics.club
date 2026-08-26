@@ -7,7 +7,7 @@ import MobileDrawer, {MobileDrawerHeader} from "./mobile_drawer.tsx"
 import RightSidebar from "./right_sidebar.tsx"
 import ServerBufferPane from "./server_buffer_pane.tsx"
 import TopBar from "./top_bar.tsx"
-import type {BrowserNotificationState} from "../browser_notifications.ts"
+import type {NotificationDeviceState} from "../browser_notifications.ts"
 import type {ChannelDirectoryState} from "../hooks/use_channel_directory.ts"
 import type {EditServerForm, ManualServerForm} from "../hooks/use_server_connections.ts"
 import type {
@@ -42,7 +42,8 @@ export interface AppShellProps {
   initialMobileUsersOpen?: boolean
   messages: ChatMessage[]
   messagesLoading: boolean
-  notificationState: BrowserNotificationState
+  notificationDeviceState: NotificationDeviceState
+  notificationSavingIds: Set<string>
   serverMessages: ChatMessage[]
   topics: TopicInput[]
   users: ChatUser[]
@@ -60,7 +61,8 @@ export interface AppShellProps {
   onOpenChannelDirectory: (server: ServerConnection) => void
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
   onReconnectServer: (server: ServerConnection) => void
-  onRequestNotifications: () => void
+  onToggleChannelNotifications: (channel: Channel) => void
+  onToggleServerNotifications: (server: ServerConnection) => void
   onRetryMessage: (message: ChatMessage) => void
   onRetryRealtime: () => void
   onSelectChannel: (channel: Channel) => void

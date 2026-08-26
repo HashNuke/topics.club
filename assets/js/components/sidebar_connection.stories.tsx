@@ -16,7 +16,8 @@ export default {
   decorators: [(Story: React.ComponentType) => <div className="w-72 max-w-full p-3"><Story /></div>],
   args: {
     activeChannel: connection.channels[0], activeServer: connection, connection, view: "chat",
-    onDisconnectServer: () => {}, onEditServer: () => {}, onLeaveChannel: () => {}, onLeaveServer: () => {}, onMarkChannelRead: () => {}, onOpenChannelDirectory: () => {}, onReconnectServer: () => {}, onSelectChannel: () => {}, onSelectServer: () => {},
+    notificationDeviceState: {capability: "granted", configured: true, loading: false, subscribed: true}, notificationSavingIds: new Set(),
+    onDisconnectServer: () => {}, onEditServer: () => {}, onLeaveChannel: () => {}, onLeaveServer: () => {}, onMarkChannelRead: () => {}, onOpenChannelDirectory: () => {}, onReconnectServer: () => {}, onSelectChannel: () => {}, onSelectServer: () => {}, onToggleServerNotifications: () => {},
   },
 }
 

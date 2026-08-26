@@ -60,7 +60,8 @@ defmodule IrcpipeWeb.Api.ChannelController do
       connection_id: channel.server_connection_id,
       channel: channel.channel,
       unread_count: channel.unread_count,
-      mention_count: channel.mention_count
+      mention_count: channel.mention_count,
+      mention_notifications_enabled: channel.mention_notifications_enabled
     }
   end
 

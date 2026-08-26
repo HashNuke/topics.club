@@ -1,7 +1,9 @@
 import {FloatingArrow, arrow, offset, shift, useFloating} from "@floating-ui/react"
 import React, {cloneElement, useState, type ReactElement} from "react"
-import type {BrowserNotificationState} from "../browser_notifications.ts"
+import type {NotificationDeviceState} from "../browser_notifications.ts"
+import {notificationControlState} from "../push_notifications.ts"
 import type {AppView, Channel, ConnectionHealth, ServerConnection} from "../types.ts"
+import NotificationBell from "./notification_bell.tsx"
 
 interface TopBarContext {
   activeChannel?: Channel
@@ -18,17 +20,17 @@ export function topBarCopyFor({activeChannel, activeServer, view}: TopBarContext
 
 interface TopBarProps extends TopBarContext {
   connectionHealth: ConnectionHealth
-  notificationState: BrowserNotificationState
+  notificationDeviceState: NotificationDeviceState
+  notificationSavingIds: Set<string>
   showsUserSidebar: boolean
   onOpenMobileMenu: () => void
   onOpenMobileUsers: () => void
-  onRequestNotifications: () => void
+  onToggleChannelNotifications: (channel: Channel) => void
   onRetryRealtime: () => void
 }
 
-export default function TopBar({activeChannel, activeServer, connectionHealth, notificationState, showsUserSidebar, view, onOpenMobileMenu, onOpenMobileUsers, onRequestNotifications, onRetryRealtime}: TopBarProps) {
+export default function TopBar({activeChannel, activeServer, connectionHealth, notificationDeviceState, notificationSavingIds, showsUserSidebar, view, onOpenMobileMenu, onOpenMobileUsers, onToggleChannelNotifications, onRetryRealtime}: TopBarProps) {
   const copy = topBarCopyFor({activeChannel, activeServer, view})
-  const notificationsDisabled = notificationUnavailable(notificationState)
   return (
     <header className="flex h-14 items-center justify-between border-b border-slate-800/80 bg-[#0d1118] px-4">
       <div className="flex min-w-0 items-center gap-3">
@@ -41,25 +43,18 @@ export default function TopBar({activeChannel, activeServer, connectionHealth, n
       <div className="flex items-center gap-2">
         <ConnectionHealthIndicator status={connectionHealth} onRetry={onRetryRealtime} />
         {showsUserSidebar && <button className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden" onClick={onOpenMobileUsers} aria-label="Show users" type="button"><span className="hero-users size-5" aria-hidden="true" /></button>}
-        <Tooltip label={notificationLabel(notificationState)}>
-          <button
-            id="notification-bell"
-            className={[
-              "grid size-9 place-items-center rounded-md border transition",
-              notificationState === "granted"
-                ? "border-emerald-300 bg-emerald-300 text-emerald-950 hover:bg-emerald-200"
-                : notificationsDisabled
-                  ? "cursor-not-allowed border-slate-800 text-slate-600"
-                  : "border-slate-700 text-white/75 hover:border-cyan-300 hover:text-white",
-            ].join(" ")}
-            disabled={notificationsDisabled}
-            onClick={onRequestNotifications}
-            aria-label={notificationActionLabel(notificationState)}
-            type="button"
-          >
-            <span className="hero-bell size-4" aria-hidden="true" />
-          </button>
-        </Tooltip>
+        {view === "chat" && activeChannel && <NotificationBell
+          id="channel-notification-bell"
+          loading={notificationDeviceState.loading || notificationSavingIds.has(activeChannel.id)}
+          onToggle={() => onToggleChannelNotifications(activeChannel)}
+          scopeLabel={activeChannel.channel}
+          state={notificationControlState(
+            notificationDeviceState,
+            activeChannel.mention_notifications_enabled ?? true,
+            activeServer?.mention_notifications_enabled ?? true,
+            activeServer?.name || activeServer?.host
+          )}
+        />}
       </div>
     </header>
   )
@@ -74,25 +69,6 @@ export function ConnectionHealthIndicator({status, onRetry}: {status: Connection
     <span>{label}</span>
     {canRetry && <Tooltip label="Reconnect realtime socket"><button className="ml-1 grid size-5 place-items-center rounded text-slate-300 transition hover:bg-slate-800 hover:text-white" onClick={onRetry} aria-label="Retry realtime connection" type="button"><span className="hero-arrow-path size-3.5" aria-hidden="true" /></button></Tooltip>}
   </div>
-}
-
-function notificationLabel(state: BrowserNotificationState): string {
-  if (state === "granted") return "Browser notifications are enabled for mentions while this tab is hidden."
-  if (state === "denied") return "Notifications are blocked in your browser settings."
-  if (state === "insecure") return "Browser notifications require HTTPS or localhost. This page is not in a secure context."
-  if (state === "unsupported") return "This browser does not support notifications."
-  return "Enable browser notifications for mentions."
-}
-
-function notificationActionLabel(state: BrowserNotificationState): string {
-  if (state === "denied") return "Browser notifications blocked"
-  if (state === "insecure") return "Browser notifications require HTTPS"
-  if (state === "unsupported") return "Browser notifications unavailable"
-  return "Enable browser notifications"
-}
-
-function notificationUnavailable(state: BrowserNotificationState): boolean {
-  return state === "denied" || state === "insecure" || state === "unsupported"
 }
 
 type TooltipChildProps = React.HTMLAttributes<HTMLElement> & {ref?: React.Ref<HTMLElement>}

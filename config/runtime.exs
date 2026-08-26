@@ -51,6 +51,18 @@ config :ircpipe, :email_from,
   name: System.get_env("EMAIL_FROM_NAME") || "Ircpipe",
   address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
 
+vapid_subject =
+  case System.get_env("VAPID_SUBJECT") do
+    nil -> nil
+    subject when subject == "" -> nil
+    subject -> if String.contains?(subject, ":"), do: subject, else: "mailto:#{subject}"
+  end
+
+config :ircpipe, Ircpipe.Notifications.WebPush,
+  public_key: System.get_env("VAPID_PUBLIC_KEY"),
+  private_key: System.get_env("VAPID_PRIVATE_KEY"),
+  subject: vapid_subject
+
 if config_env() == :prod do
   config :ircpipe, :discovery_refresh_enabled, System.get_env("ENABLE_DISCOVERY") == "true"
 

@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {
   loadActiveBufferPreference,
+  requestedBufferId,
   saveActiveBufferPreference,
   selectPreferredBuffer,
 } from "./active_buffer_preference.ts"
@@ -8,11 +9,15 @@ import {createApiClient, type ApiClient} from "./api_client.ts"
 import {commandErrorMessage, type CommandError} from "./app_feedback.ts"
 import {buildBootstrapState, type BootstrapPayload} from "./bootstrap_state.ts"
 import {
-  notificationPermission,
-  requestNotificationPermission,
+  initialNotificationDeviceState,
   showMentionNotification,
-  type BrowserNotificationState,
+  type NotificationDeviceState,
 } from "./browser_notifications.ts"
+import {
+  enableNotificationDevice,
+  notificationControlState,
+  synchronizeNotificationDevice,
+} from "./push_notifications.ts"
 import AppShell from "./components/app_shell.tsx"
 import LandingPage from "./components/landing_page.tsx"
 import {
@@ -41,6 +46,8 @@ import type {
   ServerChannel,
   PresenceDiffPayload,
   PresenceSyncPayload,
+  NotificationPreferencePayload,
+  PushConfig,
   ServerConnection,
   Topic,
   UsersByBuffer,
@@ -67,7 +74,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [topicsLoaded, setTopicsLoaded] = useState(false)
   const [authTopic, setAuthTopic] = useState<Topic | null>(null)
   const [view, setView] = useState<AppView>("chat")
-  const [notificationState, setNotificationState] = useState<BrowserNotificationState>(notificationPermission())
+  const [notificationDeviceState, setNotificationDeviceState] = useState<NotificationDeviceState>(initialNotificationDeviceState())
+  const [notificationSavingIds, setNotificationSavingIds] = useState<Set<string>>(new Set())
+  const [pushConfig, setPushConfig] = useState<PushConfig>({configured: false, vapid_public_key: null})
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [activeServerId, setActiveServerId] = useState<string | null>(null)
   const [usersByChannel, setUsersByChannel] = useState<UsersByBuffer>({})
@@ -83,7 +92,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef<ServerConnection[]>([])
   const discoverRequestedRef = useRef(false)
-  const notificationStateRef = useRef(notificationState)
+  const notificationDeviceStateRef = useRef(notificationDeviceState)
+  const requestedBufferIdRef = useRef(requestedBufferId())
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
   const viewRef = useRef(view)
@@ -176,6 +186,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onPresenceSync: applyPresenceSync,
       onServerStatus: applyServerStatus,
       onNotificationMention: handleMentionNotification,
+      onNotificationPreference: applyNotificationPreference,
     },
     onConnected: reconcileAllBuffers,
     realtimeClientFactory,
@@ -207,8 +218,32 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [activeChannelId, activeServerId, currentUser?.id, mode, view])
 
   useEffect(() => {
-    notificationStateRef.current = notificationState
-  }, [notificationState])
+    notificationDeviceStateRef.current = notificationDeviceState
+  }, [notificationDeviceState])
+
+  useEffect(() => {
+    if (!currentUser || mode === "landing" || !pushConfig.configured) return
+
+    const refresh = () => {
+      synchronizeNotificationDevice(apiClient, pushConfig).then(setNotificationDeviceState)
+    }
+
+    window.addEventListener("focus", refresh)
+    return () => window.removeEventListener("focus", refresh)
+  }, [apiClient, currentUser?.id, mode, pushConfig.configured, pushConfig.vapid_public_key])
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return
+    const serviceWorker = navigator.serviceWorker
+
+    const navigateFromNotification = (event: MessageEvent) => {
+      if (event.data?.type !== "notification:navigate" || !event.data.bufferId) return
+      selectBuffer(event.data.bufferId)
+    }
+
+    serviceWorker.addEventListener("message", navigateFromNotification)
+    return () => serviceWorker.removeEventListener("message", navigateFromNotification)
+  }, [])
 
   useEffect(() => {
     apiClient
@@ -457,8 +492,120 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return activeChannel?.id
   }
 
-  async function requestNotifications(): Promise<void> {
-    setNotificationState(await requestNotificationPermission())
+  async function enableNotificationsOnDevice(): Promise<boolean> {
+    setNotificationDeviceState((current) => ({...current, loading: true, error: null}))
+    const next = await enableNotificationDevice(apiClient, pushConfig)
+    setNotificationDeviceState(next)
+    return next.subscribed
+  }
+
+  async function toggleServerNotifications(server: ServerConnection): Promise<void> {
+    const control = notificationControlState(
+      notificationDeviceStateRef.current,
+      server.mention_notifications_enabled ?? true
+    )
+    if (control.kind === "unavailable") return
+
+    if (!notificationDeviceStateRef.current.subscribed) {
+      if (!await enableNotificationsOnDevice()) return
+      if (server.mention_notifications_enabled ?? true) return
+    }
+
+    await saveServerNotificationPreference(server, !(server.mention_notifications_enabled ?? true))
+  }
+
+  async function toggleChannelNotifications(channel: Channel): Promise<void> {
+    const server = channel.connection || activeServer
+    if (!server) return
+
+    const control = notificationControlState(
+      notificationDeviceStateRef.current,
+      channel.mention_notifications_enabled ?? true,
+      server.mention_notifications_enabled ?? true,
+      server.name || server.host
+    )
+    if (control.kind === "unavailable") return
+
+    if (!notificationDeviceStateRef.current.subscribed) {
+      if (!await enableNotificationsOnDevice()) return
+      if (!(server.mention_notifications_enabled ?? true)) {
+        await saveServerNotificationPreference(server, true)
+      }
+      if (!(channel.mention_notifications_enabled ?? true)) {
+        await saveChannelNotificationPreference(channel, true)
+      }
+      return
+    }
+
+    if (!(server.mention_notifications_enabled ?? true)) {
+      await saveServerNotificationPreference(server, true)
+      if (!(channel.mention_notifications_enabled ?? true)) {
+        await saveChannelNotificationPreference(channel, true)
+      }
+      return
+    }
+
+    await saveChannelNotificationPreference(channel, !(channel.mention_notifications_enabled ?? true))
+  }
+
+  async function saveServerNotificationPreference(server: ServerConnection, enabled: boolean): Promise<void> {
+    if (!server.server_connection_id) return
+    const previous = server.mention_notifications_enabled ?? true
+    setNotificationSaving(server.id, true)
+    applyNotificationPreference({scope: "server", id: server.server_connection_id, mention_notifications_enabled: enabled})
+
+    try {
+      const {preference} = await apiClient.updateServerNotificationPreference(server.server_connection_id, enabled)
+      applyNotificationPreference(preference)
+    } catch (_error) {
+      applyNotificationPreference({scope: "server", id: server.server_connection_id, mention_notifications_enabled: previous})
+    } finally {
+      setNotificationSaving(server.id, false)
+    }
+  }
+
+  async function saveChannelNotificationPreference(channel: Channel, enabled: boolean): Promise<void> {
+    if (!channel.channel_membership_id) return
+    const previous = channel.mention_notifications_enabled ?? true
+    setNotificationSaving(channel.id, true)
+    applyNotificationPreference({scope: "channel", id: channel.channel_membership_id, mention_notifications_enabled: enabled})
+
+    try {
+      const {preference} = await apiClient.updateChannelNotificationPreference(channel.channel_membership_id, enabled)
+      applyNotificationPreference(preference)
+    } catch (_error) {
+      applyNotificationPreference({scope: "channel", id: channel.channel_membership_id, mention_notifications_enabled: previous})
+    } finally {
+      setNotificationSaving(channel.id, false)
+    }
+  }
+
+  function setNotificationSaving(id: string, saving: boolean): void {
+    setNotificationSavingIds((current) => {
+      const next = new Set(current)
+      if (saving) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  function applyNotificationPreference(payload: NotificationPreferencePayload): void {
+    setConnections((current) => current.map((server) => {
+      if (payload.scope === "server" && String(server.server_connection_id) === String(payload.id)) {
+        return {...server, mention_notifications_enabled: payload.mention_notifications_enabled}
+      }
+
+      if (payload.scope !== "channel") return server
+
+      return {
+        ...server,
+        channels: server.channels.map((channel) =>
+          String(channel.channel_membership_id) === String(payload.id)
+            ? {...channel, mention_notifications_enabled: payload.mention_notifications_enabled}
+            : channel
+        ),
+      }
+    }))
   }
 
   function applyPresenceSync(payload: PresenceSyncPayload): void {
@@ -476,9 +623,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function handleMentionNotification(message: ChatMessage): void {
+    if (notificationDeviceStateRef.current.subscribed) return
+
     showMentionNotification(message, {
       currentUser,
-      notificationState: notificationStateRef.current,
+      notificationState: notificationDeviceStateRef.current.capability,
     })
   }
 
@@ -486,12 +635,21 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const state = buildBootstrapState(bootstrap)
     if (!state) return
 
-    const preferredBuffer = currentUser
-      ? selectPreferredBuffer(state.connections, loadActiveBufferPreference(currentUser.id))
-      : null
+    const preferredBuffer = selectPreferredBuffer(
+      state.connections,
+      requestedBufferIdRef.current || (currentUser && loadActiveBufferPreference(currentUser.id))
+    )
+
+    requestedBufferIdRef.current = null
+    if (preferredBuffer && window.history?.replaceState && new URLSearchParams(window.location.search).has("buffer")) {
+      window.history.replaceState(null, "", window.location.pathname)
+    }
 
     if (state.topics) setTopics(state.topics)
     setCommandCatalog(state.commandCatalog)
+    setPushConfig(state.push)
+    setNotificationDeviceState((current) => ({...current, configured: state.push.configured, loading: true}))
+    synchronizeNotificationDevice(apiClient, state.push).then(setNotificationDeviceState)
     setConnections(state.connections)
     setMessagesByServer(state.messagesByServer)
     setMessagesByChannel(state.messagesByChannel)
@@ -506,6 +664,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       if (state.view) setView(state.view)
     }
     reconcileBootstrapCursors(state.cursorsByBuffer)
+  }
+
+  function selectBuffer(bufferId: string): void {
+    const selected = selectPreferredBuffer(connectionsRef.current, bufferId)
+    if (!selected) return
+
+    activeChannelIdRef.current = selected.activeChannelId
+    activeServerIdRef.current = selected.activeServerId
+    viewRef.current = selected.view
+    setActiveChannelId(selected.activeChannelId)
+    setActiveServerId(selected.activeServerId)
+    setView(selected.view)
   }
 
   if (mode === "landing") {
@@ -550,7 +720,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       joiningDiscoveryServerChannelId={joiningDiscoveryServerChannelId}
       messages={messages}
       messagesLoading={bootstrapLoading}
-      notificationState={notificationState}
+      notificationDeviceState={notificationDeviceState}
+      notificationSavingIds={notificationSavingIds}
       serverMessages={serverMessages}
       topics={topics}
       users={users}
@@ -566,7 +737,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onJoinManualServer={joinManualServer}
       onLeaveChannel={leaveChannel}
       onMarkChannelRead={markChannelRead}
-      onRequestNotifications={requestNotifications}
+      onToggleChannelNotifications={toggleChannelNotifications}
+      onToggleServerNotifications={toggleServerNotifications}
       onOpenChannelDirectory={openChannelDirectory}
       onDisconnectServer={disconnectServer}
       onLeaveServer={leaveServer}

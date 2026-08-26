@@ -32,6 +32,12 @@ import {createRealtimeClient, type RealtimeHandlers} from "./realtime_client.ts"
 import type {CurrentUser} from "./types.ts"
 
 const csrfToken = document.querySelector<HTMLMetaElement>("meta[name='csrf-token']")?.content || ""
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js", {scope: "/"}).catch(() => {})
+  })
+}
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},

@@ -24,6 +24,11 @@ export function saveActiveBufferPreference(userId: EntityId, bufferId: string): 
   }
 }
 
+export function requestedBufferId(): string | null {
+  if (typeof window === "undefined") return null
+  return new URLSearchParams(window.location.search).get("buffer")
+}
+
 export function selectPreferredBuffer(
   connections: ServerConnection[],
   bufferId?: string | null

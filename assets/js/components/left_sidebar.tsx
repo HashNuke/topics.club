@@ -4,12 +4,15 @@ import {EditServerDialog, LeaveServerDialog, ManualJoinDialog} from "./server_di
 import SidebarConnection from "./sidebar_connection.tsx"
 import type {EditServerForm, ManualServerForm} from "../hooks/use_server_connections.ts"
 import type {AppView, Channel, CurrentUser, ServerConnection} from "../types.ts"
+import type {NotificationDeviceState} from "../browser_notifications.ts"
 
 export interface LeftSidebarProps {
   activeChannel?: Channel
   activeServer?: ServerConnection
   connections: ServerConnection[]
   currentUser: CurrentUser
+  notificationDeviceState: NotificationDeviceState
+  notificationSavingIds: Set<string>
   mobile?: boolean
   view: AppView
   onDiscover: () => void
@@ -22,12 +25,13 @@ export interface LeftSidebarProps {
   onReconnectServer: (server: ServerConnection) => void
   onSelectChannel: (channel: Channel) => void
   onSelectServer: (server: ServerConnection) => void
+  onToggleServerNotifications: (server: ServerConnection) => void
   onShowChat: () => void
   onUpdateServer: (server: ServerConnection, form: EditServerForm) => void
 }
 
 export default function LeftSidebar(props: LeftSidebarProps) {
-  const {activeChannel, activeServer, connections, currentUser, mobile = false, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onUpdateServer} = props
+  const {activeChannel, activeServer, connections, currentUser, mobile = false, notificationDeviceState, notificationSavingIds, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onToggleServerNotifications, onUpdateServer} = props
   const [manualOpen, setManualOpen] = useState(false)
   const [editingServer, setEditingServer] = useState<ServerConnection | null>(null)
   const [leavingServer, setLeavingServer] = useState<ServerConnection | null>(null)
@@ -56,6 +60,8 @@ export default function LeftSidebar(props: LeftSidebarProps) {
             activeChannel={activeChannel}
             activeServer={activeServer}
             connection={connection}
+            notificationDeviceState={notificationDeviceState}
+            notificationSavingIds={notificationSavingIds}
             onDisconnectServer={onDisconnectServer}
             onEditServer={setEditingServer}
             onLeaveChannel={onLeaveChannel}
@@ -65,6 +71,7 @@ export default function LeftSidebar(props: LeftSidebarProps) {
             onReconnectServer={onReconnectServer}
             onSelectChannel={onSelectChannel}
             onSelectServer={onSelectServer}
+            onToggleServerNotifications={onToggleServerNotifications}
             view={view}
           />
         ))}

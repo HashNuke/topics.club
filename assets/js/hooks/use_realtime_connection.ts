@@ -39,6 +39,7 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
         onPresenceSync: (payload) => handlersRef.current.onPresenceSync?.(payload),
         onServerStatus: (payload) => handlersRef.current.onServerStatus?.(payload),
         onNotificationMention: (payload) => handlersRef.current.onNotificationMention?.(payload),
+        onNotificationPreference: (payload) => handlersRef.current.onNotificationPreference?.(payload),
         onOpen: connected,
         onClose: () => setConnectionHealth("reconnecting"),
         onError: () => setConnectionHealth("degraded"),

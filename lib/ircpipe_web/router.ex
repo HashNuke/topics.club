@@ -70,6 +70,17 @@ defmodule IrcpipeWeb.Router do
     post "/channels/:channel_id/messages", MessageController, :create
 
     put "/settings", SettingsController, :update
+    post "/push_subscriptions", PushSubscriptionController, :create
+    delete "/push_subscriptions/:installation_id", PushSubscriptionController, :delete
+
+    put "/connections/:id/notification_preferences",
+        NotificationPreferenceController,
+        :update_server
+
+    put "/channel_memberships/:id/notification_preferences",
+        NotificationPreferenceController,
+        :update_channel
+
     post "/activity", ActivityController, :create
   end
 
