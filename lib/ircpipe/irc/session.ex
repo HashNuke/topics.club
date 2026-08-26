@@ -8,6 +8,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.CommandResult
+  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Repo
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
@@ -2380,7 +2381,7 @@ defmodule Ircpipe.Irc.Session do
   defp casemapping(_state), do: :ascii
 
   defp channel_key(state, channel) do
-    Chat.channel_key(channel_message_target(state, channel) || channel, casemapping(state))
+    Identifier.key(channel_message_target(state, channel) || channel, casemapping(state))
   end
 
   defp normalize_result(:ok), do: :ok
@@ -2552,7 +2553,7 @@ defmodule Ircpipe.Irc.Session do
 
   defp rekey_channels(channels, casemapping) do
     channels
-    |> Enum.map(&Chat.channel_key(&1, casemapping))
+    |> Enum.map(&Identifier.key(&1, casemapping))
     |> MapSet.new()
   end
 
@@ -2668,7 +2669,7 @@ defmodule Ircpipe.Irc.Session do
         membership.status in ["pending", "joined"]
     )
     |> Repo.all()
-    |> Enum.map(&Chat.channel_key(&1.channel, casemapping))
+    |> Enum.map(&Identifier.key(&1.channel, casemapping))
     |> MapSet.new()
   end
 

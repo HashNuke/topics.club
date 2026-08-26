@@ -17,6 +17,7 @@ defmodule Ircpipe.Chat do
   }
 
   alias Ircpipe.Notifications.Delivery
+  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
   alias Ircxd.Casemapping
@@ -126,7 +127,7 @@ defmodule Ircpipe.Chat do
         %ServerConnection{user_id: user_id} = connection,
         peer_nick
       ) do
-    if valid_nick?(peer_nick) do
+    if Identifier.valid_nick?(peer_nick) do
       Repo.transaction(fn ->
         lock_direct_message_connection!(connection.id)
 
@@ -360,8 +361,8 @@ defmodule Ircpipe.Chat do
       Repo.transaction(fn ->
         lock_direct_message_connection!(connection.id)
         mapping = casemapping || stored_casemapping(connection) || :ascii
-        old_key = channel_key(old_nick, mapping)
-        new_key = channel_key(new_nick, mapping)
+        old_key = Identifier.key(old_nick, mapping)
+        new_key = Identifier.key(new_nick, mapping)
         account = normalized_account(metadata_value(metadata, :account))
         hostmask = normalized_metadata_text(metadata_value(metadata, :hostmask))
         identity_key = direct_message_identity(account, hostmask)
@@ -1279,26 +1280,6 @@ defmodule Ircpipe.Chat do
     )
   end
 
-  def normalize_channel(<<prefix, _rest::binary>> = channel) when prefix in [?#, ?&, ?+, ?!],
-    do: channel
-
-  def normalize_channel(channel), do: "##{channel}"
-
-  def channel_key(channel, casemapping \\ :rfc1459) do
-    Casemapping.normalize(channel, casemapping)
-  end
-
-  def valid_nick?(nick, isupport \\ %{})
-
-  def valid_nick?(nick, isupport) when is_binary(nick) and is_map(isupport) do
-    max_length = Ircxd.ISupport.length_limit(isupport, "NICKLEN") || 128
-
-    String.length(nick) <= max_length and
-      String.match?(nick, ~r/^[A-Za-z_\[\]\\`^{}|][A-Za-z0-9_\-\[\]\\`^{}|]*$/)
-  end
-
-  def valid_nick?(_nick, _isupport), do: false
-
   defp ensure_direct_message_thread(
          %User{} = user,
          %ServerConnection{} = connection,
@@ -1308,7 +1289,7 @@ defmodule Ircpipe.Chat do
          casemapping \\ nil
        ) do
     mapping = casemapping || stored_casemapping(connection) || :ascii
-    peer_key = channel_key(peer_nick, mapping)
+    peer_key = Identifier.key(peer_nick, mapping)
     account = normalized_account(metadata_value(metadata, :account))
     hostmask = normalized_metadata_text(metadata_value(metadata, :hostmask))
     identity_key = direct_message_identity(account, hostmask)
@@ -1566,7 +1547,7 @@ defmodule Ircpipe.Chat do
   end
 
   defp ensure_valid_nick(%ServerConnection{} = connection, %User{} = user) do
-    if valid_nick?(connection.nickname) do
+    if Identifier.valid_nick?(connection.nickname) do
       connection
     else
       {:ok, connection} =
@@ -1874,11 +1855,11 @@ defmodule Ircpipe.Chat do
       )
 
     query = if status, do: where(query, [m], m.status == ^status), else: query
-    key = channel_key(channel, casemapping)
+    key = Identifier.key(channel, casemapping)
 
     query
     |> Repo.all()
-    |> Enum.find(&(channel_key(&1.channel, casemapping) == key))
+    |> Enum.find(&(Identifier.key(&1.channel, casemapping) == key))
   end
 
   def reconcile_channel_memberships(%ServerConnection{} = connection, casemapping) do
@@ -1911,7 +1892,7 @@ defmodule Ircpipe.Chat do
     losers =
       connection
       |> all_channel_memberships()
-      |> Enum.group_by(&channel_key(&1.channel, casemapping))
+      |> Enum.group_by(&Identifier.key(&1.channel, casemapping))
       |> Enum.flat_map(fn {_key, memberships} -> merge_equivalent_memberships(memberships) end)
 
     losers

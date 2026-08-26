@@ -5,6 +5,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.{ChannelMembership, Message, MessageHistory, Retention}
   alias Ircpipe.Chat.Topic
+  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
 
   test "scopes server connections to their owner" do
@@ -122,7 +123,7 @@ defmodule Ircpipe.ChatTest do
     {:ok, %{connection: connection}} = Chat.join_topic(user, topic)
 
     assert connection.nickname == "u_3dev"
-    assert Chat.valid_nick?(connection.nickname)
+    assert Identifier.valid_nick?(connection.nickname)
   end
 
   test "suggested topic joins repair existing invalid nicknames" do

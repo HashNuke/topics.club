@@ -1,10 +1,10 @@
 defmodule IrcpipeWeb.UserChannel.CommandHandler do
   @moduledoc false
 
-  alias Ircpipe.Chat
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Commands
+  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Irc.Session
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
@@ -141,7 +141,7 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
   defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, client_info} <- session_connection_info(connection),
-         true <- Chat.valid_nick?(target, Map.get(client_info, :isupport, %{})),
+         true <- Identifier.valid_nick?(target, Map.get(client_info, :isupport, %{})),
          {:ok, result} <-
            resolve_and_execute_intent(
              connection,

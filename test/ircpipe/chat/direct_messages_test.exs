@@ -4,6 +4,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, MessageHistory, Notification}
+  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Notifications.Delivery
 
   setup do
@@ -772,10 +773,10 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   end
 
   test "valid nick targets honor IRC special characters and negotiated NICKLEN" do
-    assert Chat.valid_nick?("pipe|nick", %{"NICKLEN" => "30"})
-    assert Chat.valid_nick?(String.duplicate("a", 30), %{"NICKLEN" => "30"})
-    refute Chat.valid_nick?(String.duplicate("a", 31), %{"NICKLEN" => "30"})
-    refute Chat.valid_nick?("#channel", %{"NICKLEN" => "30"})
+    assert Identifier.valid_nick?("pipe|nick", %{"NICKLEN" => "30"})
+    assert Identifier.valid_nick?(String.duplicate("a", 30), %{"NICKLEN" => "30"})
+    refute Identifier.valid_nick?(String.duplicate("a", 31), %{"NICKLEN" => "30"})
+    refute Identifier.valid_nick?("#channel", %{"NICKLEN" => "30"})
   end
 
   defp connection_fixture(user, name) do
