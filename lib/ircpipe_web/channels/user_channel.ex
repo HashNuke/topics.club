@@ -12,6 +12,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
   alias IrcpipeWeb.UserChannel.ErrorResponse
+  alias IrcpipeWeb.UserChannel.Reply
 
   @impl true
   def join("user:" <> user_id, _payload, socket) do
@@ -137,7 +138,7 @@ defmodule IrcpipeWeb.UserChannel do
 
   @impl true
   def handle_in("command:suggest", %{"input" => input}, socket) do
-    reply_ok(socket, %{commands: Commands.suggest(input)})
+    Reply.ok(socket, %{commands: Commands.suggest(input)})
   end
 
   def handle_in("command:parse", %{"input" => input}, socket) do
@@ -154,10 +155,10 @@ defmodule IrcpipeWeb.UserChannel do
           run_command(command, socket.assigns.current_user, Map.get(payload, "buffer_id"), socket)
 
         {:error, :not_a_command} ->
-          reply_error(socket, %{reason: "not_a_command"})
+          Reply.error(socket, %{reason: "not_a_command"})
 
         {:error, {:unknown_command, command}} ->
-          reply_error(socket, %{reason: "unknown_command", command: command})
+          Reply.error(socket, %{reason: "unknown_command", command: command})
       end
 
     put_reply_command_id(result, command_id)
@@ -177,7 +178,7 @@ defmodule IrcpipeWeb.UserChannel do
         :ok ->
           message = latest_message(user, membership)
 
-          reply_ok(socket, %{
+          Reply.ok(socket, %{
             client_message_id: client_message_id,
             message: Event.message(message, "channel:#{membership.id}")
           })
@@ -191,17 +192,17 @@ defmodule IrcpipeWeb.UserChannel do
             ErrorResponse.send_body(reason)
           )
 
-          reply_error(socket, %{
+          Reply.error(socket, %{
             reason: ErrorResponse.reason(reason),
             client_message_id: client_message_id
           })
       end
     else
       false ->
-        reply_error(socket, %{reason: "empty_message", client_message_id: client_message_id})
+        Reply.error(socket, %{reason: "empty_message", client_message_id: client_message_id})
 
       {:error, reason} ->
-        reply_error(socket, %{
+        Reply.error(socket, %{
           reason: ErrorResponse.reason(reason),
           client_message_id: client_message_id
         })
@@ -219,7 +220,7 @@ defmodule IrcpipeWeb.UserChannel do
     with true <- String.trim(body) != "",
          {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, %{thread: sent_thread, message: message}} <- direct_message(thread, body) do
-      reply_ok(socket, %{
+      Reply.ok(socket, %{
         client_message_id: client_message_id,
         message:
           Event.message(message, "direct:#{sent_thread.id}", %{
@@ -228,10 +229,10 @@ defmodule IrcpipeWeb.UserChannel do
       })
     else
       false ->
-        reply_error(socket, %{reason: "empty_message", client_message_id: client_message_id})
+        Reply.error(socket, %{reason: "empty_message", client_message_id: client_message_id})
 
       {:error, reason} ->
-        reply_error(socket, %{
+        Reply.error(socket, %{
           reason: ErrorResponse.reason(reason),
           client_message_id: client_message_id
         })
@@ -239,7 +240,7 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   def handle_in("message:send", payload, socket) do
-    reply_error(socket, %{
+    Reply.error(socket, %{
       reason: "invalid_buffer",
       client_message_id: Map.get(payload, "client_message_id")
     })
@@ -250,9 +251,9 @@ defmodule IrcpipeWeb.UserChannel do
 
     with {:ok, membership} <- BufferResolver.membership(user, membership_id),
          :ok <- Chat.mark_read(user, membership) do
-      reply_ok(socket, %{buffer_id: "channel:#{membership.id}", unread_count: 0, mention_count: 0})
+      Reply.ok(socket, %{buffer_id: "channel:#{membership.id}", unread_count: 0, mention_count: 0})
     else
-      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
+      {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
@@ -262,9 +263,9 @@ defmodule IrcpipeWeb.UserChannel do
     connection = Chat.get_connection!(user, connection_id)
     :ok = Chat.mark_read(user, connection)
 
-    reply_ok(socket, %{buffer_id: "server:#{connection.id}", unread_count: 0, mention_count: 0})
+    Reply.ok(socket, %{buffer_id: "server:#{connection.id}", unread_count: 0, mention_count: 0})
   rescue
-    Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
+    Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end
 
   def handle_in("buffer:read", %{"buffer_id" => "direct:" <> thread_id}, socket) do
@@ -272,14 +273,14 @@ defmodule IrcpipeWeb.UserChannel do
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, updated} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
-      reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
+      Reply.ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
-      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
+      {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
   def handle_in("buffer:read", _payload, socket) do
-    reply_error(socket, %{reason: "invalid_buffer"})
+    Reply.error(socket, %{reason: "invalid_buffer"})
   end
 
   def handle_in(
@@ -293,14 +294,14 @@ defmodule IrcpipeWeb.UserChannel do
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, updated} <-
            Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
-      reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
+      Reply.ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
-      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
+      {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
   def handle_in("direct_message:block", _payload, socket) do
-    reply_error(socket, %{reason: "invalid_direct_message"})
+    Reply.error(socket, %{reason: "invalid_direct_message"})
   end
 
   def handle_in(
@@ -312,14 +313,14 @@ defmodule IrcpipeWeb.UserChannel do
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
-      reply_ok(socket, Event.direct_message_closed(closed))
+      Reply.ok(socket, Event.direct_message_closed(closed))
     else
-      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
+      {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
   def handle_in("direct_message:close", _payload, socket) do
-    reply_error(socket, %{reason: "invalid_direct_message"})
+    Reply.error(socket, %{reason: "invalid_direct_message"})
   end
 
   def handle_in("channel:leave", %{"buffer_id" => "channel:" <> membership_id} = payload, socket) do
@@ -328,7 +329,7 @@ defmodule IrcpipeWeb.UserChannel do
 
     with {:ok, membership} <- BufferResolver.membership(user, membership_id),
          :ok <- part(membership, reason) do
-      reply_ok(
+      Reply.ok(
         socket,
         %{
           status: "sent",
@@ -338,12 +339,12 @@ defmodule IrcpipeWeb.UserChannel do
         }
       )
     else
-      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
+      {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
   def handle_in("channel:leave", _payload, socket) do
-    reply_error(socket, %{reason: "invalid_buffer"})
+    Reply.error(socket, %{reason: "invalid_buffer"})
   end
 
   def handle_in("server:list", %{"server_connection_id" => connection_id}, socket) do
@@ -352,17 +353,17 @@ defmodule IrcpipeWeb.UserChannel do
 
     case list_channels(connection) do
       {:ok, channels} ->
-        reply_ok(socket, %{directory: channel_directory(connection, channels)})
+        Reply.ok(socket, %{directory: channel_directory(connection, channels)})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason)})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   rescue
-    Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
+    Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end
 
   def handle_in("server:list", _payload, socket) do
-    reply_error(socket, %{reason: "invalid_server"})
+    Reply.error(socket, %{reason: "invalid_server"})
   end
 
   def handle_in("server:disconnect", %{"server_connection_id" => connection_id}, socket) do
@@ -371,9 +372,9 @@ defmodule IrcpipeWeb.UserChannel do
 
     :ok = SessionSupervisor.stop_session(connection)
 
-    reply_ok(socket, Event.server_status(connection, Session.status(connection)))
+    Reply.ok(socket, Event.server_status(connection, Session.status(connection)))
   rescue
-    Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
+    Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end
 
   def handle_in("server:reconnect", %{"server_connection_id" => connection_id}, socket) do
@@ -381,35 +382,35 @@ defmodule IrcpipeWeb.UserChannel do
     connection = Chat.get_connection!(user, connection_id)
 
     with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
-      reply_ok(socket, Event.server_status(connection, Session.status(connection)))
+      Reply.ok(socket, Event.server_status(connection, Session.status(connection)))
     else
-      _error -> reply_error(socket, %{reason: "reconnect_failed"})
+      _error -> Reply.error(socket, %{reason: "reconnect_failed"})
     end
   rescue
-    Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
+    Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end
 
   defp reply_with_command(input, socket) do
     case Commands.parse(input) do
       {:ok, command} ->
-        reply_ok(socket, %{command: command})
+        Reply.ok(socket, %{command: command})
 
       {:error, :not_a_command} ->
-        reply_error(socket, %{reason: "not_a_command"})
+        Reply.error(socket, %{reason: "not_a_command"})
 
       {:error, {:unknown_command, command}} ->
-        reply_error(socket, %{reason: "unknown_command", command: command})
+        Reply.error(socket, %{reason: "unknown_command", command: command})
     end
   end
 
   defp run_command(command, _user, nil, socket),
-    do: reply_error(socket, %{reason: "invalid_buffer", command: command})
+    do: Reply.error(socket, %{reason: "invalid_buffer", command: command})
 
   defp run_command(%{name: "join", args: [channel]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, result} <- execute_intent(connection, "JOIN #{channel}", buffer_id, socket),
          {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel) do
-      reply_ok(
+      Reply.ok(
         socket,
         result
         |> Map.put(:command, command)
@@ -417,26 +418,26 @@ defmodule IrcpipeWeb.UserChannel do
       )
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
   defp run_command(%{name: "list", args: []} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, channels} <- list_channels(connection) do
-      reply_ok(socket, %{
+      Reply.ok(socket, %{
         command: command,
         directory: channel_directory(connection, channels)
       })
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -450,7 +451,7 @@ defmodule IrcpipeWeb.UserChannel do
              "channel:#{membership.id}",
              socket
            ) do
-      reply_ok(
+      Reply.ok(
         socket,
         result
         |> Map.put(:command, command)
@@ -458,10 +459,10 @@ defmodule IrcpipeWeb.UserChannel do
       )
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -480,7 +481,7 @@ defmodule IrcpipeWeb.UserChannel do
              socket
            ),
          message <- latest_message(user, membership) do
-      reply_ok(socket, %{
+      Reply.ok(socket, %{
         command: command,
         command_id: result.command_id,
         status: result.status,
@@ -488,10 +489,10 @@ defmodule IrcpipeWeb.UserChannel do
       })
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -510,7 +511,7 @@ defmodule IrcpipeWeb.UserChannel do
          [%{thread: thread, message: message}] <- result.direct_messages do
       event = Event.direct_message_thread(thread, connection)
 
-      reply_ok(
+      Reply.ok(
         socket,
         Map.merge(event, %{
           command: command,
@@ -521,31 +522,31 @@ defmodule IrcpipeWeb.UserChannel do
       )
     else
       false ->
-        reply_error(socket, %{reason: "invalid_nick", command: command})
+        Reply.error(socket, %{reason: "invalid_nick", command: command})
 
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
 
       [] ->
-        reply_error(socket, %{reason: "send_failed", command: command})
+        Reply.error(socket, %{reason: "send_failed", command: command})
     end
   rescue
-    Ecto.NoResultsError -> reply_error(socket, %{reason: "send_failed", command: command})
+    Ecto.NoResultsError -> Reply.error(socket, %{reason: "send_failed", command: command})
   end
 
   defp run_command(%{name: "nick", args: [nick]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, result} <- execute_intent(connection, "NICK #{nick}", buffer_id, socket) do
-      reply_ok(socket, Map.put(result, :command, command))
+      Reply.ok(socket, Map.put(result, :command, command))
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -561,13 +562,13 @@ defmodule IrcpipeWeb.UserChannel do
              socket.assigns.command_id,
              "channel:#{membership.id}"
            ) do
-      reply_ok(socket, Map.put(result, :command, command))
+      Reply.ok(socket, Map.put(result, :command, command))
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -581,7 +582,7 @@ defmodule IrcpipeWeb.UserChannel do
              "channel:#{membership.id}",
              socket
            ) do
-      reply_ok(
+      Reply.ok(
         socket,
         result
         |> Map.put(:command, command)
@@ -589,10 +590,10 @@ defmodule IrcpipeWeb.UserChannel do
       )
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -602,26 +603,18 @@ defmodule IrcpipeWeb.UserChannel do
          {:ok, intent} <- CommandRegistry.resolve(line, client_info),
          {:ok, result} <-
            Session.execute(connection, intent, socket.assigns.command_id, buffer_id) do
-      reply_ok(socket, Map.put(result, :command, command))
+      Reply.ok(socket, Map.put(result, :command, command))
     else
       {:error, %{code: code} = error} ->
-        reply_error(socket, %{reason: code, error: error, command: command})
+        Reply.error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
   defp run_command(command, _user, _buffer_id, socket) do
-    reply_error(socket, %{reason: "invalid_command_args", command: command})
-  end
-
-  defp reply_ok(socket, payload) do
-    {:reply, {:ok, Map.put(payload, :reply, "ok")}, socket}
-  end
-
-  defp reply_error(socket, payload) do
-    {:reply, {:error, Map.put(payload, :reply, "error")}, socket}
+    Reply.error(socket, %{reason: "invalid_command_args", command: command})
   end
 
   defp put_reply_command_id({:reply, {status, payload}, socket}, command_id) do
