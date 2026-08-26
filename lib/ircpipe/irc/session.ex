@@ -15,12 +15,12 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Irc.Session.PendingEchoes
+  alias Ircpipe.Irc.Session.Targets
   alias Ircpipe.Repo
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
   alias Ircxd.Client.{Event, Info}
-  alias Ircxd.ISupport
 
   @channel_list_timeout 10_000
   @command_grace_timeout 300
@@ -396,7 +396,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:names, %{channel: channel, names: names}}}, state) do
-    normalized = channel_key(state, channel)
+    normalized = Targets.key(state, channel)
     names_buffers = Map.get(state, :names_buffers, %{})
     buffered_names = Map.get(names_buffers, normalized, []) ++ names
 
@@ -414,12 +414,12 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:names_end, %{channel: channel}}}, state) do
-    normalized = channel_key(state, channel)
+    normalized = Targets.key(state, channel)
     names_buffers = Map.get(state, :names_buffers, %{})
     names = Map.get(names_buffers, normalized, [])
 
     if names != [] do
-      Presence.sync(state.connection, channel, names, casemapping(state))
+      Presence.sync(state.connection, channel, names, Targets.casemapping(state))
     end
 
     state =
@@ -435,14 +435,19 @@ defmodule Ircpipe.Irc.Session do
 
     if self? do
       {:ok, _membership} =
-        Chat.confirm_channel_join(state.connection, channel, casemapping(state), "connected")
+        Chat.confirm_channel_join(
+          state.connection,
+          channel,
+          Targets.casemapping(state),
+          "connected"
+        )
     end
 
     Presence.diff(
       state.connection,
       channel,
       %{action: "join", user: %{nick: nick, role: "user", status: "online"}},
-      casemapping(state)
+      Targets.casemapping(state)
     )
 
     record_channel_line(state, channel, "join", nick, "#{nick} joined #{channel}.")
@@ -464,7 +469,7 @@ defmodule Ircpipe.Irc.Session do
       state.connection,
       channel,
       %{action: "part", nick: nick},
-      casemapping(state)
+      Targets.casemapping(state)
     )
 
     record_channel_line(state, channel, "part", nick, "#{nick} left #{channel}.")
@@ -472,11 +477,11 @@ defmodule Ircpipe.Irc.Session do
     state =
       if self? do
         {:ok, _membership} =
-          Chat.confirm_channel_left(state.connection, channel, casemapping(state))
+          Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state))
 
         %{
           state
-          | joined_channels: MapSet.delete(state.joined_channels, channel_key(state, channel))
+          | joined_channels: MapSet.delete(state.joined_channels, Targets.key(state, channel))
         }
       else
         state
@@ -520,7 +525,7 @@ defmodule Ircpipe.Irc.Session do
         old_nick,
         new_nick,
         EventFormatting.sender_metadata(payload),
-        casemapping(state)
+        Targets.casemapping(state)
       )
     end
 
@@ -550,15 +555,15 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:mode, %{target: target} = payload}}, state) do
-    if channel_target?(state, target) do
+    if Targets.channel?(state, target) do
       payload
-      |> EventFormatting.mode_presence_diffs(session_isupport(state))
+      |> EventFormatting.mode_presence_diffs(Targets.isupport(state))
       |> Enum.each(
         &Presence.diff(
           state.connection,
           target,
           &1,
-          casemapping(state)
+          Targets.casemapping(state)
         )
       )
 
@@ -586,7 +591,7 @@ defmodule Ircpipe.Irc.Session do
       state.connection,
       channel,
       %{action: "part", nick: target_nick},
-      casemapping(state)
+      Targets.casemapping(state)
     )
 
     record_channel_line(
@@ -599,11 +604,11 @@ defmodule Ircpipe.Irc.Session do
 
     state =
       if target_self? do
-        case Chat.confirm_channel_left(state.connection, channel, casemapping(state)) do
+        case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
           {:ok, _membership} ->
             %{
               state
-              | joined_channels: MapSet.delete(state.joined_channels, channel_key(state, channel))
+              | joined_channels: MapSet.delete(state.joined_channels, Targets.key(state, channel))
             }
 
           {:error, _reason} ->
@@ -760,7 +765,7 @@ defmodule Ircpipe.Irc.Session do
   @impl true
   def handle_call({:join, channel}, _from, state) do
     with :ok <- validate_native_join(state, channel) do
-      if MapSet.member?(state.pending_joins, channel_key(state, channel)) do
+      if MapSet.member?(state.pending_joins, Targets.key(state, channel)) do
         {:reply, :ok, state}
       else
         {reply, state} = transmit_join(state, channel)
@@ -773,10 +778,10 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_call({:request_join, user, channel}, _from, state) do
-    key = channel_key(state, channel)
+    key = Targets.key(state, channel)
 
     if MapSet.member?(state.pending_joins, key) do
-      case Chat.get_channel_membership(state.connection, channel, casemapping(state)) do
+      case Chat.get_channel_membership(state.connection, channel, Targets.casemapping(state)) do
         %ChannelMembership{} = membership ->
           status =
             if MapSet.member?(Map.get(state, :sent_joins, MapSet.new()), key),
@@ -791,7 +796,12 @@ defmodule Ircpipe.Irc.Session do
     else
       with :ok <- validate_native_join(state, channel),
            {:ok, membership} <-
-             Chat.request_channel_join(user, state.connection, channel, casemapping(state)) do
+             Chat.request_channel_join(
+               user,
+               state.connection,
+               channel,
+               Targets.casemapping(state)
+             ) do
         {reply, state} = transmit_join(state, membership.channel)
 
         case reply do
@@ -803,7 +813,7 @@ defmodule Ircpipe.Irc.Session do
               state.connection,
               membership.channel,
               error,
-              casemapping(state)
+              Targets.casemapping(state)
             )
 
             {:reply, error, state}
@@ -903,7 +913,7 @@ defmodule Ircpipe.Irc.Session do
         body,
         "message",
         %{direction: "outgoing"},
-        casemapping(state)
+        Targets.casemapping(state)
       )
 
       {:reply, :ok, remember_pending_echo(state, channel, body, "message")}
@@ -922,7 +932,7 @@ defmodule Ircpipe.Irc.Session do
         body,
         "action",
         %{direction: "outgoing"},
-        casemapping(state)
+        Targets.casemapping(state)
       )
 
       {:reply, :ok, remember_pending_echo(state, channel, body, "action")}
@@ -970,11 +980,11 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_call({:part, channel, reason}, _from, state) do
-    key = channel_key(state, channel)
+    key = Targets.key(state, channel)
 
     if not MapSet.member?(state.joined_channels, key) and MapSet.member?(state.pending_joins, key) and
          not MapSet.member?(Map.get(state, :sent_joins, MapSet.new()), key) do
-      case Chat.confirm_channel_left(state.connection, channel, casemapping(state)) do
+      case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
         {:ok, _membership} ->
           {:reply, :ok, %{state | pending_joins: MapSet.delete(state.pending_joins, key)}}
 
@@ -1063,7 +1073,7 @@ defmodule Ircpipe.Irc.Session do
       nick,
       body,
       %{},
-      casemapping(state)
+      Targets.casemapping(state)
     )
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
@@ -1112,7 +1122,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp record_irc_error(state, %{target: target} = payload) when is_binary(target) do
-    if channel = channel_message_target(state, target) do
+    if channel = Targets.channel(state, target) do
       Chat.record_channel_system_message(
         state.connection,
         channel,
@@ -1120,7 +1130,7 @@ defmodule Ircpipe.Irc.Session do
         nil,
         irc_error_body(payload),
         %{},
-        casemapping(state)
+        Targets.casemapping(state)
       )
     else
       record_server_line(state.connection, irc_error_body(payload), "error")
@@ -1163,12 +1173,12 @@ defmodule Ircpipe.Irc.Session do
 
   defp reconcile_membership_error(state, %{code: "442", target: target} = payload)
        when is_binary(target) do
-    if channel_target?(state, target) do
+    if Targets.channel?(state, target) do
       Chat.reject_channel_part(
         state.connection,
         target,
         Map.get(payload, :reason) || "442",
-        casemapping(state)
+        Targets.casemapping(state)
       )
     end
 
@@ -1182,7 +1192,7 @@ defmodule Ircpipe.Irc.Session do
       payload
       |> Map.get(:context)
       |> List.wrap()
-      |> Enum.filter(&channel_target?(state, &1))
+      |> Enum.filter(&Targets.channel?(state, &1))
 
     targets =
       if context_targets == [] do
@@ -1266,7 +1276,7 @@ defmodule Ircpipe.Irc.Session do
           payload
           |> Map.get(:context)
           |> List.wrap()
-          |> Enum.filter(&channel_target?(state, &1))
+          |> Enum.filter(&Targets.channel?(state, &1))
 
         if all_context_targets != [] and context_targets == [] do
           state
@@ -1313,11 +1323,11 @@ defmodule Ircpipe.Irc.Session do
   defp reconcile_command_membership_event(state, %Event{}), do: state
 
   defp reject_join_targets(state, targets, reason, correlated_pending \\ :match_unlabeled) do
-    targets = Enum.map(targets, &channel_key(state, &1))
+    targets = Enum.map(targets, &Targets.key(state, &1))
 
     Enum.each(
       targets,
-      &Chat.reject_channel_join(state.connection, &1, reason, casemapping(state))
+      &Chat.reject_channel_join(state.connection, &1, reason, Targets.casemapping(state))
     )
 
     state =
@@ -1404,8 +1414,8 @@ defmodule Ircpipe.Irc.Session do
   defp pending_join_for_event(state, %Event{payload: payload}) do
     targets =
       [Map.get(payload, :target) | List.wrap(Map.get(payload, :context))]
-      |> Enum.filter(&channel_target?(state, &1))
-      |> Enum.map(&channel_key(state, &1))
+      |> Enum.filter(&Targets.channel?(state, &1))
+      |> Enum.map(&Targets.key(state, &1))
 
     if targets == [],
       do: oldest_pending_join(state, false),
@@ -1413,7 +1423,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp pending_join_matching_targets(state, targets, labeled?) do
-    normalized_targets = Enum.map(targets, &channel_key(state, &1))
+    normalized_targets = Enum.map(targets, &Targets.key(state, &1))
 
     state
     |> Map.get(:pending_commands, %{})
@@ -1432,7 +1442,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp pending_join_target?(state, target) do
-    normalized = channel_key(state, target)
+    normalized = Targets.key(state, target)
 
     MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
       Enum.any?(Map.get(state, :pending_commands, %{}), fn
@@ -1485,7 +1495,7 @@ defmodule Ircpipe.Irc.Session do
     do: CommandRegistry.validate_join_channel_syntax(channel)
 
   defp transmit_join(state, channel) do
-    key = channel_key(state, channel)
+    key = Targets.key(state, channel)
 
     if MapSet.member?(state.joined_channels, key) do
       {:sent, state}
@@ -1539,13 +1549,13 @@ defmodule Ircpipe.Irc.Session do
     |> String.split(",", trim: true)
     |> Enum.reduce_while(:ok, fn channel, :ok ->
       cond do
-        not channel_target?(state, channel) ->
+        not Targets.channel?(state, channel) ->
           {:halt, {:error, :invalid_channel}}
 
-        MapSet.member?(state.joined_channels, channel_key(state, channel)) ->
+        MapSet.member?(state.joined_channels, Targets.key(state, channel)) ->
           {:halt, {:error, :already_joined}}
 
-        MapSet.member?(state.pending_joins, channel_key(state, channel)) ->
+        MapSet.member?(state.pending_joins, Targets.key(state, channel)) ->
           {:halt, {:error, :already_pending}}
 
         true ->
@@ -1562,8 +1572,8 @@ defmodule Ircpipe.Irc.Session do
     targets
     |> String.split(",", trim: true)
     |> Enum.reduce_while(:ok, fn target, :ok ->
-      if channel_target?(state, target) and
-           not MapSet.member?(state.joined_channels, channel_key(state, target)) do
+      if Targets.channel?(state, target) and
+           not MapSet.member?(state.joined_channels, Targets.key(state, target)) do
         {:halt, {:error, :not_joined}}
       else
         {:cont, :ok}
@@ -1583,7 +1593,7 @@ defmodule Ircpipe.Irc.Session do
          %{spec: %{family: :mutation}, message: %{command: command, params: [target | _rest]}}
        )
        when command in ["KICK", "MODE", "TOPIC"] do
-    if channel_target?(state, target), do: validate_joined_targets(state, target), else: :ok
+    if Targets.channel?(state, target), do: validate_joined_targets(state, target), else: :ok
   end
 
   defp prepare_managed_command(_state, _intent), do: :ok
@@ -1592,7 +1602,7 @@ defmodule Ircpipe.Irc.Session do
     targets
     |> String.split(",", trim: true)
     |> Enum.reduce_while(:ok, fn target, :ok ->
-      if MapSet.member?(state.joined_channels, channel_key(state, target)),
+      if MapSet.member?(state.joined_channels, Targets.key(state, target)),
         do: {:cont, :ok},
         else: {:halt, {:error, :not_joined}}
     end)
@@ -1625,7 +1635,7 @@ defmodule Ircpipe.Irc.Session do
        when command in ["PRIVMSG", "NOTICE"] do
     if targets
        |> String.split(",", trim: true)
-       |> Enum.any?(&(not channel_target?(state, &1))) do
+       |> Enum.any?(&(not Targets.channel?(state, &1))) do
       "#{command} #{targets} :[private message redacted]"
     else
       display
@@ -1655,9 +1665,14 @@ defmodule Ircpipe.Irc.Session do
       |> String.split(",", trim: true)
       |> Enum.reduce(state, fn channel, current_state ->
         {:ok, membership} =
-          Chat.request_channel_join(user, state.connection, channel, casemapping(current_state))
+          Chat.request_channel_join(
+            user,
+            state.connection,
+            channel,
+            Targets.casemapping(current_state)
+          )
 
-        key = channel_key(current_state, membership.channel)
+        key = Targets.key(current_state, membership.channel)
 
         current_state
         |> Map.update!(:pending_joins, &MapSet.put(&1, key))
@@ -1682,7 +1697,7 @@ defmodule Ircpipe.Irc.Session do
           metadata = %{direction: "outgoing", peer_nick: target, target: target}
 
           direct_messages =
-            if channel = channel_message_target(current_state, target) do
+            if channel = Targets.channel(current_state, target) do
               Chat.record_inbound_message(
                 current_state.connection,
                 channel,
@@ -1690,7 +1705,7 @@ defmodule Ircpipe.Irc.Session do
                 body,
                 kind,
                 metadata,
-                casemapping(current_state)
+                Targets.casemapping(current_state)
               )
 
               direct_messages
@@ -1702,7 +1717,7 @@ defmodule Ircpipe.Irc.Session do
                      body,
                      kind,
                      metadata,
-                     casemapping(current_state)
+                     Targets.casemapping(current_state)
                    ) do
                 {:ok, %{thread: thread, message: message}} ->
                   [%{thread: thread, message: message} | direct_messages]
@@ -1791,9 +1806,9 @@ defmodule Ircpipe.Irc.Session do
   defp correlation_targets(_state, %Message{}), do: []
 
   defp normalize_correlation_target(state, target) do
-    if channel_target?(state, target),
-      do: channel_key(state, target),
-      else: normalize_identifier(state, target)
+    if Targets.channel?(state, target),
+      do: Targets.key(state, target),
+      else: Targets.normalize(state, target)
   end
 
   defp effective_terminal_events(command, spec) do
@@ -2018,8 +2033,8 @@ defmodule Ircpipe.Irc.Session do
         Map.get(event.payload, :channel) || Map.get(event.payload, :target)
       end
 
-    if is_binary(channel) and channel_target?(state, channel) do
-      case Chat.get_channel_membership(state.connection, channel, casemapping(state)) do
+    if is_binary(channel) and Targets.channel?(state, channel) do
+      case Chat.get_channel_membership(state.connection, channel, Targets.casemapping(state)) do
         %ChannelMembership{id: membership_id, status: status}
         when status in ["pending", "joined"] ->
           "channel:#{membership_id}"
@@ -2123,7 +2138,7 @@ defmodule Ircpipe.Irc.Session do
   defp parse_visible_users(_value), do: 0
 
   defp fetch_joined_client(state, channel) do
-    normalized = channel_key(state, channel)
+    normalized = Targets.key(state, channel)
 
     cond do
       state.client == nil ->
@@ -2141,7 +2156,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp mark_channel_joined(state, channel) do
-    normalized = channel_key(state, channel)
+    normalized = Targets.key(state, channel)
 
     state
     |> Map.put(
@@ -2156,7 +2171,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp maybe_mark_channel_joined_from_names(state, channel, names) do
-    normalized = channel_key(state, channel)
+    normalized = Targets.key(state, channel)
 
     if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
          names_include_nick?(names, state.connection.nickname) do
@@ -2189,8 +2204,8 @@ defmodule Ircpipe.Irc.Session do
 
   defp identifier_self?(%{client_info: %Info{} = info, isupport_received?: true} = state, nick) do
     is_binary(info.current_nick) and is_binary(nick) and
-      Ircxd.Casemapping.normalize(info.current_nick, casemapping(state)) ==
-        Ircxd.Casemapping.normalize(nick, casemapping(state))
+      Ircxd.Casemapping.normalize(info.current_nick, Targets.casemapping(state)) ==
+        Ircxd.Casemapping.normalize(nick, Targets.casemapping(state))
   end
 
   defp identifier_self?(%{connection: connection}, nick) do
@@ -2221,7 +2236,7 @@ defmodule Ircpipe.Irc.Session do
     pending_echoes =
       PendingEchoes.remember(
         state.pending_echoes,
-        normalize_identifier(state, target),
+        Targets.normalize(state, target),
         body,
         kind
       )
@@ -2233,7 +2248,7 @@ defmodule Ircpipe.Irc.Session do
     if source_self?(state, payload, nick) do
       case PendingEchoes.pop(
              state.pending_echoes,
-             normalize_identifier(state, channel),
+             Targets.normalize(state, channel),
              body,
              kind
            ) do
@@ -2275,7 +2290,7 @@ defmodule Ircpipe.Irc.Session do
       |> EventFormatting.sender_metadata()
       |> Map.merge(%{direction: "outgoing", peer_nick: target, target: target})
 
-    if channel = channel_message_target(state, target) do
+    if channel = Targets.channel(state, target) do
       Chat.record_inbound_message(
         state.connection,
         channel,
@@ -2283,7 +2298,7 @@ defmodule Ircpipe.Irc.Session do
         body,
         kind,
         metadata,
-        casemapping(state)
+        Targets.casemapping(state)
       )
     else
       record_direct_received_line(
@@ -2293,7 +2308,7 @@ defmodule Ircpipe.Irc.Session do
         body,
         kind,
         metadata,
-        casemapping(state)
+        Targets.casemapping(state)
       )
     end
   end
@@ -2304,7 +2319,7 @@ defmodule Ircpipe.Irc.Session do
       |> EventFormatting.sender_metadata()
       |> Map.merge(%{direction: "incoming", peer_nick: nick, target: target})
 
-    if channel = channel_message_target(state, target) do
+    if channel = Targets.channel(state, target) do
       Chat.record_inbound_message(
         state.connection,
         channel,
@@ -2312,7 +2327,7 @@ defmodule Ircpipe.Irc.Session do
         body,
         kind,
         metadata,
-        casemapping(state)
+        Targets.casemapping(state)
       )
     else
       if user_message_source?(payload) do
@@ -2323,7 +2338,7 @@ defmodule Ircpipe.Irc.Session do
           body,
           kind,
           Map.put(metadata, :service, EventFormatting.service_name(nick)),
-          casemapping(state)
+          Targets.casemapping(state)
         )
       else
         record_server_received_line(
@@ -2367,54 +2382,6 @@ defmodule Ircpipe.Irc.Session do
     DBConnection.OwnershipError -> {:ok, nil}
   catch
     :exit, _reason -> {:ok, nil}
-  end
-
-  defp channel_message_target(
-         %{client_info: %Info{isupport: isupport}, isupport_received?: true},
-         target
-       )
-       when is_binary(target) do
-    cond do
-      ISupport.status_target?(isupport, target) -> String.slice(target, 1..-1//1)
-      ISupport.channel?(isupport, target) -> target
-      true -> nil
-    end
-  end
-
-  defp channel_message_target(_state, <<prefix, _rest::binary>> = target)
-       when prefix in [?#, ?&, ?+, ?!],
-       do: target
-
-  defp channel_message_target(_state, _target), do: nil
-
-  defp channel_target?(state, target), do: not is_nil(channel_message_target(state, target))
-
-  defp session_isupport(%{client_info: %{isupport: isupport}}) when is_map(isupport),
-    do: isupport
-
-  defp session_isupport(_state), do: %{}
-
-  defp normalize_identifier(
-         %{client_info: %Info{casemapping: mapping}, isupport_received?: true},
-         identifier
-       ),
-       do: Ircxd.Casemapping.normalize(identifier, mapping)
-
-  defp normalize_identifier(state, identifier),
-    do: Ircxd.Casemapping.normalize(identifier, casemapping(state))
-
-  defp casemapping(%{active_casemapping: mapping}) when not is_nil(mapping), do: mapping
-
-  defp casemapping(%{connection: %ServerConnection{casemapping: "ascii"}}), do: :ascii
-
-  defp casemapping(%{connection: %ServerConnection{casemapping: "strict_rfc1459"}}),
-    do: :strict_rfc1459
-
-  defp casemapping(%{connection: %ServerConnection{casemapping: "rfc1459"}}), do: :rfc1459
-  defp casemapping(_state), do: :ascii
-
-  defp channel_key(state, channel) do
-    Identifier.key(channel_message_target(state, channel) || channel, casemapping(state))
   end
 
   defp normalize_result(:ok), do: :ok
@@ -2465,7 +2432,7 @@ defmodule Ircpipe.Irc.Session do
   defp refresh_client_info(%{client: client} = state) do
     info = Ircxd.Client.connection_info(client)
     connection = state.connection
-    mapping = casemapping(state)
+    mapping = Targets.casemapping(state)
     joined_channels = rekey_channels(state.joined_channels, mapping)
 
     pending_joins =
@@ -2550,7 +2517,7 @@ defmodule Ircpipe.Irc.Session do
     |> Repo.all()
     |> Enum.reduce(state, fn membership, current_state ->
       channel = membership.channel
-      key = channel_key(current_state, channel)
+      key = Targets.key(current_state, channel)
 
       if MapSet.member?(current_state.joined_channels, key) or
            MapSet.member?(Map.get(current_state, :sent_joins, MapSet.new()), key) do
@@ -2571,7 +2538,7 @@ defmodule Ircpipe.Irc.Session do
                 current_state.connection,
                 channel,
                 reason,
-                casemapping(current_state)
+                Targets.casemapping(current_state)
               )
 
               %{current_state | pending_joins: MapSet.delete(current_state.pending_joins, key)}
