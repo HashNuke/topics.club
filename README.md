@@ -118,6 +118,16 @@ they are ready for manual testing. If InspIRCd is not running yet, setup
 continues and the channels will still be created when users join them from the
 app.
 
+Populate any due Discover data manually with:
+
+```bash
+mix ircpipe.refresh_discovery
+```
+
+Production checks automatically every hour. It refreshes the IRC network catalog
+from Netsplit after seven days and obtains each network's server channels, topics,
+and visible user counts through IRC `LIST` after 24 hours.
+
 The repo includes a systemd unit for this development IRC server:
 
 ```bash
