@@ -1,4 +1,4 @@
-import AppShell from "./app_shell.jsx"
+import AppShell from "./app_shell.tsx"
 
 const channel = {id: "channel:1", channel: "#elixir", topic: "Phoenix and OTP help", mention_count: 1, connection: {host: "irc.example.net", status: "connected"}}
 const server = {id: "server:1", server_connection_id: 1, name: "Example IRC", host: "irc.example.net", port: 6697, status: "connected", channels: [channel]}

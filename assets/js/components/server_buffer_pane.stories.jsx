@@ -1,5 +1,5 @@
 import {useState} from "react"
-import ServerBufferPane from "./server_buffer_pane.jsx"
+import ServerBufferPane from "./server_buffer_pane.tsx"
 
 const server = {
   id: "server:42",

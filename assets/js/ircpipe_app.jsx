@@ -7,12 +7,12 @@ import {
   requestNotificationPermission,
   showMentionNotification,
 } from "./browser_notifications.ts"
-import AppShell from "./components/app_shell.jsx"
+import AppShell from "./components/app_shell.tsx"
 import LandingPage from "./components/landing_page.tsx"
 import {
   isRealtimeChannel,
   realtimeReadyFor,
-} from "./components/chat_pane.jsx"
+} from "./components/chat_pane.tsx"
 import {
   applyUserDiff,
   normalizeMessage,
@@ -25,7 +25,7 @@ import useChannelDirectory from "./hooks/use_channel_directory.ts"
 import useRealtimeConnection from "./hooks/use_realtime_connection.ts"
 import useServerConnections from "./hooks/use_server_connections.ts"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.ts"
-export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
+export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.tsx"
 export {default as TopicGrid} from "./components/topic_grid.tsx"
 export {default as LandingPage} from "./components/landing_page.tsx"
 

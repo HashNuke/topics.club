@@ -4,11 +4,26 @@ import {
   composerStatusLabel,
   useChatScroll,
   visibleTimelineMessages,
-} from "./chat_pane.jsx"
-import ChatComposer from "./chat_composer.jsx"
+} from "./chat_pane.tsx"
+import ChatComposer from "./chat_composer.tsx"
 import MessageTimeline from "./message_timeline.tsx"
+import type {ChatMessage, CommandCatalogEntry, ConnectionHealth, ServerConnection} from "../types.ts"
 
-export function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}) {
+export interface ServerBufferPaneProps {
+  commandCatalog: CommandCatalogEntry[]
+  composerError?: string | null
+  connectionHealth: ConnectionHealth
+  draft: string
+  messages: ChatMessage[]
+  onLoadOlderMessages?: (bufferId?: string) => void
+  onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
+  onReconnectServer?: (server: ServerConnection) => void
+  server?: ServerConnection
+  onSendMessage: React.FormEventHandler<HTMLFormElement>
+  onUpdateDraft: (value: string) => void
+}
+
+export function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}: ServerBufferPaneProps) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(server?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(server?.id, nextReadingOlder),
@@ -49,7 +64,7 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
   )
 }
 
-export function ServerStatusBanner({onReconnectServer, server}) {
+export function ServerStatusBanner({onReconnectServer, server}: {onReconnectServer?: (server: ServerConnection) => void; server?: ServerConnection}) {
   if (!server || server.status === "connected") return null
 
   const label = server.status === "errored" ? "Server error" : `Server ${server.status || "offline"}`

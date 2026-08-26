@@ -1,10 +1,25 @@
 import React, {useEffect, useRef, useState} from "react"
-import ChatComposer from "./chat_composer.jsx"
+import ChatComposer from "./chat_composer.tsx"
 import MessageTimeline from "./message_timeline.tsx"
+import type {Channel, ChatMessage, CommandCatalogEntry, ConnectionHealth, EntityId} from "../types.ts"
 
 export const MESSAGE_RENDER_LIMIT = 400
 
-export function ChatPane({activeChannel, commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}) {
+export interface ChatPaneProps {
+  activeChannel?: Channel
+  commandCatalog: CommandCatalogEntry[]
+  composerError?: string | null
+  connectionHealth: ConnectionHealth
+  draft: string
+  messages: ChatMessage[]
+  onLoadOlderMessages?: (bufferId?: string) => void
+  onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
+  onRetryMessage?: (message: ChatMessage) => void
+  onSendMessage: React.FormEventHandler<HTMLFormElement>
+  onUpdateDraft: (value: string) => void
+}
+
+export function ChatPane({activeChannel, commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}: ChatPaneProps) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(activeChannel?.id, nextReadingOlder),
@@ -36,7 +51,7 @@ export function ChatPane({activeChannel, commandCatalog, composerError, connecti
   )
 }
 
-export function NewMessagesButton({count, onClick}) {
+export function NewMessagesButton({count, onClick}: {count: number; onClick: () => void}) {
   return (
     <div className="pointer-events-none -mt-12 flex justify-center">
       <button
@@ -50,15 +65,15 @@ export function NewMessagesButton({count, onClick}) {
   )
 }
 
-export function isRealtimeChannel(channel) {
-  return channel?.id?.startsWith("channel:")
+export function isRealtimeChannel(channel?: Channel | null): boolean {
+  return Boolean(channel?.id?.startsWith("channel:"))
 }
 
-export function realtimeReadyFor(channel, connectionHealth) {
-  return Boolean(isRealtimeChannel(channel) && connectionHealth === "connected" && channel.connection?.status === "connected")
+export function realtimeReadyFor(channel: Channel | null | undefined, connectionHealth: ConnectionHealth): boolean {
+  return Boolean(isRealtimeChannel(channel) && connectionHealth === "connected" && channel?.connection?.status === "connected")
 }
 
-export function composerStatusLabel(serverStatus, connectionHealth) {
+export function composerStatusLabel(serverStatus: string | undefined, connectionHealth: ConnectionHealth): string | null {
   if (serverStatus === "connecting" || serverStatus === "reconnecting") return "Reconnecting..."
   if (serverStatus === "disconnected") return "Disconnected. Messages will resume after reconnect."
   if (serverStatus === "errored") return "Connection error. Reconnect to resume messages."
@@ -67,15 +82,20 @@ export function composerStatusLabel(serverStatus, connectionHealth) {
   return null
 }
 
-export function visibleTimelineMessages(messages, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
+export function visibleTimelineMessages(messages: ChatMessage[], readingOlder: boolean, limit = MESSAGE_RENDER_LIMIT): ChatMessage[] {
   if (readingOlder || messages.length <= limit) return messages
   return messages.slice(-limit)
 }
 
-export function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) {
-  const scrollRef = useRef(null)
+interface ChatScrollOptions {
+  onNearTop?: () => void
+  onReadingStateChange?: (readingOlder: boolean) => void
+}
+
+export function useChatScroll(messages: ChatMessage[], {onNearTop, onReadingStateChange}: ChatScrollOptions = {}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
   const previousScrollHeightRef = useRef(0)
-  const previousLastMessageIdRef = useRef(null)
+  const previousLastMessageIdRef = useRef<EntityId | null>(null)
   const previousMessageLengthRef = useRef(0)
   const readingOlderRef = useRef(false)
   const [readingOlder, setReadingOlder] = useState(false)
@@ -85,7 +105,7 @@ export function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) 
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
-    const updateReadingState = ({loadOlder = false} = {}) => {
+    const updateReadingState = ({loadOlder = false}: {loadOlder?: boolean} = {}) => {
       const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
       const nextReadingOlder = distanceFromBottom > 96
       if (readingOlderRef.current !== nextReadingOlder) {
@@ -112,7 +132,7 @@ export function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) 
 
   useEffect(() => {
     const viewport = window.visualViewport
-    let frame = null
+    let frame: number | null = null
 
     const handleViewportChange = () => {
       if (frame) cancelAnimationFrame(frame)
@@ -161,7 +181,7 @@ export function useChatScroll(messages, {onNearTop, onReadingStateChange} = {}) 
     previousMessageLengthRef.current = messages.length
   }, [messages])
 
-  function scrollToBottom() {
+  function scrollToBottom(): void {
     const node = scrollRef.current
     if (node) node.scrollTop = node.scrollHeight
     readingOlderRef.current = false

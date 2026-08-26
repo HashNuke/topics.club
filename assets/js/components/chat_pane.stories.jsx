@@ -1,5 +1,5 @@
 import {useState} from "react"
-import ChatPane from "./chat_pane.jsx"
+import ChatPane from "./chat_pane.tsx"
 
 const commandCatalog = [
   {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["channel"], availability: "enabled"},

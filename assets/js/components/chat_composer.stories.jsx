@@ -1,5 +1,5 @@
 import {useState} from "react"
-import ChatComposer from "./chat_composer.jsx"
+import ChatComposer from "./chat_composer.tsx"
 
 const commandCatalog = [
   {

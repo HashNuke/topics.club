@@ -1,5 +1,19 @@
 import {offset, shift, useFloating} from "@floating-ui/react"
 import React from "react"
+import type {CommandCatalogEntry} from "../types.ts"
+
+export interface ChatComposerProps {
+  commandCatalog?: CommandCatalogEntry[]
+  context?: string
+  disabled?: boolean
+  draft: string
+  error?: string | null
+  inputId: string
+  onSendMessage: React.FormEventHandler<HTMLFormElement>
+  onUpdateDraft: (value: string) => void
+  placeholder?: string
+  statusLabel?: string | null
+}
 
 export default function ChatComposer({
   commandCatalog = [],
@@ -12,7 +26,7 @@ export default function ChatComposer({
   onUpdateDraft,
   placeholder,
   statusLabel,
-}) {
+}: ChatComposerProps) {
   const suggestions = commandSuggestionsFor(draft, commandCatalog, context)
   const {refs, floatingStyles} = useFloating({
     placement: "top-start",
@@ -87,7 +101,7 @@ export default function ChatComposer({
   )
 }
 
-function ComposerStatus({label}) {
+function ComposerStatus({label}: {label: string}) {
   return (
     <div
       className="inline-flex min-w-0 max-w-[min(12rem,calc(100vw-8rem))] items-center gap-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100 sm:max-w-56"
@@ -99,7 +113,7 @@ function ComposerStatus({label}) {
   )
 }
 
-function commandSuggestionsFor(value, commandCatalog, context) {
+function commandSuggestionsFor(value: string, commandCatalog: CommandCatalogEntry[], context?: string): CommandCatalogEntry[] {
   const trimmedStart = value.trimStart()
   if (!trimmedStart.startsWith("/") || trimmedStart.includes(" ")) return []
 
@@ -112,7 +126,7 @@ function commandSuggestionsFor(value, commandCatalog, context) {
   )
 }
 
-function scrollFocusedComposerIntoView() {
+function scrollFocusedComposerIntoView(): void {
   const active = document.activeElement
   if (!active?.matches?.("[aria-label='Message composer']")) return
   if (typeof active.scrollIntoView !== "function") return
