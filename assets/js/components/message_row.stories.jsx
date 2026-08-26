@@ -1,4 +1,4 @@
-import MessageRow from "./message_row.jsx"
+import MessageRow from "./message_row.tsx"
 
 const occurredAt = "2026-08-25T16:00:00Z"
 

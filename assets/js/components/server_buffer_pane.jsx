@@ -6,7 +6,7 @@ import {
   visibleTimelineMessages,
 } from "./chat_pane.jsx"
 import ChatComposer from "./chat_composer.jsx"
-import MessageTimeline from "./message_timeline.jsx"
+import MessageTimeline from "./message_timeline.tsx"
 
 export function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {

@@ -1,6 +1,13 @@
 import React from "react"
+import type {Topic} from "../types.ts"
 
-export default function AuthPrompt({developerOauth, topic, onClose}) {
+interface AuthPromptProps {
+  developerOauth: boolean
+  topic: Topic
+  onClose: () => void
+}
+
+export default function AuthPrompt({developerOauth, topic, onClose}: AuthPromptProps) {
   const topicParam = encodeURIComponent(topic.id)
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
     <section aria-label="Sign in to join" className="w-full max-w-md rounded-lg border border-slate-700 bg-[#101620] p-5 shadow-2xl" role="dialog">

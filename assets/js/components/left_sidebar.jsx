@@ -1,5 +1,5 @@
 import React, {useState} from "react"
-import AppMark from "./app_mark.jsx"
+import AppMark from "./app_mark.tsx"
 import {EditServerDialog, LeaveServerDialog, ManualJoinDialog} from "./server_dialogs.jsx"
 import SidebarConnection from "./sidebar_connection.jsx"
 

@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from "react"
 import ChatComposer from "./chat_composer.jsx"
-import MessageTimeline from "./message_timeline.jsx"
+import MessageTimeline from "./message_timeline.tsx"
 
 export const MESSAGE_RENDER_LIMIT = 400
 

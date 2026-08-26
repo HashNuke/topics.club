@@ -1,5 +1,5 @@
 import {useState} from "react"
-import UserGroup from "./user_group.jsx"
+import UserGroup from "./user_group.tsx"
 
 const users = Array.from({length: 13}, (_, index) => ({
   nick: `member_${index + 1}`,

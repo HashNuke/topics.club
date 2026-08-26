@@ -1,4 +1,4 @@
-import ChannelDirectoryHeader from "./channel_directory_header.jsx"
+import ChannelDirectoryHeader from "./channel_directory_header.tsx"
 
 export default {
   title: "Directory/ChannelDirectoryHeader",

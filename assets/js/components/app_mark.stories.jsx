@@ -1,4 +1,4 @@
-import AppMark from "./app_mark.jsx"
+import AppMark from "./app_mark.tsx"
 
 export default {
   title: "Brand/AppMark",

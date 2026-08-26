@@ -1,8 +1,8 @@
 import React, {useState} from "react"
-import ChannelDirectoryControls from "./channel_directory_controls.jsx"
-import ChannelDirectoryFeedback from "./channel_directory_feedback.jsx"
-import ChannelDirectoryHeader from "./channel_directory_header.jsx"
-import ChannelDirectoryResults from "./channel_directory_results.jsx"
+import ChannelDirectoryControls from "./channel_directory_controls.tsx"
+import ChannelDirectoryFeedback from "./channel_directory_feedback.tsx"
+import ChannelDirectoryHeader from "./channel_directory_header.tsx"
+import ChannelDirectoryResults from "./channel_directory_results.tsx"
 
 export default function ChannelDirectoryPane({directory, onJoinChannel, onRefresh, server}) {
   const [query, setQuery] = useState("")

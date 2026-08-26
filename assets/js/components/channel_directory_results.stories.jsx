@@ -1,4 +1,4 @@
-import ChannelDirectoryResults from "./channel_directory_results.jsx"
+import ChannelDirectoryResults from "./channel_directory_results.tsx"
 
 const channels = [
   {channel: "#elixir", users: 426, topic: "Phoenix, OTP, and production Elixir help."},

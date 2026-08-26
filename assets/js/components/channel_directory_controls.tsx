@@ -1,6 +1,14 @@
 import React from "react"
 
-export default function ChannelDirectoryControls({manualChannel, onJoinManualChannel, onUpdateManualChannel, onUpdateQuery, query}) {
+interface ChannelDirectoryControlsProps {
+  manualChannel: string
+  onJoinManualChannel: React.FormEventHandler<HTMLFormElement>
+  onUpdateManualChannel: (value: string) => void
+  onUpdateQuery: (value: string) => void
+  query: string
+}
+
+export default function ChannelDirectoryControls({manualChannel, onJoinManualChannel, onUpdateManualChannel, onUpdateQuery, query}: ChannelDirectoryControlsProps) {
   return (
     <div className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.55fr)]">
       <label className="block" htmlFor="channel-directory-search">

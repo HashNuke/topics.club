@@ -1,6 +1,12 @@
 import React from "react"
 
-export default function ChannelDirectoryFeedback({error, joinError, onRefresh}) {
+interface ChannelDirectoryFeedbackProps {
+  error?: string | null
+  joinError?: string | null
+  onRefresh: () => void
+}
+
+export default function ChannelDirectoryFeedback({error, joinError, onRefresh}: ChannelDirectoryFeedbackProps) {
   return (
     <>
       {error && (

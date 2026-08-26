@@ -1,4 +1,5 @@
 import React from "react"
+import type {ChatMessage} from "../types.ts"
 
 const META_MESSAGE_KINDS = [
   "system",
@@ -14,8 +15,8 @@ const META_MESSAGE_KINDS = [
   "error",
 ]
 
-export default function MessageRow({message, onRetryMessage}) {
-  if (META_MESSAGE_KINDS.includes(message.kind)) {
+export default function MessageRow({message, onRetryMessage}: {message: ChatMessage; onRetryMessage?: (message: ChatMessage) => void}) {
+  if (META_MESSAGE_KINDS.includes(message.kind || "")) {
     return (
       <div
         className={[
@@ -54,6 +55,6 @@ export default function MessageRow({message, onRetryMessage}) {
   )
 }
 
-function formatTime(value) {
-  return new Intl.DateTimeFormat([], {hour: "numeric", minute: "2-digit"}).format(new Date(value))
+function formatTime(value?: string): string {
+  return new Intl.DateTimeFormat([], {hour: "numeric", minute: "2-digit"}).format(new Date(value || 0))
 }

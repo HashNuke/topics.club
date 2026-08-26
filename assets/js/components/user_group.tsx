@@ -1,7 +1,15 @@
 import React from "react"
-import UserListItem from "./user_list_item.jsx"
+import UserListItem from "./user_list_item.tsx"
+import type {ChatUser} from "../types.ts"
 
-export default function UserGroup({expanded = false, label, onExpand, users}) {
+interface UserGroupProps {
+  expanded?: boolean
+  label: string
+  onExpand?: () => void
+  users: ChatUser[]
+}
+
+export default function UserGroup({expanded = false, label, onExpand, users}: UserGroupProps) {
   const visibleUsers = expanded ? users : users.slice(0, 10)
   const hiddenCount = users.length - visibleUsers.length
 

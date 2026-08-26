@@ -1,12 +1,13 @@
 import React from "react"
+import type {ChatUser} from "../types.ts"
 
-export function userRoleLabel(user) {
-  if (["owner", "admin", "op", "halfop"].includes(user.role)) return "mod"
+export function userRoleLabel(user: ChatUser): "mod" | "voice" | "user" {
+  if (["owner", "admin", "op", "halfop"].includes(user.role || "")) return "mod"
   if (user.role === "voice") return "voice"
   return "user"
 }
 
-export default function UserListItem({user}) {
+export default function UserListItem({user}: {user: ChatUser}) {
   const role = userRoleLabel(user)
 
   return (

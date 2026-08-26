@@ -1,6 +1,6 @@
-import React from "react"
+import React, {type ReactNode} from "react"
 
-export function MobileDrawer({children, onClose, side}) {
+export function MobileDrawer({children, onClose, side}: {children: ReactNode; onClose: () => void; side: "left" | "right"}) {
   return (
     <div className="fixed inset-0 z-50 lg:hidden">
       <button className="absolute inset-0 bg-black/70" onClick={onClose} aria-label="Close sidebar" type="button" />
@@ -11,7 +11,7 @@ export function MobileDrawer({children, onClose, side}) {
   )
 }
 
-export function MobileDrawerHeader({title, onClose}) {
+export function MobileDrawerHeader({title, onClose}: {title: string; onClose: () => void}) {
   return (
     <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800/80 px-4">
       <div className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">{title}</div>

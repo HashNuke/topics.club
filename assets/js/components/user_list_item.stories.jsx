@@ -1,4 +1,4 @@
-import UserListItem from "./user_list_item.jsx"
+import UserListItem from "./user_list_item.tsx"
 
 export default {
   title: "People/UserListItem",

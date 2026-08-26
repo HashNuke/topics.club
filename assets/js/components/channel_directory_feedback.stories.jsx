@@ -1,4 +1,4 @@
-import ChannelDirectoryFeedback from "./channel_directory_feedback.jsx"
+import ChannelDirectoryFeedback from "./channel_directory_feedback.tsx"
 
 export default {
   title: "Directory/ChannelDirectoryFeedback",

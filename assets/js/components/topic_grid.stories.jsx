@@ -1,4 +1,4 @@
-import TopicGrid, {TopicCard} from "./topic_grid.jsx"
+import TopicGrid, {TopicCard} from "./topic_grid.tsx"
 
 const topics = [
   {id: "elixir", channel: "#elixir", server_host: "irc.example.net", description: "Phoenix, OTP, and production Elixir help.", members: 426},

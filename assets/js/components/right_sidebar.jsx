@@ -1,5 +1,5 @@
 import React, {useState} from "react"
-import UserGroup from "./user_group.jsx"
+import UserGroup from "./user_group.tsx"
 
 export function groupUsers(users) {
   return [

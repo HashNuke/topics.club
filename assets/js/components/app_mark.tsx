@@ -1,6 +1,6 @@
 import React from "react"
 
-export default function AppMark({small = false}) {
+export default function AppMark({small = false}: {small?: boolean}) {
   return (
     <span
       className={[

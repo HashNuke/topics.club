@@ -1,4 +1,4 @@
-import MessageTimeline from "./message_timeline.jsx"
+import MessageTimeline from "./message_timeline.tsx"
 
 const baseMessages = [
   {

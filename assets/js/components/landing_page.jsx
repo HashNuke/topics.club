@@ -1,7 +1,7 @@
 import React from "react"
-import AppMark from "./app_mark.jsx"
-import AuthPrompt from "./auth_prompt.jsx"
-import TopicGrid from "./topic_grid.jsx"
+import AppMark from "./app_mark.tsx"
+import AuthPrompt from "./auth_prompt.tsx"
+import TopicGrid from "./topic_grid.tsx"
 
 export default function LandingPage({currentUser, topics, developerOauth, selectedTopic, onSelectTopic, onCloseAuth}) {
   return <main className="min-h-screen bg-[#090b10] text-slate-100">

@@ -26,7 +26,7 @@ import useRealtimeConnection from "./hooks/use_realtime_connection.ts"
 import useServerConnections from "./hooks/use_server_connections.ts"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.ts"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
-export {default as TopicGrid} from "./components/topic_grid.jsx"
+export {default as TopicGrid} from "./components/topic_grid.tsx"
 export {default as LandingPage} from "./components/landing_page.jsx"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")

@@ -1,5 +1,5 @@
 import {useState} from "react"
-import ChannelDirectoryControls from "./channel_directory_controls.jsx"
+import ChannelDirectoryControls from "./channel_directory_controls.tsx"
 
 function InteractiveControls(args) {
   const [query, setQuery] = useState(args.query)

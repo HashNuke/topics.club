@@ -1,6 +1,15 @@
 import React from "react"
+import type {ChannelDirectoryEntry} from "../types.ts"
+import type {ChannelDirectoryState} from "../hooks/use_channel_directory.ts"
 
-export default function ChannelDirectoryResults({channels, directory, onJoinChannel, serverName}) {
+interface ChannelDirectoryResultsProps {
+  channels: ChannelDirectoryEntry[]
+  directory: ChannelDirectoryState
+  onJoinChannel: (channel: string) => void
+  serverName?: string
+}
+
+export default function ChannelDirectoryResults({channels, directory, onJoinChannel, serverName}: ChannelDirectoryResultsProps) {
   if (directory?.status === "loading") {
     return (
       <div className="overflow-hidden rounded-lg border border-slate-800 bg-[#10151e]" aria-label={`Loading channels from ${serverName || "the server"}`} aria-live="polite" role="status">

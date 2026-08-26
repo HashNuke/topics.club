@@ -1,4 +1,4 @@
-import MobileDrawer, {MobileDrawerHeader} from "./mobile_drawer.jsx"
+import MobileDrawer, {MobileDrawerHeader} from "./mobile_drawer.tsx"
 
 export default {
   title: "Navigation/MobileDrawer",

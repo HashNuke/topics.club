@@ -1,6 +1,12 @@
 import React from "react"
 
-export default function ChannelDirectoryHeader({loading = false, onRefresh, serverName}) {
+interface ChannelDirectoryHeaderProps {
+  loading?: boolean
+  onRefresh: () => void
+  serverName?: string
+}
+
+export default function ChannelDirectoryHeader({loading = false, onRefresh, serverName}: ChannelDirectoryHeaderProps) {
   return (
     <div className="flex flex-col gap-5 border-b border-slate-800 pb-6 sm:flex-row sm:items-end sm:justify-between">
       <div className="max-w-2xl">
