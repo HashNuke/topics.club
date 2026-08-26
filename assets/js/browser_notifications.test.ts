@@ -110,26 +110,130 @@ describe("browser notifications", () => {
       body: "mira: only once",
     }
 
-    const claims = await Promise.all([
-      firstTab.claim(message.event_id),
-      secondTab.claim(message.event_id),
+    const displays = await Promise.all([
+      firstTab.coordinate(message.event_id, {
+        eligible: true,
+        visible: false,
+        display: () =>
+          showMentionNotification(message, {
+            currentUser: {email: "mira@example.com"},
+            notificationState: "granted",
+          }),
+      }),
+      secondTab.coordinate(message.event_id, {
+        eligible: true,
+        visible: false,
+        display: () =>
+          showMentionNotification(message, {
+            currentUser: {email: "mira@example.com"},
+            notificationState: "granted",
+          }),
+      }),
     ])
 
-    claims.forEach((claimed) => {
-      if (claimed) {
-        showMentionNotification(message, {
-          currentUser: {email: "mira@example.com"},
-          notificationState: "granted",
-        })
-      }
-    })
-
-    expect(claims.filter(Boolean)).toHaveLength(1)
     expect(NotificationMock).toHaveBeenCalledOnce()
+    expect(displays.filter(Boolean)).toHaveLength(1)
     expect(NotificationMock).toHaveBeenCalledWith("#elixir", {
       body: "akash: mira: only once",
       tag: "notification:shared",
     })
+    firstTab.close()
+    secondTab.close()
+  })
+
+  test("a visible tab suppresses fallback notifications in every tab", async () => {
+    const channelFactory = inMemoryBroadcastChannelFactory()
+    const visibleDisplay = vi.fn().mockReturnValue(true)
+    const hiddenDisplay = vi.fn().mockReturnValue(true)
+    const visibleTab = createNotificationEventCoordinator({
+      channelFactory,
+      claimWindowMs: 1,
+      scope: "user-visible",
+      storage: null,
+      tabId: "tab-visible",
+    })
+    const hiddenTab = createNotificationEventCoordinator({
+      channelFactory,
+      claimWindowMs: 1,
+      scope: "user-visible",
+      storage: null,
+      tabId: "tab-hidden",
+    })
+
+    const outcomes = await Promise.all([
+      visibleTab.coordinate("notification:mixed-visibility", {
+        eligible: false,
+        visible: true,
+        display: visibleDisplay,
+      }),
+      hiddenTab.coordinate("notification:mixed-visibility", {
+        eligible: true,
+        visible: false,
+        display: hiddenDisplay,
+      }),
+    ])
+
+    expect(outcomes).toEqual([false, false])
+    expect(visibleDisplay).not.toHaveBeenCalled()
+    expect(hiddenDisplay).not.toHaveBeenCalled()
+    visibleTab.close()
+    hiddenTab.close()
+  })
+
+  test("a failed constructor releases ownership to another eligible hidden tab", async () => {
+    let constructorCalls = 0
+    const NotificationMock = vi.fn(function () {
+      constructorCalls += 1
+
+      if (constructorCalls === 1) {
+        throw new Error("Notification constructor failed")
+      }
+    })
+    NotificationMock.permission = "granted"
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+    const channelFactory = inMemoryBroadcastChannelFactory()
+    const message = {
+      event_id: "notification:constructor-failure",
+      nick: "akash",
+      channel: "#elixir",
+      body: "mira: fail over",
+    }
+    const display = () =>
+      showMentionNotification(message, {
+        currentUser: {email: "mira@example.com"},
+        notificationState: "granted",
+      })
+    const firstTab = createNotificationEventCoordinator({
+      channelFactory,
+      claimWindowMs: 1,
+      scope: "user-failover",
+      storage: null,
+      tabId: "tab-a",
+    })
+    const secondTab = createNotificationEventCoordinator({
+      channelFactory,
+      claimWindowMs: 1,
+      scope: "user-failover",
+      storage: null,
+      tabId: "tab-b",
+    })
+
+    const outcomes = await Promise.all([
+      firstTab.coordinate("notification:constructor-failure", {
+        eligible: true,
+        visible: false,
+        display,
+      }),
+      secondTab.coordinate("notification:constructor-failure", {
+        eligible: true,
+        visible: false,
+        display,
+      }),
+    ])
+
+    expect(outcomes).toEqual([false, true])
+    expect(NotificationMock).toHaveBeenCalledTimes(2)
     firstTab.close()
     secondTab.close()
   })

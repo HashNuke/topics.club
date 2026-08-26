@@ -5,9 +5,14 @@ import {
   type NotificationDeviceState,
 } from "./browser_notifications.ts"
 import type {NotificationControlState} from "./components/notification_bell.tsx"
-import type {PushConfig} from "./types.ts"
+import type {EntityId, PushConfig} from "./types.ts"
 
 const INSTALLATION_KEY = "ircpipe.notification-installation"
+
+interface NotificationInstallation {
+  installation_id: string
+  user_id: string
+}
 
 export async function inspectNotificationDevice(push: PushConfig): Promise<NotificationDeviceState> {
   const base = deviceBase(push)
@@ -23,25 +28,42 @@ export async function inspectNotificationDevice(push: PushConfig): Promise<Notif
   }
 }
 
-export async function synchronizeNotificationDevice(apiClient: ApiClient, push: PushConfig): Promise<NotificationDeviceState> {
-  const state = await inspectNotificationDevice(push)
-  if (!state.subscribed) return state
+export async function synchronizeNotificationDevice(
+  apiClient: ApiClient,
+  push: PushConfig,
+  userId: EntityId
+): Promise<NotificationDeviceState> {
+  const base = deviceBase(push)
+  const unavailable = notificationUnavailableReason(base)
+  if (unavailable || base.capability !== "granted") return {...base, loading: false}
 
   try {
     const registration = await navigator.serviceWorker.ready
-    const subscription = await registration.pushManager.getSubscription()
-    if (subscription) await persistSubscription(apiClient, subscription)
-    return state
+    let subscription = await registration.pushManager.getSubscription()
+    if (!subscription) return {...base, loading: false, subscribed: false}
+
+    if (!installationOwnedBy(userId)) {
+      await subscription.unsubscribe()
+      subscription = await subscribe(registration, push)
+    }
+
+    await persistSubscription(apiClient, userId, subscription)
+    return {...base, loading: false, subscribed: true}
   } catch (_error) {
     return {
-      ...state,
-      subscribed: true,
+      ...base,
+      loading: false,
+      subscribed: false,
       error: "Notifications are enabled locally but could not be synchronized.",
     }
   }
 }
 
-export async function enableNotificationDevice(apiClient: ApiClient, push: PushConfig): Promise<NotificationDeviceState> {
+export async function enableNotificationDevice(
+  apiClient: ApiClient,
+  push: PushConfig,
+  userId: EntityId
+): Promise<NotificationDeviceState> {
   const base = deviceBase(push)
   const unavailable = notificationUnavailableReason(base)
   if (unavailable) return {...base, loading: false, error: unavailable}
@@ -56,13 +78,16 @@ export async function enableNotificationDevice(apiClient: ApiClient, push: PushC
 
   try {
     const registration = await navigator.serviceWorker.ready
-    const existing = await registration.pushManager.getSubscription()
-    const subscription = existing || await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(push.vapid_public_key!),
-    })
+    let existing = await registration.pushManager.getSubscription()
 
-    await persistSubscription(apiClient, subscription)
+    if (existing && !installationOwnedBy(userId)) {
+      await existing.unsubscribe()
+      existing = null
+    }
+
+    const subscription = existing || await subscribe(registration, push)
+
+    await persistSubscription(apiClient, userId, subscription)
     return {...base, capability: "granted", loading: false, subscribed: true}
   } catch (_error) {
     return {...base, capability: "granted", loading: false, error: "This device could not finish notification setup."}
@@ -96,26 +121,69 @@ function pushCapability() {
   return permission
 }
 
-async function persistSubscription(apiClient: ApiClient, subscription: PushSubscription): Promise<void> {
+async function persistSubscription(
+  apiClient: ApiClient,
+  userId: EntityId,
+  subscription: PushSubscription
+): Promise<void> {
   const json = subscription.toJSON()
-  await apiClient.savePushSubscription(notificationInstallationId(), {
+  await apiClient.savePushSubscription(notificationInstallation(userId).installation_id, {
     endpoint: json.endpoint,
     expirationTime: json.expirationTime,
     keys: json.keys,
   })
 }
 
-function notificationInstallationId(): string {
-  try {
-    const existing = localStorage.getItem(INSTALLATION_KEY)
-    if (existing) return existing
+function installationOwnedBy(userId: EntityId): boolean {
+  return storedNotificationInstallation()?.user_id === String(userId)
+}
 
-    const id = globalThis.crypto?.randomUUID?.() || `installation-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    localStorage.setItem(INSTALLATION_KEY, id)
-    return id
-  } catch (_error) {
-    return `installation-${Date.now()}-${Math.random().toString(36).slice(2)}`
+function notificationInstallation(userId: EntityId): NotificationInstallation {
+  const normalizedUserId = String(userId)
+  const existing = storedNotificationInstallation()
+  if (existing?.user_id === normalizedUserId) return existing
+
+  const installation = {
+    installation_id: newInstallationId(),
+    user_id: normalizedUserId,
   }
+
+  try {
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify(installation))
+  } catch (_error) {
+    // The in-memory installation still identifies this registration request.
+  }
+
+  return installation
+}
+
+function storedNotificationInstallation(): NotificationInstallation | null {
+  try {
+    const value = localStorage.getItem(INSTALLATION_KEY)
+    if (!value) return null
+    const parsed = JSON.parse(value)
+
+    if (
+      parsed &&
+      typeof parsed.installation_id === "string" &&
+      typeof parsed.user_id === "string"
+    ) return parsed
+  } catch (_error) {
+    return null
+  }
+
+  return null
+}
+
+function newInstallationId(): string {
+  return globalThis.crypto?.randomUUID?.() || `installation-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function subscribe(registration: ServiceWorkerRegistration, push: PushConfig): Promise<PushSubscription> {
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(push.vapid_public_key!),
+  })
 }
 
 function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {

@@ -4,6 +4,8 @@ defmodule IrcpipeWeb.Api.PushSubscriptionControllerTest do
   alias Ircpipe.Notifications.PushSubscription
   alias Ircpipe.Repo
 
+  import Ircpipe.AccountsFixtures
+
   setup :register_and_log_in_user
 
   test "creates and removes the current device subscription", %{conn: conn, user: user} do
@@ -53,5 +55,42 @@ defmodule IrcpipeWeb.Api.PushSubscriptionControllerTest do
 
       assert %{"error" => "invalid_push_subscription"} = json_response(response, 422)
     end
+  end
+
+  test "logout revokes the installation so another account can register the browser endpoint", %{
+    conn: conn,
+    user: first_user
+  } do
+    {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+
+    params = %{
+      installation_id: "shared-browser-installation",
+      subscription: %{
+        endpoint: "https://push.example.test/subscription/shared-browser",
+        keys: %{
+          p256dh: Base.url_encode64(public_key, padding: false),
+          auth: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+        }
+      }
+    }
+
+    first_registration = post(conn, ~p"/api/push_subscriptions", params)
+    assert json_response(first_registration, 201)
+    assert Repo.get_by(PushSubscription, user_id: first_user.id)
+
+    logged_out = delete(first_registration, ~p"/users/log-out")
+    assert redirected_to(logged_out) == ~p"/"
+    refute Repo.get_by(PushSubscription, user_id: first_user.id)
+
+    second_user = user_fixture()
+
+    second_registration =
+      logged_out
+      |> recycle()
+      |> log_in_user(second_user)
+      |> post(~p"/api/push_subscriptions", params)
+
+    assert json_response(second_registration, 201)
+    assert Repo.get_by(PushSubscription, user_id: second_user.id)
   end
 end

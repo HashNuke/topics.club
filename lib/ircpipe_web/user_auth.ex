@@ -6,6 +6,7 @@ defmodule IrcpipeWeb.UserAuth do
 
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.Scope
+  alias Ircpipe.Notifications
 
   # Make the remember me cookie valid for 14 days. This should match
   # the session validity setting in UserToken.
@@ -36,6 +37,7 @@ defmodule IrcpipeWeb.UserAuth do
     user_return_to = get_session(conn, :user_return_to)
 
     conn
+    |> revoke_push_installation_for_account_change(user)
     |> create_or_extend_session(user, params)
     |> redirect(to: user_return_to || signed_in_path(conn))
   end
@@ -48,6 +50,7 @@ defmodule IrcpipeWeb.UserAuth do
   def log_out_user(conn) do
     user_token = get_session(conn, :user_token)
     user_token && Accounts.delete_user_session_token(user_token)
+    revoke_push_installation(conn)
 
     if live_socket_id = get_session(conn, :live_socket_id) do
       IrcpipeWeb.Endpoint.broadcast(live_socket_id, "disconnect", %{})
@@ -96,6 +99,27 @@ defmodule IrcpipeWeb.UserAuth do
       end
     end
   end
+
+  defp revoke_push_installation(conn) do
+    with installation_id when is_binary(installation_id) <-
+           get_session(conn, :push_installation_id),
+         %Scope{user: user} = scope when not is_nil(user) <- conn.assigns[:current_scope] do
+      Notifications.delete_subscription(scope, installation_id)
+    else
+      _missing -> :ok
+    end
+  end
+
+  defp revoke_push_installation_for_account_change(
+         %{assigns: %{current_scope: %Scope{user: current_user}}} = conn,
+         next_user
+       )
+       when not is_nil(current_user) and current_user.id != next_user.id do
+    revoke_push_installation(conn)
+    conn
+  end
+
+  defp revoke_push_installation_for_account_change(conn, _next_user), do: conn
 
   # Reissue the session token if it is older than the configured reissue age.
   defp maybe_reissue_user_session_token(conn, user, token_inserted_at) do

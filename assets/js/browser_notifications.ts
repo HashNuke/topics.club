@@ -27,19 +27,34 @@ interface NotificationEventCoordinatorOptions {
 }
 
 export interface NotificationEventCoordinator {
-  claim(eventId: string): Promise<boolean>
+  coordinate(eventId: string, candidate: NotificationDisplayCandidate): Promise<boolean>
   close(): void
 }
 
-interface CoordinationMessage {
-  event_id: string
-  tab_id: string
-  type: "claim" | "shown"
+interface NotificationDisplayCandidate {
+  display(): boolean
+  eligible: boolean
+  visible: boolean
 }
 
-interface StoredClaim {
-  claimed_at: number
+interface CoordinationMessage {
+  eligible?: boolean
+  event_id: string
   tab_id: string
+  type: "candidate" | "failed" | "shown" | "suppressed"
+  visible?: boolean
+}
+
+interface StoredOutcome {
+  claimed_at: number
+  outcome: "shown" | "suppressed"
+  tab_id: string
+}
+
+interface TabCandidate {
+  eligible: boolean
+  tab_id: string
+  visible: boolean
 }
 
 export type BrowserNotificationState = NotificationPermission | "unsupported" | "insecure"
@@ -73,54 +88,137 @@ export function createNotificationEventCoordinator(
   const channelFactory = options.channelFactory || defaultChannelFactory
   const channel = channelFactory(`${STORAGE_PREFIX}:${scope}`)
   const attempted = new Set<string>()
-  const shown = new Set<string>()
-  const claimants = new Map<string, Set<string>>()
+  const outcomes = new Map<string, "shown" | "suppressed">()
+  const candidates = new Map<string, Map<string, TabCandidate>>()
+  const failures = new Map<string, Set<string>>()
   let closed = false
 
   const onMessage = (event: MessageEvent) => {
     const message = coordinationMessage(event.data)
     if (!message) return
 
-    if (message.type === "shown") {
-      rememberBounded(shown, message.event_id)
-      claimants.delete(message.event_id)
+    if (message.type === "shown" || message.type === "suppressed") {
+      rememberBoundedMap(outcomes, message.event_id, message.type)
+      candidates.delete(message.event_id)
+      failures.delete(message.event_id)
       return
     }
 
-    if (shown.has(message.event_id)) return
-    const eventClaimants = claimants.get(message.event_id) || new Set<string>()
-    eventClaimants.add(message.tab_id)
-    claimants.set(message.event_id, eventClaimants)
+    if (message.type === "failed") {
+      rememberFailure(failures, message.event_id, message.tab_id)
+      return
+    }
+
+    if (outcomes.has(message.event_id)) return
+    rememberCandidate(candidates, message.event_id, {
+      eligible: Boolean(message.eligible),
+      tab_id: message.tab_id,
+      visible: Boolean(message.visible),
+    })
   }
 
   channel?.addEventListener("message", onMessage)
 
   return {
-    async claim(rawEventId: string): Promise<boolean> {
+    async coordinate(
+      rawEventId: string,
+      displayCandidate: NotificationDisplayCandidate
+    ): Promise<boolean> {
       if (closed) return false
       const eventId = normalizedEventId(rawEventId)
-      if (!eventId) return true
-      if (attempted.has(eventId) || shown.has(eventId) || storedClaim(storage, storageKey, eventId)) {
+      if (!eventId) {
+        return displayCandidate.eligible && !displayCandidate.visible &&
+          safeDisplay(displayCandidate.display)
+      }
+
+      if (
+        attempted.has(eventId) ||
+        outcomes.has(eventId) ||
+        storedOutcome(storage, storageKey, eventId)
+      ) {
         return false
       }
 
       rememberBounded(attempted, eventId)
-      const eventClaimants = claimants.get(eventId) || new Set<string>()
-      eventClaimants.add(tabId)
-      claimants.set(eventId, eventClaimants)
-      channel?.postMessage({type: "claim", event_id: eventId, tab_id: tabId} satisfies CoordinationMessage)
+      rememberCandidate(candidates, eventId, {
+        eligible: displayCandidate.eligible,
+        tab_id: tabId,
+        visible: displayCandidate.visible,
+      })
+      channel?.postMessage({
+        type: "candidate",
+        event_id: eventId,
+        tab_id: tabId,
+        eligible: displayCandidate.eligible,
+        visible: displayCandidate.visible,
+      } satisfies CoordinationMessage)
 
       if (channel) await delay(claimWindowMs)
-      if (closed || shown.has(eventId)) return false
+      if (closed || outcomes.has(eventId)) return false
 
-      const winner = [...(claimants.get(eventId) || [])].sort()[0]
-      if (winner !== tabId) return false
-      if (!storeClaim(storage, storageKey, eventId, tabId)) return false
+      const eventCandidates = [...(candidates.get(eventId)?.values() || [])]
+      const visibleTabs = eventCandidates.filter((candidate) => candidate.visible)
 
-      rememberBounded(shown, eventId)
-      claimants.delete(eventId)
-      channel?.postMessage({type: "shown", event_id: eventId, tab_id: tabId} satisfies CoordinationMessage)
-      return true
+      if (visibleTabs.length > 0) {
+        const suppressor = visibleTabs.sort(compareCandidates)[0]
+
+        if (suppressor.tab_id === tabId) {
+          commitOutcome(
+            storage,
+            storageKey,
+            channel,
+            outcomes,
+            eventId,
+            tabId,
+            "suppressed"
+          )
+        }
+
+        return false
+      }
+
+      const eligibleTabs = eventCandidates
+        .filter((candidate) => candidate.eligible)
+        .sort(compareCandidates)
+
+      for (const candidate of eligibleTabs) {
+        if (closed || outcomes.has(eventId)) return false
+        if (failures.get(eventId)?.has(candidate.tab_id)) continue
+
+        if (candidate.tab_id === tabId) {
+          if (safeDisplay(displayCandidate.display)) {
+            return commitOutcome(
+              storage,
+              storageKey,
+              channel,
+              outcomes,
+              eventId,
+              tabId,
+              "shown"
+            )
+          }
+
+          rememberFailure(failures, eventId, tabId)
+          attempted.delete(eventId)
+          channel?.postMessage({
+            type: "failed",
+            event_id: eventId,
+            tab_id: tabId,
+          } satisfies CoordinationMessage)
+          return false
+        }
+
+        await waitForCandidate(
+          eventId,
+          candidate.tab_id,
+          outcomes,
+          failures,
+          claimWindowMs
+        )
+      }
+
+      attempted.delete(eventId)
+      return false
     },
 
     close(): void {
@@ -164,19 +262,30 @@ export function showMentionNotification(
   message: MentionMessage,
   {currentUser, notificationState}: MentionNotificationOptions
 ): boolean {
-  if (window.isSecureContext === false) return false
-  if (!("Notification" in window)) return false
   if (document.visibilityState !== "hidden") return false
-  if (notificationState !== "granted" && window.Notification.permission !== "granted") return false
-  if (message.nick === currentUser?.email?.split("@")[0]) return false
+  if (!mentionNotificationEligible(message, {currentUser, notificationState})) return false
 
   const options: NotificationOptions = {
     body: `${message.nick}: ${message.body}`,
   }
   if (message.event_id) options.tag = normalizedEventId(message.event_id)
 
-  new window.Notification(message.channel || message.peer_nick || "topics.club", options)
-  return true
+  try {
+    new window.Notification(message.channel || message.peer_nick || "topics.club", options)
+    return true
+  } catch (_error) {
+    return false
+  }
+}
+
+export function mentionNotificationEligible(
+  message: MentionMessage,
+  {currentUser, notificationState}: MentionNotificationOptions
+): boolean {
+  if (window.isSecureContext === false) return false
+  if (!("Notification" in window)) return false
+  if (notificationState !== "granted" && window.Notification.permission !== "granted") return false
+  return message.nick !== currentUser?.email?.split("@")[0]
 }
 
 function defaultChannelFactory(name: string): NotificationBroadcastChannel | null {
@@ -196,44 +305,45 @@ function availableLocalStorage(): NotificationClaimStorage | null {
   }
 }
 
-function storedClaim(
+function storedOutcome(
   storage: NotificationClaimStorage | null,
   storageKey: string,
   eventId: string
-): StoredClaim | null {
-  const claims = storedClaims(storage, storageKey)
-  return claims[eventId] || null
+): StoredOutcome | null {
+  const outcomes = storedOutcomes(storage, storageKey)
+  return outcomes[eventId] || null
 }
 
-function storeClaim(
+function storeOutcome(
   storage: NotificationClaimStorage | null,
   storageKey: string,
   eventId: string,
-  tabId: string
+  tabId: string,
+  outcome: "shown" | "suppressed"
 ): boolean {
   if (!storage) return true
 
   try {
-    const claims = storedClaims(storage, storageKey)
-    if (claims[eventId]) return false
-    claims[eventId] = {claimed_at: Date.now(), tab_id: tabId}
+    const outcomes = storedOutcomes(storage, storageKey)
+    if (outcomes[eventId]) return false
+    outcomes[eventId] = {claimed_at: Date.now(), outcome, tab_id: tabId}
 
-    const boundedClaims = Object.fromEntries(
-      Object.entries(claims)
+    const boundedOutcomes = Object.fromEntries(
+      Object.entries(outcomes)
         .sort(([, left], [, right]) => right.claimed_at - left.claimed_at)
         .slice(0, CLAIM_LIMIT)
     )
-    storage.setItem(storageKey, JSON.stringify(boundedClaims))
-    return storedClaims(storage, storageKey)[eventId]?.tab_id === tabId
+    storage.setItem(storageKey, JSON.stringify(boundedOutcomes))
+    return storedOutcomes(storage, storageKey)[eventId]?.tab_id === tabId
   } catch (_error) {
     return true
   }
 }
 
-function storedClaims(
+function storedOutcomes(
   storage: NotificationClaimStorage | null,
   storageKey: string
-): Record<string, StoredClaim> {
+): Record<string, StoredOutcome> {
   if (!storage) return {}
 
   try {
@@ -242,14 +352,18 @@ function storedClaims(
     const cutoff = Date.now() - CLAIM_TTL_MS
 
     return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, StoredClaim] => {
-        const claim = entry[1] as Partial<StoredClaim> | null
+      Object.entries(parsed).flatMap(([eventId, value]) => {
+        const stored = value as Partial<StoredOutcome> | null
+        const outcome = stored?.outcome === "suppressed" ? "suppressed" : "shown"
+
         return Boolean(
-          claim &&
-          typeof claim.claimed_at === "number" &&
-          claim.claimed_at >= cutoff &&
-          typeof claim.tab_id === "string"
+          stored &&
+          typeof stored.claimed_at === "number" &&
+          stored.claimed_at >= cutoff &&
+          typeof stored.tab_id === "string"
         )
+          ? [[eventId, {...stored, outcome} as StoredOutcome]]
+          : []
       })
     )
   } catch (_error) {
@@ -262,11 +376,21 @@ function coordinationMessage(value: unknown): CoordinationMessage | null {
   const message = value as Partial<CoordinationMessage>
   const eventId = normalizedEventId(message.event_id)
 
-  if (!eventId || !message.tab_id || !["claim", "shown"].includes(message.type || "")) {
+  if (
+    !eventId ||
+    !message.tab_id ||
+    !["candidate", "failed", "shown", "suppressed"].includes(message.type || "")
+  ) {
     return null
   }
 
-  return {event_id: eventId, tab_id: String(message.tab_id), type: message.type!}
+  return {
+    eligible: Boolean(message.eligible),
+    event_id: eventId,
+    tab_id: String(message.tab_id),
+    type: message.type!,
+    visible: Boolean(message.visible),
+  }
 }
 
 function normalizedEventId(value: unknown): string {
@@ -278,6 +402,79 @@ function rememberBounded(values: Set<string>, value: string): void {
   if (values.size <= CLAIM_LIMIT) return
   const oldest = values.values().next().value
   if (oldest) values.delete(oldest)
+}
+
+function rememberBoundedMap<T>(values: Map<string, T>, key: string, value: T): void {
+  values.set(key, value)
+  if (values.size <= CLAIM_LIMIT) return
+  const oldest = values.keys().next().value
+  if (oldest) values.delete(oldest)
+}
+
+function rememberCandidate(
+  candidates: Map<string, Map<string, TabCandidate>>,
+  eventId: string,
+  candidate: TabCandidate
+): void {
+  const eventCandidates = candidates.get(eventId) || new Map<string, TabCandidate>()
+  eventCandidates.set(candidate.tab_id, candidate)
+  rememberBoundedMap(candidates, eventId, eventCandidates)
+}
+
+function rememberFailure(
+  failures: Map<string, Set<string>>,
+  eventId: string,
+  tabId: string
+): void {
+  const eventFailures = failures.get(eventId) || new Set<string>()
+  eventFailures.add(tabId)
+  rememberBoundedMap(failures, eventId, eventFailures)
+}
+
+function compareCandidates(left: TabCandidate, right: TabCandidate): number {
+  return left.tab_id.localeCompare(right.tab_id)
+}
+
+function safeDisplay(display: () => boolean): boolean {
+  try {
+    return display()
+  } catch (_error) {
+    return false
+  }
+}
+
+function commitOutcome(
+  storage: NotificationClaimStorage | null,
+  storageKey: string,
+  channel: NotificationBroadcastChannel | null,
+  outcomes: Map<string, "shown" | "suppressed">,
+  eventId: string,
+  tabId: string,
+  outcome: "shown" | "suppressed"
+): boolean {
+  if (!storeOutcome(storage, storageKey, eventId, tabId, outcome)) return false
+
+  rememberBoundedMap(outcomes, eventId, outcome)
+  channel?.postMessage({type: outcome, event_id: eventId, tab_id: tabId} satisfies CoordinationMessage)
+  return outcome === "shown"
+}
+
+async function waitForCandidate(
+  eventId: string,
+  tabId: string,
+  outcomes: Map<string, "shown" | "suppressed">,
+  failures: Map<string, Set<string>>,
+  claimWindowMs: number
+): Promise<void> {
+  const timeoutAt = Date.now() + Math.max(25, claimWindowMs * 2)
+
+  while (
+    Date.now() < timeoutAt &&
+    !outcomes.has(eventId) &&
+    !failures.get(eventId)?.has(tabId)
+  ) {
+    await delay(1)
+  }
 }
 
 function uniqueTabId(): string {

@@ -11,6 +11,7 @@ import {buildBootstrapState, type BootstrapPayload} from "./bootstrap_state.ts"
 import {
   createNotificationEventCoordinator,
   initialNotificationDeviceState,
+  mentionNotificationEligible,
   showMentionNotification,
   type NotificationDeviceState,
 } from "./browser_notifications.ts"
@@ -97,7 +98,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const connectionsRef = useRef<ServerConnection[]>([])
   const discoverRequestedRef = useRef(false)
   const notificationDeviceStateRef = useRef(notificationDeviceState)
-  const notificationEventIdsRef = useRef<Set<string>>(new Set())
   const notificationEventCoordinatorRef = useRef<ReturnType<typeof createNotificationEventCoordinator> | null>(null)
   const queuedNotificationEventsRef = useRef<ChatMessage[]>([])
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
@@ -257,7 +257,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     const refresh = () => {
       applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
-      synchronizeNotificationDevice(apiClient, pushConfig).then(applyNotificationDeviceState)
+      synchronizeNotificationDevice(apiClient, pushConfig, currentUser.id).then(applyNotificationDeviceState)
     }
 
     window.addEventListener("focus", refresh)
@@ -545,8 +545,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   async function enableNotificationsOnDevice(): Promise<boolean> {
+    if (!currentUser) return false
     applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
-    const next = await enableNotificationDevice(apiClient, pushConfig)
+    const next = await enableNotificationDevice(apiClient, pushConfig, currentUser.id)
     applyNotificationDeviceState(next)
     return next.subscribed
   }
@@ -685,15 +686,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     if (notificationDeviceStateRef.current.subscribed) return
 
-    if (message.event_id) {
-      if (notificationEventIdsRef.current.has(message.event_id)) return
-      notificationEventIdsRef.current.add(message.event_id)
-      if (notificationEventIdsRef.current.size > 500) {
-        const oldest = notificationEventIdsRef.current.values().next().value
-        if (oldest) notificationEventIdsRef.current.delete(oldest)
-      }
-    }
-
     const server = connectionsRef.current.find(
       (connection) =>
         String(connection.server_connection_id || connection.id) === String(message.server_connection_id)
@@ -710,7 +702,24 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     if (message.event_id) {
       const coordinator = notificationEventCoordinatorRef.current
-      if (!coordinator || !await coordinator.claim(message.event_id)) return
+      if (!coordinator) return
+
+      await coordinator.coordinate(message.event_id, {
+        eligible: mentionNotificationEligible(message, {
+          currentUser,
+          notificationState: notificationDeviceStateRef.current.capability,
+        }),
+        visible: document.visibilityState !== "hidden",
+        display: () => {
+          if (notificationDeviceStateRef.current.subscribed) return false
+
+          return showMentionNotification(message, {
+            currentUser,
+            notificationState: notificationDeviceStateRef.current.capability,
+          })
+        },
+      })
+      return
     }
 
     if (notificationDeviceStateRef.current.subscribed) return
@@ -754,7 +763,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       configured: state.push.configured,
       loading: true,
     })
-    synchronizeNotificationDevice(apiClient, state.push).then(applyNotificationDeviceState)
+    if (currentUser) {
+      synchronizeNotificationDevice(apiClient, state.push, currentUser.id).then(applyNotificationDeviceState)
+    }
     setConnections(state.connections)
     connectionsRef.current = state.connections
     replaceBootstrapMessages(state.messagesByChannel, state.messagesByServer)

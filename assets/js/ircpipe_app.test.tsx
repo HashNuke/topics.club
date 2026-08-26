@@ -1871,7 +1871,7 @@ describe("IrcpipeApp UI prototype", () => {
     }
   })
 
-  test("suppresses local mentions when subscription inspection succeeds but server sync fails", async () => {
+  test("uses local fallback when subscription inspection succeeds but server sync fails", async () => {
     mockBootstrapFetch({
       push: {configured: true, vapid_public_key: "AQ"},
       pushSubscriptionOk: false,
@@ -1885,6 +1885,8 @@ describe("IrcpipeApp UI prototype", () => {
     const originalPushManager = window.PushManager
     const originalServiceWorker = navigator.serviceWorker
     const originalVisibilityState = document.visibilityState
+    const installationStorageKey = "ircpipe.notification-installation"
+    const originalInstallation = localStorage.getItem(installationStorageKey)
     const subscription = {
       toJSON: () => ({
         endpoint: "https://push.example.test/subscription",
@@ -1909,6 +1911,10 @@ describe("IrcpipeApp UI prototype", () => {
       value: {ready: Promise.resolve(registration), addEventListener: vi.fn(), removeEventListener: vi.fn()},
       configurable: true,
     })
+    localStorage.setItem(
+      installationStorageKey,
+      JSON.stringify({installation_id: "browser-installation", user_id: "1"})
+    )
 
     try {
       render(
@@ -1945,7 +1951,11 @@ describe("IrcpipeApp UI prototype", () => {
         )
       })
 
-      expect(NotificationMock).not.toHaveBeenCalled()
+      await waitFor(() => expect(NotificationMock).toHaveBeenCalledOnce())
+      expect(NotificationMock).toHaveBeenCalledWith("#testing", {
+        body: "akash: hello mira",
+        tag: "notification:during-subscription-inspection",
+      })
     } finally {
       if (originalNotification) {
         Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
@@ -1963,6 +1973,11 @@ describe("IrcpipeApp UI prototype", () => {
         delete navigator.serviceWorker
       }
       Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+      if (originalInstallation === null) {
+        localStorage.removeItem(installationStorageKey)
+      } else {
+        localStorage.setItem(installationStorageKey, originalInstallation)
+      }
     }
   })
 
@@ -2118,6 +2133,8 @@ describe("IrcpipeApp UI prototype", () => {
     const originalNotification = window.Notification
     const originalPushManager = window.PushManager
     const originalServiceWorker = navigator.serviceWorker
+    const installationStorageKey = "ircpipe.notification-installation"
+    const originalInstallation = localStorage.getItem(installationStorageKey)
     const subscription = {
       toJSON: () => ({
         endpoint: "https://push.example.test/subscription",
@@ -2138,6 +2155,10 @@ describe("IrcpipeApp UI prototype", () => {
       value: {ready: Promise.resolve(registration), addEventListener: vi.fn(), removeEventListener: vi.fn()},
       configurable: true,
     })
+    localStorage.setItem(
+      installationStorageKey,
+      JSON.stringify({installation_id: "browser-installation", user_id: "1"})
+    )
 
     try {
       render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
@@ -2167,6 +2188,11 @@ describe("IrcpipeApp UI prototype", () => {
         Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
       } else {
         delete navigator.serviceWorker
+      }
+      if (originalInstallation === null) {
+        localStorage.removeItem(installationStorageKey)
+      } else {
+        localStorage.setItem(installationStorageKey, originalInstallation)
       }
     }
   })

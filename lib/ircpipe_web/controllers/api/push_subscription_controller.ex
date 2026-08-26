@@ -29,6 +29,7 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
          ) do
       {:ok, stored} ->
         conn
+        |> put_session(:push_installation_id, stored.installation_id)
         |> put_status(:created)
         |> json(%{subscription: %{installation_id: stored.installation_id}})
 
@@ -58,6 +59,12 @@ defmodule IrcpipeWeb.Api.PushSubscriptionController do
 
   def delete(conn, %{"installation_id" => installation_id}) do
     :ok = Notifications.delete_subscription(conn.assigns.current_scope, installation_id)
+
+    conn =
+      if get_session(conn, :push_installation_id) == installation_id,
+        do: delete_session(conn, :push_installation_id),
+        else: conn
+
     json(conn, %{ok: true})
   end
 

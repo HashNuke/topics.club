@@ -3,6 +3,9 @@ defmodule IrcpipeWeb.UserAuthTest do
 
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.Scope
+  alias Ircpipe.Notifications
+  alias Ircpipe.Notifications.PushSubscription
+  alias Ircpipe.Repo
   alias IrcpipeWeb.UserAuth
 
   import Ircpipe.AccountsFixtures
@@ -55,6 +58,31 @@ defmodule IrcpipeWeb.UserAuthTest do
         |> UserAuth.log_in_user(user)
 
       refute get_session(conn, :to_be_removed)
+    end
+
+    test "revokes the prior account's push installation when switching accounts", %{
+      conn: conn,
+      user: user
+    } do
+      installation_id = "account-switch-browser"
+      {public_key, _private_key} = :crypto.generate_key(:ecdh, :prime256v1)
+
+      assert {:ok, _subscription} =
+               Notifications.upsert_subscription(Scope.for_user(user), %{
+                 "installation_id" => installation_id,
+                 "endpoint" => "https://push.example.test/account-switch",
+                 "p256dh" => Base.url_encode64(public_key, padding: false),
+                 "auth" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+               })
+
+      other_user = user_fixture()
+
+      conn
+      |> assign(:current_scope, Scope.for_user(user))
+      |> put_session(:push_installation_id, installation_id)
+      |> UserAuth.log_in_user(other_user)
+
+      refute Repo.get_by(PushSubscription, user_id: user.id)
     end
 
     test "redirects to the configured path", %{conn: conn, user: user} do
