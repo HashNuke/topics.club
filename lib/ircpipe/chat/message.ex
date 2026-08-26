@@ -3,7 +3,7 @@ defmodule Ircpipe.Chat.Message do
   import Ecto.Changeset
 
   alias Ircpipe.Accounts.User
-  alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
+  alias Ircpipe.Chat.{ChannelMembership, DirectMessageThread, ServerConnection}
 
   @kinds ~w(message action notice system error command join part quit nick topic mode kick)
 
@@ -20,6 +20,7 @@ defmodule Ircpipe.Chat.Message do
 
     belongs_to :server_connection, ServerConnection
     belongs_to :channel_membership, ChannelMembership
+    belongs_to :direct_message_thread, DirectMessageThread
     belongs_to :user, User
 
     timestamps(type: :utc_datetime)

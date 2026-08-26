@@ -11,6 +11,7 @@ defmodule Ircpipe.Realtime.Event do
       id: message.id,
       buffer_id: buffer_id,
       channel_membership_id: message.channel_membership_id,
+      direct_message_thread_id: message.direct_message_thread_id,
       server_connection_id: message.server_connection_id,
       nick: message.nick,
       hostmask: message.hostmask,
@@ -31,6 +32,65 @@ defmodule Ircpipe.Realtime.Event do
       type: "notification:mention",
       event_id: "notification_mention:#{message_event.event_id}"
     })
+  end
+
+  def direct_message_notification(message_event) do
+    message_event
+    |> Map.merge(%{
+      type: "notification:direct_message",
+      event_id: "notification_direct_message:#{message_event.event_id}"
+    })
+  end
+
+  def direct_message_thread(thread, connection) do
+    occurred_at = DateTime.utc_now(:second)
+
+    %{
+      type: "direct_message:thread",
+      version: @version,
+      event_id:
+        "direct_message_thread:#{thread.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      buffer: %{
+        buffer_id: "direct:#{thread.id}",
+        buffer_type: "direct_message",
+        server_connection_id: connection.id,
+        direct_message_thread_id: thread.id,
+        title: thread.peer_nick,
+        subtitle: "on #{connection.host}",
+        peer_nick: thread.peer_nick,
+        account: thread.account,
+        hostmask: thread.hostmask,
+        blocked: not is_nil(thread.blocked_at),
+        closed_at: thread.closed_at,
+        unread_count: thread.unread_count,
+        mention_count: 0
+      },
+      connection: %{
+        id: connection.id,
+        name: connection.name,
+        host: connection.host,
+        port: connection.port,
+        use_tls: connection.use_tls,
+        nickname: connection.nickname,
+        status: connection.status
+      },
+      occurred_at: occurred_at
+    }
+  end
+
+  def direct_message_closed(thread) do
+    occurred_at = DateTime.utc_now(:second)
+
+    %{
+      type: "direct_message:closed",
+      version: @version,
+      event_id:
+        "direct_message_closed:#{thread.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      buffer_id: "direct:#{thread.id}",
+      server_connection_id: thread.server_connection_id,
+      direct_message_thread_id: thread.id,
+      occurred_at: occurred_at
+    }
   end
 
   def server_status(connection, status \\ nil) do

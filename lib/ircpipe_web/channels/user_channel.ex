@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.UserChannel do
   use IrcpipeWeb, :channel
 
   alias Ircpipe.Accounts
+  alias Ircpipe.Accounts.Scope
   alias Ircpipe.Chat
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.CommandRegistry
@@ -50,6 +51,21 @@ defmodule IrcpipeWeb.UserChannel do
   def handle_info({:irc_mention, message}, socket) do
     push(socket, "mention", message)
     push(socket, "notification:mention", message)
+    {:noreply, socket}
+  end
+
+  def handle_info({:direct_message_notification, message}, socket) do
+    push(socket, "notification:direct_message", message)
+    {:noreply, socket}
+  end
+
+  def handle_info({:direct_message_thread, payload}, socket) do
+    push(socket, "direct_message:thread", payload)
+    {:noreply, socket}
+  end
+
+  def handle_info({:direct_message_closed, payload}, socket) do
+    push(socket, "direct_message:closed", payload)
     {:noreply, socket}
   end
 
@@ -166,6 +182,37 @@ defmodule IrcpipeWeb.UserChannel do
     end
   end
 
+  def handle_in(
+        "message:send",
+        %{"buffer_id" => "direct:" <> thread_id, "body" => body} = payload,
+        socket
+      ) do
+    user = socket.assigns.current_user
+    client_message_id = Map.get(payload, "client_message_id")
+
+    with true <- String.trim(body) != "",
+         {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+         :ok <- direct_message(thread, body),
+         message when not is_nil(message) <- latest_direct_message(user, thread) do
+      reply_ok(socket, %{
+        client_message_id: client_message_id,
+        message:
+          Event.message(message, "direct:#{thread.id}", %{
+            peer_nick: thread.peer_nick
+          })
+      })
+    else
+      false ->
+        reply_error(socket, %{reason: "empty_message", client_message_id: client_message_id})
+
+      {:error, reason} ->
+        reply_error(socket, %{reason: error_reason(reason), client_message_id: client_message_id})
+
+      nil ->
+        reply_error(socket, %{reason: "send_failed", client_message_id: client_message_id})
+    end
+  end
+
   def handle_in("message:send", payload, socket) do
     reply_error(socket, %{
       reason: "invalid_buffer",
@@ -195,8 +242,69 @@ defmodule IrcpipeWeb.UserChannel do
     Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
   end
 
+  def handle_in("buffer:read", %{"buffer_id" => "direct:" <> thread_id}, socket) do
+    user = socket.assigns.current_user
+
+    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+         {:ok, _thread} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
+      reply_ok(socket, %{
+        buffer_id: "direct:#{thread.id}",
+        unread_count: 0,
+        mention_count: 0
+      })
+    else
+      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+    end
+  end
+
   def handle_in("buffer:read", _payload, socket) do
     reply_error(socket, %{reason: "invalid_buffer"})
+  end
+
+  def handle_in(
+        "direct_message:block",
+        %{"buffer_id" => "direct:" <> thread_id, "blocked" => blocked?},
+        socket
+      )
+      when is_boolean(blocked?) do
+    user = socket.assigns.current_user
+
+    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+         {:ok, updated} <-
+           Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
+      reply_ok(socket, %{
+        buffer: Event.direct_message_thread(updated, thread.server_connection).buffer
+      })
+    else
+      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+    end
+  end
+
+  def handle_in("direct_message:block", _payload, socket) do
+    reply_error(socket, %{reason: "invalid_direct_message"})
+  end
+
+  def handle_in(
+        "direct_message:close",
+        %{"buffer_id" => "direct:" <> thread_id},
+        socket
+      ) do
+    user = socket.assigns.current_user
+
+    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
+         {:ok, _closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
+      reply_ok(socket, %{
+        buffer_id: "direct:#{thread.id}",
+        direct_message_thread_id: thread.id,
+        server_connection_id: thread.server_connection_id
+      })
+    else
+      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+    end
+  end
+
+  def handle_in("direct_message:close", _payload, socket) do
+    reply_error(socket, %{reason: "invalid_direct_message"})
   end
 
   def handle_in("channel:leave", %{"buffer_id" => "channel:" <> membership_id} = payload, socket) do
@@ -373,17 +481,39 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+    with true <- Chat.valid_nick?(target),
+         {:ok, connection} <- connection_from_buffer(user, buffer_id),
          {:ok, result} <-
-           execute_intent(connection, "PRIVMSG #{target} :#{body}", buffer_id, socket) do
-      reply_ok(socket, Map.put(result, :command, command))
+           execute_intent(
+             connection,
+             "PRIVMSG #{target} :#{body}",
+             "server:#{connection.id}",
+             socket
+           ),
+         thread <- Chat.get_direct_message_thread_by_peer!(user, connection, target),
+         message when not is_nil(message) <- latest_direct_message(user, thread) do
+      reply_ok(socket, %{
+        command: command,
+        command_id: result.command_id,
+        status: result.status,
+        buffer_id: "direct:#{thread.id}",
+        message: Event.message(message, "direct:#{thread.id}", %{peer_nick: thread.peer_nick})
+      })
     else
+      false ->
+        reply_error(socket, %{reason: "invalid_nick", command: command})
+
       {:error, %{code: code} = error} ->
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
+
+      nil ->
+        reply_error(socket, %{reason: "send_failed", command: command})
     end
+  rescue
+    Ecto.NoResultsError -> reply_error(socket, %{reason: "send_failed", command: command})
   end
 
   defp run_command(%{name: "nick", args: [nick]} = command, user, buffer_id, socket) do
@@ -484,6 +614,12 @@ defmodule IrcpipeWeb.UserChannel do
     Ecto.NoResultsError -> {:error, :invalid_buffer}
   end
 
+  defp fetch_direct_message_thread(user, thread_id) do
+    {:ok, Chat.get_direct_message_thread!(user, thread_id)}
+  rescue
+    Ecto.NoResultsError -> {:error, :invalid_direct_message}
+  end
+
   defp connection_from_buffer(user, "channel:" <> membership_id) do
     with {:ok, membership} <- fetch_membership(user, membership_id) do
       {:ok, membership.server_connection}
@@ -494,6 +630,12 @@ defmodule IrcpipeWeb.UserChannel do
     {:ok, Chat.get_connection!(user, connection_id)}
   rescue
     Ecto.NoResultsError -> {:error, :invalid_server}
+  end
+
+  defp connection_from_buffer(user, "direct:" <> thread_id) do
+    with {:ok, thread} <- fetch_direct_message_thread(user, thread_id) do
+      {:ok, thread.server_connection}
+    end
   end
 
   defp connection_from_buffer(_user, _buffer_id), do: {:error, :invalid_buffer}
@@ -564,6 +706,12 @@ defmodule IrcpipeWeb.UserChannel do
     :exit, _reason -> {:error, :not_connected}
   end
 
+  defp direct_message(thread, body) do
+    Session.privmsg(thread.server_connection, thread.peer_nick, body)
+  catch
+    :exit, _reason -> {:error, :not_connected}
+  end
+
   defp part(membership, reason) do
     Session.part(membership.server_connection, membership.channel, reason)
   catch
@@ -576,8 +724,15 @@ defmodule IrcpipeWeb.UserChannel do
     |> List.first()
   end
 
+  defp latest_direct_message(user, thread) do
+    user
+    |> Chat.list_buffer_messages("direct:#{thread.id}", limit: 1)
+    |> List.first()
+  end
+
   defp error_reason(:invalid_buffer), do: "invalid_buffer"
   defp error_reason(:invalid_server), do: "invalid_server"
+  defp error_reason(:invalid_direct_message), do: "invalid_direct_message"
   defp error_reason(:invalid_command_args), do: "invalid_command_args"
   defp error_reason(:invalid_connection), do: "invalid_connection"
   defp error_reason(:not_connected), do: "not_connected"

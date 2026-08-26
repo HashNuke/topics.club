@@ -487,6 +487,16 @@ defmodule Ircpipe.Irc.Session do
       new_nick: new_nick
     })
 
+    unless self? do
+      Chat.rename_direct_message_peer(
+        state.connection,
+        old_nick,
+        new_nick,
+        sender_metadata(payload),
+        casemapping(state)
+      )
+    end
+
     state =
       if self? do
         case Chat.update_connection_nickname(state.connection, new_nick, "connected") do
@@ -894,12 +904,14 @@ defmodule Ircpipe.Irc.Session do
     with :ok <- CommandRegistry.validate_private_message(target, body),
          {:ok, client} <- fetch_client(state),
          :ok <- Ircxd.Client.privmsg(client, target, body) do
-      Chat.record_server_message(
+      record_direct_received_line(
         state.connection,
+        target,
+        state.connection.nickname,
         body,
         "message",
-        state.connection.nickname,
-        %{direction: "outgoing", peer_nick: target, target: target}
+        %{direction: "outgoing", peer_nick: target, target: target},
+        casemapping(state)
       )
 
       {:reply, :ok, remember_pending_echo(state, target, body, "message")}
@@ -1609,12 +1621,14 @@ defmodule Ircpipe.Irc.Session do
           casemapping(state)
         )
       else
-        Chat.record_server_message(
+        Chat.record_direct_message(
           state.connection,
+          target,
+          state.connection.nickname,
           body,
           kind,
-          state.connection.nickname,
-          metadata
+          metadata,
+          casemapping(state)
         )
       end
 
@@ -2177,18 +2191,50 @@ defmodule Ircpipe.Irc.Session do
         casemapping(state)
       )
     else
-      record_server_received_line(
-        state.connection,
-        body,
-        kind,
-        nick,
-        Map.put(metadata, :service, service_name(nick))
-      )
+      if user_message_source?(payload) do
+        record_direct_received_line(
+          state.connection,
+          nick,
+          nick,
+          body,
+          kind,
+          Map.put(metadata, :service, service_name(nick)),
+          casemapping(state)
+        )
+      else
+        record_server_received_line(
+          state.connection,
+          body,
+          kind,
+          nick,
+          Map.put(metadata, :service, service_name(nick))
+        )
+      end
     end
+  end
+
+  defp user_message_source?(payload) do
+    source = Map.get(payload, :source)
+    raw_source = Map.get(payload, :raw_source)
+
+    (is_map(source) and Map.get(source, :type) == :user) or
+      (is_binary(raw_source) and String.contains?(raw_source, "!"))
   end
 
   defp record_server_received_line(connection, body, kind, nick, metadata) do
     Chat.record_server_message(connection, body, kind, nick, metadata)
+  rescue
+    DBConnection.ConnectionError -> {:ok, nil}
+    Ecto.ConstraintError -> {:ok, nil}
+    Ecto.NoResultsError -> {:ok, nil}
+    Ecto.StaleEntryError -> {:ok, nil}
+    DBConnection.OwnershipError -> {:ok, nil}
+  catch
+    :exit, _reason -> {:ok, nil}
+  end
+
+  defp record_direct_received_line(connection, peer_nick, nick, body, kind, metadata, casemapping) do
+    Chat.record_direct_message(connection, peer_nick, nick, body, kind, metadata, casemapping)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}
@@ -2410,6 +2456,7 @@ defmodule Ircpipe.Irc.Session do
 
   defp sender_metadata(payload) do
     %{
+      account: Map.get(payload, :account),
       hostmask: Map.get(payload, :raw_source),
       sender_role: role_from_prefixes(Map.get(payload, :prefixes, []))
     }

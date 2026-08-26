@@ -90,6 +90,58 @@ defmodule Ircpipe.NotificationsTest do
     assert payload.url == "/app?buffer=channel:#{membership.id}"
   end
 
+  test "delivers direct-message payloads and suppresses blocked peers", %{
+    scope: scope,
+    connection: connection
+  } do
+    assert {:ok, _subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               subscription_attrs("https://push.example.test/subscription/direct-message")
+             )
+
+    assert {:ok, %{thread: thread, message: message}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "hello privately",
+               "message",
+               %{
+                 direction: "incoming",
+                 account: "akash-account",
+                 hostmask: "akash!user@example.test"
+               }
+             )
+
+    notification = Repo.get_by!(Notification, message_id: message.id)
+    assert notification.direct_message_thread_id == thread.id
+    assert :ok = Notifications.deliver_notification(notification.id)
+
+    assert_receive {:push_sent, _subscription, payload}
+    assert payload.title == "akash on Libera"
+    assert payload.body == "akash: hello privately"
+    assert payload.buffer_id == "direct:#{thread.id}"
+    assert payload.url == "/app?buffer=direct:#{thread.id}"
+
+    assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, thread.id, true)
+
+    message_count = Repo.aggregate(Ircpipe.Chat.Message, :count)
+
+    assert {:ok, %{message: nil, notify?: false, dropped?: true}} =
+             Chat.record_direct_message(
+               connection,
+               "akash_",
+               "akash_",
+               "blocked message",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    assert Repo.aggregate(Ircpipe.Chat.Message, :count) == message_count
+    refute_receive {:push_sent, _, _}
+  end
+
   test "server and channel settings independently suppress delivery", %{
     scope: scope,
     connection: connection,

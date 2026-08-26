@@ -165,6 +165,101 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert :ok = Session.quit(connection)
   end
 
+  test "runs msg commands into an auto-opened direct-message thread" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    socket = join_user_channel(user)
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    ref =
+      push(socket, "command:run", %{
+        "input" => "/msg akash hello privately",
+        "buffer_id" => "server:#{connection.id}"
+      })
+
+    assert_reply ref, :ok, %{
+      command: %{name: "msg", args: ["akash", "hello privately"]},
+      buffer_id: buffer_id,
+      message: %{buffer_id: buffer_id, body: "hello privately", nick: "mira"}
+    }
+
+    assert "direct:" <> _ = buffer_id
+    assert_receive {:irc_server_line, "PRIVMSG akash :hello privately"}, 1_000
+    assert_push "direct_message:thread", %{buffer: %{buffer_id: ^buffer_id, title: "akash"}}
+
+    assert :ok = Session.quit(connection)
+  end
+
+  test "reads, blocks, unblocks, and closes only owned direct-message threads" do
+    user = AccountsFixtures.user_fixture()
+    other_user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, other_connection} =
+      Chat.create_connection(other_user, %{
+        "name" => "other",
+        "host" => "irc.example.test",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "other"
+      })
+
+    assert {:ok, %{thread: thread}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "ping",
+               "message",
+               %{direction: "incoming"}
+             )
+
+    assert {:ok, other_thread} = Chat.open_direct_message(other_user, other_connection, "private")
+    socket = join_user_channel(user)
+    buffer_id = "direct:#{thread.id}"
+
+    read_ref = push(socket, "buffer:read", %{"buffer_id" => buffer_id})
+    assert_reply read_ref, :ok, %{buffer_id: ^buffer_id, unread_count: 0}
+
+    block_ref =
+      push(socket, "direct_message:block", %{"buffer_id" => buffer_id, "blocked" => true})
+
+    assert_reply block_ref, :ok, %{buffer: %{buffer_id: ^buffer_id, blocked: true}}
+
+    unblock_ref =
+      push(socket, "direct_message:block", %{"buffer_id" => buffer_id, "blocked" => false})
+
+    assert_reply unblock_ref, :ok, %{buffer: %{buffer_id: ^buffer_id, blocked: false}}
+
+    close_ref = push(socket, "direct_message:close", %{"buffer_id" => buffer_id})
+    assert_reply close_ref, :ok, %{buffer_id: ^buffer_id}
+
+    foreign_ref =
+      push(socket, "direct_message:close", %{"buffer_id" => "direct:#{other_thread.id}"})
+
+    assert_reply foreign_ref, :error, %{reason: "invalid_direct_message"}
+  end
+
   test "rejects unknown slash commands over the user channel" do
     user = AccountsFixtures.user_fixture()
     socket = join_user_channel(user)

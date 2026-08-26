@@ -210,6 +210,7 @@ defmodule Ircpipe.Irc.SessionTest do
                  %{
                    target: "mira",
                    nick: "akash",
+                   account: "akash-account",
                    raw_source: "akash!user@example.test",
                    body: "hello privately"
                  }}},
@@ -218,15 +219,40 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:buffer_message,
                     %{
-                      buffer_id: "server:" <> _,
+                      buffer_id: "direct:" <> _,
                       nick: "akash",
                       body: "hello privately",
                       metadata: %{
+                        "account" => "akash-account",
                         "direction" => "incoming",
                         "peer_nick" => "akash",
                         "target" => "mira"
                       }
                     }}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd,
+                {:notice,
+                 %{
+                   target: "*",
+                   nick: "irc.example.test",
+                   raw_source: "irc.example.test",
+                   body: "Looking up your hostname"
+                 }}},
+               state
+             )
+
+    assert_receive {:buffer_message,
+                    %{
+                      buffer_id: "server:" <> _,
+                      nick: "irc.example.test",
+                      body: "Looking up your hostname"
+                    }}
+
+    assert Enum.map(Chat.list_direct_message_threads(user, connection), & &1.peer_nick) == [
+             "akash"
+           ]
 
     assert {:noreply, ^state} =
              Session.handle_info(

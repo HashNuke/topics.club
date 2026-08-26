@@ -61,7 +61,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
       mention_notifications_enabled: connection.mention_notifications_enabled,
-      channels: Enum.map(memberships, & &1.id)
+      channels: Enum.map(memberships, & &1.id),
+      direct_messages: Enum.map(connection.direct_message_threads, & &1.id)
     }
   end
 
@@ -79,8 +80,27 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         mention_count: connection.mention_count,
         mention_notifications_enabled: connection.mention_notifications_enabled
       }
-      | Enum.map(visible_memberships(connection), &channel_buffer(&1, connection))
+      | Enum.map(connection.direct_message_threads, &direct_message_buffer(&1, connection)) ++
+          Enum.map(visible_memberships(connection), &channel_buffer(&1, connection))
     ]
+  end
+
+  defp direct_message_buffer(thread, connection) do
+    %{
+      buffer_id: direct_message_buffer_id(thread),
+      buffer_type: "direct_message",
+      server_connection_id: connection.id,
+      channel_membership_id: nil,
+      direct_message_thread_id: thread.id,
+      title: thread.peer_nick,
+      subtitle: "on #{connection.host}",
+      status: Session.status(connection),
+      unread_count: thread.unread_count,
+      mention_count: 0,
+      account: thread.account,
+      hostmask: thread.hostmask,
+      blocked: not is_nil(thread.blocked_at)
+    }
   end
 
   defp channel_buffer(membership, connection) do
@@ -133,7 +153,23 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         {buffer_id, messages}
       end)
 
-    Map.merge(server_messages, channel_messages)
+    direct_message_messages =
+      connections
+      |> Enum.flat_map(& &1.direct_message_threads)
+      |> Map.new(fn thread ->
+        buffer_id = direct_message_buffer_id(thread)
+
+        messages =
+          user
+          |> Chat.list_buffer_messages(buffer_id, limit: @message_limit)
+          |> Enum.map(&Event.message(&1, buffer_id, %{peer_nick: thread.peer_nick}))
+
+        {buffer_id, messages}
+      end)
+
+    server_messages
+    |> Map.merge(direct_message_messages)
+    |> Map.merge(channel_messages)
   end
 
   defp message_cursors_by_buffer(messages_by_buffer) do
@@ -171,6 +207,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   defp server_buffer_id(connection), do: "server:#{connection.id}"
   defp channel_buffer_id(membership), do: "channel:#{membership.id}"
+  defp direct_message_buffer_id(thread), do: "direct:#{thread.id}"
 
   defp visible_memberships(connection) do
     Enum.filter(connection.channel_memberships, &(&1.status in ["pending", "joined"]))

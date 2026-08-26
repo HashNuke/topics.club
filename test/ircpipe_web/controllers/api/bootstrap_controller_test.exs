@@ -4,7 +4,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Topic
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
 
@@ -190,6 +190,51 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
 
     assert :ok = Session.quit(connection)
+  end
+
+  test "returns open direct-message buffers and their retained messages", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    assert {:ok, %{thread: thread, message: message}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "hello privately",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    conn = get(conn, ~p"/api/bootstrap")
+    :ok = SessionSupervisor.stop_session(connection)
+    payload = json_response(conn, 200)
+    buffer_id = "direct:#{thread.id}"
+
+    assert %{
+             "buffer_id" => ^buffer_id,
+             "buffer_type" => "direct_message",
+             "direct_message_thread_id" => thread_id,
+             "title" => "akash",
+             "unread_count" => 1,
+             "blocked" => false
+           } = Enum.find(payload["buffers"], &(&1["buffer_id"] == buffer_id))
+
+    assert thread_id == thread.id
+
+    assert [%{"id" => message_id, "body" => "hello privately"}] =
+             payload["messages_by_buffer"][buffer_id]
+
+    assert message_id == message.id
   end
 
   test "prefers a joined channel over an earlier pending channel", %{conn: conn, user: user} do

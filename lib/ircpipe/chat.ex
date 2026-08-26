@@ -1,11 +1,13 @@
 defmodule Ircpipe.Chat do
   import Ecto.Query
 
+  alias Ircpipe.Accounts.Scope
   alias Ircpipe.Accounts.User
 
   alias Ircpipe.Chat.{
     ChannelMembership,
     ChannelUser,
+    DirectMessageThread,
     Message,
     Notification,
     ServerConnection,
@@ -29,7 +31,7 @@ defmodule Ircpipe.Chat do
     connections =
       ServerConnection
       |> where([c], c.user_id == ^user_id)
-      |> order_by([c], asc: c.name)
+      |> order_by([c], asc: c.inserted_at, asc: c.id)
       |> Repo.all()
 
     Enum.each(connections, fn connection ->
@@ -38,7 +40,22 @@ defmodule Ircpipe.Chat do
       end
     end)
 
-    Repo.preload(connections, :channel_memberships, force: true)
+    memberships =
+      from(membership in ChannelMembership,
+        order_by: [asc: fragment("lower(?)", membership.channel), asc: membership.id]
+      )
+
+    direct_messages =
+      from(thread in DirectMessageThread,
+        where: is_nil(thread.closed_at),
+        order_by: [asc: fragment("lower(?)", thread.peer_nick), asc: thread.id]
+      )
+
+    Repo.preload(
+      connections,
+      [channel_memberships: memberships, direct_message_threads: direct_messages],
+      force: true
+    )
   end
 
   def list_recently_seen_connections(cutoff) do
@@ -64,6 +81,157 @@ defmodule Ircpipe.Chat do
     |> where([c], c.user_id == ^user_id and c.id == ^id)
     |> preload(:channel_memberships)
     |> Repo.one!()
+  end
+
+  def list_direct_message_threads(
+        %User{id: user_id},
+        %ServerConnection{id: connection_id, user_id: user_id}
+      ) do
+    DirectMessageThread
+    |> where(
+      [thread],
+      thread.user_id == ^user_id and thread.server_connection_id == ^connection_id and
+        is_nil(thread.closed_at)
+    )
+    |> order_by([thread], asc: fragment("lower(?)", thread.peer_nick), asc: thread.id)
+    |> Repo.all()
+  end
+
+  def get_direct_message_thread!(%User{id: user_id}, id) do
+    DirectMessageThread
+    |> where([thread], thread.id == ^id and thread.user_id == ^user_id)
+    |> preload(:server_connection)
+    |> Repo.one!()
+  end
+
+  def get_direct_message_thread_by_peer!(
+        %User{} = user,
+        %ServerConnection{} = connection,
+        peer_nick,
+        casemapping \\ nil
+      ) do
+    mapping = casemapping || stored_casemapping(connection) || :ascii
+    peer_key = channel_key(peer_nick, mapping)
+
+    DirectMessageThread
+    |> where(
+      [thread],
+      thread.user_id == ^user.id and thread.server_connection_id == ^connection.id and
+        thread.peer_key == ^peer_key
+    )
+    |> preload(:server_connection)
+    |> Repo.one!()
+  end
+
+  def open_direct_message(
+        %User{id: user_id} = user,
+        %ServerConnection{user_id: user_id} = connection,
+        peer_nick
+      ) do
+    if valid_nick?(peer_nick) do
+      ensure_direct_message_thread(user, connection, peer_nick, %{}, false)
+    else
+      {:error, :invalid_nick}
+    end
+  end
+
+  def close_direct_message_thread(%Scope{user: user}, id) do
+    thread = get_direct_message_thread!(user, id)
+    now = DateTime.utc_now(:second)
+
+    thread
+    |> DirectMessageThread.changeset(%{
+      closed_at: now,
+      last_read_at: now,
+      unread_count: 0
+    })
+    |> Repo.update()
+    |> tap(fn
+      {:ok, closed} -> broadcast_direct_message_closed(closed)
+      _result -> :ok
+    end)
+  end
+
+  def set_direct_message_blocked(%Scope{user: user}, id, blocked?)
+      when is_boolean(blocked?) do
+    thread = get_direct_message_thread!(user, id)
+    now = DateTime.utc_now(:second)
+
+    attrs =
+      if blocked? do
+        %{blocked_at: now, last_read_at: now, unread_count: 0}
+      else
+        %{blocked_at: nil}
+      end
+
+    thread
+    |> DirectMessageThread.changeset(attrs)
+    |> Repo.update()
+    |> tap(fn
+      {:ok, updated} -> broadcast_direct_message_thread(updated)
+      _result -> :ok
+    end)
+  end
+
+  def mark_direct_message_read(%Scope{user: user}, id) do
+    thread = get_direct_message_thread!(user, id)
+
+    result =
+      thread
+      |> DirectMessageThread.changeset(%{
+        last_read_at: DateTime.utc_now(:second),
+        unread_count: 0
+      })
+      |> Repo.update()
+
+    case result do
+      {:ok, updated} ->
+        broadcast_buffer_read(%{
+          user_id: user.id,
+          buffer_id: "direct:#{updated.id}",
+          server_connection_id: updated.server_connection_id,
+          direct_message_thread_id: updated.id
+        })
+
+      _result ->
+        :ok
+    end
+
+    result
+  end
+
+  def rename_direct_message_peer(
+        %ServerConnection{} = connection,
+        old_nick,
+        new_nick,
+        metadata \\ %{},
+        casemapping \\ nil
+      ) do
+    mapping = casemapping || stored_casemapping(connection) || :ascii
+    old_key = channel_key(old_nick, mapping)
+    account = normalized_account(metadata_value(metadata, :account))
+    hostmask = normalized_metadata_text(metadata_value(metadata, :hostmask))
+    identity_key = direct_message_identity(account, hostmask)
+
+    case find_direct_message_thread(connection, identity_key, old_key) do
+      nil ->
+        :ok
+
+      thread ->
+        thread
+        |> DirectMessageThread.changeset(%{
+          peer_nick: new_nick,
+          peer_key: channel_key(new_nick, mapping),
+          account: account || thread.account,
+          hostmask: hostmask || thread.hostmask,
+          identity_key: identity_key || thread.identity_key
+        })
+        |> Repo.update()
+        |> tap(fn
+          {:ok, updated} -> broadcast_direct_message_thread(updated)
+          _result -> :ok
+        end)
+    end
   end
 
   def create_connection(%User{} = user, attrs) do
@@ -448,6 +616,21 @@ defmodule Ircpipe.Chat do
     list_cursor_messages(query, opts, limit)
   end
 
+  def list_buffer_messages(%User{} = user, "direct:" <> thread_id, opts) do
+    thread = get_direct_message_thread!(user, thread_id)
+    limit = opts |> Keyword.get(:limit, 150) |> to_int(150) |> min(150) |> max(1)
+
+    query =
+      Message
+      |> where(
+        [message],
+        message.user_id == ^user.id and message.direct_message_thread_id == ^thread.id
+      )
+      |> cursor_filter(user, opts)
+
+    list_cursor_messages(query, opts, limit)
+  end
+
   def list_buffer_messages(%User{}, _buffer_id, _opts), do: []
 
   def list_buffer_command_messages(%User{} = user, buffer_id, command_ids)
@@ -595,6 +778,121 @@ defmodule Ircpipe.Chat do
       broadcast_server_message(message, connection)
       message
     end)
+  end
+
+  def record_direct_message(
+        %ServerConnection{} = connection,
+        peer_nick,
+        nick,
+        body,
+        kind \\ "message",
+        metadata \\ %{},
+        casemapping \\ nil
+      ) do
+    user = Repo.get!(User, connection.user_id)
+    incoming? = metadata_value(metadata, :direction) == "incoming"
+    mapping = casemapping || stored_casemapping(connection) || :ascii
+
+    result =
+      Repo.transaction(fn ->
+        {:ok, thread} =
+          ensure_direct_message_thread(
+            user,
+            connection,
+            peer_nick,
+            metadata,
+            incoming?,
+            mapping
+          )
+
+        if incoming? and thread.blocked_at do
+          %{
+            thread: thread,
+            message: nil,
+            notification: nil,
+            notify?: false,
+            dropped?: true
+          }
+        else
+          notify? = incoming?
+
+          thread =
+            if notify? do
+              thread
+              |> DirectMessageThread.changeset(%{
+                closed_at: nil,
+                unread_count: thread.unread_count + 1
+              })
+              |> Repo.update!()
+            else
+              thread
+            end
+
+          message =
+            %Message{
+              user_id: connection.user_id,
+              server_connection_id: connection.id,
+              direct_message_thread_id: thread.id
+            }
+            |> Message.changeset(%{
+              kind: kind,
+              nick: nick,
+              hostmask: metadata_value(metadata, :hostmask),
+              service: metadata_value(metadata, :service),
+              metadata: stringify_metadata(metadata),
+              body: body,
+              mentioned: false,
+              occurred_at: DateTime.utc_now(:second)
+            })
+            |> Repo.insert!()
+
+          notification =
+            if notify? do
+              %Notification{
+                user_id: user.id,
+                message_id: message.id,
+                direct_message_thread_id: thread.id
+              }
+              |> Notification.changeset(%{})
+              |> Repo.insert!()
+            end
+
+          prune_old_messages(user)
+
+          %{
+            thread: thread,
+            message: message,
+            notification: notification,
+            notify?: notify?,
+            dropped?: false
+          }
+        end
+      end)
+
+    case result do
+      {:ok, %{dropped?: true} = recorded} ->
+        {:ok, recorded}
+
+      {:ok,
+       %{thread: thread, message: message, notification: notification, notify?: notify?} =
+           recorded} ->
+        if notification, do: Notifications.enqueue_delivery(notification)
+        broadcast_direct_message_thread(thread)
+        event = broadcast_direct_message(message, thread)
+
+        if notify? do
+          Phoenix.PubSub.broadcast(
+            Ircpipe.PubSub,
+            "user:#{connection.user_id}",
+            {:direct_message_notification, Event.direct_message_notification(event)}
+          )
+        end
+
+        {:ok, recorded}
+
+      error ->
+        error
+    end
   end
 
   def record_channel_system_message(
@@ -911,6 +1209,90 @@ defmodule Ircpipe.Chat do
 
   def valid_nick?(_nick), do: false
 
+  defp ensure_direct_message_thread(
+         %User{} = user,
+         %ServerConnection{} = connection,
+         peer_nick,
+         metadata,
+         incoming?,
+         casemapping \\ nil
+       ) do
+    mapping = casemapping || stored_casemapping(connection) || :ascii
+    peer_key = channel_key(peer_nick, mapping)
+    account = normalized_account(metadata_value(metadata, :account))
+    hostmask = normalized_metadata_text(metadata_value(metadata, :hostmask))
+    identity_key = direct_message_identity(account, hostmask)
+
+    thread =
+      find_direct_message_thread(connection, identity_key, peer_key) ||
+        %DirectMessageThread{user_id: user.id, server_connection_id: connection.id}
+
+    reopen? = not incoming? or is_nil(thread.blocked_at)
+
+    attrs =
+      %{
+        peer_nick: peer_nick,
+        peer_key: peer_key,
+        account: account || thread.account,
+        hostmask: hostmask || thread.hostmask,
+        identity_key: identity_key || thread.identity_key
+      }
+      |> then(fn attrs -> if reopen?, do: Map.put(attrs, :closed_at, nil), else: attrs end)
+
+    thread
+    |> DirectMessageThread.changeset(attrs)
+    |> Repo.insert_or_update()
+  end
+
+  defp find_direct_message_thread(connection, identity_key, peer_key) do
+    by_identity =
+      if identity_key do
+        Repo.get_by(DirectMessageThread,
+          server_connection_id: connection.id,
+          identity_key: identity_key
+        )
+      end
+
+    by_identity ||
+      Repo.get_by(DirectMessageThread,
+        server_connection_id: connection.id,
+        peer_key: peer_key
+      )
+  end
+
+  defp normalized_account(account) when is_binary(account) do
+    case String.trim(account) do
+      account when account in ["", "*"] -> nil
+      account -> account
+    end
+  end
+
+  defp normalized_account(_account), do: nil
+
+  defp normalized_metadata_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  defp normalized_metadata_text(_value), do: nil
+
+  defp direct_message_identity(account, _hostmask) when is_binary(account),
+    do: "account:#{String.downcase(account)}"
+
+  defp direct_message_identity(nil, hostmask) when is_binary(hostmask) do
+    stable_hostmask =
+      case String.split(hostmask, "!", parts: 2) do
+        [_nick, user_host] -> user_host
+        [source] -> source
+      end
+
+    "hostmask:#{String.downcase(stable_hostmask)}"
+  end
+
+  defp direct_message_identity(nil, nil), do: nil
+
   defp default_nick(%User{email: email}) do
     base =
       email
@@ -1102,6 +1484,41 @@ defmodule Ircpipe.Chat do
       "user:#{connection.user_id}",
       {pubsub_event(event), event}
     )
+  end
+
+  defp broadcast_direct_message_thread(thread) do
+    connection = Repo.get!(ServerConnection, thread.server_connection_id)
+    event = Event.direct_message_thread(thread, connection)
+
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{thread.user_id}",
+      {:direct_message_thread, event}
+    )
+  end
+
+  defp broadcast_direct_message_closed(thread) do
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{thread.user_id}",
+      {:direct_message_closed, Event.direct_message_closed(thread)}
+    )
+  end
+
+  defp broadcast_direct_message(message, thread) do
+    event =
+      Event.message(message, "direct:#{thread.id}", %{
+        peer_nick: thread.peer_nick,
+        blocked: not is_nil(thread.blocked_at)
+      })
+
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{thread.user_id}",
+      {pubsub_event(event), event}
+    )
+
+    event
   end
 
   defp broadcast_command_message(message, nil, connection),

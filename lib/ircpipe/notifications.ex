@@ -2,7 +2,15 @@ defmodule Ircpipe.Notifications do
   import Ecto.Query
 
   alias Ircpipe.Accounts.Scope
-  alias Ircpipe.Chat.{ChannelMembership, Message, Notification, ServerConnection}
+
+  alias Ircpipe.Chat.{
+    ChannelMembership,
+    DirectMessageThread,
+    Message,
+    Notification,
+    ServerConnection
+  }
+
   alias Ircpipe.Notifications.{PushSubscription, PushWorker, WebPush}
   alias Ircpipe.Repo
 
@@ -88,6 +96,10 @@ defmodule Ircpipe.Notifications do
   end
 
   defp delivery_record(notification_id) do
+    direct_message_delivery_record(notification_id) || mention_delivery_record(notification_id)
+  end
+
+  defp mention_delivery_record(notification_id) do
     from(notification in Notification,
       join: message in Message,
       on: message.id == notification.message_id,
@@ -100,6 +112,7 @@ defmodule Ircpipe.Notifications do
         notification_id: notification.id,
         user_id: notification.user_id,
         message_id: message.id,
+        kind: "mention",
         body: message.body,
         nick: message.nick,
         channel: membership.channel,
@@ -107,6 +120,32 @@ defmodule Ircpipe.Notifications do
         server_name: connection.name,
         server_enabled: connection.mention_notifications_enabled,
         channel_enabled: membership.mention_notifications_enabled
+      }
+    )
+    |> Repo.one()
+  end
+
+  defp direct_message_delivery_record(notification_id) do
+    from(notification in Notification,
+      join: message in Message,
+      on: message.id == notification.message_id,
+      join: thread in DirectMessageThread,
+      on: thread.id == notification.direct_message_thread_id,
+      join: connection in ServerConnection,
+      on: connection.id == thread.server_connection_id,
+      where: notification.id == ^notification_id and is_nil(thread.blocked_at),
+      select: %{
+        notification_id: notification.id,
+        user_id: notification.user_id,
+        message_id: message.id,
+        kind: "direct_message",
+        body: message.body,
+        nick: message.nick,
+        peer_nick: thread.peer_nick,
+        direct_message_thread_id: thread.id,
+        server_name: connection.name,
+        server_enabled: true,
+        channel_enabled: true
       }
     )
     |> Repo.one()
@@ -133,15 +172,7 @@ defmodule Ircpipe.Notifications do
   end
 
   defp deliver_to_subscription(subscription, record) do
-    payload = %{
-      title: "#{record.channel} on #{record.server_name}",
-      body: "#{record.nick}: #{String.slice(record.body, 0, 240)}",
-      tag: "mention:#{record.notification_id}",
-      notification_id: record.notification_id,
-      message_id: record.message_id,
-      buffer_id: "channel:#{record.channel_membership_id}",
-      url: "/app?buffer=channel:#{record.channel_membership_id}"
-    }
+    payload = notification_payload(record)
 
     case push_sender().send(subscription, payload) do
       :ok -> mark_success(subscription)
@@ -150,6 +181,30 @@ defmodule Ircpipe.Notifications do
       {:error, {:transport, _reason}} = error -> error
       {:error, _reason} -> :ok
     end
+  end
+
+  defp notification_payload(%{kind: "mention"} = record) do
+    %{
+      title: "#{record.channel} on #{record.server_name}",
+      body: "#{record.nick}: #{String.slice(record.body, 0, 240)}",
+      tag: "mention:#{record.notification_id}",
+      notification_id: record.notification_id,
+      message_id: record.message_id,
+      buffer_id: "channel:#{record.channel_membership_id}",
+      url: "/app?buffer=channel:#{record.channel_membership_id}"
+    }
+  end
+
+  defp notification_payload(%{kind: "direct_message"} = record) do
+    %{
+      title: "#{record.peer_nick} on #{record.server_name}",
+      body: "#{record.nick}: #{String.slice(record.body, 0, 240)}",
+      tag: "direct-message:#{record.notification_id}",
+      notification_id: record.notification_id,
+      message_id: record.message_id,
+      buffer_id: "direct:#{record.direct_message_thread_id}",
+      url: "/app?buffer=direct:#{record.direct_message_thread_id}"
+    }
   end
 
   defp mark_success(subscription) do

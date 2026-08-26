@@ -3,7 +3,7 @@ defmodule Ircpipe.Chat.ServerConnection do
   import Ecto.Changeset
 
   alias Ircpipe.Accounts.User
-  alias Ircpipe.Chat.ChannelMembership
+  alias Ircpipe.Chat.{ChannelMembership, DirectMessageThread}
 
   @statuses ~w(disconnected connecting connected errored)
 
@@ -28,6 +28,7 @@ defmodule Ircpipe.Chat.ServerConnection do
 
     belongs_to :user, User
     has_many :channel_memberships, ChannelMembership
+    has_many :direct_message_threads, DirectMessageThread
 
     timestamps(type: :utc_datetime)
   end
