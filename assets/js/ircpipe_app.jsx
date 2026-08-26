@@ -3,6 +3,11 @@ import {createApiClient} from "./api_client.js"
 import {commandErrorMessage} from "./app_feedback.js"
 import {buildBootstrapState} from "./bootstrap_state.js"
 import {
+  notificationPermission,
+  requestNotificationPermission,
+  showMentionNotification,
+} from "./browser_notifications.js"
+import {
   channelFromBuffer,
   channelFromMembership,
   planServerRemoval,
@@ -538,13 +543,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   async function requestNotifications() {
-    if (!("Notification" in window)) {
-      setNotificationState("unsupported")
-      return
-    }
-
-    const permission = await Notification.requestPermission()
-    setNotificationState(permission)
+    setNotificationState(await requestNotificationPermission())
   }
 
   function applyRealtimeMessage(message) {
@@ -664,12 +663,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function handleMentionNotification(message) {
-    if (!("Notification" in window)) return
-    if (document.visibilityState !== "hidden") return
-    if (notificationStateRef.current !== "granted" && window.Notification.permission !== "granted") return
-    if (message.nick === currentUser?.email?.split("@")[0]) return
-
-    new window.Notification(message.channel || "topics.club", {body: `${message.nick}: ${message.body}`})
+    showMentionNotification(message, {
+      currentUser,
+      notificationState: notificationStateRef.current,
+    })
   }
 
   function replacePendingMessage(channelId, clientMessageId, message) {
@@ -1013,9 +1010,4 @@ function defer(callback) {
   }
 
   Promise.resolve().then(callback)
-}
-
-function notificationPermission() {
-  if (!("Notification" in window)) return "default"
-  return Notification.permission
 }
