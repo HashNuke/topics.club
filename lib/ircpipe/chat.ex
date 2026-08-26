@@ -435,35 +435,6 @@ defmodule Ircpipe.Chat do
     end)
   end
 
-  def update_connection_status(%ServerConnection{} = connection, status) do
-    connection
-    |> ServerConnection.changeset(%{
-      status: status,
-      last_connected_at: if(status == "connected", do: DateTime.utc_now(:second))
-    })
-    |> Repo.update()
-    |> tap(fn
-      {:ok, updated} -> broadcast_server_status(updated)
-      _other -> :ok
-    end)
-  end
-
-  def touch_connection_connected(%ServerConnection{} = connection) do
-    connection
-    |> Ecto.Changeset.change(last_connected_at: DateTime.utc_now(:second))
-    |> Repo.update()
-  end
-
-  def update_connection_nickname(%ServerConnection{} = connection, nickname, status \\ nil) do
-    connection
-    |> ServerConnection.changeset(%{nickname: nickname})
-    |> Repo.update()
-    |> tap(fn
-      {:ok, updated} -> broadcast_server_status(updated, status || updated.status)
-      _other -> :ok
-    end)
-  end
-
   def update_connection_casemapping(%ServerConnection{} = connection, casemapping) do
     mapping = Atom.to_string(casemapping)
 
@@ -1611,17 +1582,6 @@ defmodule Ircpipe.Chat do
 
   defp membership_for_message(%Message{channel_membership_id: membership_id}),
     do: Repo.get!(ChannelMembership, membership_id)
-
-  def broadcast_server_status(connection, status) do
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{connection.user_id}",
-      {:server_status, Event.server_status(connection, status)}
-    )
-  end
-
-  defp broadcast_server_status(connection),
-    do: broadcast_server_status(connection, connection.status)
 
   defp presence_user(name) do
     %{

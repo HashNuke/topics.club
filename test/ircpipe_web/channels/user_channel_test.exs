@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
@@ -693,7 +694,7 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     join_user_channel(user)
 
-    {:ok, _connection} = Chat.update_connection_status(connection, "connected")
+    {:ok, _connection} = ConnectionLifecycle.update_status(connection, "connected")
 
     assert_push "server:status", %{
       type: "server:status",
@@ -1009,7 +1010,7 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     join_user_channel(user)
 
-    {:ok, _connection} = Chat.update_connection_status(connection, "connected")
+    {:ok, _connection} = ConnectionLifecycle.update_status(connection, "connected")
 
     refute_push "server:status", %{server_connection_id: _connection_id}, 100
   end

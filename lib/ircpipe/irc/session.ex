@@ -6,6 +6,7 @@ defmodule Ircpipe.Irc.Session do
   require Logger
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.CommandResult
   alias Ircpipe.Irc.Identifier
@@ -510,7 +511,7 @@ defmodule Ircpipe.Irc.Session do
 
     state =
       if self? do
-        case Chat.update_connection_nickname(state.connection, new_nick, "connected") do
+        case ConnectionLifecycle.update_nickname(state.connection, new_nick, "connected") do
           {:ok, connection} -> %{state | connection: connection}
           {:error, _changeset} -> state
         end
@@ -996,7 +997,7 @@ defmodule Ircpipe.Irc.Session do
   defp update_status(connection, status) do
     connection =
       if status == "connected" do
-        case Chat.touch_connection_connected(connection) do
+        case ConnectionLifecycle.touch_connected(connection) do
           {:ok, updated} -> updated
           {:error, _changeset} -> connection
         end
@@ -1004,7 +1005,7 @@ defmodule Ircpipe.Irc.Session do
         connection
       end
 
-    Chat.broadcast_server_status(connection, status)
+    ConnectionLifecycle.broadcast_status(connection, status)
     {:ok, connection}
   rescue
     DBConnection.ConnectionError -> {:ok, connection}
