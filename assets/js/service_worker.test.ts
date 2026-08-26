@@ -232,6 +232,43 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   expect(malformedClickNotification.close).toHaveBeenCalledOnce()
   expect(worker.clients.openWindow).not.toHaveBeenCalled()
 
+  const clickedClient = {
+    id: "clicked-chat",
+    url: "https://topics.example.test/app",
+    visibilityState: "visible",
+    postMessage: vi.fn(),
+    focus: vi.fn().mockResolvedValue(undefined),
+  }
+  worker.clients.matchAll.mockResolvedValue([clickedClient])
+  await dispatchExtendableEvent(handlers.get("message"), {
+    source: {id: clickedClient.id},
+    data: {
+      type: "notification:client-lease",
+      healthy: true,
+      sessionGeneration: "session-b",
+    },
+  })
+  const validClickNotification = {
+    close: vi.fn(),
+    data: {
+      bufferId: "direct:3",
+      notificationId: 20,
+      sessionGeneration: "session-b",
+      userId: "2",
+      url: "/app?buffer=direct:3",
+    },
+  }
+  await dispatchExtendableEvent(handlers.get("notificationclick"), {
+    notification: validClickNotification,
+  })
+  expect(clickedClient.postMessage).toHaveBeenCalledWith({
+    type: "notification:navigate",
+    bufferId: "direct:3",
+    sessionGeneration: "session-b",
+    userId: "2",
+  })
+  expect(clickedClient.focus).toHaveBeenCalledOnce()
+
   currentAccount = {user_id: null, session_generation: null}
   await dispatchExtendableEvent(handlers.get("message"), {
     data: {type: "notification:refresh-account"},

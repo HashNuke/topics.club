@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   ChatUser,
   CommandCatalogEntry,
+  CurrentUser,
   DirectMessageTombstone,
   DirectMessageBufferRecord,
   EntityId,
@@ -19,6 +20,7 @@ import type {
 } from "./types.ts"
 
 export interface BootstrapPayload {
+  user: CurrentUser
   active_buffer_id?: string | null
   buffers?: BufferRecord[]
   command_catalog?: CommandCatalogEntry[]
@@ -48,6 +50,7 @@ export interface BootstrapState {
 
 export function buildBootstrapState(bootstrap?: BootstrapPayload | null): BootstrapState | null {
   if (
+    !validCurrentUser(bootstrap?.user) ||
     !bootstrap?.buffers ||
     !bootstrap?.connections ||
     !Array.isArray(bootstrap.direct_message_tombstones) ||
@@ -157,6 +160,15 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     usersByChannel: bootstrap.users_by_buffer || {},
     view,
   }
+}
+
+function validCurrentUser(user?: CurrentUser | null): user is CurrentUser {
+  return Boolean(
+    user &&
+    validEntityId(user.id) &&
+    typeof user.email === "string" &&
+    user.email.length > 0
+  )
 }
 
 function validBackendConnection(connection: BackendConnection): boolean {

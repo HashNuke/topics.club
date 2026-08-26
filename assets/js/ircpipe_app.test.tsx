@@ -745,6 +745,7 @@ describe("IrcpipeApp UI prototype", () => {
   })
 
   test("opens a notification DM after its authoritative thread arrives", async () => {
+    const user = userEvent.setup()
     const seedClient = directMessageApiClient()
     const initial = await seedClient.bootstrap()
     const apiClient = {
@@ -788,15 +789,23 @@ describe("IrcpipeApp UI prototype", () => {
 
       expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
       await waitFor(() => expect(listeners.get("message")?.size).toBe(1))
+      const nav = screen.getByRole("navigation", {name: "Joined topics"})
+      await user.click(within(nav).getByText("akash"))
+      expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
 
       act(() => {
         listeners.get("message")?.forEach((listener) => listener({
-          data: {type: "notification:navigate", bufferId: "direct:12"},
+          data: {
+            type: "notification:navigate",
+            bufferId: "direct:12",
+            sessionGeneration: "test-session",
+            userId: "1",
+          },
         }))
       })
 
       await waitFor(() => expect(apiClient.bootstrap).toHaveBeenCalledTimes(2))
-      expect(screen.getByRole("heading", {name: "Zed"})).toBeInTheDocument()
+      expect(screen.getByRole("heading", {name: "akash"})).toBeInTheDocument()
 
       act(() => {
         realtimeHandlers.onDirectMessageThread(directThreadPayload({
@@ -807,6 +816,112 @@ describe("IrcpipeApp UI prototype", () => {
       })
 
       expect(await screen.findByRole("heading", {name: "Mona"})).toBeInTheDocument()
+    } finally {
+      rendered?.unmount()
+      if (originalServiceWorker) {
+        Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
+      } else {
+        delete navigator.serviceWorker
+      }
+    }
+  })
+
+  test("discards pending notification navigation when the account generation changes", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    const nextAccount = {
+      ...initial,
+      user: {id: 2, email: "other@example.com"},
+      push: {...initial.push, session_generation: "session-b"},
+      buffers: initial.buffers.map((buffer) =>
+        buffer.buffer_id === "direct:9" ? directBufferRecord(9, "Bea") : buffer
+      ),
+    }
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn()
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValue(nextAccount),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    const listeners = new Map<string, Set<(event: any) => void>>()
+    const originalServiceWorker = navigator.serviceWorker
+    let realtimeHandlers
+    let rendered
+
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: {
+        ready: Promise.resolve({active: {postMessage: vi.fn()}}),
+        controller: null,
+        addEventListener: (type, listener) => {
+          const current = listeners.get(type) || new Set()
+          current.add(listener)
+          listeners.set(type, current)
+        },
+        removeEventListener: (type, listener) => listeners.get(type)?.delete(listener),
+      },
+      configurable: true,
+    })
+
+    try {
+      rendered = render(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 1, email: "mira@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+      await waitFor(() => expect(listeners.get("message")?.size).toBe(1))
+      act(() => {
+        listeners.get("message")?.forEach((listener) => listener({
+          data: {
+            type: "notification:navigate",
+            bufferId: "direct:12",
+            sessionGeneration: "test-session",
+            userId: "1",
+          },
+        }))
+      })
+      await waitFor(() => expect(apiClient.bootstrap).toHaveBeenCalledTimes(2))
+
+      rendered.rerender(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 2, email: "other@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+      expect(await screen.findByRole("heading", {name: "Bea"})).toBeInTheDocument()
+
+      act(() => {
+        listeners.get("message")?.forEach((listener) => listener({
+          data: {
+            type: "notification:navigate",
+            bufferId: "direct:12",
+            sessionGeneration: "test-session",
+            userId: "1",
+          },
+        }))
+        realtimeHandlers.onDirectMessageThread(directThreadPayload({
+          connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+          buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 12, direct_message_revision: 1, title: "Mona", unread_count: 1, blocked: false},
+          revision: 1,
+        }))
+      })
+
+      expect(screen.getByRole("heading", {name: "Bea"})).toBeInTheDocument()
     } finally {
       rendered?.unmount()
       if (originalServiceWorker) {

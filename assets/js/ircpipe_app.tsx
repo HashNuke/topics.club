@@ -132,6 +132,12 @@ interface NotificationPreferenceOperation {
   previous: boolean
 }
 
+interface NotificationBufferRequest {
+  bufferId: string
+  sessionGeneration: string
+  userId: string
+}
+
 export default function IrcpipeApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}: IrcpipeAppProps) {
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
@@ -167,7 +173,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
   const realtimeRefreshInFlightRef = useRef(false)
   const realtimeRefreshRequestedRef = useRef(false)
-  const notificationBufferRequestRef = useRef<string | null>(null)
+  const notificationBufferRequestRef = useRef<NotificationBufferRequest | null>(null)
+  const refreshAuthoritativeBootstrapRef = useRef<() => void>(() => undefined)
+  const selectBufferRef = useRef<(bufferId: string) => boolean>(() => false)
   const requestedBufferIdRef = useRef(requestedBufferId())
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
@@ -177,6 +185,21 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   currentUserRef.current = currentUser
   pushConfigRef.current = pushConfig
+  refreshAuthoritativeBootstrapRef.current = refreshAuthoritativeBootstrap
+  selectBufferRef.current = selectBuffer
+
+  useEffect(() => {
+    const request = notificationBufferRequestRef.current
+    if (
+      request &&
+      (
+        request.userId !== String(currentUser?.id || "") ||
+        request.sessionGeneration !== pushConfig?.session_generation
+      )
+    ) {
+      notificationBufferRequestRef.current = null
+    }
+  }, [currentUser?.id, pushConfig?.session_generation])
 
   useEffect(() => {
     if (!currentUser) {
@@ -374,10 +397,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const navigateFromNotification = (event: MessageEvent) => {
       if (event.data?.type !== "notification:navigate") return
       const bufferId = notificationBufferId(event.data.bufferId)
-      if (!bufferId) return
+      const userId = validProtocolEntityId(event.data.userId) ? String(event.data.userId) : null
+      const sessionGeneration = typeof event.data.sessionGeneration === "string"
+        ? event.data.sessionGeneration
+        : null
+      if (
+        !bufferId ||
+        !userId ||
+        !sessionGeneration ||
+        userId !== String(currentUserRef.current?.id || "") ||
+        sessionGeneration !== pushConfigRef.current?.session_generation
+      ) return
 
-      notificationBufferRequestRef.current = bufferId
-      if (!selectBuffer(bufferId)) refreshAuthoritativeBootstrap()
+      notificationBufferRequestRef.current = {bufferId, sessionGeneration, userId}
+      if (!selectBufferRef.current(bufferId)) refreshAuthoritativeBootstrapRef.current()
     }
 
     serviceWorker.addEventListener("message", navigateFromNotification)
@@ -903,13 +936,14 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function refreshNotificationDevice(authoritativePush: PushConfig): void {
-    if (!currentUser) return
+    const notificationUser = currentUserRef.current
+    if (!notificationUser) return
 
     const operationId = ++notificationOperationIdRef.current
     const sessionGeneration = authoritativePush.session_generation
     applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
 
-    synchronizeNotificationDevice(apiClient, authoritativePush, currentUser.id).then((next) => {
+    synchronizeNotificationDevice(apiClient, authoritativePush, notificationUser.id).then((next) => {
       if (
         operationId === notificationOperationIdRef.current &&
         pushConfigRef.current?.session_generation === sessionGeneration
@@ -919,24 +953,36 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     })
   }
 
-  function applyBootstrap(bootstrap: BootstrapPayload, preserveSelection = false): void {
+  function applyBootstrap(bootstrap: BootstrapPayload, preserveSelection = false): boolean {
+    const bootstrapUser = currentUserRef.current
+    if (!bootstrapUser || String(bootstrap.user?.id) !== String(bootstrapUser.id)) return false
+
     const state = buildBootstrapState(bootstrap)
-    if (!state) return
+    if (!state) return false
 
     const notificationRequest = notificationBufferRequestRef.current
-    const preferredBuffer = selectPreferredBuffer(
+    const notificationPreferredBuffer = selectPreferredBuffer(
       state.connections,
-      notificationRequest ||
-        (preserveSelection ? currentBufferId() : requestedBufferIdRef.current) ||
-        (currentUser && loadActiveBufferPreference(currentUser.id))
+      notificationRequest?.bufferId
     )
+    const currentPreferredBuffer = preserveSelection
+      ? selectPreferredBuffer(state.connections, currentBufferId())
+      : null
+    const requestedPreferredBuffer = selectPreferredBuffer(
+      state.connections,
+      requestedBufferIdRef.current
+    )
+    const storedPreferredBuffer = selectPreferredBuffer(
+      state.connections,
+      loadActiveBufferPreference(bootstrapUser.id)
+    )
+    const preferredBuffer = notificationPreferredBuffer ||
+      currentPreferredBuffer ||
+      requestedPreferredBuffer ||
+      storedPreferredBuffer
 
     requestedBufferIdRef.current = null
-    if (
-      notificationRequest &&
-      preferredBuffer &&
-      (preferredBuffer.activeChannelId || preferredBuffer.activeServerId) === notificationRequest
-    ) {
+    if (notificationPreferredBuffer) {
       notificationBufferRequestRef.current = null
     }
     if (preferredBuffer && window.history?.replaceState && new URLSearchParams(window.location.search).has("buffer")) {
@@ -951,9 +997,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       configured: state.push.configured,
       loading: true,
     })
-    if (currentUser) {
-      refreshNotificationDevice(state.push)
-    }
+    refreshNotificationDevice(state.push)
     seedDirectMessageTombstones(state.directMessageTombstones)
     setConnections(state.connections)
     connectionsRef.current = state.connections
@@ -969,6 +1013,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       if (state.view) setView(state.view)
     }
     if (!preserveSelection) reconcileBootstrapCursors(state.cursorsByBuffer)
+    return true
   }
 
   function applyPushConfig(next: PushConfig): void {
@@ -994,8 +1039,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient
       .bootstrap()
       .then((bootstrap) => {
-        applyBootstrap(bootstrap, true)
-        return reconcileAllBuffers()
+        if (applyBootstrap(bootstrap, true)) return reconcileAllBuffers()
       })
       .catch(() => reconcileAllBuffers())
       .finally(() => {
@@ -1003,7 +1047,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
         if (realtimeRefreshRequestedRef.current) {
           realtimeRefreshRequestedRef.current = false
-          refreshAuthoritativeBootstrap()
+          refreshAuthoritativeBootstrapRef.current()
           return
         }
 
@@ -1022,15 +1066,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setActiveChannelId(selected.activeChannelId)
     setActiveServerId(selected.activeServerId)
     setView(selected.view)
-    if (notificationBufferRequestRef.current === bufferId) {
+    if (notificationBufferRequestRef.current?.bufferId === bufferId) {
       notificationBufferRequestRef.current = null
     }
     return true
   }
 
   function selectPendingNotificationBuffer(): void {
-    const bufferId = notificationBufferRequestRef.current
-    if (bufferId) selectBuffer(bufferId)
+    const request = notificationBufferRequestRef.current
+    if (request) selectBuffer(request.bufferId)
   }
 
   if (mode === "landing") {

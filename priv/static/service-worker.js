@@ -213,7 +213,12 @@ self.addEventListener("notificationclick", (event) => {
     })
 
     if (existing) {
-      existing.postMessage({type: "notification:navigate", bufferId: data.bufferId})
+      existing.postMessage({
+        type: "notification:navigate",
+        bufferId: data.bufferId,
+        sessionGeneration: data.sessionGeneration,
+        userId: data.userId,
+      })
       await existing.focus()
       return
     }
