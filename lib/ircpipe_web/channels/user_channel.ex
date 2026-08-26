@@ -304,12 +304,7 @@ defmodule IrcpipeWeb.UserChannel do
 
     with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
          {:ok, closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
-      reply_ok(socket, %{
-        buffer_id: "direct:#{thread.id}",
-        direct_message_thread_id: thread.id,
-        server_connection_id: thread.server_connection_id,
-        revision: closed.mutation_revision
-      })
+      reply_ok(socket, Event.direct_message_closed(closed))
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
     end

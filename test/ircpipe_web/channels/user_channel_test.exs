@@ -328,7 +328,20 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
 
     close_ref = push(socket, "direct_message:close", %{"buffer_id" => buffer_id})
-    assert_reply close_ref, :ok, %{buffer_id: ^buffer_id}
+
+    assert_reply close_ref, :ok, %{
+      type: "direct_message:closed",
+      version: 1,
+      event_id: "direct_message_closed:" <> _,
+      occurred_at: %DateTime{},
+      buffer_id: ^buffer_id,
+      server_connection_id: ^connection_id,
+      direct_message_thread_id: direct_message_thread_id,
+      revision: close_revision
+    }
+
+    assert direct_message_thread_id == thread.id
+    assert close_revision > unblock_revision
 
     foreign_ref =
       push(socket, "direct_message:close", %{"buffer_id" => "direct:#{other_thread.id}"})

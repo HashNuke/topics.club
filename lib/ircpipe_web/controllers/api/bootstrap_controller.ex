@@ -118,9 +118,11 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       status: Session.status(connection),
       unread_count: thread.unread_count,
       mention_count: 0,
+      peer_nick: thread.peer_nick,
       account: thread.account,
       hostmask: thread.hostmask,
-      blocked: not is_nil(thread.blocked_at)
+      blocked: not is_nil(thread.blocked_at),
+      closed_at: thread.closed_at
     }
   end
 

@@ -261,13 +261,12 @@ export default function useServerConnections({
     if (payload.buffer.direct_message_revision !== payload.revision) return false
 
     if (payload.buffer.closed_at) {
-      applyDirectMessageClosed({
+      return applyDirectMessageTombstone({
         buffer_id: payload.buffer.buffer_id,
         server_connection_id: payload.buffer.server_connection_id,
         direct_message_thread_id: payload.buffer.direct_message_thread_id,
         revision: payload.revision,
       })
-      return true
     }
     if (!acceptDirectMessageRevision(payload.buffer.buffer_id, payload.revision)) return false
 
@@ -281,9 +280,13 @@ export default function useServerConnections({
   }
 
   function applyDirectMessageClosed(payload: DirectMessageClosedPayload): void {
-    const bufferId = payload?.buffer_id
     if (!validDirectMessageClosedPayload(payload)) return
-    if (!acceptDirectMessageRevision(bufferId, payload.revision)) return
+    applyDirectMessageTombstone(payload)
+  }
+
+  function applyDirectMessageTombstone(payload: DirectMessageTombstone): boolean {
+    const bufferId = payload.buffer_id
+    if (!acceptDirectMessageRevision(bufferId, payload.revision)) return false
 
     const serverId = `server:${payload.server_connection_id}`
     const currentServer = connectionsRef.current.find((server) => server.id === serverId)
@@ -293,13 +296,14 @@ export default function useServerConnections({
     setMessagesByChannel((current) => omitKeys(current, [bufferId]))
     setUsersByChannel((current) => omitKeys(current, [bufferId]))
 
-    if (activeChannelIdRef.current !== bufferId) return
+    if (activeChannelIdRef.current !== bufferId) return true
 
     const nextConversation = remaining[0]
     activeChannelIdRef.current = nextConversation?.id || null
     setActiveChannelId(nextConversation?.id || null)
     setActiveServerId(serverId)
     setView(nextConversation ? "chat" : "server")
+    return true
   }
 
   async function closeDirectMessage(channel?: Channel | null): Promise<void> {
@@ -454,7 +458,7 @@ export default function useServerConnections({
 
   function seedDirectMessageTombstones(tombstones: DirectMessageTombstone[]): void {
     for (const tombstone of tombstones) {
-      if (!validDirectMessageClosedPayload(tombstone)) continue
+      if (!validDirectMessageTombstone(tombstone)) continue
 
       const previous = directMessageRevisionsRef.current.get(tombstone.buffer_id) ?? -1
       if (tombstone.revision > previous) {
@@ -554,6 +558,22 @@ export default function useServerConnections({
   }
 
   function validDirectMessageClosedPayload(payload: DirectMessageClosedPayload): boolean {
+    if (!validDirectMessageTombstone(payload)) return false
+
+    const eventIdParts = typeof payload.event_id === "string"
+      ? payload.event_id.split(":")
+      : []
+
+    return payload.type === "direct_message:closed" &&
+      payload.version === 1 &&
+      eventIdParts.length === 3 &&
+      eventIdParts[0] === "direct_message_closed" &&
+      eventIdParts[1] === String(payload.direct_message_thread_id) &&
+      /^[1-9][0-9]{0,18}$/.test(eventIdParts[2]) &&
+      validIsoTimestamp(payload.occurred_at)
+  }
+
+  function validDirectMessageTombstone(payload: DirectMessageTombstone): boolean {
     return Boolean(
       payload &&
       validEntityId(payload.server_connection_id) &&

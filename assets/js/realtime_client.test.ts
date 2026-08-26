@@ -159,10 +159,20 @@ describe("realtime client", () => {
     const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers})
 
     client.channel.handlers["direct_message:thread"]({buffer: {buffer_id: "direct:8"}})
-    client.channel.handlers["direct_message:closed"]({buffer_id: "direct:8"})
+    const closed = {
+      type: "direct_message:closed",
+      version: 1,
+      event_id: "direct_message_closed:8:1",
+      occurred_at: "2026-08-26T00:00:00Z",
+      buffer_id: "direct:8",
+      server_connection_id: 1,
+      direct_message_thread_id: 8,
+      revision: 1,
+    }
+    client.channel.handlers["direct_message:closed"](closed)
 
     expect(handlers.onDirectMessageThread).toHaveBeenCalledWith({buffer: {buffer_id: "direct:8"}})
-    expect(handlers.onDirectMessageClosed).toHaveBeenCalledWith({buffer_id: "direct:8"})
+    expect(handlers.onDirectMessageClosed).toHaveBeenCalledWith(closed)
   })
 
   test("forwards buffer error events through the timeline message handler", () => {

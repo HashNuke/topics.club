@@ -65,7 +65,7 @@ describe("buildBootstrapState", () => {
     expect(buildBootstrapState({connections: []})).toBeNull()
   })
 
-  test("hydrates direct messages before alphabetized channels and restores a direct buffer", () => {
+  test("accepts the authoritative bootstrap DM shape and restores the direct buffer", () => {
     const state = buildBootstrapState({
       active_buffer_id: "direct:9",
       connections: [{id: 1, name: "local", host: "irc.example.test", mention_notifications_enabled: true, notification_preference_revision: 0}],
@@ -96,6 +96,10 @@ describe("buildBootstrapState", () => {
       buffer_type: "direct_message",
       direct_message_thread_id: 8,
       channel: "akash",
+      topic: "on irc.example.test",
+      account: null,
+      hostmask: null,
+      closed_at: null,
       blocked: true,
     })
     expect(state.messagesByChannel["direct:9"][0]).toMatchObject({id: 21, body: "ping"})

@@ -53,6 +53,20 @@ function directBufferRecord(id, title, overrides = {}) {
   }
 }
 
+function directClosedPayload(threadId, revision, overrides = {}) {
+  return {
+    type: "direct_message:closed",
+    version: 1,
+    event_id: `direct_message_closed:${threadId}:${Math.max(1, revision)}`,
+    occurred_at: "2026-08-26T00:00:00Z",
+    buffer_id: `direct:${threadId}`,
+    server_connection_id: 1,
+    direct_message_thread_id: threadId,
+    revision,
+    ...overrides,
+  }
+}
+
 function mockTopicsFetch() {
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
     ok: true,
@@ -766,12 +780,7 @@ describe("IrcpipeApp UI prototype", () => {
         },
         revision: 3,
       }))
-      realtimeHandlers.onDirectMessageClosed({
-        buffer_id: "direct:9",
-        server_connection_id: 1,
-        direct_message_thread_id: 9,
-        revision: 2,
-      })
+      realtimeHandlers.onDirectMessageClosed(directClosedPayload(9, 2))
     })
 
     expect(screen.getByRole("heading", {name: "Zed"})).toBeInTheDocument()
@@ -962,6 +971,9 @@ describe("IrcpipeApp UI prototype", () => {
         direct_message_thread_id: 8,
         revision: 2,
       })
+      realtimeHandlers.onDirectMessageClosed(directClosedPayload(9, 4, {
+        event_id: "direct_message_closed:8:4",
+      }))
     })
 
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
@@ -1190,7 +1202,7 @@ describe("IrcpipeApp UI prototype", () => {
       }
       if (event === "direct_message:close") {
         mutationRevision += 1
-        return Promise.resolve({buffer_id: "direct:9", server_connection_id: 1, direct_message_thread_id: 9, revision: mutationRevision})
+        return Promise.resolve(directClosedPayload(9, mutationRevision))
       }
       return Promise.resolve({})
     })

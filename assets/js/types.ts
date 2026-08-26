@@ -231,13 +231,22 @@ export interface DirectMessageThreadPayload {
 }
 
 export interface DirectMessageClosedPayload {
+  type: "direct_message:closed"
+  version: 1
+  event_id: string
+  occurred_at: string
   buffer_id: string
   server_connection_id: EntityId
   direct_message_thread_id: EntityId
   revision: number
 }
 
-export type DirectMessageTombstone = DirectMessageClosedPayload
+export interface DirectMessageTombstone {
+  buffer_id: string
+  server_connection_id: EntityId
+  direct_message_thread_id: EntityId
+  revision: number
+}
 
 export interface PresenceSyncPayload {
   buffer_id: string

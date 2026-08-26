@@ -30,6 +30,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, direct_message_thread} = Chat.open_direct_message(user, connection, "Zed")
     {:ok, archived_membership} = Chat.join_channel(user, connection, "#archive")
     Chat.record_inbound_message(connection, "#archive", "akash", "retained archive")
     {:ok, _archived_membership} = Chat.confirm_channel_left(connection, "#archive")
@@ -80,7 +81,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              "command_catalog" => command_catalog,
              "server_time" => _server_time,
              "connections" => [connection_json],
-             "buffers" => [server_buffer, channel_buffer],
+             "buffers" => [server_buffer, direct_message_buffer, channel_buffer],
              "active_buffer_id" => active_buffer_id,
              "messages_by_buffer" => messages_by_buffer,
              "message_cursors_by_buffer" => message_cursors_by_buffer,
@@ -92,6 +93,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert is_binary(session_generation)
     assert connection_json["id"] == connection.id
     assert connection_json["channels"] == [membership.id]
+    assert connection_json["direct_messages"] == [direct_message_thread.id]
     assert connection_json["mention_notifications_enabled"]
     assert Enum.any?(command_catalog, &(&1["name"] == "/quote"))
 
@@ -100,6 +102,32 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert server_buffer["title"] == "127.0.0.1"
     assert server_buffer["unread_count"] == 1
     assert server_buffer["mention_notifications_enabled"]
+
+    direct_message_buffer_id = "direct:#{direct_message_thread.id}"
+    direct_message_thread_id = direct_message_thread.id
+    direct_message_revision = direct_message_thread.mutation_revision
+    server_connection_id = connection.id
+
+    assert %{
+             "account" => nil,
+             "blocked" => false,
+             "buffer_id" => ^direct_message_buffer_id,
+             "buffer_type" => "direct_message",
+             "channel_membership_id" => nil,
+             "closed_at" => nil,
+             "direct_message_revision" => ^direct_message_revision,
+             "direct_message_thread_id" => ^direct_message_thread_id,
+             "hostmask" => nil,
+             "mention_count" => 0,
+             "peer_nick" => "Zed",
+             "server_connection_id" => ^server_connection_id,
+             "status" => direct_message_status,
+             "subtitle" => "on 127.0.0.1",
+             "title" => "Zed",
+             "unread_count" => 0
+           } = direct_message_buffer
+
+    assert direct_message_status in ["connecting", "connected", "disconnected"]
 
     assert channel_buffer["buffer_id"] == "channel:#{membership.id}"
     assert channel_buffer["buffer_type"] == "channel"
