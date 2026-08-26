@@ -99,9 +99,11 @@ export default function useServerConnections({
   const [connections, setConnectionsState] = useState<ServerConnection[]>([])
   const rejectedBufferIdsRef = useRef(new Set<string>())
   const joinRejectionVersionsRef = useRef(new Map<string, number>())
+  const directMessageRevisionsRef = useRef(new Map<string, number>())
 
   const setConnections = useCallback<Dispatch<SetStateAction<ServerConnection[]>>>((update) => {
     const next = typeof update === "function" ? update(connectionsRef.current) : update
+    rememberDirectMessageRevisions(next)
     connectionsRef.current = next
     setConnectionsState(next)
   }, [connectionsRef])
@@ -248,20 +250,29 @@ export default function useServerConnections({
 
   function applyBufferRead(payload: BufferReadPayload): void {
     if (!payload?.buffer_id) return
+    if (
+      payload.buffer_id.startsWith("direct:") &&
+      !acceptDirectMessageRevision(payload.buffer_id, payload.direct_message_revision)
+    ) return
+
     setConnections((current) => updateBufferRead(current, payload))
   }
 
   function applyDirectMessageThread(payload: DirectMessageThreadPayload): void {
     if (!payload?.connection || !payload?.buffer) return
+    if (payload.buffer.direct_message_revision !== payload.revision) return
+
     if (payload.buffer.closed_at) {
       applyDirectMessageClosed({
         buffer_id: payload.buffer.buffer_id,
         server_connection_id: payload.buffer.server_connection_id,
         direct_message_thread_id:
           payload.buffer.direct_message_thread_id || payload.buffer.buffer_id.replace("direct:", ""),
+        revision: payload.revision,
       })
       return
     }
+    if (!acceptDirectMessageRevision(payload.buffer.buffer_id, payload.revision)) return
 
     const directMessage = directMessageFromBuffer(payload.buffer)
     setConnections((current) => upsertDirectMessage(current, payload.connection, directMessage))
@@ -274,6 +285,7 @@ export default function useServerConnections({
   function applyDirectMessageClosed(payload: DirectMessageClosedPayload): void {
     const bufferId = payload?.buffer_id
     if (!bufferId?.startsWith("direct:")) return
+    if (!acceptDirectMessageRevision(bufferId, payload.revision)) return
 
     const serverId = `server:${payload.server_connection_id}`
     const currentServer = connectionsRef.current.find((server) => server.id === serverId)
@@ -310,7 +322,10 @@ export default function useServerConnections({
     if (channel.buffer_type !== "direct_message" || !realtimeClientRef.current) return
 
     try {
-      const payload = await realtimeClientRef.current.push<{buffer: import("../types.ts").BufferRecord}>(
+      const payload = await realtimeClientRef.current.push<{
+        buffer: import("../types.ts").BufferRecord
+        revision: number
+      }>(
         "direct_message:block",
         {buffer_id: channel.id, blocked}
       )
@@ -328,8 +343,11 @@ export default function useServerConnections({
           use_tls: server.use_tls,
           nickname: server.nickname,
           status: server.status,
+          mention_notifications_enabled: server.mention_notifications_enabled,
+          notification_preference_revision: server.notification_preference_revision as number,
         },
         buffer: payload.buffer,
+        revision: payload.revision,
       })
     } catch (_error) {
       // Preserve the current blocking state if the backend rejects the change.
@@ -430,6 +448,33 @@ export default function useServerConnections({
         setView("discover")
       }
     }
+  }
+
+  function rememberDirectMessageRevisions(nextConnections: ServerConnection[]): void {
+    for (const connection of nextConnections) {
+      for (const channel of connection.channels) {
+        if (
+          channel.buffer_type === "direct_message" &&
+          Number.isSafeInteger(channel.direct_message_revision) &&
+          (channel.direct_message_revision as number) >= 0
+        ) {
+          const previous = directMessageRevisionsRef.current.get(channel.id) ?? -1
+          if ((channel.direct_message_revision as number) > previous) {
+            directMessageRevisionsRef.current.set(channel.id, channel.direct_message_revision as number)
+          }
+        }
+      }
+    }
+  }
+
+  function acceptDirectMessageRevision(bufferId: string, revision: number | undefined): boolean {
+    if (!Number.isSafeInteger(revision) || (revision as number) < 0) return false
+
+    const previous = directMessageRevisionsRef.current.get(bufferId) ?? -1
+    if ((revision as number) <= previous) return false
+
+    directMessageRevisionsRef.current.set(bufferId, revision as number)
+    return true
   }
 
   return {

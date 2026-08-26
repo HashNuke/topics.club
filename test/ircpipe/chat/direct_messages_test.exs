@@ -114,6 +114,68 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert read.unread_count == 0
   end
 
+  test "thread revisions preserve reopen state when a close broadcast is delayed", %{
+    user: user,
+    scope: scope,
+    connection: connection
+  } do
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    assert thread.mutation_revision == 1
+
+    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_closed_broadcast)
+
+    on_exit(fn ->
+      if is_nil(previous_pause) do
+        Application.delete_env(:ircpipe, :pause_direct_message_closed_broadcast)
+      else
+        Application.put_env(:ircpipe, :pause_direct_message_closed_broadcast, previous_pause)
+      end
+    end)
+
+    Application.put_env(:ircpipe, :pause_direct_message_closed_broadcast, {self(), 2})
+    supervisor = start_supervised!(Task.Supervisor)
+
+    close =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        receive do
+          :close_thread -> Chat.close_direct_message_thread(scope, thread.id)
+        end
+      end)
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), close.pid)
+    send(close.pid, :close_thread)
+
+    assert_receive {:direct_message_closed_broadcast_paused, close_pid, thread_id, 2}
+    assert thread_id == thread.id
+
+    assert {:ok, %{thread: reopened}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "newer message",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    assert reopened.closed_at == nil
+    assert reopened.mutation_revision == 4
+    buffer_id = "direct:#{thread.id}"
+
+    assert_receive {:direct_message_thread, %{buffer: %{buffer_id: ^buffer_id}, revision: 4}}
+
+    send(close_pid, {:continue_direct_message_closed_broadcast, 2})
+    assert {:ok, closed} = Task.await(close)
+    assert closed.mutation_revision == 2
+
+    assert_receive {:direct_message_closed, %{buffer_id: ^buffer_id, revision: 2}}
+
+    stored = Chat.get_direct_message_thread!(user, thread.id)
+    assert stored.closed_at == nil
+    assert stored.mutation_revision == 4
+  end
+
   test "blocking follows account identity across nick changes without attention spam", %{
     user: user,
     scope: scope,

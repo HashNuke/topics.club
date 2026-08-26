@@ -47,6 +47,7 @@ import type {RealtimeClient, RealtimeHandlers} from "./realtime_client.ts"
 import type {
   AppView,
   BackendConnection,
+  BufferReadPayload,
   BufferRecord,
   Channel,
   ChannelDirectory,
@@ -457,6 +458,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           buffer?: BufferRecord
           directory?: ChannelDirectory
           message?: ChatMessage
+          revision?: number
         }>("command:run", {
           command_id: commandId,
           input: body,
@@ -465,7 +467,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
         setDraft("")
         if (reply.buffer?.buffer_type === "direct_message") {
-          openDirectMessage(reply.buffer, reply.message)
+          openDirectMessage(reply.buffer, reply.revision, reply.message)
         }
         if (reply.directory) {
           applyChannelDirectory(reply.directory, directoryRequestId ?? undefined)
@@ -662,14 +664,16 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   async function saveServerNotificationPreference(server: ServerConnection, enabled: boolean): Promise<void> {
     if (!server.server_connection_id) return
     const previous = server.mention_notifications_enabled ?? true
+    const revision = server.notification_preference_revision
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) return
     setNotificationSaving(server.id, true)
-    applyNotificationPreference({scope: "server", id: server.server_connection_id, mention_notifications_enabled: enabled})
+    applyNotificationPreference({scope: "server", id: server.server_connection_id, mention_notifications_enabled: enabled, revision})
 
     try {
       const {preference} = await apiClient.updateServerNotificationPreference(server.server_connection_id, enabled)
       applyNotificationPreference(preference)
     } catch (_error) {
-      applyNotificationPreference({scope: "server", id: server.server_connection_id, mention_notifications_enabled: previous})
+      applyNotificationPreference({scope: "server", id: server.server_connection_id, mention_notifications_enabled: previous, revision})
     } finally {
       setNotificationSaving(server.id, false)
     }
@@ -678,14 +682,16 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   async function saveChannelNotificationPreference(channel: Channel, enabled: boolean): Promise<void> {
     if (!channel.channel_membership_id) return
     const previous = channel.mention_notifications_enabled ?? true
+    const revision = channel.notification_preference_revision
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) return
     setNotificationSaving(channel.id, true)
-    applyNotificationPreference({scope: "channel", id: channel.channel_membership_id, mention_notifications_enabled: enabled})
+    applyNotificationPreference({scope: "channel", id: channel.channel_membership_id, mention_notifications_enabled: enabled, revision})
 
     try {
       const {preference} = await apiClient.updateChannelNotificationPreference(channel.channel_membership_id, enabled)
       applyNotificationPreference(preference)
     } catch (_error) {
-      applyNotificationPreference({scope: "channel", id: channel.channel_membership_id, mention_notifications_enabled: previous})
+      applyNotificationPreference({scope: "channel", id: channel.channel_membership_id, mention_notifications_enabled: previous, revision})
     } finally {
       setNotificationSaving(channel.id, false)
     }
@@ -701,9 +707,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function applyNotificationPreference(payload: NotificationPreferencePayload): void {
+    if (!Number.isSafeInteger(payload.revision) || payload.revision < 0) return
+
     setConnections((current) => current.map((server) => {
       if (payload.scope === "server" && String(server.server_connection_id) === String(payload.id)) {
-        return {...server, mention_notifications_enabled: payload.mention_notifications_enabled}
+        if (!Number.isSafeInteger(server.notification_preference_revision)) return server
+        if (payload.revision < (server.notification_preference_revision as number)) return server
+
+        return {
+          ...server,
+          mention_notifications_enabled: payload.mention_notifications_enabled,
+          notification_preference_revision: payload.revision,
+        }
       }
 
       if (payload.scope !== "channel") return server
@@ -711,9 +726,17 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       return {
         ...server,
         channels: server.channels.map((channel) =>
-          String(channel.channel_membership_id) === String(payload.id)
-            ? {...channel, mention_notifications_enabled: payload.mention_notifications_enabled}
-            : channel
+          {
+            if (String(channel.channel_membership_id) !== String(payload.id)) return channel
+            if (!Number.isSafeInteger(channel.notification_preference_revision)) return channel
+            if (payload.revision < (channel.notification_preference_revision as number)) return channel
+
+            return {
+              ...channel,
+              mention_notifications_enabled: payload.mention_notifications_enabled,
+              notification_preference_revision: payload.revision,
+            }
+          }
         ),
       }
     }))
@@ -771,7 +794,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
       await coordinator.coordinate(message.event_id, {
         eligible: mentionNotificationEligible(message, {
-          currentUser,
           notificationState: notificationDeviceStateRef.current.capability,
         }),
         visible: document.visibilityState !== "hidden",
@@ -786,7 +808,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           ) return false
 
           return showMentionNotification(message, {
-            currentUser,
             notificationState: notificationDeviceStateRef.current.capability,
           })
         },
@@ -804,7 +825,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     ) return
 
     showMentionNotification(message, {
-      currentUser,
       notificationState: notificationDeviceStateRef.current.capability,
     })
   }
@@ -1033,7 +1053,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return markBufferRead(channel?.id)
   }
 
-  function openDirectMessage(buffer: BufferRecord, message?: ChatMessage): void {
+  function openDirectMessage(
+    buffer: BufferRecord,
+    revision: number | undefined,
+    message?: ChatMessage
+  ): void {
     const server = connectionsRef.current.find(
       (connection) => String(connection.server_connection_id) === String(buffer.server_connection_id)
     )
@@ -1047,9 +1071,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       use_tls: server.use_tls,
       nickname: server.nickname,
       status: server.status,
+      mention_notifications_enabled: server.mention_notifications_enabled,
+      notification_preference_revision: server.notification_preference_revision as number,
     }
 
-    applyDirectMessageThread({connection: backendConnection, buffer})
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision)) return
+    if (revision !== buffer.direct_message_revision) return
+    applyDirectMessageThread({connection: backendConnection, buffer, revision})
     if (message) {
       setMessagesByChannel((current) => ({
         ...current,
@@ -1071,8 +1099,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!bufferId || !realtimeClientRef.current) return
 
     try {
-      await realtimeClientRef.current.push("buffer:read", {buffer_id: bufferId})
-      applyBufferRead({buffer_id: bufferId, unread_count: 0, mention_count: 0})
+      const payload = await realtimeClientRef.current.push<BufferReadPayload>("buffer:read", {
+        buffer_id: bufferId,
+      })
+      applyBufferRead(payload)
     } catch (_error) {
       // Keep counters as-is if the backend rejects the read marker.
     }

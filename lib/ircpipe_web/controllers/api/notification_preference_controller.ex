@@ -11,7 +11,8 @@ defmodule IrcpipeWeb.Api.NotificationPreferenceController do
           preference: %{
             scope: "server",
             id: connection.id,
-            mention_notifications_enabled: connection.mention_notifications_enabled
+            mention_notifications_enabled: connection.mention_notifications_enabled,
+            revision: connection.notification_preference_revision
           }
         })
 
@@ -33,7 +34,8 @@ defmodule IrcpipeWeb.Api.NotificationPreferenceController do
           preference: %{
             scope: "channel",
             id: membership.id,
-            mention_notifications_enabled: membership.mention_notifications_enabled
+            mention_notifications_enabled: membership.mention_notifications_enabled,
+            revision: membership.notification_preference_revision
           }
         })
 

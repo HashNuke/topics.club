@@ -65,6 +65,7 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
       unread_count: connection.unread_count || 0,
       mention_count: connection.mention_count || 0,
       mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
+      notification_preference_revision: connection.notification_preference_revision,
       channels: sortConversationBuffers(
         conversationBuffers.map((buffer) =>
           buffer.buffer_type === "direct_message"

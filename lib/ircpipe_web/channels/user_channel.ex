@@ -277,11 +277,12 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
 
     with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
-         {:ok, _thread} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
+         {:ok, updated} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
       reply_ok(socket, %{
         buffer_id: "direct:#{thread.id}",
         unread_count: 0,
-        mention_count: 0
+        mention_count: 0,
+        direct_message_revision: updated.mutation_revision
       })
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
@@ -303,9 +304,8 @@ defmodule IrcpipeWeb.UserChannel do
     with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
          {:ok, updated} <-
            Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
-      reply_ok(socket, %{
-        buffer: Event.direct_message_thread(updated, thread.server_connection).buffer
-      })
+      event = Event.direct_message_thread(updated, thread.server_connection)
+      reply_ok(socket, %{buffer: event.buffer, revision: event.revision})
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
     end
@@ -323,11 +323,12 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
 
     with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
-         {:ok, _closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
+         {:ok, closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
       reply_ok(socket, %{
         buffer_id: "direct:#{thread.id}",
         direct_message_thread_id: thread.id,
-        server_connection_id: thread.server_connection_id
+        server_connection_id: thread.server_connection_id,
+        revision: closed.mutation_revision
       })
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
@@ -525,12 +526,15 @@ defmodule IrcpipeWeb.UserChannel do
            ),
          thread <- Chat.get_direct_message_thread_by_peer!(user, connection, target),
          message when not is_nil(message) <- latest_direct_message(user, thread) do
+      event = Event.direct_message_thread(thread, connection)
+
       reply_ok(socket, %{
         command: command,
         command_id: result.command_id,
         status: result.status,
         buffer_id: "direct:#{thread.id}",
-        buffer: Event.direct_message_thread(thread, connection).buffer,
+        buffer: event.buffer,
+        revision: event.revision,
         message: Event.message(message, "direct:#{thread.id}", %{peer_nick: thread.peer_nick})
       })
     else

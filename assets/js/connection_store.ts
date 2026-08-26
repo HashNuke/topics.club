@@ -19,6 +19,7 @@ export function channelFromBuffer(buffer: BufferRecord, topic?: {description?: s
     unread_count: buffer.unread_count,
     mention_count: buffer.mention_count,
     mention_notifications_enabled: buffer.mention_notifications_enabled ?? true,
+    notification_preference_revision: buffer.notification_preference_revision,
   }
 }
 
@@ -35,6 +36,7 @@ export function directMessageFromBuffer(buffer: BufferRecord): Channel {
     hostmask: buffer.hostmask,
     blocked: Boolean(buffer.blocked),
     closed_at: buffer.closed_at,
+    direct_message_revision: buffer.direct_message_revision,
   }
 }
 
@@ -48,6 +50,7 @@ export function channelFromMembership(membership: ChannelMembership, host: strin
     unread_count: membership.unread_count,
     mention_count: membership.mention_count,
     mention_notifications_enabled: membership.mention_notifications_enabled ?? true,
+    notification_preference_revision: membership.notification_preference_revision,
   }
 }
 
@@ -90,6 +93,7 @@ export function upsertJoinedChannel(
       nickname: connection.nickname,
       status: connection.status,
       mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
+      notification_preference_revision: connection.notification_preference_revision,
       channels: [channel],
     },
   ]
@@ -134,6 +138,7 @@ export function upsertDirectMessage(
       nickname: connection.nickname,
       status: connection.status,
       mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
+      notification_preference_revision: connection.notification_preference_revision,
       channels: [directMessage],
     },
   ]

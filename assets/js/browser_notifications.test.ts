@@ -43,14 +43,15 @@ describe("browser notifications", () => {
 
     expect(showMentionNotification(
       {nick: "akash", channel: "#elixir", body: "mira: ping"},
-      {currentUser: {email: "mira@example.com"}, notificationState: "granted"}
+      {notificationState: "granted"}
     )).toBe(true)
     expect(NotificationMock).toHaveBeenCalledWith("#elixir", {body: "akash: mira: ping"})
 
     expect(showMentionNotification(
-      {nick: "mira", channel: "#elixir", body: "self"},
-      {currentUser: {email: "mira@example.com"}, notificationState: "granted"}
-    )).toBe(false)
+      {nick: "mira", channel: "#elixir", body: "legitimate sender matching email prefix"},
+      {notificationState: "granted"}
+    )).toBe(true)
+    expect(NotificationMock).toHaveBeenCalledTimes(2)
   })
 
   test("reports notifications as unavailable in an insecure context", async () => {
@@ -66,7 +67,7 @@ describe("browser notifications", () => {
     expect(NotificationMock.requestPermission).not.toHaveBeenCalled()
     expect(showMentionNotification(
       {nick: "akash", channel: "#elixir", body: "mira: ping"},
-      {currentUser: {email: "mira@example.com"}, notificationState: "insecure"}
+      {notificationState: "insecure"}
     )).toBe(false)
   })
 
@@ -78,7 +79,7 @@ describe("browser notifications", () => {
 
     expect(showMentionNotification(
       {nick: "akash", peer_nick: "akash", body: "hello privately"},
-      {currentUser: {email: "mira@example.com"}, notificationState: "granted"}
+      {notificationState: "granted"}
     )).toBe(true)
     expect(NotificationMock).toHaveBeenCalledWith("akash", {body: "akash: hello privately"})
   })
@@ -116,7 +117,6 @@ describe("browser notifications", () => {
         visible: false,
         display: () =>
           showMentionNotification(message, {
-            currentUser: {email: "mira@example.com"},
             notificationState: "granted",
           }),
       }),
@@ -125,7 +125,6 @@ describe("browser notifications", () => {
         visible: false,
         display: () =>
           showMentionNotification(message, {
-            currentUser: {email: "mira@example.com"},
             notificationState: "granted",
           }),
       }),
@@ -201,7 +200,6 @@ describe("browser notifications", () => {
     }
     const display = () =>
       showMentionNotification(message, {
-        currentUser: {email: "mira@example.com"},
         notificationState: "granted",
       })
     const firstTab = createNotificationEventCoordinator({

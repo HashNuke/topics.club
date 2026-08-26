@@ -83,6 +83,8 @@ export interface Channel {
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled?: boolean
+  notification_preference_revision?: number
+  direct_message_revision?: number
   account?: string | null
   hostmask?: string | null
   blocked?: boolean
@@ -103,6 +105,7 @@ export interface ServerConnection {
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled?: boolean
+  notification_preference_revision?: number
   channels: Channel[]
   [key: string]: unknown
 }
@@ -118,6 +121,7 @@ export interface BackendConnection {
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled?: boolean
+  notification_preference_revision?: number
   [key: string]: unknown
 }
 
@@ -132,6 +136,8 @@ export interface BufferRecord {
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled?: boolean
+  notification_preference_revision?: number
+  direct_message_revision?: number
   account?: string | null
   hostmask?: string | null
   blocked?: boolean
@@ -146,6 +152,7 @@ export interface ChannelMembership {
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled?: boolean
+  notification_preference_revision: number
   [key: string]: unknown
 }
 
@@ -153,6 +160,7 @@ export interface BufferReadPayload {
   buffer_id: string
   unread_count?: number
   mention_count?: number
+  direct_message_revision?: number
 }
 
 export interface ServerStatusPayload {
@@ -175,12 +183,14 @@ export interface BufferLeftPayload {
 export interface DirectMessageThreadPayload {
   connection: BackendConnection
   buffer: BufferRecord
+  revision: number
 }
 
 export interface DirectMessageClosedPayload {
   buffer_id: string
   server_connection_id: EntityId
   direct_message_thread_id: EntityId
+  revision: number
 }
 
 export interface PresenceSyncPayload {
@@ -205,6 +215,7 @@ export interface NotificationPreferencePayload {
   scope: "server" | "channel"
   id: EntityId
   mention_notifications_enabled: boolean
+  revision: number
 }
 
 export type MessagesByBuffer = Record<string, ChatMessage[]>

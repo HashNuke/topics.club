@@ -68,7 +68,6 @@ export interface NotificationDeviceState {
 }
 
 interface MentionNotificationOptions {
-  currentUser?: {email?: string} | null
   notificationState: BrowserNotificationState
 }
 
@@ -262,10 +261,10 @@ export async function requestNotificationPermission(): Promise<BrowserNotificati
 
 export function showMentionNotification(
   message: MentionMessage,
-  {currentUser, notificationState}: MentionNotificationOptions
+  {notificationState}: MentionNotificationOptions
 ): boolean {
   if (document.visibilityState !== "hidden") return false
-  if (!mentionNotificationEligible(message, {currentUser, notificationState})) return false
+  if (!mentionNotificationEligible(message, {notificationState})) return false
 
   const options: NotificationOptions = {
     body: `${message.nick}: ${message.body}`,
@@ -281,13 +280,13 @@ export function showMentionNotification(
 }
 
 export function mentionNotificationEligible(
-  message: MentionMessage,
-  {currentUser, notificationState}: MentionNotificationOptions
+  _message: MentionMessage,
+  {notificationState}: MentionNotificationOptions
 ): boolean {
   if (window.isSecureContext === false) return false
   if (!("Notification" in window)) return false
   if (notificationState !== "granted" && window.Notification.permission !== "granted") return false
-  return message.nick !== currentUser?.email?.split("@")[0]
+  return true
 }
 
 function defaultChannelFactory(name: string): NotificationBroadcastChannel | null {

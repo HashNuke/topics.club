@@ -50,11 +50,13 @@ defmodule Ircpipe.Realtime.Event do
       version: @version,
       event_id:
         "direct_message_thread:#{thread.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      revision: thread.mutation_revision,
       buffer: %{
         buffer_id: "direct:#{thread.id}",
         buffer_type: "direct_message",
         server_connection_id: connection.id,
         direct_message_thread_id: thread.id,
+        direct_message_revision: thread.mutation_revision,
         title: thread.peer_nick,
         subtitle: "on #{connection.host}",
         peer_nick: thread.peer_nick,
@@ -72,7 +74,9 @@ defmodule Ircpipe.Realtime.Event do
         port: connection.port,
         use_tls: connection.use_tls,
         nickname: connection.nickname,
-        status: connection.status
+        status: connection.status,
+        mention_notifications_enabled: connection.mention_notifications_enabled,
+        notification_preference_revision: connection.notification_preference_revision
       },
       occurred_at: occurred_at
     }
@@ -89,6 +93,7 @@ defmodule Ircpipe.Realtime.Event do
       buffer_id: "direct:#{thread.id}",
       server_connection_id: thread.server_connection_id,
       direct_message_thread_id: thread.id,
+      revision: thread.mutation_revision,
       occurred_at: occurred_at
     }
   end
@@ -166,7 +171,9 @@ defmodule Ircpipe.Realtime.Event do
         status: status,
         membership_status: membership.status,
         unread_count: membership.unread_count,
-        mention_count: membership.mention_count
+        mention_count: membership.mention_count,
+        mention_notifications_enabled: membership.mention_notifications_enabled,
+        notification_preference_revision: membership.notification_preference_revision
       },
       connection: %{
         id: connection.id,
@@ -175,7 +182,9 @@ defmodule Ircpipe.Realtime.Event do
         port: connection.port,
         use_tls: connection.use_tls,
         nickname: connection.nickname,
-        status: status
+        status: status,
+        mention_notifications_enabled: connection.mention_notifications_enabled,
+        notification_preference_revision: connection.notification_preference_revision
       },
       occurred_at: occurred_at
     }

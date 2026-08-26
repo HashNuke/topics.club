@@ -25,6 +25,7 @@ defmodule Ircpipe.Chat.ServerConnection do
     field :unread_count, :integer, default: 0
     field :mention_count, :integer, default: 0
     field :mention_notifications_enabled, :boolean, default: true
+    field :notification_preference_revision, :integer, default: 0
 
     belongs_to :user, User
     has_many :channel_memberships, ChannelMembership

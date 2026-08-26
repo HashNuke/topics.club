@@ -65,6 +65,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
       mention_notifications_enabled: connection.mention_notifications_enabled,
+      notification_preference_revision: connection.notification_preference_revision,
       channels: Enum.map(memberships, & &1.id),
       direct_messages: Enum.map(connection.direct_message_threads, & &1.id)
     }
@@ -82,7 +83,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         status: Session.status(connection),
         unread_count: connection.unread_count,
         mention_count: connection.mention_count,
-        mention_notifications_enabled: connection.mention_notifications_enabled
+        mention_notifications_enabled: connection.mention_notifications_enabled,
+        notification_preference_revision: connection.notification_preference_revision
       }
       | Enum.map(connection.direct_message_threads, &direct_message_buffer(&1, connection)) ++
           Enum.map(visible_memberships(connection), &channel_buffer(&1, connection))
@@ -96,6 +98,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       server_connection_id: connection.id,
       channel_membership_id: nil,
       direct_message_thread_id: thread.id,
+      direct_message_revision: thread.mutation_revision,
       title: thread.peer_nick,
       subtitle: "on #{connection.host}",
       status: Session.status(connection),
@@ -119,7 +122,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       membership_status: membership.status,
       unread_count: membership.unread_count,
       mention_count: membership.mention_count,
-      mention_notifications_enabled: membership.mention_notifications_enabled
+      mention_notifications_enabled: membership.mention_notifications_enabled,
+      notification_preference_revision: membership.notification_preference_revision
     }
   end
 

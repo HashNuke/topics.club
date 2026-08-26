@@ -15,6 +15,7 @@ defmodule Ircpipe.Chat.DirectMessageThread do
     field :blocked_at, :utc_datetime
     field :last_read_at, :utc_datetime
     field :unread_count, :integer, default: 0
+    field :mutation_revision, :integer, default: 0
 
     belongs_to :server_connection, ServerConnection
     belongs_to :user, User

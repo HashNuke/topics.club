@@ -20,6 +20,9 @@ defmodule Ircpipe.NotificationsTest do
     previous_snapshot_pause = Application.get_env(:ircpipe, :pause_push_delivery_snapshot)
     previous_reset_pause = Application.get_env(:ircpipe, :pause_session_reset)
 
+    previous_preference_pause =
+      Application.get_env(:ircpipe, :pause_notification_preference_broadcast)
+
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
     Application.put_env(:ircpipe, :push_test_result, :ok)
@@ -33,6 +36,7 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:pause_session_rotation, previous_rotation_pause)
       restore_env(:pause_push_delivery_snapshot, previous_snapshot_pause)
       restore_env(:pause_session_reset, previous_reset_pause)
+      restore_env(:pause_notification_preference_broadcast, previous_preference_pause)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -251,6 +255,39 @@ defmodule Ircpipe.NotificationsTest do
     refute Repo.get_by(UserToken, user_id: user.id, context: "session")
   end
 
+  test "password reauthentication replaces an expired same-user session binding", %{scope: scope} do
+    user = AccountsFixtures.set_password(scope.user)
+    authenticated_scope = AccountsFixtures.user_scope_fixture(user)
+    previous_token = Accounts.generate_user_session_token(user)
+
+    assert {:ok, subscription} =
+             Notifications.upsert_subscription(
+               authenticated_scope,
+               previous_token,
+               subscription_attrs("https://push.example.test/subscription/expired-reauth")
+             )
+
+    expired_at = DateTime.utc_now(:second) |> DateTime.add(-15, :day)
+
+    from(token in UserToken, where: token.token == ^previous_token)
+    |> Repo.update_all(set: [inserted_at: expired_at])
+
+    assert {:ok,
+            %{
+              session_token: next_token,
+              replaced_session_token: ^previous_token
+            }} =
+             Notifications.authenticate_and_rotate_session_with_subscriptions(
+               user.email,
+               AccountsFixtures.valid_user_password(),
+               previous_token
+             )
+
+    next_user_token = Repo.get_by!(UserToken, token: next_token, context: "session")
+    refute Repo.get_by(UserToken, token: previous_token, context: "session")
+    assert Repo.reload(subscription).user_token_id == next_user_token.id
+  end
+
   test "rejects registration after its authenticated session is revoked", %{scope: scope} do
     session_token = Accounts.generate_user_session_token(scope.user)
     assert :ok = Accounts.delete_user_session_token(session_token)
@@ -467,6 +504,48 @@ defmodule Ircpipe.NotificationsTest do
     server_notification = mention_notification(connection, membership)
     assert :ok = Notifications.deliver_notification(server_notification.id)
     refute_receive {:push_sent, _, _}
+  end
+
+  test "preference revisions order broadcasts delayed after commit", %{
+    scope: scope,
+    connection: connection
+  } do
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{scope.user.id}")
+    Application.put_env(:ircpipe, :pause_notification_preference_broadcast, {self(), 1})
+    supervisor = start_supervised!(Task.Supervisor)
+
+    first =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        receive do
+          :update_preference ->
+            Notifications.update_server_preference(scope, connection.id, false)
+        end
+      end)
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), first.pid)
+    send(first.pid, :update_preference)
+
+    assert_receive {:notification_preference_broadcast_paused, first_pid, connection_id, 1}
+    assert connection_id == connection.id
+
+    assert {:ok, latest} =
+             Notifications.update_server_preference(scope, connection.id, true)
+
+    assert latest.notification_preference_revision == 2
+
+    assert_receive {:notification_preference,
+                    %{id: ^connection_id, mention_notifications_enabled: true, revision: 2}}
+
+    send(first_pid, {:continue_notification_preference_broadcast, 1})
+    assert {:ok, delayed} = Task.await(first)
+    assert delayed.notification_preference_revision == 1
+
+    assert_receive {:notification_preference,
+                    %{id: ^connection_id, mention_notifications_enabled: false, revision: 1}}
+
+    stored = Repo.get!(Ircpipe.Chat.ServerConnection, connection.id)
+    assert stored.mention_notifications_enabled
+    assert stored.notification_preference_revision == 2
   end
 
   test "receipt eligibility changes immediately after a mention is read", %{

@@ -155,12 +155,13 @@ defmodule Ircpipe.Chat do
     now = DateTime.utc_now(:second)
 
     Repo.transaction(fn ->
+      candidate = get_direct_message_thread!(user, id)
+      lock_direct_message_connection!(candidate.server_connection_id)
       thread = get_direct_message_thread!(user, id)
-      lock_direct_message_connection!(thread.server_connection_id)
 
       updated =
         thread
-        |> DirectMessageThread.changeset(%{
+        |> direct_message_thread_changeset(%{
           closed_at: now,
           last_read_at: now,
           unread_count: 0
@@ -196,7 +197,7 @@ defmodule Ircpipe.Chat do
               %{blocked_at: nil}
             end
 
-          updated = thread |> DirectMessageThread.changeset(attrs) |> Repo.update!()
+          updated = thread |> direct_message_thread_changeset(attrs) |> Repo.update!()
 
           if blocked? do
             persist_direct_message_block_identities(updated)
@@ -231,12 +232,13 @@ defmodule Ircpipe.Chat do
 
     result =
       Repo.transaction(fn ->
+        candidate = get_direct_message_thread!(user, id)
+        lock_direct_message_connection!(candidate.server_connection_id)
         thread = get_direct_message_thread!(user, id)
-        lock_direct_message_connection!(thread.server_connection_id)
 
         updated =
           thread
-          |> DirectMessageThread.changeset(%{last_read_at: now, unread_count: 0})
+          |> direct_message_thread_changeset(%{last_read_at: now, unread_count: 0})
           |> Repo.update!()
 
         mark_direct_message_notifications_read(updated.id, now)
@@ -249,7 +251,8 @@ defmodule Ircpipe.Chat do
           user_id: user.id,
           buffer_id: "direct:#{updated.id}",
           server_connection_id: updated.server_connection_id,
-          direct_message_thread_id: updated.id
+          direct_message_thread_id: updated.id,
+          direct_message_revision: updated.mutation_revision
         })
 
       _result ->
@@ -283,7 +286,7 @@ defmodule Ircpipe.Chat do
 
           {thread, archived_threads} ->
             case thread
-                 |> DirectMessageThread.changeset(%{
+                 |> direct_message_thread_changeset(%{
                    peer_nick: new_nick,
                    peer_key: new_key,
                    account: account || thread.account,
@@ -915,7 +918,7 @@ defmodule Ircpipe.Chat do
               thread =
                 if notify? do
                   thread
-                  |> DirectMessageThread.changeset(%{
+                  |> direct_message_thread_changeset(%{
                     closed_at: nil,
                     unread_count: thread.unread_count + 1
                   })
@@ -1361,7 +1364,7 @@ defmodule Ircpipe.Chat do
       |> then(fn attrs -> if reopen?, do: Map.put(attrs, :closed_at, nil), else: attrs end)
 
     thread
-    |> DirectMessageThread.changeset(attrs)
+    |> direct_message_thread_changeset(attrs)
     |> Repo.insert_or_update()
     |> case do
       {:ok, saved} -> {:ok, saved, archived_threads}
@@ -1417,7 +1420,7 @@ defmodule Ircpipe.Chat do
 
     archived =
       thread
-      |> DirectMessageThread.changeset(%{
+      |> direct_message_thread_changeset(%{
         peer_key: archived_key,
         closed_at: thread.closed_at || now,
         last_read_at: now,
@@ -1431,6 +1434,12 @@ defmodule Ircpipe.Chat do
 
   defp archived_direct_message_thread?(thread) do
     is_binary(thread.peer_key) and String.starts_with?(thread.peer_key, "archived:")
+  end
+
+  defp direct_message_thread_changeset(%DirectMessageThread{} = thread, attrs) do
+    thread
+    |> DirectMessageThread.changeset(attrs)
+    |> Ecto.Changeset.put_change(:mutation_revision, thread.mutation_revision + 1)
   end
 
   defp normalized_account(account) when is_binary(account) do
@@ -1751,11 +1760,27 @@ defmodule Ircpipe.Chat do
   end
 
   defp broadcast_direct_message_closed(thread) do
+    maybe_pause_direct_message_closed_broadcast(thread)
+
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{thread.user_id}",
       {:direct_message_closed, Event.direct_message_closed(thread)}
     )
+  end
+
+  defp maybe_pause_direct_message_closed_broadcast(thread) do
+    case Application.get_env(:ircpipe, :pause_direct_message_closed_broadcast) do
+      {pid, revision} when is_pid(pid) and revision == thread.mutation_revision ->
+        send(pid, {:direct_message_closed_broadcast_paused, self(), thread.id, revision})
+
+        receive do
+          {:continue_direct_message_closed_broadcast, ^revision} -> :ok
+        end
+
+      _other ->
+        :ok
+    end
   end
 
   defp broadcast_direct_message(message, thread) do
