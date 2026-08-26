@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from "react"
-import {normalizeChannel, normalizeTopic} from "../chat_store.js"
+import {normalizeChannel, normalizeTopic} from "../chat_store.ts"
 import {
   channelFromBuffer,
   channelFromMembership,
@@ -9,8 +9,8 @@ import {
   updateConnectionDetails,
   updateServerStatus,
   upsertJoinedChannel,
-} from "../connection_store.js"
-import {backendTopicFor, numericId} from "../topic_navigation.js"
+} from "../connection_store.ts"
+import {backendTopicFor, numericId} from "../topic_navigation.ts"
 
 export default function useServerConnections({
   activeChannelIdRef,

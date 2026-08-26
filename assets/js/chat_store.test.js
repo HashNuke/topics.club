@@ -10,7 +10,7 @@ import {
   normalizeChannel,
   normalizeMessage,
   normalizeTopic,
-} from "./chat_store.js"
+} from "./chat_store.ts"
 
 const bootstrap = {
   notification_state: "granted",

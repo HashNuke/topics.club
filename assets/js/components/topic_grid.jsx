@@ -1,5 +1,5 @@
 import React from "react"
-import {normalizeTopic} from "../chat_store.js"
+import {normalizeTopic} from "../chat_store.ts"
 
 export function TopicCard({onSelectTopic, topic}) {
   return (

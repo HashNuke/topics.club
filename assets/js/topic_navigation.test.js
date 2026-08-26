@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, test} from "vitest"
-import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
+import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.ts"
 
 afterEach(() => window.history.pushState({}, "", "/"))
 

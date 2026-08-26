@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
 import {commandErrorMessage} from "./app_feedback.ts"
-import {buildBootstrapState} from "./bootstrap_state.js"
+import {buildBootstrapState} from "./bootstrap_state.ts"
 import {
   notificationPermission,
   requestNotificationPermission,
@@ -17,14 +17,14 @@ import {
   applyUserDiff,
   normalizeMessage,
   normalizeTopic,
-} from "./chat_store.js"
-import {requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
+} from "./chat_store.ts"
+import {requestedTopicId, topicForRequestedId} from "./topic_navigation.ts"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.js"
 import useBufferMessages from "./hooks/use_buffer_messages.js"
 import useChannelDirectory from "./hooks/use_channel_directory.js"
 import useRealtimeConnection from "./hooks/use_realtime_connection.js"
 import useServerConnections from "./hooks/use_server_connections.js"
-export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
+export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.ts"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
 export {default as TopicGrid} from "./components/topic_grid.jsx"
 export {default as LandingPage} from "./components/landing_page.jsx"

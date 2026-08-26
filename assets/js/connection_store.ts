@@ -1,4 +1,15 @@
-export function channelFromBuffer(buffer, topic) {
+import type {
+  BackendConnection,
+  BufferReadPayload,
+  BufferRecord,
+  Channel,
+  ChannelMembership,
+  ServerConnection,
+  ServerStatusPayload,
+  Topic,
+} from "./types.ts"
+
+export function channelFromBuffer(buffer: BufferRecord, topic?: Topic): Channel {
   return {
     id: buffer.buffer_id,
     channel_membership_id: buffer.channel_membership_id,
@@ -9,7 +20,7 @@ export function channelFromBuffer(buffer, topic) {
   }
 }
 
-export function channelFromMembership(membership, host) {
+export function channelFromMembership(membership: ChannelMembership, host: string): Channel {
   return {
     id: `channel:${membership.id}`,
     channel_membership_id: membership.id,
@@ -20,7 +31,12 @@ export function channelFromMembership(membership, host) {
   }
 }
 
-export function upsertJoinedChannel(connections, connection, channel, {updateStatus = false} = {}) {
+export function upsertJoinedChannel(
+  connections: ServerConnection[],
+  connection: BackendConnection,
+  channel: Channel,
+  {updateStatus = false}: {updateStatus?: boolean} = {}
+): ServerConnection[] {
   const connectionId = `server:${connection.id}`
   const existingConnection = connections.find(
     (item) => item.server_connection_id === connection.id || item.id === connectionId
@@ -56,7 +72,10 @@ export function upsertJoinedChannel(connections, connection, channel, {updateSta
   ]
 }
 
-export function updateServerStatus(connections, payload) {
+export function updateServerStatus(
+  connections: ServerConnection[],
+  payload: ServerStatusPayload
+): ServerConnection[] {
   return connections.map((connection) =>
     connection.server_connection_id === payload.server_connection_id
       ? {...connection, status: payload.status, nickname: payload.nickname || connection.nickname}
@@ -64,7 +83,7 @@ export function updateServerStatus(connections, payload) {
   )
 }
 
-export function updateBufferRead(connections, payload) {
+export function updateBufferRead(connections: ServerConnection[], payload: BufferReadPayload): ServerConnection[] {
   return connections.map((connection) => {
     if (connection.id === payload.buffer_id) {
       return {
@@ -89,14 +108,17 @@ export function updateBufferRead(connections, payload) {
   })
 }
 
-export function removeChannel(connections, channelId) {
+export function removeChannel(connections: ServerConnection[], channelId: string): ServerConnection[] {
   return connections.map((connection) => ({
     ...connection,
     channels: connection.channels.filter((channel) => channel.id !== channelId),
   }))
 }
 
-export function updateConnectionDetails(connections, updated) {
+export function updateConnectionDetails(
+  connections: ServerConnection[],
+  updated: BackendConnection
+): ServerConnection[] {
   return connections.map((server) =>
     server.server_connection_id === updated.id
       ? {
@@ -116,7 +138,7 @@ export function updateConnectionDetails(connections, updated) {
   )
 }
 
-export function planServerRemoval(connections, serverConnectionId) {
+export function planServerRemoval(connections: ServerConnection[], serverConnectionId: string | number) {
   const deletedId = `server:${serverConnectionId}`
   const deletedServer = connections.find(
     (server) => server.id === deletedId || server.server_connection_id === serverConnectionId

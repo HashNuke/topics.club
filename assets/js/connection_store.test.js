@@ -8,7 +8,7 @@ import {
   updateConnectionDetails,
   updateServerStatus,
   upsertJoinedChannel,
-} from "./connection_store.js"
+} from "./connection_store.ts"
 
 const server = {
   id: "server:1",

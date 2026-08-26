@@ -1,4 +1,51 @@
-export const emptyChatState = {
+import type {
+  BackendConnection,
+  BufferRecord,
+  ChatMessage,
+  ChatUser,
+  ConnectionHealth,
+  MessagesByBuffer,
+  PresenceDiff,
+  Topic,
+  TopicInput,
+  UsersByBuffer,
+} from "./types.ts"
+
+interface UnreadCounts {
+  unread_count: number
+  mention_count: number
+}
+
+export interface ChatState {
+  connections: BackendConnection[]
+  buffers: BufferRecord[]
+  activeBufferId: string | null
+  messagesByBuffer: MessagesByBuffer
+  usersByBuffer: UsersByBuffer
+  unreadByBuffer: Record<string, UnreadCounts>
+  connectionHealth: ConnectionHealth
+  notificationState: NotificationPermission
+}
+
+interface BootstrapPayload {
+  connections?: BackendConnection[]
+  buffers?: BufferRecord[]
+  active_buffer_id?: string | null
+  messages_by_buffer?: MessagesByBuffer
+  users_by_buffer?: UsersByBuffer
+  notification_state?: NotificationPermission
+}
+
+type ChatAction =
+  | {type: "bootstrap:loaded"; bootstrap: BootstrapPayload}
+  | {type: "buffer:message"; message: ChatMessage}
+  | {type: "buffer:read"; buffer_id: string}
+  | {type: "presence:sync"; buffer_id: string; users?: ChatUser[]}
+  | {type: "presence:diff"; buffer_id: string; diff?: PresenceDiff}
+  | {type: "server:status"; server_connection_id: string | number; status: string}
+  | {type: "connection:health"; status: ConnectionHealth}
+
+export const emptyChatState: ChatState = {
   connections: [],
   buffers: [],
   activeBufferId: null,
@@ -11,7 +58,7 @@ export const emptyChatState = {
 
 export const MESSAGE_RENDER_LIMIT = 400
 
-export function chatReducer(state = emptyChatState, action) {
+export function chatReducer(state: ChatState = emptyChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "bootstrap:loaded":
       return hydrateBootstrap(action.bootstrap)
@@ -41,7 +88,7 @@ export function chatReducer(state = emptyChatState, action) {
   }
 }
 
-export function hydrateBootstrap(bootstrap) {
+export function hydrateBootstrap(bootstrap: BootstrapPayload): ChatState {
   const buffers = bootstrap.buffers || []
 
   return {
@@ -61,7 +108,7 @@ export function hydrateBootstrap(bootstrap) {
   }
 }
 
-function appendBufferMessage(state, message) {
+function appendBufferMessage(state: ChatState, message: ChatMessage): ChatState {
   const bufferId = message.buffer_id
   if (!bufferId) return state
 
@@ -88,7 +135,7 @@ function appendBufferMessage(state, message) {
   }
 }
 
-function markBufferRead(state, bufferId) {
+function markBufferRead(state: ChatState, bufferId: string): ChatState {
   return {
     ...state,
     unreadByBuffer: {
@@ -101,7 +148,10 @@ function markBufferRead(state, bufferId) {
   }
 }
 
-function applyServerStatus(state, action) {
+function applyServerStatus(
+  state: ChatState,
+  action: {server_connection_id: string | number; status: string}
+): ChatState {
   return {
     ...state,
     connections: state.connections.map((connection) =>
@@ -113,12 +163,13 @@ function applyServerStatus(state, action) {
   }
 }
 
-export function applyUserDiff(users, diff) {
+export function applyUserDiff(users: ChatUser[], diff?: PresenceDiff): ChatUser[] {
   if (!diff) return users
 
   if (diff.action === "join" && diff.user?.nick) {
-    if (users.some((user) => user.nick === diff.user.nick)) return users
-    return [...users, diff.user]
+    const joinedUser = diff.user
+    if (users.some((user) => user.nick === joinedUser.nick)) return users
+    return [...users, joinedUser]
   }
 
   if ((diff.action === "part" || diff.action === "quit") && diff.nick) {
@@ -126,7 +177,8 @@ export function applyUserDiff(users, diff) {
   }
 
   if (diff.action === "nick" && diff.old_nick && diff.new_nick) {
-    return users.map((user) => (user.nick === diff.old_nick ? {...user, nick: diff.new_nick} : user))
+    const {old_nick: oldNick, new_nick: newNick} = diff
+    return users.map((user) => (user.nick === oldNick ? {...user, nick: newNick} : user))
   }
 
   if (diff.action === "away" && diff.nick && diff.status) {
@@ -140,31 +192,37 @@ export function applyUserDiff(users, diff) {
   return users
 }
 
-export function normalizeTopic(topic) {
+export function normalizeTopic(topic: TopicInput): Topic {
+  const channel = normalizeChannel(topic.channel || topic.name)
   return {
     ...topic,
-    id: topic.id || `${topic.server_host}-${topic.channel}`,
-    channel: normalizeChannel(topic.channel || topic.name),
-    name: normalizeChannel(topic.channel || topic.name),
+    id: topic.id || `${topic.server_host}-${topic.channel || topic.name}`,
+    channel,
+    name: channel,
     description: topic.description || "A live topic you can join.",
     members: topic.members || topic.member_count,
     vibe: topic.vibe || "topic",
   }
 }
 
-export function normalizeMessage(message) {
+export function normalizeMessage(message: ChatMessage): ChatMessage {
   return {
     ...message,
     occurredAt: message.occurredAt || message.occurred_at,
   }
 }
 
-export function trimMessagesToLimit(messages, limit = MESSAGE_RENDER_LIMIT) {
+export function trimMessagesToLimit(messages: ChatMessage[], limit = MESSAGE_RENDER_LIMIT): ChatMessage[] {
   if (messages.length <= limit) return messages
   return messages.slice(-limit)
 }
 
-export function appendTimelineMessage(messages, message, readingOlder, limit = MESSAGE_RENDER_LIMIT) {
+export function appendTimelineMessage(
+  messages: ChatMessage[],
+  message: ChatMessage,
+  readingOlder: boolean,
+  limit = MESSAGE_RENDER_LIMIT
+): ChatMessage[] {
   if (message.id && messages.some((current) => current.id === message.id)) {
     return messages.map((current) => (current.id === message.id ? {...current, ...message} : current))
   }
@@ -173,7 +231,7 @@ export function appendTimelineMessage(messages, message, readingOlder, limit = M
   return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
 }
 
-export function mergeOlderMessages(olderMessages, currentMessages) {
+export function mergeOlderMessages(olderMessages: ChatMessage[], currentMessages: ChatMessage[]): ChatMessage[] {
   const olderById = new Map(
     olderMessages.filter((message) => message.id != null).map((message) => [message.id, message])
   )
@@ -187,7 +245,7 @@ export function mergeOlderMessages(olderMessages, currentMessages) {
   return sortTimelineMessages([...prepended, ...updatedCurrent])
 }
 
-export function mergeNewerMessages(currentMessages, newerMessages) {
+export function mergeNewerMessages(currentMessages: ChatMessage[], newerMessages: ChatMessage[]): ChatMessage[] {
   const updatesById = new Map(
     newerMessages
       .filter((message) => message.id != null)
@@ -205,19 +263,21 @@ export function mergeNewerMessages(currentMessages, newerMessages) {
   return trimMessagesToLimit(sortTimelineMessages([...updatedCurrent, ...appended]))
 }
 
-function commandStatusRank(message) {
+function commandStatusRank(message?: ChatMessage): number {
   if (message?.kind !== "command") return 0
 
-  return {
+  const ranks: Record<string, number> = {
     sent: 1,
     acknowledged: 2,
     completed: 3,
     failed: 3,
     timed_out: 3,
-  }[message.metadata?.command_status] || 0
+  }
+  const status = message.metadata?.command_status
+  return (status && ranks[status]) || 0
 }
 
-export function latestBackendMessageId(messages) {
+export function latestBackendMessageId(messages: ChatMessage[]): number {
   return messages.reduce((latest, message) => {
     const id = Number(message.id)
     if (!Number.isInteger(id)) return latest
@@ -225,9 +285,9 @@ export function latestBackendMessageId(messages) {
   }, 0)
 }
 
-function sortTimelineMessages(messages) {
+function sortTimelineMessages(messages: ChatMessage[]): ChatMessage[] {
   return [...messages].sort((left, right) => {
-    const timeDiff = Date.parse(left.occurredAt || left.occurred_at || 0) - Date.parse(right.occurredAt || right.occurred_at || 0)
+    const timeDiff = Date.parse(left.occurredAt || left.occurred_at || "") - Date.parse(right.occurredAt || right.occurred_at || "")
     if (timeDiff !== 0 && Number.isFinite(timeDiff)) return timeDiff
 
     const leftId = Number(left.id)
@@ -238,7 +298,7 @@ function sortTimelineMessages(messages) {
   })
 }
 
-export function normalizeChannel(channel) {
+export function normalizeChannel(channel?: string): string {
   if (!channel) return "#general"
   return /^[^A-Za-z0-9\s,:\u0000\u0007]/u.test(channel) ? channel : "#" + channel
 }

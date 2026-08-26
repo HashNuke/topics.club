@@ -1,10 +1,49 @@
-import {normalizeMessage, normalizeTopic} from "./chat_store.js"
+import {normalizeMessage, normalizeTopic} from "./chat_store.ts"
+import type {
+  AppView,
+  BackendConnection,
+  BufferRecord,
+  ChatMessage,
+  ChatUser,
+  CommandCatalogEntry,
+  MessagesByBuffer,
+  ServerConnection,
+  Topic,
+  TopicInput,
+} from "./types.ts"
 
-export function buildBootstrapState(bootstrap) {
+export interface BootstrapPayload {
+  active_buffer_id?: string | null
+  buffers?: BufferRecord[]
+  command_catalog?: CommandCatalogEntry[]
+  connections?: BackendConnection[]
+  message_cursors_by_buffer?: Record<string, unknown>
+  messages_by_buffer?: MessagesByBuffer
+  notification_state?: NotificationPermission | null
+  topics?: TopicInput[]
+  users_by_buffer?: Record<string, ChatUser[]>
+}
+
+export interface BootstrapState {
+  activeChannelId: string | null
+  activeServerId: string | null
+  commandCatalog: CommandCatalogEntry[]
+  connections: ServerConnection[]
+  cursorsByBuffer: Record<string, unknown>
+  messagesByChannel: MessagesByBuffer
+  messagesByServer: MessagesByBuffer
+  notificationState: NotificationPermission | null
+  topics: Topic[] | null
+  usersByChannel: Record<string, ChatUser[]>
+  view: AppView | null
+}
+
+export function buildBootstrapState(bootstrap?: BootstrapPayload | null): BootstrapState | null {
   if (!bootstrap?.buffers || !bootstrap?.connections) return null
 
+  const buffers = bootstrap.buffers
   const connections = bootstrap.connections.map((connection) => {
-    const channelBuffers = bootstrap.buffers.filter(
+    const channelBuffers = buffers.filter(
       (buffer) => buffer.buffer_type === "channel" && buffer.server_connection_id === connection.id
     )
 
@@ -43,9 +82,9 @@ export function buildBootstrapState(bootstrap) {
     ])
   )
 
-  let activeChannelId = null
-  let activeServerId = null
-  let view = null
+  let activeChannelId: string | null = null
+  let activeServerId: string | null = null
+  let view: AppView | null = null
 
   if (bootstrap.active_buffer_id?.startsWith("channel:")) {
     activeChannelId = bootstrap.active_buffer_id

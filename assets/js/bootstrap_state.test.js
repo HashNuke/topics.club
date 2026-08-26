@@ -1,5 +1,5 @@
 import {describe, expect, test} from "vitest"
-import {buildBootstrapState} from "./bootstrap_state.js"
+import {buildBootstrapState} from "./bootstrap_state.ts"
 
 describe("buildBootstrapState", () => {
   test("normalizes connections, buffers, messages, and active channel", () => {

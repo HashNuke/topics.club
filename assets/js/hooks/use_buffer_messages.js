@@ -5,7 +5,7 @@ import {
   mergeOlderMessages,
   normalizeMessage,
   trimMessagesToLimit,
-} from "../chat_store.js"
+} from "../chat_store.ts"
 
 export default function useBufferMessages({
   activeChannelIdRef,
