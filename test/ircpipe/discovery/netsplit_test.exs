@@ -69,4 +69,23 @@ defmodule Ircpipe.Discovery.NetsplitTest do
                 }
               ]}
   end
+
+  test "skips unavailable network pages and continues until the limit is met" do
+    top_html = """
+    <tr><td>1.</td><td>1.</td><td></td><td><a href="/networks/Unavailable/">Unavailable</a></td></tr>
+    <tr><td>2.</td><td>2.</td><td></td><td><a href="/networks/OFTC/">OFTC</a></td></tr>
+    """
+
+    servers_html =
+      "<tr><td>irc.oftc.net</td><td>6697</td><td>on</td><td>yes</td></tr>"
+
+    get = fn
+      "https://netsplit.de/networks/top100.php" -> {:ok, top_html}
+      "https://netsplit.de/servers/?net=Unavailable" -> {:error, {:http_status, 404}}
+      "https://netsplit.de/servers/?net=OFTC" -> {:ok, servers_html}
+    end
+
+    assert {:ok, [%{name: "OFTC", rank: 2, host: "irc.oftc.net"}]} =
+             Netsplit.fetch_networks(limit: 1, get: get)
+  end
 end
