@@ -11,6 +11,7 @@ import {
   notificationPermission,
   requestNotificationPermission,
   showMentionNotification,
+  type BrowserNotificationState,
 } from "./browser_notifications.ts"
 import AppShell from "./components/app_shell.tsx"
 import LandingPage from "./components/landing_page.tsx"
@@ -66,7 +67,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [topicsLoaded, setTopicsLoaded] = useState(false)
   const [authTopic, setAuthTopic] = useState<Topic | null>(null)
   const [view, setView] = useState<AppView>("chat")
-  const [notificationState, setNotificationState] = useState<NotificationPermission | "unsupported">(notificationPermission())
+  const [notificationState, setNotificationState] = useState<BrowserNotificationState>(notificationPermission())
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [activeServerId, setActiveServerId] = useState<string | null>(null)
   const [usersByChannel, setUsersByChannel] = useState<UsersByBuffer>({})
@@ -490,7 +491,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       : null
 
     if (state.topics) setTopics(state.topics)
-    if (state.notificationState) setNotificationState(state.notificationState)
     setCommandCatalog(state.commandCatalog)
     setConnections(state.connections)
     setMessagesByServer(state.messagesByServer)

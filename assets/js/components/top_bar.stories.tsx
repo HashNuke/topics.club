@@ -7,4 +7,6 @@ export const Directory = {args: {view: "directory"}}
 export const Server = {args: {view: "server"}}
 export const Degraded = {args: {connectionHealth: "degraded"}}
 export const NotificationsEnabled = {args: {notificationState: "granted"}}
+export const NotificationsUnavailableOnHttp = {args: {notificationState: "insecure"}}
+export const NotificationsBlocked = {args: {notificationState: "denied"}}
 export const HealthIndicator = {render: () => <ConnectionHealthIndicator status="reconnecting" onRetry={() => {}} />}

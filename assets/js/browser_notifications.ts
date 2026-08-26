@@ -4,18 +4,22 @@ interface MentionMessage {
   nick: string
 }
 
+export type BrowserNotificationState = NotificationPermission | "unsupported" | "insecure"
+
 interface MentionNotificationOptions {
   currentUser?: {email?: string} | null
-  notificationState: NotificationPermission | "unsupported"
+  notificationState: BrowserNotificationState
 }
 
-export function notificationPermission(): NotificationPermission {
-  if (!("Notification" in window)) return "default"
+export function notificationPermission(): BrowserNotificationState {
+  if (window.isSecureContext === false) return "insecure"
+  if (!("Notification" in window)) return "unsupported"
   return window.Notification.permission
 }
 
-export async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
-  if (!("Notification" in window)) return "unsupported"
+export async function requestNotificationPermission(): Promise<BrowserNotificationState> {
+  const state = notificationPermission()
+  if (state === "insecure" || state === "unsupported" || state === "denied") return state
   return window.Notification.requestPermission()
 }
 
@@ -23,6 +27,7 @@ export function showMentionNotification(
   message: MentionMessage,
   {currentUser, notificationState}: MentionNotificationOptions
 ): boolean {
+  if (window.isSecureContext === false) return false
   if (!("Notification" in window)) return false
   if (document.visibilityState !== "hidden") return false
   if (notificationState !== "granted" && window.Notification.permission !== "granted") return false
