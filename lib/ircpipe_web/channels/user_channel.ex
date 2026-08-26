@@ -10,6 +10,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
+  alias IrcpipeWeb.UserChannel.ErrorResponse
 
   @impl true
   def join("user:" <> user_id, _payload, socket) do
@@ -186,11 +187,11 @@ defmodule IrcpipeWeb.UserChannel do
             membership.channel,
             "error",
             nil,
-            send_error_body(reason)
+            ErrorResponse.send_body(reason)
           )
 
           reply_error(socket, %{
-            reason: error_reason(reason),
+            reason: ErrorResponse.reason(reason),
             client_message_id: client_message_id
           })
       end
@@ -199,7 +200,10 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: "empty_message", client_message_id: client_message_id})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), client_message_id: client_message_id})
+        reply_error(socket, %{
+          reason: ErrorResponse.reason(reason),
+          client_message_id: client_message_id
+        })
     end
   end
 
@@ -226,7 +230,10 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: "empty_message", client_message_id: client_message_id})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), client_message_id: client_message_id})
+        reply_error(socket, %{
+          reason: ErrorResponse.reason(reason),
+          client_message_id: client_message_id
+        })
     end
   end
 
@@ -244,7 +251,7 @@ defmodule IrcpipeWeb.UserChannel do
          :ok <- Chat.mark_read(user, membership) do
       reply_ok(socket, %{buffer_id: "channel:#{membership.id}", unread_count: 0, mention_count: 0})
     else
-      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
@@ -266,7 +273,7 @@ defmodule IrcpipeWeb.UserChannel do
          {:ok, updated} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
       reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
-      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
@@ -287,7 +294,7 @@ defmodule IrcpipeWeb.UserChannel do
            Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
       reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
-      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
@@ -306,7 +313,7 @@ defmodule IrcpipeWeb.UserChannel do
          {:ok, closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
       reply_ok(socket, Event.direct_message_closed(closed))
     else
-      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
@@ -330,7 +337,7 @@ defmodule IrcpipeWeb.UserChannel do
         }
       )
     else
-      {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
+      {:error, reason} -> reply_error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   end
 
@@ -347,7 +354,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_ok(socket, %{directory: channel_directory(connection, channels)})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason)})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason)})
     end
   rescue
     Ecto.NoResultsError -> reply_error(socket, %{reason: "invalid_server"})
@@ -412,7 +419,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -428,7 +435,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -453,7 +460,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -483,7 +490,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -519,7 +526,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
 
       [] ->
         reply_error(socket, %{reason: "send_failed", command: command})
@@ -537,7 +544,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -559,7 +566,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -584,7 +591,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -600,7 +607,7 @@ defmodule IrcpipeWeb.UserChannel do
         reply_error(socket, %{reason: code, error: error, command: command})
 
       {:error, reason} ->
-        reply_error(socket, %{reason: error_reason(reason), command: command})
+        reply_error(socket, %{reason: ErrorResponse.reason(reason), command: command})
     end
   end
 
@@ -746,27 +753,4 @@ defmodule IrcpipeWeb.UserChannel do
     |> Chat.list_messages(membership.id, 1)
     |> List.first()
   end
-
-  defp error_reason(:invalid_buffer), do: "invalid_buffer"
-  defp error_reason(:invalid_server), do: "invalid_server"
-  defp error_reason(:invalid_direct_message), do: "invalid_direct_message"
-  defp error_reason(:direct_message_closed), do: "direct_message_closed"
-  defp error_reason(:invalid_command_args), do: "invalid_command_args"
-  defp error_reason(:invalid_connection), do: "invalid_connection"
-  defp error_reason(:not_connected), do: "not_connected"
-  defp error_reason(:list_in_progress), do: "list_in_progress"
-  defp error_reason(:list_timeout), do: "list_timeout"
-  defp error_reason(:joining_channel), do: "joining_channel"
-  defp error_reason(:not_joined), do: "not_joined"
-  defp error_reason(%{code: code}), do: code
-  defp error_reason(_reason), do: "send_failed"
-
-  defp send_error_body(:not_connected), do: "Message could not be sent: not connected."
-
-  defp send_error_body(:joining_channel),
-    do: "Message could not be sent: still joining the channel."
-
-  defp send_error_body(:not_joined), do: "Message could not be sent: not joined to the channel."
-  defp send_error_body(%{message: message}), do: message
-  defp send_error_body(_reason), do: "Message could not be sent."
 end
