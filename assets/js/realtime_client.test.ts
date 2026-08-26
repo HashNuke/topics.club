@@ -151,21 +151,18 @@ describe("realtime client", () => {
     expect(onBufferJoined).toHaveBeenCalledWith({buffer: {buffer_id: "channel:8"}})
   })
 
-  test("forwards direct-message lifecycle and notification events", () => {
+  test("forwards direct-message lifecycle events", () => {
     const handlers = {
       onDirectMessageThread: vi.fn(),
       onDirectMessageClosed: vi.fn(),
-      onNotificationDirectMessage: vi.fn(),
     }
     const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers})
 
     client.channel.handlers["direct_message:thread"]({buffer: {buffer_id: "direct:8"}})
     client.channel.handlers["direct_message:closed"]({buffer_id: "direct:8"})
-    client.channel.handlers["notification:direct_message"]({buffer_id: "direct:8", body: "ping"})
 
     expect(handlers.onDirectMessageThread).toHaveBeenCalledWith({buffer: {buffer_id: "direct:8"}})
     expect(handlers.onDirectMessageClosed).toHaveBeenCalledWith({buffer_id: "direct:8"})
-    expect(handlers.onNotificationDirectMessage).toHaveBeenCalledWith({buffer_id: "direct:8", body: "ping"})
   })
 
   test("forwards buffer error events through the timeline message handler", () => {

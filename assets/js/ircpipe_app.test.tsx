@@ -10,42 +10,9 @@ const topicFixtures = [
   {id: "fixture-linux", name: "#linux", description: "Daily Linux discussion and troubleshooting.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#linux", members: 931},
 ]
 
-function channelNotification(overrides = {}) {
-  return {
-    type: "notification:mention",
-    version: 1,
-    event_id: "notification:mention",
-    id: 201,
-    notification_id: 101,
-    buffer_id: "channel:7",
-    server_connection_id: 42,
-    channel_membership_id: 7,
-    channel: "#testing",
-    nick: "akash",
-    body: "hello mira",
-    ...overrides,
-  }
-}
-
-function directNotification(overrides = {}) {
-  return {
-    type: "notification:direct_message",
-    version: 1,
-    event_id: "notification:direct-message",
-    id: 202,
-    notification_id: 102,
-    buffer_id: "direct:9",
-    server_connection_id: 1,
-    direct_message_thread_id: 9,
-    peer_nick: "Zed",
-    nick: "Zed",
-    body: "hello privately",
-    ...overrides,
-  }
-}
-
 function directThreadPayload(payload) {
   const threadId = payload.buffer.direct_message_thread_id
+  const title = payload.buffer.title
 
   return {
     type: "direct_message:thread",
@@ -53,6 +20,36 @@ function directThreadPayload(payload) {
     event_id: `direct_message_thread:${threadId}:1`,
     occurred_at: "2026-08-26T00:00:00Z",
     ...payload,
+    buffer: {
+      subtitle: `on ${payload.connection.host}`,
+      peer_nick: title,
+      account: null,
+      hostmask: null,
+      closed_at: null,
+      unread_count: 0,
+      mention_count: 0,
+      ...payload.buffer,
+    },
+  }
+}
+
+function directBufferRecord(id, title, overrides = {}) {
+  return {
+    buffer_id: `direct:${id}`,
+    buffer_type: "direct_message",
+    server_connection_id: 1,
+    direct_message_thread_id: id,
+    direct_message_revision: 1,
+    title,
+    subtitle: "on irc.old.test",
+    peer_nick: title,
+    account: null,
+    hostmask: null,
+    blocked: false,
+    closed_at: null,
+    unread_count: 0,
+    mention_count: 0,
+    ...overrides,
   }
 }
 
@@ -89,16 +86,11 @@ function mockBootstrapFetch({
   channelNotificationsEnabled = true,
   notificationPreferenceRevision = 0,
   channelPreferenceResponsePromise = null,
-  notificationEligible = true,
 } = {}) {
   let bufferMessageRequestCount = 0
   let joinRequestCount = 0
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
-    if (String(path).startsWith("/api/notifications/") && String(path).includes("/eligibility?")) {
-      return {ok: true, json: async () => ({eligible: notificationEligible})}
-    }
-
     if (path === "/api/push_subscriptions" && options.method === "POST") {
       const {installation_id} = JSON.parse(options.body)
       return {
@@ -541,9 +533,9 @@ function directMessageApiClient() {
       buffers: [
         {buffer_id: "server:1", buffer_type: "server", server_connection_id: 1, title: "irc.old.test", mention_notifications_enabled: true, notification_preference_revision: 0},
         {buffer_id: "channel:4", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 4, title: "#zulu", mention_notifications_enabled: true, notification_preference_revision: 0},
-        {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 1, title: "Zed", subtitle: "on irc.old.test", unread_count: 2, blocked: false, account: "zed-account"},
+        directBufferRecord(9, "Zed", {unread_count: 2, account: "zed-account"}),
         {buffer_id: "channel:3", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 3, title: "#alpha", mention_notifications_enabled: true, notification_preference_revision: 0},
-        {buffer_id: "direct:8", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 8, direct_message_revision: 1, title: "akash", subtitle: "on irc.old.test", unread_count: 0, blocked: false},
+        directBufferRecord(8, "akash"),
         {buffer_id: "server:2", buffer_type: "server", server_connection_id: 2, title: "irc.new.test", mention_notifications_enabled: true, notification_preference_revision: 0},
       ],
       active_buffer_id: "direct:9",
@@ -554,7 +546,6 @@ function directMessageApiClient() {
       users_by_buffer: {},
       command_catalog: [{name: "/msg", contexts: ["channel"]}],
     }),
-    notificationEligibility: vi.fn().mockResolvedValue({eligible: true}),
   }
 }
 
@@ -931,6 +922,40 @@ describe("IrcpipeApp UI prototype", () => {
         },
         revision: 1,
       } as any)
+      realtimeHandlers.onDirectMessageThread({
+        type: "direct_message:thread",
+        version: 1,
+        event_id: "direct_message_thread:[:1",
+        occurred_at: "2026-08-26T00:00:00Z",
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+        buffer: {
+          buffer_id: "direct:[",
+          buffer_type: "direct_message",
+          server_connection_id: 1,
+          direct_message_thread_id: "[",
+          direct_message_revision: 1,
+          title: "Regex",
+          subtitle: "on irc.old.test",
+          peer_nick: "Regex",
+          account: null,
+          hostmask: null,
+          blocked: false,
+          closed_at: null,
+          unread_count: 0,
+          mention_count: 0,
+        },
+        revision: 1,
+      } as any)
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+        buffer: {buffer_id: "direct:13", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 13, direct_message_revision: 1, title: "", unread_count: 0, blocked: false},
+        revision: 1,
+      }))
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+        buffer: {buffer_id: "direct:14", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 14, direct_message_revision: 1, title: "Closed", unread_count: 0, blocked: false, closed_at: "not-a-timestamp"},
+        revision: 1,
+      }))
       realtimeHandlers.onDirectMessageClosed({
         buffer_id: "direct:9",
         server_connection_id: 1,
@@ -941,6 +966,8 @@ describe("IrcpipeApp UI prototype", () => {
 
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
     expect(within(nav).queryByText("Mona")).not.toBeInTheDocument()
+    expect(within(nav).queryByText("Regex")).not.toBeInTheDocument()
+    expect(within(nav).queryByText("Closed")).not.toBeInTheDocument()
     expect(within(nav).getByText("Zed")).toBeInTheDocument()
   })
 
@@ -952,7 +979,7 @@ describe("IrcpipeApp UI prototype", () => {
       ...initial,
       buffers: [
         ...initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9"),
-        {buffer_id: "direct:10", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 10, direct_message_revision: 1, title: "Bella", unread_count: 1, blocked: false},
+        directBufferRecord(10, "Bella", {unread_count: 1}),
       ],
       messages_by_buffer: {},
     }
@@ -1078,156 +1105,6 @@ describe("IrcpipeApp UI prototype", () => {
     }
   })
 
-  test("replays a queued mute before deciding whether to show its queued mention", async () => {
-    const seedClient = directMessageApiClient()
-    const initial = await seedClient.bootstrap()
-    let resolveRefresh
-    const apiClient = {
-      ...seedClient,
-      bootstrap: vi
-        .fn()
-        .mockResolvedValueOnce(initial)
-        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve })),
-      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
-    }
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-    const originalVisibilityState = document.visibilityState
-    let realtimeHandlers
-
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
-
-    try {
-      render(
-        <IrcpipeApp
-          apiClient={apiClient as any}
-          currentUser={{id: 1, email: "mira@example.com"}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
-      await act(async () => realtimeHandlers.onJoinOk())
-
-      act(() => {
-        realtimeHandlers.onNotificationPreference({
-          scope: "channel",
-          id: 4,
-          mention_notifications_enabled: false,
-          revision: 1,
-        })
-        realtimeHandlers.onNotificationMention(channelNotification({
-          event_id: "queued-muted-mention",
-          notification_id: 101,
-          buffer_id: "channel:4",
-          server_connection_id: 1,
-          channel_membership_id: 4,
-          channel: "#zulu",
-          nick: "akash",
-          body: "this mention is muted",
-        }))
-      })
-
-      await act(async () => resolveRefresh(initial))
-      expect(NotificationMock).not.toHaveBeenCalled()
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-    }
-  })
-
-  test("replays a queued direct-message thread before its queued notification", async () => {
-    const seedClient = directMessageApiClient()
-    const initial = await seedClient.bootstrap()
-    let resolveRefresh
-    const apiClient = {
-      ...seedClient,
-      bootstrap: vi
-        .fn()
-        .mockResolvedValueOnce(initial)
-        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve })),
-      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
-    }
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-    const originalVisibilityState = document.visibilityState
-    let realtimeHandlers
-
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
-
-    try {
-      render(
-        <IrcpipeApp
-          apiClient={apiClient as any}
-          currentUser={{id: 1, email: "mira@example.com"}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
-      await act(async () => realtimeHandlers.onJoinOk())
-
-      act(() => {
-        realtimeHandlers.onDirectMessageThread(directThreadPayload({
-          connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
-          buffer: {
-            buffer_id: "direct:12",
-            buffer_type: "direct_message",
-            server_connection_id: 1,
-            direct_message_thread_id: 12,
-            direct_message_revision: 1,
-            title: "Mona",
-            unread_count: 1,
-            blocked: false,
-          },
-          revision: 1,
-        }))
-        realtimeHandlers.onNotificationDirectMessage(directNotification({
-          event_id: "queued-direct-message",
-          notification_id: 102,
-          buffer_id: "direct:12",
-          server_connection_id: 1,
-          direct_message_thread_id: 12,
-          peer_nick: "Mona",
-          nick: "Mona",
-          body: "hello privately",
-        }))
-      })
-
-      await act(async () => resolveRefresh(initial))
-      await waitFor(() => expect(NotificationMock).toHaveBeenCalledOnce())
-      expect(NotificationMock).toHaveBeenCalledWith("Mona", {
-        body: "Mona: hello privately",
-        tag: "queued-direct-message",
-      })
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-    }
-  })
-
   test("auto-opens a direct-message thread returned by msg", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
@@ -1262,6 +1139,40 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
     expect(screen.getByText("hello privately")).toBeInTheDocument()
     expect(push).toHaveBeenCalledWith("command:run", expect.objectContaining({input: "/msg akash hello privately", buffer_id: "channel:7"}))
+  })
+
+  test("rejects a msg reply whose authoritative message body does not match the command", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn().mockResolvedValue(directThreadPayload({
+      connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 0, blocked: false},
+      revision: 1,
+      message: {type: "buffer:message", version: 1, event_id: "message:89", id: 89, buffer_id: "direct:12", server_connection_id: 42, direct_message_thread_id: 12, nick: "mira", body: "different body", occurred_at: "2026-08-26T00:00:00Z"},
+    }))
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onJoinOk()
+    const composer = screen.getByLabelText("Message composer")
+    await user.type(composer, "/msg akash hello privately")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(await screen.findByText("The IRC command could not be sent.")).toBeInTheDocument()
+    expect(screen.queryByRole("heading", {name: "akash"})).not.toBeInTheDocument()
+    expect(composer).toHaveValue("/msg akash hello privately")
   })
 
   test("blocks, unblocks, and closes a direct-message thread", async () => {
@@ -1448,6 +1359,47 @@ describe("IrcpipeApp UI prototype", () => {
     )
     expect(await screen.findByText("sent through socket")).toBeInTheDocument()
     expect(screen.queryByText("sending")).not.toBeInTheDocument()
+  })
+
+  test("rejects a sent-message reply from a different server connection", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn().mockResolvedValue({
+      message: {
+        type: "buffer:message",
+        version: 1,
+        event_id: "message:100",
+        id: 100,
+        buffer_id: "channel:7",
+        server_connection_id: 999,
+        channel_membership_id: 7,
+        nick: "mira",
+        body: "wrong server",
+        kind: "message",
+        mentioned: false,
+        occurred_at: "2026-05-13T10:01:00Z",
+      },
+    })
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onJoinOk()
+    await user.type(screen.getByLabelText("Message composer"), "wrong server")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(await screen.findByRole("button", {name: "Retry"})).toBeInTheDocument()
   })
 
   test("marks realtime channel send failures in the timeline", async () => {
@@ -2220,355 +2172,6 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(within(people).getByRole("button", {name: "+2 more"}))
 
     expect(within(people).getByText("user12")).toBeInTheDocument()
-  })
-
-  test("shows browser notifications for hidden-tab mention events", async () => {
-    mockBootstrapFetch()
-    let realtimeHandlers
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    const originalVisibilityState = document.visibilityState
-    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
-
-    try {
-      render(
-        <IrcpipeApp
-          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-
-      realtimeHandlers.onNotificationMention(channelNotification({
-        event_id: "notification:1",
-        notification_id: 103,
-      }))
-      realtimeHandlers.onNotificationMention(channelNotification({
-        event_id: "notification:1",
-        notification_id: 103,
-      }))
-
-      await waitFor(() => expect(NotificationMock).toHaveBeenCalledTimes(1))
-      expect(NotificationMock).toHaveBeenCalledWith("#testing", {
-        body: "akash: hello mira",
-        tag: "notification:1",
-      })
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-    }
-  })
-
-  test("fails closed when server eligibility rejects a delayed local notification", async () => {
-    mockBootstrapFetch({notificationEligible: false})
-    let realtimeHandlers
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-    const originalVisibilityState = document.visibilityState
-
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
-
-    try {
-      render(
-        <IrcpipeApp
-          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-      realtimeHandlers.onNotificationMention(channelNotification({
-        event_id: "notification:committed-mute-read-or-close",
-        notification_id: 106,
-        body: "must stay private",
-      }))
-
-      await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
-        "/api/notifications/106/eligibility?session_generation=test-session",
-        expect.objectContaining({credentials: "same-origin"})
-      ))
-      expect(NotificationMock).not.toHaveBeenCalled()
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-    }
-  })
-
-  test("aborts delayed notification authorization when the signed-in account changes", async () => {
-    const seedClient = directMessageApiClient()
-    let resolveEligibility
-    let eligibilitySignal
-    const notificationEligibility = vi.fn((_notificationId, _generation, signal) => {
-      eligibilitySignal = signal
-      return new Promise((resolve) => { resolveEligibility = resolve })
-    })
-    const apiClient = {...seedClient, notificationEligibility}
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-    const originalVisibilityState = document.visibilityState
-    let realtimeHandlers
-
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
-
-    try {
-      const rendered = render(
-        <IrcpipeApp
-          apiClient={apiClient as any}
-          currentUser={{id: 1, email: "mira@example.com"}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
-      act(() => {
-        realtimeHandlers.onNotificationDirectMessage(directNotification({
-          event_id: "notification:stale-account",
-          notification_id: 107,
-          body: "do not leak",
-        }))
-      })
-
-      await waitFor(() => expect(notificationEligibility).toHaveBeenCalledOnce())
-
-      rendered.rerender(
-        <IrcpipeApp
-          apiClient={apiClient as any}
-          currentUser={{id: 2, email: "other@example.com"}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      await waitFor(() => expect(eligibilitySignal.aborted).toBe(true))
-      await act(async () => resolveEligibility({eligible: true}))
-      expect(NotificationMock).not.toHaveBeenCalled()
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-    }
-  })
-
-  test("uses local fallback when subscription inspection succeeds but server sync fails", async () => {
-    mockBootstrapFetch({
-      push: {configured: true, vapid_public_key: "AQ"},
-      pushSubscriptionOk: false,
-    })
-    let realtimeHandlers
-    let resolveSubscription
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-    const originalPushManager = window.PushManager
-    const originalServiceWorker = navigator.serviceWorker
-    const originalVisibilityState = document.visibilityState
-    const installationStorageKey = "ircpipe.notification-installation"
-    const originalInstallation = localStorage.getItem(installationStorageKey)
-    const subscription = {
-      toJSON: () => ({
-        endpoint: "https://push.example.test/subscription",
-        expirationTime: null,
-        keys: {p256dh: "p256dh", auth: "auth"},
-      }),
-    }
-    const pendingSubscription = new Promise((resolve) => {
-      resolveSubscription = resolve
-    })
-    const registration = {
-      pushManager: {
-        getSubscription: vi.fn().mockReturnValue(pendingSubscription),
-        subscribe: vi.fn(),
-      },
-    }
-
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    Object.defineProperty(window, "PushManager", {value: vi.fn(), configurable: true})
-    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
-    Object.defineProperty(navigator, "serviceWorker", {
-      value: {ready: Promise.resolve(registration), addEventListener: vi.fn(), removeEventListener: vi.fn()},
-      configurable: true,
-    })
-    localStorage.setItem(
-      installationStorageKey,
-      JSON.stringify({installation_id: "browser-installation", user_id: "1"})
-    )
-
-    try {
-      render(
-        <IrcpipeApp
-          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-
-      act(() => {
-        realtimeHandlers.onNotificationMention(channelNotification({
-          event_id: "notification:during-subscription-inspection",
-          notification_id: 104,
-        }))
-      })
-
-      expect(NotificationMock).not.toHaveBeenCalled()
-
-      await act(async () => resolveSubscription(subscription))
-      await waitFor(() => {
-        expect(globalThis.fetch).toHaveBeenCalledWith(
-          "/api/push_subscriptions",
-          expect.objectContaining({method: "POST"})
-        )
-      })
-
-      await waitFor(() => expect(NotificationMock).toHaveBeenCalledOnce())
-      expect(NotificationMock).toHaveBeenCalledWith("#testing", {
-        body: "akash: hello mira",
-        tag: "notification:during-subscription-inspection",
-      })
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      if (originalPushManager) {
-        Object.defineProperty(window, "PushManager", {value: originalPushManager, configurable: true})
-      } else {
-        delete window.PushManager
-      }
-      if (originalServiceWorker) {
-        Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
-      } else {
-        delete navigator.serviceWorker
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-      if (originalInstallation === null) {
-        localStorage.removeItem(installationStorageKey)
-      } else {
-        localStorage.setItem(installationStorageKey, originalInstallation)
-      }
-    }
-  })
-
-  test("does not show local mention notifications for muted servers", async () => {
-    mockBootstrapFetch({serverNotificationsEnabled: false})
-    let realtimeHandlers
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-    const originalVisibilityState = document.visibilityState
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
-
-    try {
-      render(
-        <IrcpipeApp
-          currentUser={{id: 1, email: "mira@example.com"}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-      realtimeHandlers.onNotificationMention(channelNotification({
-        event_id: "notification:muted",
-        notification_id: 105,
-      }))
-
-      expect(NotificationMock).not.toHaveBeenCalled()
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-    }
-  })
-
-  test("does not show browser notifications while the chat tab is visible", async () => {
-    mockBootstrapFetch()
-    let realtimeHandlers
-    const client = fakeRealtimeClient(vi.fn())
-    const NotificationMock = vi.fn()
-    NotificationMock.permission = "granted"
-    const originalNotification = window.Notification
-
-    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
-    const originalVisibilityState = document.visibilityState
-    Object.defineProperty(document, "visibilityState", {value: "visible", configurable: true})
-
-    try {
-      render(
-        <IrcpipeApp
-          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
-          developerOauth={true}
-          realtimeClientFactory={({handlers}) => {
-            realtimeHandlers = handlers
-            return client
-          }}
-        />
-      )
-
-      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-
-      realtimeHandlers.onNotificationMention({channel: "#testing", nick: "akash", body: "hello mira"})
-
-      expect(NotificationMock).not.toHaveBeenCalled()
-    } finally {
-      if (originalNotification) {
-        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
-      } else {
-        delete window.Notification
-      }
-      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
-    }
   })
 
   test("requests browser notification permission from the bell button", async () => {

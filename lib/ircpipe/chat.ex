@@ -929,7 +929,7 @@ defmodule Ircpipe.Chat do
     |> case do
       {:ok, {message, notification}} ->
         if notification, do: Notifications.enqueue_delivery(notification)
-        broadcast_message(message, membership, connection, notification)
+        broadcast_message(message, membership, connection)
 
         {:ok, %{message | channel_membership: membership, server_connection: connection}}
 
@@ -1094,23 +1094,13 @@ defmodule Ircpipe.Chat do
          thread: thread,
          message: message,
          notification: notification,
-         notify?: notify?,
          archived_threads: archived_threads
        } =
            recorded} ->
         Enum.each(archived_threads, &broadcast_direct_message_closed/1)
         if notification, do: Notifications.enqueue_delivery(notification)
         broadcast_direct_message_thread(thread)
-        event = broadcast_direct_message(message, thread)
-
-        if notify? do
-          Phoenix.PubSub.broadcast(
-            Ircpipe.PubSub,
-            "user:#{connection.user_id}",
-            {:direct_message_notification,
-             Event.direct_message_notification(event, notification.id)}
-          )
-        end
+        broadcast_direct_message(message, thread)
 
         {:ok, Map.delete(recorded, :archived_threads)}
 
@@ -1150,7 +1140,7 @@ defmodule Ircpipe.Chat do
         |> Repo.insert()
 
       prune_old_messages(user)
-      broadcast_message(message, membership, connection, nil)
+      broadcast_message(message, membership, connection)
       message
     end)
   end
@@ -1826,7 +1816,7 @@ defmodule Ircpipe.Chat do
   defp reason_text(reason) when is_binary(reason), do: reason
   defp reason_text(reason), do: inspect(reason)
 
-  defp broadcast_message(message, membership, connection, notification) do
+  defp broadcast_message(message, membership, connection) do
     payload = Event.message(message, "channel:#{membership.id}", %{channel: membership.channel})
 
     Phoenix.PubSub.broadcast(
@@ -1840,14 +1830,6 @@ defmodule Ircpipe.Chat do
       "user:#{connection.user_id}",
       {pubsub_event(payload), payload}
     )
-
-    if notification do
-      Phoenix.PubSub.broadcast(
-        Ircpipe.PubSub,
-        "user:#{connection.user_id}",
-        {:irc_mention, Event.notification_mention(payload, notification.id)}
-      )
-    end
   end
 
   defp broadcast_server_message(message, connection) do
@@ -1930,7 +1912,7 @@ defmodule Ircpipe.Chat do
     do: broadcast_server_message(message, connection)
 
   defp broadcast_command_message(message, membership, connection),
-    do: broadcast_message(message, membership, connection, nil)
+    do: broadcast_message(message, membership, connection)
 
   defp command_membership(%ServerConnection{id: connection_id}, "channel:" <> membership_id) do
     Repo.get_by!(ChannelMembership, id: membership_id, server_connection_id: connection_id)

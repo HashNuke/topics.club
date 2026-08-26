@@ -73,7 +73,7 @@ export async function synchronizeNotificationDevice(
       ...base,
       loading: false,
       subscribed: serverRegistrationConfirmed,
-      error: "Notifications are enabled locally but could not be synchronized.",
+      error: "The browser subscription could not be synchronized with the server.",
     }
   }
 }
@@ -160,14 +160,6 @@ export function notificationServerRegistrationConfirmed(
   return installation?.user_id === String(userId) &&
     installation.session_generation === push.session_generation &&
     installation.server_registration_confirmed
-}
-
-export function notificationDeliveryCoveredByPush(
-  device: NotificationDeviceState,
-  userId: EntityId,
-  push: PushConfig
-): boolean {
-  return device.subscribed || notificationServerRegistrationConfirmed(userId, push)
 }
 
 export function clearNotificationServerRegistration(): void {

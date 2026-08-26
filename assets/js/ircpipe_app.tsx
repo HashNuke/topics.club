@@ -9,17 +9,13 @@ import {createApiClient, type ApiClient} from "./api_client.ts"
 import {commandErrorMessage, type CommandError} from "./app_feedback.ts"
 import {buildBootstrapState, type BootstrapPayload} from "./bootstrap_state.ts"
 import {
-  createNotificationEventCoordinator,
   initialNotificationDeviceState,
-  mentionNotificationEligible,
-  showMentionNotification,
   type NotificationDeviceState,
 } from "./browser_notifications.ts"
 import {
   clearNotificationServerRegistration,
   enableNotificationDevice,
   notificationControlState,
-  notificationDeliveryCoveredByPush,
   synchronizeNotificationDevice,
 } from "./push_notifications.ts"
 import {
@@ -59,7 +55,6 @@ import type {
   PresenceDiffPayload,
   PresenceSyncPayload,
   NotificationPreferencePayload,
-  NotificationEventPayload,
   PushConfig,
   ServerConnection,
   Topic,
@@ -84,44 +79,6 @@ function notificationPreferenceKey(scope: "server" | "channel", id: EntityId): s
   return `${scope}:${id}`
 }
 
-function validNotificationEvent(
-  message: NotificationEventPayload,
-  expectedType: NotificationEventPayload["type"]
-): boolean {
-  if (
-    !message ||
-    message.type !== expectedType ||
-    message.version !== 1 ||
-    !validProtocolEntityId(message.id) ||
-    !validProtocolEntityId(message.notification_id) ||
-    !validProtocolEntityId(message.server_connection_id) ||
-    typeof message.nick !== "string" || message.nick.length === 0 ||
-    typeof message.body !== "string"
-  ) return false
-
-  if (typeof message.event_id !== "string") return false
-  const eventId = message.event_id.trim()
-  if (!eventId || eventId.length > 256) return false
-
-  switch (message.type) {
-    case "notification:mention":
-      return (
-        validProtocolEntityId(message.channel_membership_id) &&
-        message.buffer_id === `channel:${message.channel_membership_id}` &&
-        typeof message.channel === "string" &&
-        message.channel.length > 0
-      )
-
-    case "notification:direct_message":
-      return (
-        validProtocolEntityId(message.direct_message_thread_id) &&
-        message.buffer_id === `direct:${message.direct_message_thread_id}` &&
-        typeof message.peer_nick === "string" &&
-        message.peer_nick.length > 0
-      )
-  }
-}
-
 function validProtocolEntityId(value: unknown): value is EntityId {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
   return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
@@ -132,6 +89,8 @@ function validSentMessageReply(
   channel: Channel,
   expectedBody: string
 ): boolean {
+  const expectedServerId = channel.connection?.server_connection_id
+
   if (
     !message ||
     message.type !== "buffer:message" ||
@@ -139,6 +98,8 @@ function validSentMessageReply(
     !validProtocolEntityId(message.id) ||
     message.event_id !== `message:${message.id}` ||
     !validProtocolEntityId(message.server_connection_id) ||
+    !validProtocolEntityId(expectedServerId) ||
+    String(message.server_connection_id) !== String(expectedServerId) ||
     message.buffer_id !== channel.id ||
     typeof message.nick !== "string" ||
     message.nick.length === 0 ||
@@ -152,6 +113,11 @@ function validSentMessageReply(
         String(message.direct_message_thread_id) === String(channel.direct_message_thread_id)
     : validProtocolEntityId(message.channel_membership_id) &&
         String(message.channel_membership_id) === String(channel.channel_membership_id)
+}
+
+function parsedDirectMessageBody(input: string): string | null {
+  const match = input.trim().match(/^\/msg\s+\S+\s+(.+)$/is)
+  return match?.[1] || null
 }
 
 interface NotificationPreferenceOperation {
@@ -187,15 +153,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const connectionsRef = useRef<ServerConnection[]>([])
   const discoverRequestedRef = useRef(false)
   const notificationDeviceStateRef = useRef(notificationDeviceState)
-  const notificationAuthorizationEpochRef = useRef(0)
-  const notificationEligibilityControllersRef = useRef(new Set<AbortController>())
   const notificationOperationIdRef = useRef(0)
   const notificationPreferenceEpochRef = useRef(0)
   const notificationPreferenceOperationsRef = useRef(
     new Map<string, NotificationPreferenceOperation>()
   )
-  const notificationEventCoordinatorRef = useRef<ReturnType<typeof createNotificationEventCoordinator> | null>(null)
-  const queuedNotificationEventsRef = useRef<NotificationEventPayload[]>([])
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
   const realtimeRefreshInFlightRef = useRef(false)
   const realtimeRefreshRequestedRef = useRef(false)
@@ -208,30 +170,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   currentUserRef.current = currentUser
   pushConfigRef.current = pushConfig
-
-  const notificationCoordinatorScope = String(currentUser?.id || "anonymous")
-
-  useEffect(() => {
-    const coordinator = createNotificationEventCoordinator({scope: notificationCoordinatorScope})
-    notificationEventCoordinatorRef.current = coordinator
-
-    return () => {
-      coordinator.close()
-      if (notificationEventCoordinatorRef.current === coordinator) {
-        notificationEventCoordinatorRef.current = null
-      }
-    }
-  }, [notificationCoordinatorScope])
-
-  useEffect(() => {
-    notificationAuthorizationEpochRef.current += 1
-    abortNotificationEligibilityChecks()
-
-    return () => {
-      notificationAuthorizationEpochRef.current += 1
-      abortNotificationEligibilityChecks()
-    }
-  }, [currentUser?.id])
 
   useEffect(() => {
     if (!currentUser) {
@@ -337,12 +275,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onPresenceDiff: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceDiff(payload)),
       onPresenceSync: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceSync(payload)),
       onServerStatus: (payload) => applyOrQueueRealtimeEvent(() => applyServerStatus(payload)),
-      onNotificationMention: (payload) => {
-        void handleMentionNotification(payload, "notification:mention")
-      },
-      onNotificationDirectMessage: (payload) => {
-        void handleMentionNotification(payload, "notification:direct_message")
-      },
       onNotificationPreference: (payload) => applyOrQueueRealtimeEvent(() => applyNotificationPreference(payload)),
     },
     onConnected: refreshAuthoritativeBootstrap,
@@ -569,13 +501,16 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           buffer_id: bufferId,
         })
 
-        setDraft("")
         if ("buffer" in reply && reply.buffer?.buffer_type === "direct_message") {
-          openDirectMessage(reply, reply.message)
+          const expectedBody = parsedDirectMessageBody(body)
+          if (!expectedBody || !openDirectMessage(reply, reply.message, expectedBody)) {
+            throw new Error("invalid_direct_message_reply")
+          }
         }
         if ("directory" in reply && reply.directory) {
           applyChannelDirectory(reply.directory, directoryRequestId ?? undefined)
         }
+        setDraft("")
       } catch (error: unknown) {
         setComposerError(commandErrorMessage(error as CommandError))
       }
@@ -946,152 +881,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }))
   }
 
-  async function handleMentionNotification(
-    message: NotificationEventPayload,
-    expectedType: NotificationEventPayload["type"]
-  ): Promise<void> {
-    if (!validNotificationEvent(message, expectedType)) return
-
-    const notificationUser = currentUserRef.current
-    const coordinator = notificationEventCoordinatorRef.current
-    if (!notificationUser || !coordinator) return
-
-    if (document.visibilityState !== "hidden") {
-      await coordinator.coordinate(message.event_id, {
-        eligible: false,
-        visible: true,
-        display: () => false,
-      })
-      return
-    }
-
-    if (realtimeRefreshInFlightRef.current) {
-      queuedRealtimeEventsRef.current.push(
-        () => void handleMentionNotification(message, expectedType)
-      )
-      return
-    }
-
-    if (notificationDeviceStateRef.current.loading) {
-      queuedNotificationEventsRef.current.push(message)
-      if (queuedNotificationEventsRef.current.length > 100) {
-        queuedNotificationEventsRef.current.shift()
-      }
-      return
-    }
-
-    const pushConfig = pushConfigRef.current
-    if (!pushConfig) return
-
-    if (notificationDeliveryCoveredByPush(
-      notificationDeviceStateRef.current,
-      notificationUser.id,
-      pushConfig
-    )) return
-
-    const server = connectionsRef.current.find(
-      (connection) =>
-        String(connection.server_connection_id) === String(message.server_connection_id)
-    )
-    if (!server) return
-
-    const buffer = server.channels.find((channel) => channel.id === message.buffer_id)
-    if (!buffer || buffer.blocked) return
-
-    if (
-      buffer.buffer_type !== "direct_message" &&
-      (!server.mention_notifications_enabled || !buffer.mention_notifications_enabled)
-    ) return
-
-    const userId = currentUserRef.current?.id
-    const sessionGeneration = pushConfig.session_generation
-    if (!userId) return
-
-    const authorizationEpoch = notificationAuthorizationEpochRef.current
-    const controller = new AbortController()
-    notificationEligibilityControllersRef.current.add(controller)
-
-    let eligible = false
-    try {
-      const result = await apiClient.notificationEligibility(
-        message.notification_id,
-        sessionGeneration,
-        controller.signal
-      )
-      eligible = result.eligible
-    } catch (_error) {
-      return
-    } finally {
-      notificationEligibilityControllersRef.current.delete(controller)
-    }
-
-    if (
-      !eligible ||
-      controller.signal.aborted ||
-      authorizationEpoch !== notificationAuthorizationEpochRef.current ||
-      String(currentUserRef.current?.id) !== String(userId) ||
-      pushConfigRef.current?.session_generation !== sessionGeneration ||
-      notificationEventCoordinatorRef.current !== coordinator ||
-      document.visibilityState !== "hidden" ||
-      notificationDeliveryCoveredByPush(
-        notificationDeviceStateRef.current,
-        userId,
-        pushConfig
-      )
-    ) return
-
-    await coordinator.coordinate(message.event_id, {
-      eligible: true,
-      visible: false,
-      display: () => {
-        if (
-          controller.signal.aborted ||
-          authorizationEpoch !== notificationAuthorizationEpochRef.current ||
-          String(currentUserRef.current?.id) !== String(userId) ||
-          pushConfigRef.current?.session_generation !== sessionGeneration ||
-          notificationEventCoordinatorRef.current !== coordinator ||
-          document.visibilityState !== "hidden" ||
-          notificationDeliveryCoveredByPush(
-            notificationDeviceStateRef.current,
-            userId,
-            pushConfig
-          ) ||
-          !mentionNotificationEligible(message, {
-            notificationState: notificationDeviceStateRef.current.capability,
-          })
-        ) return false
-
-        return showMentionNotification(message, {
-          notificationState: notificationDeviceStateRef.current.capability,
-        })
-      },
-    })
-  }
-
-  function abortNotificationEligibilityChecks(): void {
-    notificationEligibilityControllersRef.current.forEach((controller) => controller.abort())
-    notificationEligibilityControllersRef.current.clear()
-  }
-
   function applyNotificationDeviceState(next: NotificationDeviceState): void {
-    const previous = notificationDeviceStateRef.current
-    if (
-      previous.capability !== next.capability ||
-      previous.configured !== next.configured ||
-      previous.loading !== next.loading ||
-      previous.subscribed !== next.subscribed
-    ) {
-      notificationAuthorizationEpochRef.current += 1
-      abortNotificationEligibilityChecks()
-    }
-
     notificationDeviceStateRef.current = next
     setNotificationDeviceState(next)
-
-    if (next.loading || queuedNotificationEventsRef.current.length === 0) return
-
-    const queued = queuedNotificationEventsRef.current.splice(0)
-    queued.forEach((message) => handleMentionNotification(message, message.type))
   }
 
   function refreshNotificationDevice(authoritativePush: PushConfig): void {
@@ -1155,19 +947,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function applyPushConfig(next: PushConfig): void {
-    const previous = pushConfigRef.current
-    if (
-      !previous ||
-      previous.configured !== next.configured ||
-      previous.session_generation !== next.session_generation ||
-      previous.session_installation_id !== next.session_installation_id ||
-      previous.session_registration_confirmed !== next.session_registration_confirmed ||
-      previous.vapid_public_key !== next.vapid_public_key
-    ) {
-      notificationAuthorizationEpochRef.current += 1
-      abortNotificationEligibilityChecks()
-    }
-
     pushConfigRef.current = next
     setPushConfig(next)
   }
@@ -1326,15 +1105,19 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return markBufferRead(channel?.id)
   }
 
-  function openDirectMessage(payload: DirectMessageThreadPayload, message: ChatMessage): void {
+  function openDirectMessage(
+    payload: DirectMessageThreadPayload,
+    message: ChatMessage,
+    expectedBody: string
+  ): boolean {
     const {buffer} = payload
     const server = connectionsRef.current.find(
       (connection) => String(connection.server_connection_id) === String(payload.connection.id)
     )
-    if (!server) return
+    if (!server) return false
 
-    if (!validDirectMessageReply(message, buffer)) return
-    if (!applyDirectMessageThread(payload)) return
+    if (!validDirectMessageReply(message, buffer, expectedBody)) return false
+    if (!applyDirectMessageThread(payload)) return false
 
     const normalizedMessage = normalizeMessage(message)
     setMessagesByChannel((current) => {
@@ -1355,11 +1138,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setActiveChannelId(buffer.buffer_id)
     setActiveServerId(server.id)
     setView("chat")
+    return true
   }
 
   function validDirectMessageReply(
     message: ChatMessage,
-    buffer: DirectMessageBufferRecord
+    buffer: DirectMessageBufferRecord,
+    expectedBody: string
   ): boolean {
     return Boolean(
       message &&
@@ -1374,7 +1159,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       String(message.direct_message_thread_id) === String(buffer.direct_message_thread_id) &&
       typeof message.nick === "string" &&
       message.nick.length > 0 &&
-      typeof message.body === "string" &&
+      message.body === expectedBody &&
       typeof message.occurred_at === "string" &&
       Number.isFinite(Date.parse(message.occurred_at))
     )

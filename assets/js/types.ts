@@ -36,37 +36,6 @@ export interface ChatMessage {
   [key: string]: unknown
 }
 
-interface NotificationEventBase extends Omit<
-  ChatMessage,
-  "channel_membership_id" | "direct_message_thread_id"
-> {
-  buffer_id: string
-  event_id: string
-  id: EntityId
-  notification_id: EntityId
-  server_connection_id: EntityId
-  version: 1
-}
-
-export interface ChannelNotificationEventPayload extends NotificationEventBase {
-  type: "notification:mention"
-  channel: string
-  channel_membership_id: EntityId
-  direct_message_thread_id?: null
-}
-
-export interface DirectMessageNotificationEventPayload extends NotificationEventBase {
-  type: "notification:direct_message"
-  channel?: never
-  channel_membership_id?: null
-  direct_message_thread_id: EntityId
-  peer_nick: string
-}
-
-export type NotificationEventPayload =
-  | ChannelNotificationEventPayload
-  | DirectMessageNotificationEventPayload
-
 export interface ChatUser {
   nick: string
   role?: string
@@ -206,10 +175,14 @@ export interface DirectMessageBufferRecord extends BufferRecordBase {
   mention_notifications_enabled?: never
   notification_preference_revision?: never
   direct_message_revision: number
-  account?: string | null
-  hostmask?: string | null
+  subtitle: string
+  peer_nick: string
+  account: string | null
+  hostmask: string | null
   blocked: boolean
-  closed_at?: string | null
+  closed_at: string | null
+  unread_count: number
+  mention_count: number
 }
 
 export type BufferRecord = ServerBufferRecord | ChannelBufferRecord | DirectMessageBufferRecord

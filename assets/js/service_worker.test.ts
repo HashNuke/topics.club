@@ -203,9 +203,34 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     data: {json: () => directPush({url: "https://attacker.example/app"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => directPush({tag: "arbitrary-tag"})},
+  })
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => directPush({url: "/app?buffer=direct:4"})},
+  })
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => directPush({url: "/app?buffer=direct:3&extra=true"})},
+  })
+  await dispatchExtendableEvent(handlers.get("push"), {
     data: {json: () => ({...directPush(), type: undefined})},
   })
   expect(showNotification).toHaveBeenCalledTimes(4)
+
+  const malformedClickNotification = {
+    close: vi.fn(),
+    data: {
+      bufferId: "direct:3",
+      notificationId: 20,
+      sessionGeneration: "session-b",
+      userId: "2",
+      url: "/settings?buffer=direct:3",
+    },
+  }
+  await dispatchExtendableEvent(handlers.get("notificationclick"), {
+    notification: malformedClickNotification,
+  })
+  expect(malformedClickNotification.close).toHaveBeenCalledOnce()
+  expect(worker.clients.openWindow).not.toHaveBeenCalled()
 
   currentAccount = {user_id: null, session_generation: null}
   await dispatchExtendableEvent(handlers.get("message"), {

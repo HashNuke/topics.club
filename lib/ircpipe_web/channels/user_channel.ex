@@ -60,16 +60,6 @@ defmodule IrcpipeWeb.UserChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:irc_mention, message}, socket) do
-    push(socket, "notification:mention", message)
-    {:noreply, socket}
-  end
-
-  def handle_info({:direct_message_notification, message}, socket) do
-    push(socket, "notification:direct_message", message)
-    {:noreply, socket}
-  end
-
   def handle_info({:direct_message_thread, payload}, socket) do
     push(socket, "direct_message:thread", payload)
     {:noreply, socket}

@@ -88,7 +88,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
     assert {:ok, _thread} = Chat.close_direct_message_thread(scope, thread.id)
 
-    assert {:ok, %{thread: reopened, notify?: true}} =
+    assert {:ok, %{thread: reopened, message: message, notify?: true}} =
              Chat.record_direct_message(
                connection,
                "akash",
@@ -106,12 +106,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert reopened.closed_at == nil
     assert reopened.unread_count == 1
     assert reopened.identity_key == "account:akash-account"
-    buffer_id = "direct:#{thread.id}"
-
-    assert_receive {:direct_message_notification,
-                    %{buffer_id: ^buffer_id, body: "ping", notification_id: notification_id}}
-
-    assert is_integer(notification_id)
+    notification = Repo.get_by!(Notification, message_id: message.id)
+    assert notification.direct_message_thread_id == thread.id
 
     assert {:ok, read} = Chat.mark_direct_message_read(scope, thread.id)
     assert read.unread_count == 0
@@ -299,8 +295,6 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert renamed.closed_at
     assert renamed.unread_count == 0
     assert Repo.aggregate(Message, :count) == message_count
-    refute_receive {:direct_message_notification, _payload}
-
     assert {:ok, unblocked} = Chat.set_direct_message_blocked(scope, thread.id, false)
     refute unblocked.blocked_at
   end

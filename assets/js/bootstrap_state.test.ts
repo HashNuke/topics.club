@@ -9,6 +9,26 @@ const push = {
   session_registration_confirmed: false,
 } as const
 
+function directBuffer(id: number, title: string, overrides = {}) {
+  return {
+    buffer_id: `direct:${id}`,
+    buffer_type: "direct_message",
+    server_connection_id: 1,
+    direct_message_thread_id: id,
+    direct_message_revision: 1,
+    title,
+    subtitle: "on irc.example.test",
+    peer_nick: title,
+    account: null,
+    hostmask: null,
+    blocked: false,
+    closed_at: null,
+    unread_count: 0,
+    mention_count: 0,
+    ...overrides,
+  }
+}
+
 describe("buildBootstrapState", () => {
   test("normalizes connections, buffers, messages, and active channel", () => {
     const state = buildBootstrapState({
@@ -53,8 +73,8 @@ describe("buildBootstrapState", () => {
       buffers: [
         {buffer_id: "server:1", buffer_type: "server", server_connection_id: 1, title: "irc.example.test", mention_notifications_enabled: true, notification_preference_revision: 0},
         {buffer_id: "channel:3", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 3, title: "#zulu", mention_notifications_enabled: true, notification_preference_revision: 0},
-        {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 1, title: "Zed", unread_count: 2, blocked: false},
-        {buffer_id: "direct:8", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 8, direct_message_revision: 1, title: "akash", unread_count: 0, blocked: true},
+        directBuffer(9, "Zed", {unread_count: 2}),
+        directBuffer(8, "akash", {blocked: true}),
         {buffer_id: "channel:2", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 2, title: "#alpha", mention_notifications_enabled: true, notification_preference_revision: 0},
       ],
       messages_by_buffer: {"direct:9": [{id: 21, nick: "Zed", body: "ping"}]},
@@ -87,7 +107,7 @@ describe("buildBootstrapState", () => {
       connections: [{id: 1, host: "irc.example.test", mention_notifications_enabled: true, notification_preference_revision: 0}],
       buffers: [
         {buffer_id: "server:1", buffer_type: "server", server_connection_id: 1, title: "irc.example.test", mention_notifications_enabled: true, notification_preference_revision: 0},
-        {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 1, title: "Zed", blocked: false},
+        directBuffer(9, "Zed"),
       ],
       direct_message_tombstones: [{buffer_id: "direct:9", server_connection_id: 1, direct_message_thread_id: 9, revision: 2}],
       push,

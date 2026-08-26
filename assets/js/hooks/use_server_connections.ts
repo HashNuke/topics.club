@@ -466,24 +466,45 @@ export default function useServerConnections({
   function validDirectMessageThreadPayload(payload: DirectMessageThreadPayload): boolean {
     if (!payload?.connection || !payload?.buffer) return false
     const {buffer, connection, revision} = payload
+    if (
+      buffer.buffer_type !== "direct_message" ||
+      !validEntityId(buffer.direct_message_thread_id) ||
+      !validEntityId(buffer.server_connection_id) ||
+      !validEntityId(connection.id)
+    ) return false
+
+    const eventIdParts = typeof payload.event_id === "string"
+      ? payload.event_id.split(":")
+      : []
+    const validClosedAt = buffer.closed_at === null || validIsoTimestamp(buffer.closed_at)
 
     return (
       payload.type === "direct_message:thread" &&
       payload.version === 1 &&
-      typeof payload.event_id === "string" &&
-      new RegExp(`^direct_message_thread:${buffer.direct_message_thread_id}:[0-9]+$`)
-        .test(payload.event_id) &&
-      typeof payload.occurred_at === "string" &&
-      Number.isFinite(Date.parse(payload.occurred_at)) &&
-      buffer.buffer_type === "direct_message" &&
-      validEntityId(buffer.direct_message_thread_id) &&
-      validEntityId(buffer.server_connection_id) &&
-      validEntityId(connection.id) &&
+      eventIdParts.length === 3 &&
+      eventIdParts[0] === "direct_message_thread" &&
+      eventIdParts[1] === String(buffer.direct_message_thread_id) &&
+      /^[1-9][0-9]{0,18}$/.test(eventIdParts[2]) &&
+      validIsoTimestamp(payload.occurred_at) &&
       buffer.buffer_id === `direct:${buffer.direct_message_thread_id}` &&
       String(buffer.server_connection_id) === String(connection.id) &&
+      typeof buffer.title === "string" &&
+      buffer.title.trim().length > 0 &&
+      typeof buffer.peer_nick === "string" &&
+      buffer.peer_nick === buffer.title &&
+      typeof buffer.subtitle === "string" &&
+      buffer.subtitle.trim().length > 0 &&
+      (buffer.account === null || typeof buffer.account === "string") &&
+      (buffer.hostmask === null || typeof buffer.hostmask === "string") &&
+      validClosedAt &&
+      typeof buffer.unread_count === "number" &&
+      Number.isSafeInteger(buffer.unread_count) &&
+      buffer.unread_count >= 0 &&
+      buffer.mention_count === 0 &&
       validRevision(buffer.direct_message_revision) &&
       typeof buffer.blocked === "boolean" &&
       validRevision(revision) &&
+      revision === buffer.direct_message_revision &&
       validBackendConnection(connection)
     )
   }
@@ -513,6 +534,12 @@ export default function useServerConnections({
       typeof connection.mention_notifications_enabled === "boolean" &&
       validRevision(connection.notification_preference_revision)
     )
+  }
+
+  function validIsoTimestamp(value: unknown): value is string {
+    return typeof value === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value) &&
+      Number.isFinite(Date.parse(value))
   }
 
   function validChannelMembership(membership: ChannelMembership): boolean {

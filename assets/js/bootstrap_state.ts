@@ -196,9 +196,27 @@ function validBufferRecord(buffer: BufferRecord): boolean {
         validEntityId(buffer.direct_message_thread_id) &&
         buffer.buffer_id === `direct:${buffer.direct_message_thread_id}` &&
         validRevision(buffer.direct_message_revision) &&
+        buffer.title.trim().length > 0 &&
+        typeof buffer.subtitle === "string" &&
+        buffer.subtitle.trim().length > 0 &&
+        typeof buffer.peer_nick === "string" &&
+        buffer.peer_nick === buffer.title &&
+        (buffer.account === null || typeof buffer.account === "string") &&
+        (buffer.hostmask === null || typeof buffer.hostmask === "string") &&
+        (buffer.closed_at === null || validIsoTimestamp(buffer.closed_at)) &&
+        typeof buffer.unread_count === "number" &&
+        Number.isSafeInteger(buffer.unread_count) &&
+        buffer.unread_count >= 0 &&
+        buffer.mention_count === 0 &&
         typeof buffer.blocked === "boolean"
       )
   }
+}
+
+function validIsoTimestamp(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value) &&
+    Number.isFinite(Date.parse(value))
 }
 
 function validDirectMessageTombstone(tombstone: DirectMessageTombstone): boolean {

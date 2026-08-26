@@ -17,19 +17,6 @@ describe("api client", () => {
     )
   })
 
-  test("checks notification eligibility against the authenticated session generation", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({eligible: false})})
-    const api = createApiClient({fetchImpl})
-
-    const controller = new AbortController()
-    await expect(api.notificationEligibility(42, "session/a+b", controller.signal)).resolves.toEqual({eligible: false})
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "/api/notifications/42/eligibility?session_generation=session%2Fa%2Bb",
-      expect.objectContaining({credentials: "same-origin", cache: "no-store", signal: controller.signal})
-    )
-  })
-
   test("joins topics and fetches cursor-paginated buffer messages", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({ok: true})})
     const api = createApiClient({fetchImpl})

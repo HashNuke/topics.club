@@ -364,7 +364,7 @@ defmodule Ircpipe.NotificationsTest do
     assert "must decode to 16 bytes" in errors_on(changeset).auth
   end
 
-  test "delivery fan-out stays bounded for legacy rows above the active cap", %{
+  test "delivery fan-out stays bounded for rows above the active cap", %{
     scope: scope,
     connection: connection,
     membership: membership
@@ -374,8 +374,8 @@ defmodule Ircpipe.NotificationsTest do
 
     for index <- 1..6 do
       attrs =
-        subscription_attrs("https://push.example.test/subscription/legacy-#{index}")
-        |> Map.put("installation_id", "legacy-browser-#{index}")
+        subscription_attrs("https://push.example.test/subscription/existing-#{index}")
+        |> Map.put("installation_id", "existing-browser-#{index}")
 
       %PushSubscription{
         user_id: scope.user.id,

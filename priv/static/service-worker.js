@@ -244,24 +244,28 @@ function notificationPayload(eventData) {
     !nonemptyString(payload.tag)
   ) return null
 
-  const url = sameOriginUrl(payload.url)
-  if (!url) return null
-
+  let expectedTag
   if (payload.type === "notification:mention") {
     if (
       !validPositiveId(payload.channel_membership_id) ||
       payload.buffer_id !== `channel:${payload.channel_membership_id}` ||
       !nonemptyString(payload.channel)
     ) return null
+    expectedTag = `notification_mention:message:${payload.message_id}`
   } else if (payload.type === "notification:direct_message") {
     if (
       !validPositiveId(payload.direct_message_thread_id) ||
       payload.buffer_id !== `direct:${payload.direct_message_thread_id}` ||
       !nonemptyString(payload.peer_nick)
     ) return null
+    expectedTag = `notification_direct_message:message:${payload.message_id}`
   } else {
     return null
   }
+
+  if (payload.tag !== expectedTag) return null
+  const url = notificationUrl(payload.url, payload.buffer_id)
+  if (!url) return null
 
   return {...payload, url}
 }
@@ -276,16 +280,28 @@ function notificationData(value) {
     !validPositiveId(value.userId)
   ) return null
 
-  const url = sameOriginUrl(value.url)
+  const url = notificationUrl(value.url, value.bufferId)
   return url ? {...value, url} : null
 }
 
-function sameOriginUrl(value) {
-  if (!nonemptyString(value)) return null
+function notificationUrl(value, bufferId) {
+  if (!nonemptyString(value) || !/^(channel|direct):[1-9][0-9]{0,18}$/.test(bufferId)) {
+    return null
+  }
 
   try {
     const url = new URL(value, self.location.origin)
-    return url.origin === self.location.origin ? url.href : null
+    const entries = [...url.searchParams.entries()]
+    if (
+      url.origin !== self.location.origin ||
+      url.pathname !== "/app" ||
+      url.hash !== "" ||
+      entries.length !== 1 ||
+      entries[0][0] !== "buffer" ||
+      entries[0][1] !== bufferId
+    ) return null
+
+    return new URL(`/app?buffer=${encodeURIComponent(bufferId)}`, self.location.origin).href
   } catch (_error) {
     return null
   }

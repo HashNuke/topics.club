@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, test, vi} from "vitest"
 import {
   notificationControlState,
-  notificationDeliveryCoveredByPush,
+  notificationServerRegistrationConfirmed,
   resetNotificationInstallationMemoryForTest,
   synchronizeNotificationDevice,
 } from "./push_notifications.ts"
@@ -130,7 +130,7 @@ describe("notificationControlState", () => {
     expect(state).toMatchObject({loading: false, subscribed: true})
   })
 
-  test("does not suppress local fallback when server synchronization fails", async () => {
+  test("reports an unsynchronized subscription as unavailable for delivery", async () => {
     const subscription = {
       toJSON: () => ({
         endpoint: "https://push.example.test/current-account",
@@ -160,7 +160,7 @@ describe("notificationControlState", () => {
     expect(state).toMatchObject({
       loading: false,
       subscribed: false,
-      error: "Notifications are enabled locally but could not be synchronized.",
+      error: "The browser subscription could not be synchronized with the server.",
     })
   })
 
@@ -200,7 +200,7 @@ describe("notificationControlState", () => {
     expect(state).toMatchObject({
       loading: false,
       subscribed: true,
-      error: "Notifications are enabled locally but could not be synchronized.",
+      error: "The browser subscription could not be synchronized with the server.",
     })
   })
 
@@ -247,8 +247,7 @@ describe("notificationControlState", () => {
       server_registration_confirmed: true,
     })
 
-    const staleSecondTabState = device({subscribed: false})
-    expect(notificationDeliveryCoveredByPush(staleSecondTabState, 2, confirmedPush)).toBe(true)
+    expect(notificationServerRegistrationConfirmed(2, confirmedPush)).toBe(true)
   })
 
   test("recovers one installation identity across page lifecycles when durable storage is denied", async () => {
@@ -334,7 +333,7 @@ describe("notificationControlState", () => {
     )
 
     expect(state.subscribed).toBe(false)
-    expect(notificationDeliveryCoveredByPush(state, 2, push)).toBe(false)
+    expect(notificationServerRegistrationConfirmed(2, push)).toBe(false)
   })
 
   test("discards stored installation records without an authoritative generation", () => {
@@ -344,8 +343,7 @@ describe("notificationControlState", () => {
       server_registration_confirmed: true,
     }))
 
-    expect(notificationDeliveryCoveredByPush(device({subscribed: false}), 2, unregisteredPush))
-      .toBe(false)
+    expect(notificationServerRegistrationConfirmed(2, unregisteredPush)).toBe(false)
     expect(localStorage.getItem(INSTALLATION_KEY)).toBeNull()
   })
 

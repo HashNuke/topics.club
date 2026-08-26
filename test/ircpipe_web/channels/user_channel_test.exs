@@ -813,35 +813,6 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert connection_id == connection.id
   end
 
-  test "pushes mention notifications over the user channel" do
-    user = AccountsFixtures.user_fixture()
-
-    {:ok, connection} =
-      Chat.create_connection(user, %{
-        "name" => "local",
-        "host" => "127.0.0.1",
-        "port" => 6667,
-        "use_tls" => false,
-        "nickname" => "mira"
-      })
-
-    {:ok, _membership} = Chat.join_channel(user, connection, "#elixir")
-    join_user_channel(user)
-
-    Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
-
-    assert_push "notification:mention", %{
-      type: "notification:mention",
-      version: 1,
-      event_id: "notification_mention:message:" <> _,
-      body: "hello mira",
-      mentioned: true,
-      notification_id: notification_id
-    }
-
-    assert is_integer(notification_id)
-  end
-
   test "pushes presence sync over the user channel" do
     user = AccountsFixtures.user_fixture()
 
