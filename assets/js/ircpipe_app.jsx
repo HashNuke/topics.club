@@ -2,6 +2,16 @@ import {useEffect, useMemo, useRef, useState} from "react"
 import {createApiClient} from "./api_client.js"
 import {channelDirectoryError, commandErrorMessage} from "./app_feedback.js"
 import {buildBootstrapState} from "./bootstrap_state.js"
+import {
+  channelFromBuffer,
+  channelFromMembership,
+  planServerRemoval,
+  removeChannel,
+  updateBufferRead,
+  updateConnectionDetails,
+  updateServerStatus,
+  upsertJoinedChannel,
+} from "./connection_store.js"
 import AppShell from "./components/app_shell.jsx"
 import LandingPage from "./components/landing_page.jsx"
 import {
@@ -256,41 +266,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
 
     const connectionId = `server:${connection.id}`
-    const channel = {
-      id: buffer.buffer_id,
-      channel_membership_id: buffer.channel_membership_id,
-      channel: buffer.title,
-      topic: topic?.description || buffer.subtitle,
-      unread_count: buffer.unread_count,
-      mention_count: buffer.mention_count,
-    }
+    const channel = channelFromBuffer(buffer, topic)
 
-    setConnections((current) => {
-      const existingConnection = current.find((item) => item.server_connection_id === connection.id || item.id === connectionId)
-
-      if (existingConnection) {
-        return current.map((item) => {
-          if (item.id !== existingConnection.id) return item
-          if (item.channels.some((existing) => existing.id === channel.id)) return item
-          return {...item, channels: [...item.channels, channel]}
-        })
-      }
-
-      return [
-        ...current,
-        {
-          id: connectionId,
-          server_connection_id: connection.id,
-          name: connection.name,
-          host: connection.host,
-          port: connection.port,
-          use_tls: connection.use_tls,
-          nickname: connection.nickname,
-          status: connection.status,
-          channels: [channel],
-        },
-      ]
-    })
+    setConnections((current) => upsertJoinedChannel(current, connection, channel))
 
     setMessagesByChannel((current) => ({
       ...current,
@@ -349,45 +327,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       rejectedBufferIdsRef.current.delete(bufferId)
     }
 
-    const channel = {
-      id: bufferId,
-      channel_membership_id: membership.id,
-      channel: membership.channel,
-      topic: `on ${connection.host}`,
-      unread_count: membership.unread_count,
-      mention_count: membership.mention_count,
-    }
+    const channel = channelFromMembership(membership, connection.host)
 
-    setConnections((current) => {
-      const existingConnection = current.find((item) => item.server_connection_id === connection.id || item.id === connectionId)
-
-      if (existingConnection) {
-        return current.map((item) => {
-          if (item.id !== existingConnection.id) return item
-
-          return {
-            ...item,
-            status: connection.status,
-            channels: item.channels.some((existing) => existing.id === channel.id) ? item.channels : [...item.channels, channel],
-          }
-        })
-      }
-
-      return [
-        ...current,
-        {
-          id: connectionId,
-          server_connection_id: connection.id,
-          name: connection.name,
-          host: connection.host,
-          port: connection.port,
-          use_tls: connection.use_tls,
-          nickname: connection.nickname,
-          status: connection.status,
-          channels: [channel],
-        },
-      ]
-    })
+    setConnections((current) => upsertJoinedChannel(current, connection, channel, {updateStatus: true}))
 
     setMessagesByChannel((current) => ({
       ...current,
@@ -724,13 +666,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function applyServerStatus(payload) {
-    setConnections((current) =>
-      current.map((connection) =>
-        connection.server_connection_id === payload.server_connection_id
-          ? {...connection, status: payload.status, nickname: payload.nickname || connection.nickname}
-          : connection
-      )
-    )
+    setConnections((current) => updateServerStatus(current, payload))
 
     if (payload.status === "connected") {
       defer(() => reconcileServerBuffers(payload.server_connection_id))
@@ -767,12 +703,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       (joinRejectionVersionsRef.current.get(channelId) || 0) + 1
     )
 
-    setConnections((current) =>
-      current.map((connection) => ({
-        ...connection,
-        channels: connection.channels.filter((channel) => channel.id !== channelId),
-      }))
-    )
+    setConnections((current) => removeChannel(current, channelId))
     setMessagesByChannel((current) => {
       const next = {...current}
       delete next[channelId]
@@ -795,30 +726,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const bufferId = payload?.buffer_id
     if (!bufferId) return
 
-    setConnections((current) =>
-      current.map((connection) => {
-        if (connection.id === bufferId) {
-          return {
-            ...connection,
-            unread_count: payload.unread_count ?? 0,
-            mention_count: payload.mention_count ?? 0,
-          }
-        }
-
-        return {
-          ...connection,
-          channels: connection.channels.map((channel) =>
-            channel.id === bufferId
-              ? {
-                  ...channel,
-                  unread_count: payload.unread_count ?? 0,
-                  mention_count: payload.mention_count ?? 0,
-                }
-              : channel
-          ),
-        }
-      })
-    )
+    setConnections((current) => updateBufferRead(current, payload))
   }
 
   function handleMentionNotification(message) {
@@ -1117,39 +1025,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   function applyUpdatedConnection(connection) {
     if (!connection?.id) return
 
-    setConnections((current) =>
-      current.map((server) =>
-        server.server_connection_id === connection.id
-          ? {
-              ...server,
-              name: connection.name,
-              host: connection.host,
-              port: connection.port,
-              use_tls: connection.use_tls,
-              nickname: connection.nickname,
-              status: connection.status,
-              channels: server.channels.map((channel) => ({
-                ...channel,
-                topic: channel.topic === `on ${server.host}` ? `on ${connection.host}` : channel.topic,
-              })),
-            }
-          : server
-      )
-    )
+    setConnections((current) => updateConnectionDetails(current, connection))
   }
 
   function applyServerDeleted(payload) {
-    const deletedId = `server:${payload.server_connection_id}`
     const currentConnections = connectionsRef.current
-    const deletedServer = currentConnections.find(
-      (server) => server.id === deletedId || server.server_connection_id === payload.server_connection_id
-    )
-    if (!deletedServer) return
+    const removal = planServerRemoval(currentConnections, payload.server_connection_id)
+    if (!removal) return
 
-    const deletedChannelIds = new Set(deletedServer.channels.map((channel) => channel.id))
-    const nextConnections = currentConnections.filter((server) => server.id !== deletedServer.id)
-    const nextServer = nextConnections[0]
-    const nextChannel = nextServer?.channels[0]
+    const {deletedChannelIds, deletedServer, nextChannel, nextConnections, nextServer} = removal
 
     connectionsRef.current = nextConnections
     setConnections(nextConnections)
