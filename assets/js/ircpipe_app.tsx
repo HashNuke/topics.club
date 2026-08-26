@@ -46,9 +46,7 @@ import useServerConnections from "./hooks/use_server_connections.ts"
 import type {RealtimeClient, RealtimeHandlers} from "./realtime_client.ts"
 import type {
   AppView,
-  BackendConnection,
   BufferReadPayload,
-  BufferRecord,
   Channel,
   DirectMessageBufferRecord,
   ChannelDirectory,
@@ -86,20 +84,42 @@ function notificationPreferenceKey(scope: "server" | "channel", id: EntityId): s
   return `${scope}:${id}`
 }
 
-function validNotificationEvent(message: NotificationEventPayload): boolean {
+function validNotificationEvent(
+  message: NotificationEventPayload,
+  expectedType: NotificationEventPayload["type"]
+): boolean {
   if (
     !message ||
+    message.type !== expectedType ||
+    message.version !== 1 ||
+    !validProtocolEntityId(message.id) ||
     !validProtocolEntityId(message.notification_id) ||
     !validProtocolEntityId(message.server_connection_id) ||
-    typeof message.buffer_id !== "string" ||
-    !/^(channel|direct):[1-9][0-9]{0,18}$/.test(message.buffer_id) ||
-    typeof message.nick !== "string" ||
+    typeof message.nick !== "string" || message.nick.length === 0 ||
     typeof message.body !== "string"
   ) return false
 
   if (typeof message.event_id !== "string") return false
   const eventId = message.event_id.trim()
-  return Boolean(eventId && eventId.length <= 256)
+  if (!eventId || eventId.length > 256) return false
+
+  switch (message.type) {
+    case "notification:mention":
+      return (
+        validProtocolEntityId(message.channel_membership_id) &&
+        message.buffer_id === `channel:${message.channel_membership_id}` &&
+        typeof message.channel === "string" &&
+        message.channel.length > 0
+      )
+
+    case "notification:direct_message":
+      return (
+        validProtocolEntityId(message.direct_message_thread_id) &&
+        message.buffer_id === `direct:${message.direct_message_thread_id}` &&
+        typeof message.peer_nick === "string" &&
+        message.peer_nick.length > 0
+      )
+  }
 }
 
 function validProtocolEntityId(value: unknown): value is EntityId {
@@ -122,7 +142,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [view, setView] = useState<AppView>("chat")
   const [notificationDeviceState, setNotificationDeviceState] = useState<NotificationDeviceState>(initialNotificationDeviceState())
   const [notificationSavingIds, setNotificationSavingIds] = useState<Set<string>>(new Set())
-  const [pushConfig, setPushConfig] = useState<PushConfig>({configured: false, vapid_public_key: null})
+  const [pushConfig, setPushConfig] = useState<PushConfig | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
   const [activeServerId, setActiveServerId] = useState<string | null>(null)
   const [usersByChannel, setUsersByChannel] = useState<UsersByBuffer>({})
@@ -194,7 +214,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!("serviceWorker" in navigator)) return
 
     return synchronizeServiceWorkerAccount()
-  }, [currentUser?.id, pushConfig.session_generation])
+  }, [currentUser?.id, pushConfig?.session_generation])
 
   const {
     appendSystemMessage,
@@ -290,8 +310,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onPresenceDiff: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceDiff(payload)),
       onPresenceSync: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceSync(payload)),
       onServerStatus: (payload) => applyOrQueueRealtimeEvent(() => applyServerStatus(payload)),
-      onNotificationMention: (payload) => applyOrQueueRealtimeEvent(() => handleMentionNotification(payload)),
-      onNotificationDirectMessage: (payload) => applyOrQueueRealtimeEvent(() => handleMentionNotification(payload)),
+      onNotificationMention: (payload) => applyOrQueueRealtimeEvent(
+        () => handleMentionNotification(payload, "notification:mention")
+      ),
+      onNotificationDirectMessage: (payload) => applyOrQueueRealtimeEvent(
+        () => handleMentionNotification(payload, "notification:direct_message")
+      ),
       onNotificationPreference: (payload) => applyOrQueueRealtimeEvent(() => applyNotificationPreference(payload)),
     },
     onConnected: refreshAuthoritativeBootstrap,
@@ -309,16 +333,16 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         mode !== "landing" &&
         bootstrapReady &&
         connectionHealth === "connected" &&
-        pushConfig.session_generation
+        pushConfig?.session_generation
       ),
-      sessionGeneration: pushConfig.session_generation || null,
+      sessionGeneration: pushConfig?.session_generation || null,
     })
   }, [
     bootstrapReady,
     connectionHealth,
     currentUser?.id,
     mode,
-    pushConfig.session_generation,
+    pushConfig?.session_generation,
   ])
 
   useEffect(() => {
@@ -353,7 +377,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [pushConfig])
 
   useEffect(() => {
-    if (!currentUser || mode === "landing" || !pushConfig.configured) return
+    if (!currentUser || mode === "landing" || !pushConfig?.configured) return
 
     const refresh = () => {
       refreshNotificationDevice(pushConfig)
@@ -365,11 +389,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient,
     currentUser?.id,
     mode,
-    pushConfig.configured,
-    pushConfig.session_generation,
-    pushConfig.session_installation_id,
-    pushConfig.session_registration_confirmed,
-    pushConfig.vapid_public_key,
+    pushConfig?.configured,
+    pushConfig?.session_generation,
+    pushConfig?.session_installation_id,
+    pushConfig?.session_registration_confirmed,
+    pushConfig?.vapid_public_key,
   ])
 
   useEffect(() => {
@@ -511,21 +535,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
       try {
         const reply = await realtimeClientRef.current.push<{
-          buffer?: BufferRecord
           directory?: ChannelDirectory
-          message?: ChatMessage
-          revision?: number
-        }>("command:run", {
+        } | (DirectMessageThreadPayload & {message: ChatMessage})>("command:run", {
           command_id: commandId,
           input: body,
           buffer_id: bufferId,
         })
 
         setDraft("")
-        if (reply.buffer?.buffer_type === "direct_message") {
-          openDirectMessage(reply.buffer, reply.revision, reply.message)
+        if ("buffer" in reply && reply.buffer?.buffer_type === "direct_message") {
+          openDirectMessage(reply, reply.message)
         }
-        if (reply.directory) {
+        if ("directory" in reply && reply.directory) {
           applyChannelDirectory(reply.directory, directoryRequestId ?? undefined)
         }
       } catch (error: unknown) {
@@ -654,15 +675,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   async function enableNotificationsOnDevice(): Promise<boolean> {
-    if (!currentUser) return false
+    if (!currentUser || !pushConfig) return false
     const operationId = ++notificationOperationIdRef.current
-    const sessionGeneration = pushConfig.session_generation || null
+    const sessionGeneration = pushConfig.session_generation
     applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
     const next = await enableNotificationDevice(apiClient, pushConfig, currentUser.id)
 
     const currentOperation =
       operationId === notificationOperationIdRef.current &&
-      (pushConfigRef.current.session_generation || null) === sessionGeneration
+      pushConfigRef.current?.session_generation === sessionGeneration
 
     if (currentOperation) applyNotificationDeviceState(next)
     return currentOperation && next.subscribed
@@ -892,8 +913,24 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }))
   }
 
-  async function handleMentionNotification(message: NotificationEventPayload): Promise<void> {
-    if (!validNotificationEvent(message)) return
+  async function handleMentionNotification(
+    message: NotificationEventPayload,
+    expectedType: NotificationEventPayload["type"]
+  ): Promise<void> {
+    if (!validNotificationEvent(message, expectedType)) return
+
+    const notificationUser = currentUserRef.current
+    const coordinator = notificationEventCoordinatorRef.current
+    if (!notificationUser || !coordinator) return
+
+    if (document.visibilityState !== "hidden") {
+      await coordinator.coordinate(message.event_id, {
+        eligible: false,
+        visible: true,
+        display: () => false,
+      })
+      return
+    }
 
     if (notificationDeviceStateRef.current.loading) {
       queuedNotificationEventsRef.current.push(message)
@@ -903,13 +940,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       return
     }
 
-    const notificationUser = currentUserRef.current
-    if (!notificationUser) return
+    const pushConfig = pushConfigRef.current
+    if (!pushConfig) return
 
     if (notificationDeliveryCoveredByPush(
       notificationDeviceStateRef.current,
       notificationUser.id,
-      pushConfigRef.current
+      pushConfig
     )) return
 
     const server = connectionsRef.current.find(
@@ -926,22 +963,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       (!server.mention_notifications_enabled || !buffer.mention_notifications_enabled)
     ) return
 
-    const coordinator = notificationEventCoordinatorRef.current
-    if (!coordinator) return
-
-    const visible = document.visibilityState !== "hidden"
-    if (visible) {
-      await coordinator.coordinate(message.event_id, {
-        eligible: false,
-        visible: true,
-        display: () => false,
-      })
-      return
-    }
-
     const userId = currentUserRef.current?.id
-    const sessionGeneration = pushConfigRef.current.session_generation
-    if (!userId || !sessionGeneration) return
+    const sessionGeneration = pushConfig.session_generation
+    if (!userId) return
 
     const authorizationEpoch = notificationAuthorizationEpochRef.current
     const controller = new AbortController()
@@ -966,13 +990,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       controller.signal.aborted ||
       authorizationEpoch !== notificationAuthorizationEpochRef.current ||
       String(currentUserRef.current?.id) !== String(userId) ||
-      pushConfigRef.current.session_generation !== sessionGeneration ||
+      pushConfigRef.current?.session_generation !== sessionGeneration ||
       notificationEventCoordinatorRef.current !== coordinator ||
       document.visibilityState !== "hidden" ||
       notificationDeliveryCoveredByPush(
         notificationDeviceStateRef.current,
         userId,
-        pushConfigRef.current
+        pushConfig
       )
     ) return
 
@@ -984,13 +1008,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           controller.signal.aborted ||
           authorizationEpoch !== notificationAuthorizationEpochRef.current ||
           String(currentUserRef.current?.id) !== String(userId) ||
-          pushConfigRef.current.session_generation !== sessionGeneration ||
+          pushConfigRef.current?.session_generation !== sessionGeneration ||
           notificationEventCoordinatorRef.current !== coordinator ||
           document.visibilityState !== "hidden" ||
           notificationDeliveryCoveredByPush(
             notificationDeviceStateRef.current,
             userId,
-            pushConfigRef.current
+            pushConfig
           ) ||
           !mentionNotificationEligible(message, {
             notificationState: notificationDeviceStateRef.current.capability,
@@ -1027,20 +1051,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (next.loading || queuedNotificationEventsRef.current.length === 0) return
 
     const queued = queuedNotificationEventsRef.current.splice(0)
-    queued.forEach(handleMentionNotification)
+    queued.forEach((message) => handleMentionNotification(message, message.type))
   }
 
   function refreshNotificationDevice(authoritativePush: PushConfig): void {
     if (!currentUser) return
 
     const operationId = ++notificationOperationIdRef.current
-    const sessionGeneration = authoritativePush.session_generation || null
+    const sessionGeneration = authoritativePush.session_generation
     applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
 
     synchronizeNotificationDevice(apiClient, authoritativePush, currentUser.id).then((next) => {
       if (
         operationId === notificationOperationIdRef.current &&
-        (pushConfigRef.current.session_generation || null) === sessionGeneration
+        pushConfigRef.current?.session_generation === sessionGeneration
       ) {
         applyNotificationDeviceState(next)
       }
@@ -1093,6 +1117,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   function applyPushConfig(next: PushConfig): void {
     const previous = pushConfigRef.current
     if (
+      !previous ||
       previous.configured !== next.configured ||
       previous.session_generation !== next.session_generation ||
       previous.session_installation_id !== next.session_installation_id ||
@@ -1261,46 +1286,52 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return markBufferRead(channel?.id)
   }
 
-  function openDirectMessage(
-    buffer: DirectMessageBufferRecord,
-    revision: number | undefined,
-    message?: ChatMessage
-  ): void {
+  function openDirectMessage(payload: DirectMessageThreadPayload, message: ChatMessage): void {
+    const {buffer} = payload
     const server = connectionsRef.current.find(
-      (connection) => String(connection.server_connection_id) === String(buffer.server_connection_id)
+      (connection) => String(connection.server_connection_id) === String(payload.connection.id)
     )
     if (!server) return
 
-    const backendConnection: BackendConnection = {
-      id: server.server_connection_id,
-      name: server.name,
-      host: server.host,
-      port: server.port,
-      use_tls: server.use_tls,
-      nickname: server.nickname,
-      status: server.status,
-      mention_notifications_enabled: server.mention_notifications_enabled,
-      notification_preference_revision: server.notification_preference_revision,
-    }
+    if (!validDirectMessageReply(message, buffer)) return
+    if (!applyDirectMessageThread(payload)) return
 
-    if (typeof revision !== "number" || !Number.isSafeInteger(revision)) return
-    if (revision !== buffer.direct_message_revision) return
-    applyDirectMessageThread({connection: backendConnection, buffer, revision})
-    if (message) {
-      setMessagesByChannel((current) => ({
+    const normalizedMessage = normalizeMessage(message)
+    setMessagesByChannel((current) => {
+      const currentMessages = current[buffer.buffer_id] || []
+      const duplicate = currentMessages.some(
+        (currentMessage) => String(currentMessage.id) === String(normalizedMessage.id)
+      )
+      if (duplicate) return current
+
+      return {
         ...current,
-        [buffer.buffer_id]: [
-          ...(current[buffer.buffer_id] || []),
-          normalizeMessage(message),
-        ],
-      }))
-    }
+        [buffer.buffer_id]: [...currentMessages, normalizedMessage],
+      }
+    })
     activeChannelIdRef.current = buffer.buffer_id
     activeServerIdRef.current = server.id
     viewRef.current = "chat"
     setActiveChannelId(buffer.buffer_id)
     setActiveServerId(server.id)
     setView("chat")
+  }
+
+  function validDirectMessageReply(
+    message: ChatMessage,
+    buffer: DirectMessageBufferRecord
+  ): boolean {
+    return Boolean(
+      message &&
+      validProtocolEntityId(message.id) &&
+      validProtocolEntityId(message.server_connection_id) &&
+      validProtocolEntityId(message.direct_message_thread_id) &&
+      message.buffer_id === buffer.buffer_id &&
+      String(message.server_connection_id) === String(buffer.server_connection_id) &&
+      String(message.direct_message_thread_id) === String(buffer.direct_message_thread_id) &&
+      typeof message.nick === "string" &&
+      typeof message.body === "string"
+    )
   }
 
   async function markBufferRead(bufferId?: string | null): Promise<void> {

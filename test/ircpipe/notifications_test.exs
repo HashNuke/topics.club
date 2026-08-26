@@ -415,7 +415,11 @@ defmodule Ircpipe.NotificationsTest do
     assert :ok = Notifications.deliver_notification(notification.id)
 
     assert_receive {:push_sent, _subscription, payload}
+    assert payload.type == "notification:mention"
+    assert payload.version == 1
     assert payload.buffer_id == "channel:#{membership.id}"
+    assert payload.channel_membership_id == membership.id
+    assert payload.channel == "#elixir"
     assert payload.body == "akash: hello mira"
     assert payload.tag == "notification_mention:message:#{message.id}"
     assert payload.user_id == scope.user.id
@@ -452,9 +456,13 @@ defmodule Ircpipe.NotificationsTest do
     assert :ok = Notifications.deliver_notification(notification.id)
 
     assert_receive {:push_sent, _subscription, payload}
+    assert payload.type == "notification:direct_message"
+    assert payload.version == 1
     assert payload.title == "akash on Libera"
     assert payload.body == "akash: hello privately"
     assert payload.buffer_id == "direct:#{thread.id}"
+    assert payload.direct_message_thread_id == thread.id
+    assert payload.peer_nick == "akash"
     assert payload.tag == "notification_direct_message:message:#{message.id}"
     assert payload.user_id == scope.user.id
     assert is_binary(payload.session_generation)

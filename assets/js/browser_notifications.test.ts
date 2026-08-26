@@ -5,6 +5,45 @@ import {
   requestNotificationPermission,
   showMentionNotification,
 } from "./browser_notifications.ts"
+import type {ChannelNotificationEventPayload, DirectMessageNotificationEventPayload} from "./types.ts"
+
+function channelNotification(
+  overrides: Partial<ChannelNotificationEventPayload> = {}
+): ChannelNotificationEventPayload {
+  return {
+    type: "notification:mention",
+    version: 1,
+    event_id: "notification:akash",
+    id: 10,
+    notification_id: 20,
+    server_connection_id: 1,
+    channel_membership_id: 2,
+    buffer_id: "channel:2",
+    nick: "akash",
+    channel: "#elixir",
+    body: "mira: ping",
+    ...overrides,
+  }
+}
+
+function directNotification(
+  overrides: Partial<DirectMessageNotificationEventPayload> = {}
+): DirectMessageNotificationEventPayload {
+  return {
+    type: "notification:direct_message",
+    version: 1,
+    event_id: "notification:direct",
+    id: 11,
+    notification_id: 21,
+    server_connection_id: 1,
+    direct_message_thread_id: 3,
+    buffer_id: "direct:3",
+    nick: "akash",
+    peer_nick: "akash",
+    body: "hello privately",
+    ...overrides,
+  }
+}
 
 const originalNotification = window.Notification
 const originalSecureContext = window.isSecureContext
@@ -42,7 +81,7 @@ describe("browser notifications", () => {
     Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
 
     expect(showMentionNotification(
-      {event_id: "notification:akash", nick: "akash", channel: "#elixir", body: "mira: ping"},
+      channelNotification(),
       {notificationState: "granted"}
     )).toBe(true)
     expect(NotificationMock).toHaveBeenCalledWith("#elixir", {
@@ -51,7 +90,7 @@ describe("browser notifications", () => {
     })
 
     expect(showMentionNotification(
-      {event_id: "notification:mira", nick: "mira", channel: "#elixir", body: "legitimate sender matching email prefix"},
+      channelNotification({event_id: "notification:mira", nick: "mira", body: "legitimate sender matching email prefix"}),
       {notificationState: "granted"}
     )).toBe(true)
     expect(NotificationMock).toHaveBeenCalledTimes(2)
@@ -69,7 +108,7 @@ describe("browser notifications", () => {
     await expect(requestNotificationPermission()).resolves.toBe("insecure")
     expect(NotificationMock.requestPermission).not.toHaveBeenCalled()
     expect(showMentionNotification(
-      {event_id: "notification:insecure", nick: "akash", channel: "#elixir", body: "mira: ping"},
+      channelNotification({event_id: "notification:insecure"}),
       {notificationState: "insecure"}
     )).toBe(false)
   })
@@ -81,7 +120,7 @@ describe("browser notifications", () => {
     Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
 
     expect(showMentionNotification(
-      {event_id: "notification:direct", nick: "akash", peer_nick: "akash", body: "hello privately"},
+      directNotification(),
       {notificationState: "granted"}
     )).toBe(true)
     expect(NotificationMock).toHaveBeenCalledWith("akash", {
@@ -110,12 +149,10 @@ describe("browser notifications", () => {
       storage: null,
       tabId: "tab-b",
     })
-    const message = {
+    const message = channelNotification({
       event_id: "notification:shared",
-      nick: "akash",
-      channel: "#elixir",
       body: "mira: only once",
-    }
+    })
 
     const displays = await Promise.all([
       firstTab.coordinate(message.event_id, {
@@ -239,12 +276,10 @@ describe("browser notifications", () => {
     Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
     Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
     const channelFactory = inMemoryBroadcastChannelFactory()
-    const message = {
+    const message = channelNotification({
       event_id: "notification:constructor-failure",
-      nick: "akash",
-      channel: "#elixir",
       body: "mira: fail over",
-    }
+    })
     const display = () =>
       showMentionNotification(message, {
         notificationState: "granted",
@@ -328,6 +363,50 @@ describe("browser notifications", () => {
     coordinator.close()
   })
 
+  test("ignores malformed coordination candidates and stored outcomes", async () => {
+    const display = vi.fn().mockReturnValue(true)
+    const storageKey = "ircpipe.notification-claims.v1:strict-coordination"
+    const values = new Map<string, string>([[
+      storageKey,
+      JSON.stringify({
+        "notification:strict-coordination": {
+          claimed_at: Date.now(),
+          outcome: "legacy-default",
+          tab_id: "tab-stale",
+        },
+      }),
+    ]])
+    const storage = {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    }
+    const network = controllableBroadcastChannelFactory()
+    const coordinator = createNotificationEventCoordinator({
+      channelFactory: network.factory,
+      claimWindowMs: 1,
+      scope: "strict-coordination",
+      storage,
+      tabId: "tab-a",
+    })
+
+    network.post("ircpipe.notification-claims.v1:strict-coordination", {
+      type: "candidate",
+      event_id: "notification:strict-coordination",
+      tab_id: "tab-malformed",
+      eligible: "true",
+      visible: "true",
+    })
+
+    await expect(coordinator.coordinate("notification:strict-coordination", {
+      eligible: true,
+      visible: false,
+      display,
+    })).resolves.toBe(true)
+
+    expect(display).toHaveBeenCalledOnce()
+    coordinator.close()
+  })
+
   test("reports notifications as unsupported when the API is missing", async () => {
     delete window.Notification
 
@@ -357,6 +436,29 @@ function inMemoryBroadcastChannelFactory() {
         listeners.delete(listener)
       },
     }
+  }
+}
+
+function controllableBroadcastChannelFactory() {
+  const channels = new Map<string, Set<(event: MessageEvent) => void>>()
+
+  return {
+    factory: (name: string) => {
+      const listeners = channels.get(name) || new Set<(event: MessageEvent) => void>()
+      channels.set(name, listeners)
+
+      return {
+        addEventListener: (_event: "message", listener: (event: MessageEvent) => void) => listeners.add(listener),
+        close: () => undefined,
+        postMessage: (data: unknown) => queueMicrotask(() => {
+          listeners.forEach((listener) => listener({data} as MessageEvent))
+        }),
+        removeEventListener: (_event: "message", listener: (event: MessageEvent) => void) => listeners.delete(listener),
+      }
+    },
+    post: (name: string, data: unknown) => {
+      channels.get(name)?.forEach((listener) => listener({data} as MessageEvent))
+    },
   }
 }
 

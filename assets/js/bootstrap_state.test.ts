@@ -1,6 +1,14 @@
 import {describe, expect, test} from "vitest"
 import {buildBootstrapState} from "./bootstrap_state.ts"
 
+const push = {
+  configured: false,
+  vapid_public_key: null,
+  session_generation: "test-session",
+  session_installation_id: null,
+  session_registration_confirmed: false,
+} as const
+
 describe("buildBootstrapState", () => {
   test("normalizes connections, buffers, messages, and active channel", () => {
     const state = buildBootstrapState({
@@ -11,7 +19,7 @@ describe("buildBootstrapState", () => {
       direct_message_tombstones: [],
       message_cursors_by_buffer: {"channel:2": 9},
       messages_by_buffer: {"server:1": [{id: 8, body: "ready"}], "channel:2": [{id: 9, body: "hello", occurred_at: "2026-08-26T00:00:00Z"}]},
-      notification_state: "granted",
+      push,
       topics: [{id: 3, channel: "elixir", server_host: "127.0.0.1"}],
       users_by_buffer: {"channel:2": [{nick: "mira"}]},
     })
@@ -21,7 +29,6 @@ describe("buildBootstrapState", () => {
       activeServerId: "server:1",
       commandCatalog: [{name: "join"}],
       cursorsByBuffer: {"channel:2": 9},
-      notificationState: "granted",
       usersByChannel: {"channel:2": [{nick: "mira"}]},
     })
     expect(state.connections[0].channels[0]).toMatchObject({id: "channel:2", channel: "#elixir"})
@@ -31,7 +38,7 @@ describe("buildBootstrapState", () => {
   })
 
   test("selects an active server and rejects incomplete payloads", () => {
-    expect(buildBootstrapState({buffers: [], connections: [], direct_message_tombstones: [], active_buffer_id: "server:4"})).toMatchObject({
+    expect(buildBootstrapState({buffers: [], connections: [], direct_message_tombstones: [], active_buffer_id: "server:4", push})).toMatchObject({
       activeServerId: null,
       view: null,
     })
@@ -51,6 +58,7 @@ describe("buildBootstrapState", () => {
         {buffer_id: "channel:2", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 2, title: "#alpha", mention_notifications_enabled: true, notification_preference_revision: 0},
       ],
       messages_by_buffer: {"direct:9": [{id: 21, nick: "Zed", body: "ping"}]},
+      push,
     })
 
     expect(state).toMatchObject({
@@ -82,6 +90,7 @@ describe("buildBootstrapState", () => {
         {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 1, title: "Zed", blocked: false},
       ],
       direct_message_tombstones: [{buffer_id: "direct:9", server_connection_id: 1, direct_message_thread_id: 9, revision: 2}],
+      push,
     })
 
     expect(state.connections[0].channels).toEqual([])
@@ -93,12 +102,14 @@ describe("buildBootstrapState", () => {
       buffers: [],
       connections: [{id: 1, host: "irc.example.test"}],
       direct_message_tombstones: [],
+      push,
     })).toBeNull()
 
     expect(buildBootstrapState({
       buffers: [{buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, title: "Zed", direct_message_revision: 1}],
       connections: [{id: 1, host: "irc.example.test", mention_notifications_enabled: true, notification_preference_revision: 0}],
       direct_message_tombstones: [],
+      push,
     })).toBeNull()
   })
 })

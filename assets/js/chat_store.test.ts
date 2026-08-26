@@ -13,7 +13,6 @@ import {
 } from "./chat_store.ts"
 
 const bootstrap = {
-  notification_state: "granted",
   connections: [{id: 1, name: "local", status: "connected"}],
   buffers: [
     {
@@ -53,7 +52,6 @@ describe("chat store", () => {
         "channel:2": {unread_count: 2, mention_count: 1},
       },
       connectionHealth: "connected",
-      notificationState: "granted",
     })
   })
 

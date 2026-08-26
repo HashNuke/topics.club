@@ -25,7 +25,8 @@ self.addEventListener("message", (event) => {
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
     pruneNotificationClientLeases()
-    const payload = event.data?.json?.() || {}
+    const payload = notificationPayload(event.data)
+    if (!payload) return
     await queueNotificationAccountRefresh()
     if (!await notificationAccountMatches(payload.user_id, payload.session_generation)) return
     if (!await notificationStillEligible(payload)) return
@@ -39,17 +40,17 @@ self.addEventListener("push", (event) => {
     })
     if (visibleChat) return
 
-    await self.registration.showNotification(payload.title || "topics.club mention", {
-      body: payload.body || "You were mentioned in a channel.",
+    await self.registration.showNotification(payload.title, {
+      body: payload.body,
       icon: NOTIFICATION_ICON,
       badge: NOTIFICATION_ICON,
-      tag: payload.tag || `mention:${payload.notification_id || Date.now()}`,
+      tag: payload.tag,
       data: {
         bufferId: payload.buffer_id,
         notificationId: payload.notification_id,
         sessionGeneration: payload.session_generation,
         userId: payload.user_id,
-        url: payload.url || "/app",
+        url: payload.url,
       },
     })
   })())
@@ -65,16 +66,16 @@ function queueNotificationAccountRefresh() {
 
 function updateNotificationClientLease(clientId, lease) {
   pruneNotificationClientLeases()
-  if (!clientId) return
+  if (typeof clientId !== "string" || clientId.length === 0) return
 
-  if (!lease.healthy || !lease.sessionGeneration) {
+  if (lease.healthy !== true || !nonemptyString(lease.sessionGeneration)) {
     notificationClientLeases.delete(clientId)
     return
   }
 
   notificationClientLeases.set(clientId, {
     expiresAt: Date.now() + NOTIFICATION_CLIENT_LEASE_MS,
-    sessionGeneration: String(lease.sessionGeneration),
+    sessionGeneration: lease.sessionGeneration,
   })
 
   while (notificationClientLeases.size > NOTIFICATION_CLIENT_LEASE_LIMIT) {
@@ -112,6 +113,9 @@ async function refreshNotificationAccount() {
     })
     if (!response.ok) throw new Error("notification account request failed")
     const account = await response.json()
+    if (!validPositiveId(account.user_id) || !nonemptyString(account.session_generation)) {
+      throw new Error("invalid notification account")
+    }
     await storeNotificationAccount(account.user_id, account.session_generation)
   } catch (_error) {
     await storeNotificationAccount(null, null)
@@ -121,7 +125,7 @@ async function refreshNotificationAccount() {
 async function storeNotificationAccount(userId, sessionGeneration) {
   const cache = await caches.open(NOTIFICATION_ACCOUNT_CACHE)
   const normalizedUserId = userId === null ? null : String(userId)
-  const normalizedGeneration = sessionGeneration === null ? null : String(sessionGeneration)
+  const normalizedGeneration = sessionGeneration === null ? null : sessionGeneration
   await cache.put(
     NOTIFICATION_ACCOUNT_KEY,
     new Response(JSON.stringify({
@@ -146,10 +150,8 @@ async function closeNotificationsOutsideGeneration(currentGeneration) {
 
 async function notificationAccountMatches(payloadUserId, payloadSessionGeneration) {
   if (
-    payloadUserId === undefined ||
-    payloadUserId === null ||
-    payloadSessionGeneration === undefined ||
-    payloadSessionGeneration === null
+    !validPositiveId(payloadUserId) ||
+    !nonemptyString(payloadSessionGeneration)
   ) return false
 
   try {
@@ -159,15 +161,17 @@ async function notificationAccountMatches(payloadUserId, payloadSessionGeneratio
     const account = await response.json()
     return account.userId !== null &&
       account.sessionGeneration !== null &&
-      String(account.userId) === String(payloadUserId) &&
-      String(account.sessionGeneration) === String(payloadSessionGeneration)
+      account.userId === String(payloadUserId) &&
+      account.sessionGeneration === payloadSessionGeneration
   } catch (_error) {
     return false
   }
 }
 
 async function notificationStillEligible(payload) {
-  if (!payload.notification_id || !payload.session_generation) return false
+  if (!validPositiveId(payload.notification_id) || !nonemptyString(payload.session_generation)) {
+    return false
+  }
 
   try {
     const query = new URLSearchParams({session_generation: String(payload.session_generation)})
@@ -192,14 +196,15 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil((async () => {
     pruneNotificationClientLeases()
     await queueNotificationAccountRefresh()
-    const data = event.notification.data || {}
+    const data = notificationData(event.notification.data)
+    if (!data) return
     if (!await notificationAccountMatches(data.userId, data.sessionGeneration)) return
     if (!await notificationStillEligible({
       notification_id: data.notificationId,
       session_generation: data.sessionGeneration,
     })) return
 
-    const targetUrl = new URL(event.notification.data?.url || "/app", self.location.origin).href
+    const targetUrl = data.url
     const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
     const existing = windows.find((client) => {
       const pathname = new URL(client.url).pathname
@@ -208,7 +213,7 @@ self.addEventListener("notificationclick", (event) => {
     })
 
     if (existing) {
-      existing.postMessage({type: "notification:navigate", bufferId: event.notification.data?.bufferId})
+      existing.postMessage({type: "notification:navigate", bufferId: data.bufferId})
       await existing.focus()
       return
     }
@@ -216,3 +221,81 @@ self.addEventListener("notificationclick", (event) => {
     await self.clients.openWindow(targetUrl)
   })())
 })
+
+function notificationPayload(eventData) {
+  let payload
+
+  try {
+    payload = eventData?.json?.()
+  } catch (_error) {
+    return null
+  }
+
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    payload.version !== 1 ||
+    !validPositiveId(payload.notification_id) ||
+    !validPositiveId(payload.message_id) ||
+    !validPositiveId(payload.user_id) ||
+    !nonemptyString(payload.session_generation) ||
+    !nonemptyString(payload.title) ||
+    !nonemptyString(payload.body) ||
+    !nonemptyString(payload.tag)
+  ) return null
+
+  const url = sameOriginUrl(payload.url)
+  if (!url) return null
+
+  if (payload.type === "notification:mention") {
+    if (
+      !validPositiveId(payload.channel_membership_id) ||
+      payload.buffer_id !== `channel:${payload.channel_membership_id}` ||
+      !nonemptyString(payload.channel)
+    ) return null
+  } else if (payload.type === "notification:direct_message") {
+    if (
+      !validPositiveId(payload.direct_message_thread_id) ||
+      payload.buffer_id !== `direct:${payload.direct_message_thread_id}` ||
+      !nonemptyString(payload.peer_nick)
+    ) return null
+  } else {
+    return null
+  }
+
+  return {...payload, url}
+}
+
+function notificationData(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !/^(channel|direct):[1-9][0-9]{0,18}$/.test(value.bufferId) ||
+    !validPositiveId(value.notificationId) ||
+    !nonemptyString(value.sessionGeneration) ||
+    !validPositiveId(value.userId)
+  ) return null
+
+  const url = sameOriginUrl(value.url)
+  return url ? {...value, url} : null
+}
+
+function sameOriginUrl(value) {
+  if (!nonemptyString(value)) return null
+
+  try {
+    const url = new URL(value, self.location.origin)
+    return url.origin === self.location.origin ? url.href : null
+  } catch (_error) {
+    return null
+  }
+}
+
+function validPositiveId(value) {
+  if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
+  return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
+}
+
+function nonemptyString(value) {
+  return typeof value === "string" && value.length > 0
+}

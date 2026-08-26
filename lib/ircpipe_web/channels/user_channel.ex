@@ -223,13 +223,12 @@ defmodule IrcpipeWeb.UserChannel do
 
     with true <- String.trim(body) != "",
          {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
-         :ok <- direct_message(thread, body),
-         message when not is_nil(message) <- latest_direct_message(user, thread) do
+         {:ok, %{thread: sent_thread, message: message}} <- direct_message(thread, body) do
       reply_ok(socket, %{
         client_message_id: client_message_id,
         message:
-          Event.message(message, "direct:#{thread.id}", %{
-            peer_nick: thread.peer_nick
+          Event.message(message, "direct:#{sent_thread.id}", %{
+            peer_nick: sent_thread.peer_nick
           })
       })
     else
@@ -238,9 +237,6 @@ defmodule IrcpipeWeb.UserChannel do
 
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), client_message_id: client_message_id})
-
-      nil ->
-        reply_error(socket, %{reason: "send_failed", client_message_id: client_message_id})
     end
   end
 
@@ -299,8 +295,7 @@ defmodule IrcpipeWeb.UserChannel do
     with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
          {:ok, updated} <-
            Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
-      event = Event.direct_message_thread(updated, updated.server_connection)
-      reply_ok(socket, %{buffer: event.buffer, revision: event.revision})
+      reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
     end
@@ -519,19 +514,18 @@ defmodule IrcpipeWeb.UserChannel do
              "server:#{connection.id}",
              socket
            ),
-         thread <- Chat.get_direct_message_thread_by_peer!(user, connection, target),
-         message when not is_nil(message) <- latest_direct_message(user, thread) do
+         [%{thread: thread, message: message}] <- result.direct_messages do
       event = Event.direct_message_thread(thread, connection)
 
-      reply_ok(socket, %{
-        command: command,
-        command_id: result.command_id,
-        status: result.status,
-        buffer_id: "direct:#{thread.id}",
-        buffer: event.buffer,
-        revision: event.revision,
-        message: Event.message(message, "direct:#{thread.id}", %{peer_nick: thread.peer_nick})
-      })
+      reply_ok(
+        socket,
+        Map.merge(event, %{
+          command: command,
+          command_id: result.command_id,
+          status: result.status,
+          message: Event.message(message, "direct:#{thread.id}", %{peer_nick: thread.peer_nick})
+        })
+      )
     else
       false ->
         reply_error(socket, %{reason: "invalid_nick", command: command})
@@ -542,7 +536,7 @@ defmodule IrcpipeWeb.UserChannel do
       {:error, reason} ->
         reply_error(socket, %{reason: error_reason(reason), command: command})
 
-      nil ->
+      [] ->
         reply_error(socket, %{reason: "send_failed", command: command})
     end
   rescue
@@ -765,12 +759,6 @@ defmodule IrcpipeWeb.UserChannel do
   defp latest_message(user, membership) do
     user
     |> Chat.list_messages(membership.id, 1)
-    |> List.first()
-  end
-
-  defp latest_direct_message(user, thread) do
-    user
-    |> Chat.list_buffer_messages("direct:#{thread.id}", limit: 1)
     |> List.first()
   end
 

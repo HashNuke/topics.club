@@ -10,6 +10,52 @@ const topicFixtures = [
   {id: "fixture-linux", name: "#linux", description: "Daily Linux discussion and troubleshooting.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#linux", members: 931},
 ]
 
+function channelNotification(overrides = {}) {
+  return {
+    type: "notification:mention",
+    version: 1,
+    event_id: "notification:mention",
+    id: 201,
+    notification_id: 101,
+    buffer_id: "channel:7",
+    server_connection_id: 42,
+    channel_membership_id: 7,
+    channel: "#testing",
+    nick: "akash",
+    body: "hello mira",
+    ...overrides,
+  }
+}
+
+function directNotification(overrides = {}) {
+  return {
+    type: "notification:direct_message",
+    version: 1,
+    event_id: "notification:direct-message",
+    id: 202,
+    notification_id: 102,
+    buffer_id: "direct:9",
+    server_connection_id: 1,
+    direct_message_thread_id: 9,
+    peer_nick: "Zed",
+    nick: "Zed",
+    body: "hello privately",
+    ...overrides,
+  }
+}
+
+function directThreadPayload(payload) {
+  const threadId = payload.buffer.direct_message_thread_id
+
+  return {
+    type: "direct_message:thread",
+    version: 1,
+    event_id: `direct_message_thread:${threadId}:1`,
+    occurred_at: "2026-08-26T00:00:00Z",
+    ...payload,
+  }
+}
+
 function mockTopicsFetch() {
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
     ok: true,
@@ -214,8 +260,14 @@ function mockBootstrapFetch({
         ok: true,
         json: async () => ({
           user: {id: 1, email: "mira@example.com", message_retention_days: 3},
-          notification_state: "default",
-          push: {session_generation: "test-session", ...push},
+          push: {
+            configured: false,
+            vapid_public_key: null,
+            session_generation: "test-session",
+            session_installation_id: null,
+            session_registration_confirmed: false,
+            ...push,
+          },
           server_time: "2026-05-13T10:00:00Z",
           command_catalog: [
             {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["server", "channel"], availability: "enabled"},
@@ -307,7 +359,7 @@ function mockDiscoveryFetch() {
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/bootstrap") {
-      return {ok: true, json: async () => ({connections: [], buffers: [], direct_message_tombstones: [], messages_by_buffer: {}, users_by_buffer: {}, topics: [], notification_state: "default"})}
+      return {ok: true, json: async () => ({connections: [], buffers: [], direct_message_tombstones: [], messages_by_buffer: {}, users_by_buffer: {}, topics: [], push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false}})}
     }
 
     if (path === "/api/discovery/server_channels") {
@@ -352,7 +404,7 @@ function mockResolvedLocalTopicFetch() {
           messages_by_buffer: {},
           users_by_buffer: {},
           topics: [],
-          notification_state: "default",
+          push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false},
         }),
       }
     }
@@ -409,7 +461,7 @@ function mockManualJoinFetch() {
           messages_by_buffer: {},
           users_by_buffer: {},
           topics: topicFixtures,
-          notification_state: "default",
+          push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false},
         }),
       }
     }
@@ -480,7 +532,7 @@ function directMessageApiClient() {
     topics: vi.fn().mockResolvedValue({topics: []}),
     bootstrap: vi.fn().mockResolvedValue({
       user: {id: 1, email: "mira@example.com"},
-      push: {configured: false, vapid_public_key: null, session_generation: "test-session"},
+      push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false},
       direct_message_tombstones: [],
       connections: [
         {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
@@ -671,11 +723,11 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onDirectMessageThread({
+    realtimeHandlers.onDirectMessageThread(directThreadPayload({
       connection: {id: 42, name: "local", host: "127.0.0.1", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
       buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 1, blocked: false},
       revision: 1,
-    })
+    }))
     realtimeHandlers.onBufferMessage({id: 88, buffer_id: "direct:12", nick: "akash", body: "incoming DM"})
 
     expect(await screen.findByLabelText("1 unread message from akash")).toBeInTheDocument()
@@ -707,7 +759,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
 
     act(() => {
-      realtimeHandlers.onDirectMessageThread({
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
         connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {
           buffer_id: "direct:9",
@@ -722,7 +774,7 @@ describe("IrcpipeApp UI prototype", () => {
           closed_at: null,
         },
         revision: 3,
-      })
+      }))
       realtimeHandlers.onDirectMessageClosed({
         buffer_id: "direct:9",
         server_connection_id: 1,
@@ -756,7 +808,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     const connection = {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0}
     act(() => {
-      realtimeHandlers.onDirectMessageThread({
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
         connection,
         buffer: {
           buffer_id: "direct:9",
@@ -770,8 +822,8 @@ describe("IrcpipeApp UI prototype", () => {
           closed_at: null,
         },
         revision: 3,
-      })
-      realtimeHandlers.onDirectMessageThread({
+      }))
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
         connection,
         buffer: {
           buffer_id: "direct:9",
@@ -785,7 +837,7 @@ describe("IrcpipeApp UI prototype", () => {
           closed_at: null,
         },
         revision: 2,
-      })
+      }))
     })
 
     expect(screen.getByRole("button", {name: "Unblock user"})).toBeInTheDocument()
@@ -826,7 +878,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
     act(() => {
-      realtimeHandlers.onDirectMessageThread({
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
         connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {
           buffer_id: "direct:9",
@@ -840,7 +892,7 @@ describe("IrcpipeApp UI prototype", () => {
           closed_at: null,
         },
         revision: 1,
-      })
+      }))
     })
 
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
@@ -937,11 +989,11 @@ describe("IrcpipeApp UI prototype", () => {
     expect(apiClient.bootstrap).toHaveBeenCalledTimes(2)
 
     act(() => {
-      realtimeHandlers.onDirectMessageThread({
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
         connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 12, direct_message_revision: 1, title: "Mona", unread_count: 1, blocked: false},
         revision: 1,
-      })
+      }))
     })
 
     expect(screen.queryByText("Mona")).not.toBeInTheDocument()
@@ -1071,15 +1123,16 @@ describe("IrcpipeApp UI prototype", () => {
           mention_notifications_enabled: false,
           revision: 1,
         })
-        realtimeHandlers.onNotificationMention({
+        realtimeHandlers.onNotificationMention(channelNotification({
           event_id: "queued-muted-mention",
           notification_id: 101,
           buffer_id: "channel:4",
           server_connection_id: 1,
+          channel_membership_id: 4,
           channel: "#zulu",
           nick: "akash",
           body: "this mention is muted",
-        })
+        }))
       })
 
       await act(async () => resolveRefresh(initial))
@@ -1133,7 +1186,7 @@ describe("IrcpipeApp UI prototype", () => {
       await act(async () => realtimeHandlers.onJoinOk())
 
       act(() => {
-        realtimeHandlers.onDirectMessageThread({
+        realtimeHandlers.onDirectMessageThread(directThreadPayload({
           connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
           buffer: {
             buffer_id: "direct:12",
@@ -1146,16 +1199,17 @@ describe("IrcpipeApp UI prototype", () => {
             blocked: false,
           },
           revision: 1,
-        })
-        realtimeHandlers.onNotificationDirectMessage({
+        }))
+        realtimeHandlers.onNotificationDirectMessage(directNotification({
           event_id: "queued-direct-message",
           notification_id: 102,
           buffer_id: "direct:12",
           server_connection_id: 1,
+          direct_message_thread_id: 12,
           peer_nick: "Mona",
           nick: "Mona",
           body: "hello privately",
-        })
+        }))
       })
 
       await act(async () => resolveRefresh(initial))
@@ -1179,12 +1233,12 @@ describe("IrcpipeApp UI prototype", () => {
     mockBootstrapFetch()
     const push = vi.fn().mockImplementation((event) => {
       if (event !== "command:run") return Promise.resolve({})
-      return Promise.resolve({
-        buffer_id: "direct:12",
+      return Promise.resolve(directThreadPayload({
+        connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 0, blocked: false},
         revision: 1,
-        message: {id: 89, buffer_id: "direct:12", nick: "mira", body: "hello privately"},
-      })
+        message: {id: 89, buffer_id: "direct:12", server_connection_id: 42, direct_message_thread_id: 12, nick: "mira", body: "hello privately"},
+      }))
     })
     const client = fakeRealtimeClient(push)
     let realtimeHandlers
@@ -1217,10 +1271,11 @@ describe("IrcpipeApp UI prototype", () => {
     const push = vi.fn().mockImplementation((event, payload) => {
       if (event === "direct_message:block") {
         mutationRevision += 1
-        return Promise.resolve({
+        return Promise.resolve(directThreadPayload({
+          connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
           buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: mutationRevision, title: "Zed", subtitle: "on irc.old.test", unread_count: 0, blocked: payload.blocked, account: "zed-account"},
           revision: mutationRevision,
-        })
+        }))
       }
       if (event === "direct_message:close") {
         mutationRevision += 1
@@ -2183,24 +2238,14 @@ describe("IrcpipeApp UI prototype", () => {
 
       expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-      realtimeHandlers.onNotificationMention({
+      realtimeHandlers.onNotificationMention(channelNotification({
         event_id: "notification:1",
         notification_id: 103,
-        buffer_id: "channel:7",
-        server_connection_id: 42,
-        channel: "#testing",
-        nick: "akash",
-        body: "hello mira",
-      })
-      realtimeHandlers.onNotificationMention({
+      }))
+      realtimeHandlers.onNotificationMention(channelNotification({
         event_id: "notification:1",
         notification_id: 103,
-        buffer_id: "channel:7",
-        server_connection_id: 42,
-        channel: "#testing",
-        nick: "akash",
-        body: "hello mira",
-      })
+      }))
 
       await waitFor(() => expect(NotificationMock).toHaveBeenCalledTimes(1))
       expect(NotificationMock).toHaveBeenCalledWith("#testing", {
@@ -2242,15 +2287,11 @@ describe("IrcpipeApp UI prototype", () => {
       )
 
       expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-      realtimeHandlers.onNotificationMention({
+      realtimeHandlers.onNotificationMention(channelNotification({
         event_id: "notification:committed-mute-read-or-close",
         notification_id: 106,
-        buffer_id: "channel:7",
-        server_connection_id: 42,
-        channel: "#testing",
-        nick: "akash",
         body: "must stay private",
-      })
+      }))
 
       await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
         "/api/notifications/106/eligibility?session_generation=test-session",
@@ -2301,15 +2342,11 @@ describe("IrcpipeApp UI prototype", () => {
 
       expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
       act(() => {
-        realtimeHandlers.onNotificationDirectMessage({
+        realtimeHandlers.onNotificationDirectMessage(directNotification({
           event_id: "notification:stale-account",
           notification_id: 107,
-          buffer_id: "direct:9",
-          server_connection_id: 1,
-          peer_nick: "Zed",
-          nick: "Zed",
           body: "do not leak",
-        })
+        }))
       })
 
       await waitFor(() => expect(notificationEligibility).toHaveBeenCalledOnce())
@@ -2399,15 +2436,10 @@ describe("IrcpipeApp UI prototype", () => {
       expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
       act(() => {
-        realtimeHandlers.onNotificationMention({
+        realtimeHandlers.onNotificationMention(channelNotification({
           event_id: "notification:during-subscription-inspection",
           notification_id: 104,
-          buffer_id: "channel:7",
-          server_connection_id: 42,
-          channel: "#testing",
-          nick: "akash",
-          body: "hello mira",
-        })
+        }))
       })
 
       expect(NotificationMock).not.toHaveBeenCalled()
@@ -2474,15 +2506,10 @@ describe("IrcpipeApp UI prototype", () => {
       )
 
       expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-      realtimeHandlers.onNotificationMention({
+      realtimeHandlers.onNotificationMention(channelNotification({
         event_id: "notification:muted",
         notification_id: 105,
-        buffer_id: "channel:7",
-        server_connection_id: 42,
-        channel: "#testing",
-        nick: "akash",
-        body: "hello mira",
-      })
+      }))
 
       expect(NotificationMock).not.toHaveBeenCalled()
     } finally {

@@ -256,9 +256,9 @@ export default function useServerConnections({
     setConnections((current) => updateBufferRead(current, payload))
   }
 
-  function applyDirectMessageThread(payload: DirectMessageThreadPayload): void {
-    if (!validDirectMessageThreadPayload(payload)) return
-    if (payload.buffer.direct_message_revision !== payload.revision) return
+  function applyDirectMessageThread(payload: DirectMessageThreadPayload): boolean {
+    if (!validDirectMessageThreadPayload(payload)) return false
+    if (payload.buffer.direct_message_revision !== payload.revision) return false
 
     if (payload.buffer.closed_at) {
       applyDirectMessageClosed({
@@ -267,9 +267,9 @@ export default function useServerConnections({
         direct_message_thread_id: payload.buffer.direct_message_thread_id,
         revision: payload.revision,
       })
-      return
+      return true
     }
-    if (!acceptDirectMessageRevision(payload.buffer.buffer_id, payload.revision)) return
+    if (!acceptDirectMessageRevision(payload.buffer.buffer_id, payload.revision)) return false
 
     const directMessage = directMessageFromBuffer(payload.buffer)
     setConnections((current) => upsertDirectMessage(current, payload.connection, directMessage))
@@ -277,6 +277,7 @@ export default function useServerConnections({
       ...current,
       [directMessage.id]: current[directMessage.id] || [],
     }))
+    return true
   }
 
   function applyDirectMessageClosed(payload: DirectMessageClosedPayload): void {
@@ -319,33 +320,11 @@ export default function useServerConnections({
     if (channel.buffer_type !== "direct_message" || !realtimeClientRef.current) return
 
     try {
-      const payload = await realtimeClientRef.current.push<{
-        buffer: DirectMessageBufferRecord
-        revision: number
-      }>(
+      const payload = await realtimeClientRef.current.push<DirectMessageThreadPayload>(
         "direct_message:block",
         {buffer_id: channel.id, blocked}
       )
-      const server = connectionsRef.current.find((connection) =>
-        connection.channels.some((conversation) => conversation.id === channel.id)
-      )
-      if (!server || !payload.buffer) return
-
-      applyDirectMessageThread({
-        connection: {
-          id: server.server_connection_id,
-          name: server.name,
-          host: server.host,
-          port: server.port,
-          use_tls: server.use_tls,
-          nickname: server.nickname,
-          status: server.status,
-          mention_notifications_enabled: server.mention_notifications_enabled,
-          notification_preference_revision: server.notification_preference_revision,
-        },
-        buffer: payload.buffer,
-        revision: payload.revision,
-      })
+      applyDirectMessageThread(payload)
     } catch (_error) {
       // Preserve the current blocking state if the backend rejects the change.
     }
@@ -489,6 +468,12 @@ export default function useServerConnections({
     const {buffer, connection, revision} = payload
 
     return (
+      payload.type === "direct_message:thread" &&
+      payload.version === 1 &&
+      typeof payload.event_id === "string" &&
+      payload.event_id.startsWith(`direct_message_thread:${buffer.direct_message_thread_id}:`) &&
+      typeof payload.occurred_at === "string" &&
+      payload.occurred_at.length > 0 &&
       buffer.buffer_type === "direct_message" &&
       validEntityId(buffer.direct_message_thread_id) &&
       validEntityId(buffer.server_connection_id) &&

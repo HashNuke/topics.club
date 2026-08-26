@@ -26,8 +26,7 @@ export interface BootstrapPayload {
   direct_message_tombstones?: DirectMessageTombstone[]
   message_cursors_by_buffer?: Record<string, unknown>
   messages_by_buffer?: MessagesByBuffer
-  notification_state?: NotificationPermission | null
-  push?: PushConfig
+  push: PushConfig
   topics?: TopicInput[]
   users_by_buffer?: Record<string, ChatUser[]>
 }
@@ -41,7 +40,6 @@ export interface BootstrapState {
   cursorsByBuffer: Record<string, unknown>
   messagesByChannel: MessagesByBuffer
   messagesByServer: MessagesByBuffer
-  notificationState: NotificationPermission | null
   push: PushConfig
   topics: Topic[] | null
   usersByChannel: Record<string, ChatUser[]>
@@ -52,7 +50,8 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
   if (
     !bootstrap?.buffers ||
     !bootstrap?.connections ||
-    !Array.isArray(bootstrap.direct_message_tombstones)
+    !Array.isArray(bootstrap.direct_message_tombstones) ||
+    !validPushConfig(bootstrap.push)
   ) return null
 
   if (
@@ -153,8 +152,7 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     cursorsByBuffer: bootstrap.message_cursors_by_buffer || {},
     messagesByChannel,
     messagesByServer,
-    notificationState: bootstrap.notification_state || null,
-    push: bootstrap.push || {configured: false, vapid_public_key: null},
+    push: bootstrap.push,
     topics: bootstrap.topics?.length ? bootstrap.topics.map(normalizeTopic) : null,
     usersByChannel: bootstrap.users_by_buffer || {},
     view,
@@ -220,6 +218,24 @@ function validNotificationPreference(value: {
   return (
     typeof value.mention_notifications_enabled === "boolean" &&
     validRevision(value.notification_preference_revision)
+  )
+}
+
+function validPushConfig(push: PushConfig): boolean {
+  return Boolean(
+    push &&
+    typeof push.configured === "boolean" &&
+    (push.vapid_public_key === null ||
+      (typeof push.vapid_public_key === "string" && push.vapid_public_key.length > 0)) &&
+    (push.configured ? typeof push.vapid_public_key === "string" : push.vapid_public_key === null) &&
+    typeof push.session_generation === "string" &&
+    push.session_generation.length > 0 &&
+    (push.session_installation_id === null ||
+      (typeof push.session_installation_id === "string" && push.session_installation_id.length > 0)) &&
+    typeof push.session_registration_confirmed === "boolean" &&
+    (push.session_registration_confirmed
+      ? typeof push.session_installation_id === "string"
+      : push.session_installation_id === null)
   )
 }
 

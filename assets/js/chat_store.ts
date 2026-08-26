@@ -24,7 +24,6 @@ export interface ChatState {
   usersByBuffer: UsersByBuffer
   unreadByBuffer: Record<string, UnreadCounts>
   connectionHealth: ConnectionHealth
-  notificationState: NotificationPermission
 }
 
 interface BootstrapPayload {
@@ -33,7 +32,6 @@ interface BootstrapPayload {
   active_buffer_id?: string | null
   messages_by_buffer?: MessagesByBuffer
   users_by_buffer?: UsersByBuffer
-  notification_state?: NotificationPermission
 }
 
 type ChatAction =
@@ -53,7 +51,6 @@ export const emptyChatState: ChatState = {
   usersByBuffer: {},
   unreadByBuffer: {},
   connectionHealth: "disconnected",
-  notificationState: "default",
 }
 
 export const MESSAGE_RENDER_LIMIT = 400
@@ -104,7 +101,6 @@ export function hydrateBootstrap(bootstrap: BootstrapPayload): ChatState {
       ])
     ),
     connectionHealth: "connected",
-    notificationState: bootstrap.notification_state || "default",
   }
 }
 

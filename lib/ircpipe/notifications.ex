@@ -32,13 +32,6 @@ defmodule Ircpipe.Notifications do
     |> Map.put(:session_installation_id, installation_id)
   end
 
-  def push_config(%Scope{}, _session_token) do
-    push_config()
-    |> Map.put(:session_generation, nil)
-    |> Map.put(:session_registration_confirmed, false)
-    |> Map.put(:session_installation_id, nil)
-  end
-
   def notification_account(%Scope{user: user}, session_token) when is_binary(session_token) do
     case Ircpipe.Accounts.get_user_by_session_token(session_token) do
       {session_user, _inserted_at} when session_user.id == user.id ->
@@ -646,12 +639,16 @@ defmodule Ircpipe.Notifications do
 
   defp notification_payload(%{kind: "mention"} = record) do
     %{
+      type: "notification:mention",
+      version: 1,
       title: "#{record.channel} on #{record.server_name}",
       body: "#{record.nick}: #{String.slice(record.body, 0, 240)}",
       tag: "notification_mention:message:#{record.message_id}",
       notification_id: record.notification_id,
       message_id: record.message_id,
       user_id: record.user_id,
+      channel_membership_id: record.channel_membership_id,
+      channel: record.channel,
       buffer_id: "channel:#{record.channel_membership_id}",
       url: "/app?buffer=channel:#{record.channel_membership_id}"
     }
@@ -659,12 +656,16 @@ defmodule Ircpipe.Notifications do
 
   defp notification_payload(%{kind: "direct_message"} = record) do
     %{
+      type: "notification:direct_message",
+      version: 1,
       title: "#{record.peer_nick} on #{record.server_name}",
       body: "#{record.nick}: #{String.slice(record.body, 0, 240)}",
       tag: "notification_direct_message:message:#{record.message_id}",
       notification_id: record.notification_id,
       message_id: record.message_id,
       user_id: record.user_id,
+      direct_message_thread_id: record.direct_message_thread_id,
+      peer_nick: record.peer_nick,
       buffer_id: "direct:#{record.direct_message_thread_id}",
       url: "/app?buffer=direct:#{record.direct_message_thread_id}"
     }

@@ -11,6 +11,13 @@ const INSTALLATION_KEY = "ircpipe.notification-installation"
 const originalNotification = window.Notification
 const originalPushManager = window.PushManager
 const originalServiceWorker = navigator.serviceWorker
+const unregisteredPush = {
+  configured: true,
+  vapid_public_key: "AQ",
+  session_generation: "current-session",
+  session_installation_id: null,
+  session_registration_confirmed: false,
+} as const
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -100,11 +107,16 @@ describe("notificationControlState", () => {
       .mockRejectedValueOnce(new Error("push_subscription_owned_by_another_account"))
       .mockResolvedValue({subscription: {installation_id: "new"}})
     configurePushBrowser(registration)
-    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({installation_id: "old", user_id: "1"}))
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
+      installation_id: "old",
+      user_id: "1",
+      session_generation: "current-session",
+      server_registration_confirmed: true,
+    }))
 
     const state = await synchronizeNotificationDevice(
       {savePushSubscription} as any,
-      {configured: true, vapid_public_key: "AQ"},
+      unregisteredPush,
       2
     )
 
@@ -132,11 +144,16 @@ describe("notificationControlState", () => {
       },
     }
     configurePushBrowser(registration)
-    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({installation_id: "current", user_id: "2"}))
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
+      installation_id: "current",
+      user_id: "2",
+      session_generation: "current-session",
+      server_registration_confirmed: false,
+    }))
 
     const state = await synchronizeNotificationDevice(
       {savePushSubscription: vi.fn().mockRejectedValue(new Error("ownership conflict"))} as any,
-      {configured: true, vapid_public_key: "AQ"},
+      unregisteredPush,
       2
     )
 
@@ -164,12 +181,19 @@ describe("notificationControlState", () => {
     localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
       installation_id: "confirmed",
       user_id: "2",
+      session_generation: "current-session",
       server_registration_confirmed: true,
     }))
 
+    const confirmedPush = {
+      ...unregisteredPush,
+      session_installation_id: "confirmed",
+      session_registration_confirmed: true,
+    }
+
     const state = await synchronizeNotificationDevice(
       {savePushSubscription: vi.fn().mockRejectedValue(new Error("temporary outage"))} as any,
-      {configured: true, vapid_public_key: "AQ"},
+      confirmedPush,
       2
     )
 
@@ -197,17 +221,23 @@ describe("notificationControlState", () => {
     localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
       installation_id: "shared-browser",
       user_id: "2",
+      session_generation: "current-session",
       server_registration_confirmed: false,
     }))
 
     const firstTab = await synchronizeNotificationDevice(
       {savePushSubscription: vi.fn().mockResolvedValue({subscription: {installation_id: "shared-browser"}})} as any,
-      {configured: true, vapid_public_key: "AQ"},
+      unregisteredPush,
       2
     )
+    const confirmedPush = {
+      ...unregisteredPush,
+      session_installation_id: "shared-browser",
+      session_registration_confirmed: true,
+    }
     const secondTab = await synchronizeNotificationDevice(
       {savePushSubscription: vi.fn().mockRejectedValue(new Error("temporary outage"))} as any,
-      {configured: true, vapid_public_key: "AQ"},
+      confirmedPush,
       2
     )
 
@@ -218,7 +248,7 @@ describe("notificationControlState", () => {
     })
 
     const staleSecondTabState = device({subscribed: false})
-    expect(notificationDeliveryCoveredByPush(staleSecondTabState, 2)).toBe(true)
+    expect(notificationDeliveryCoveredByPush(staleSecondTabState, 2, confirmedPush)).toBe(true)
   })
 
   test("recovers one installation identity across page lifecycles when durable storage is denied", async () => {
@@ -305,6 +335,18 @@ describe("notificationControlState", () => {
 
     expect(state.subscribed).toBe(false)
     expect(notificationDeliveryCoveredByPush(state, 2, push)).toBe(false)
+  })
+
+  test("discards stored installation records without an authoritative generation", () => {
+    localStorage.setItem(INSTALLATION_KEY, JSON.stringify({
+      installation_id: "generationless-installation",
+      user_id: "2",
+      server_registration_confirmed: true,
+    }))
+
+    expect(notificationDeliveryCoveredByPush(device({subscribed: false}), 2, unregisteredPush))
+      .toBe(false)
+    expect(localStorage.getItem(INSTALLATION_KEY)).toBeNull()
   })
 
   test("a late old-generation synchronization cannot overwrite the newer session", async () => {

@@ -36,12 +36,36 @@ export interface ChatMessage {
   [key: string]: unknown
 }
 
-export interface NotificationEventPayload extends ChatMessage {
+interface NotificationEventBase extends Omit<
+  ChatMessage,
+  "channel_membership_id" | "direct_message_thread_id"
+> {
   buffer_id: string
   event_id: string
+  id: EntityId
   notification_id: EntityId
   server_connection_id: EntityId
+  version: 1
 }
+
+export interface ChannelNotificationEventPayload extends NotificationEventBase {
+  type: "notification:mention"
+  channel: string
+  channel_membership_id: EntityId
+  direct_message_thread_id?: null
+}
+
+export interface DirectMessageNotificationEventPayload extends NotificationEventBase {
+  type: "notification:direct_message"
+  channel?: never
+  channel_membership_id?: null
+  direct_message_thread_id: EntityId
+  peer_nick: string
+}
+
+export type NotificationEventPayload =
+  | ChannelNotificationEventPayload
+  | DirectMessageNotificationEventPayload
 
 export interface ChatUser {
   nick: string
@@ -224,9 +248,13 @@ export interface BufferLeftPayload {
 }
 
 export interface DirectMessageThreadPayload {
+  type: "direct_message:thread"
+  version: 1
+  event_id: string
   connection: BackendConnection
   buffer: DirectMessageBufferRecord
   revision: number
+  occurred_at: string
 }
 
 export interface DirectMessageClosedPayload {
@@ -250,10 +278,10 @@ export interface PresenceDiffPayload {
 
 export interface PushConfig {
   configured: boolean
-  vapid_public_key?: string | null
-  session_generation?: string | null
-  session_installation_id?: string | null
-  session_registration_confirmed?: boolean
+  vapid_public_key: string | null
+  session_generation: string
+  session_installation_id: string | null
+  session_registration_confirmed: boolean
 }
 
 export interface NotificationPreferencePayload {

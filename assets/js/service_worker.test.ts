@@ -1,5 +1,24 @@
 import {afterEach, expect, test, vi} from "vitest"
 
+function directPush(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "notification:direct_message",
+    version: 1,
+    title: "Private message",
+    body: "akash: hello",
+    tag: "notification_direct_message:message:10",
+    notification_id: 20,
+    message_id: 10,
+    user_id: "2",
+    session_generation: "session-b",
+    direct_message_thread_id: 3,
+    peer_nick: "akash",
+    buffer_id: "direct:3",
+    url: "/app?buffer=direct:3",
+    ...overrides,
+  }
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.resetModules()
@@ -42,7 +61,7 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   vi.stubGlobal("caches", {open: vi.fn().mockResolvedValue(cache)})
   let notificationEligible = true
   let currentAccount: {user_id: string | null; session_generation: string | null} = {
-    user_id: "account-b",
+    user_id: "2",
     session_generation: "session-b",
   }
   vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
@@ -76,10 +95,9 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     headers: {accept: "application/json"},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
-      title: "Private message",
-      notification_id: "notification-a",
-      user_id: "account-a",
+    data: {json: () => directPush({
+      notification_id: 21,
+      user_id: "1",
       session_generation: "session-a",
     })},
   })
@@ -87,23 +105,16 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   expect(showNotification).not.toHaveBeenCalled()
 
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
-      title: "Private message",
-      notification_id: "notification-b",
-      user_id: "account-b",
-      session_generation: "session-b",
-    })},
+    data: {json: () => directPush()},
   })
 
   expect(showNotification).toHaveBeenCalledOnce()
 
   notificationEligible = false
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
+    data: {json: () => directPush({
       title: "Delayed private message",
-      notification_id: "notification-b-delayed",
-      user_id: "account-b",
-      session_generation: "session-b",
+      notification_id: 22,
     })},
   })
   expect(showNotification).toHaveBeenCalledOnce()
@@ -125,11 +136,9 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     },
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
+    data: {json: () => directPush({
       title: "New account message",
-      notification_id: "new-account-stale-tab",
-      user_id: "account-b",
-      session_generation: "session-b",
+      notification_id: 23,
     })},
   })
   expect(showNotification).toHaveBeenCalledTimes(2)
@@ -143,11 +152,9 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     },
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
+    data: {json: () => directPush({
       title: "Disconnected tab message",
-      notification_id: "disconnected-tab",
-      user_id: "account-b",
-      session_generation: "session-b",
+      notification_id: 24,
     })},
   })
   expect(showNotification).toHaveBeenCalledTimes(3)
@@ -161,11 +168,9 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     },
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
+    data: {json: () => directPush({
       title: "Healthy tab message",
-      notification_id: "healthy-tab",
-      user_id: "account-b",
-      session_generation: "session-b",
+      notification_id: 25,
     })},
   })
   expect(showNotification).toHaveBeenCalledTimes(3)
@@ -187,12 +192,18 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     visibilityState: "visible",
   }])
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
+    data: {json: () => directPush({
       title: "Lease cap message",
-      notification_id: "lease-cap",
-      user_id: "account-b",
-      session_generation: "session-b",
+      notification_id: 26,
     })},
+  })
+  expect(showNotification).toHaveBeenCalledTimes(4)
+
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => directPush({url: "https://attacker.example/app"})},
+  })
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => ({...directPush(), type: undefined})},
   })
   expect(showNotification).toHaveBeenCalledTimes(4)
 
@@ -244,7 +255,7 @@ test("serializes an in-flight stale refresh before checking a new-session push",
     if (requestCount === 1) return staleRefresh
 
     return new Response(JSON.stringify({
-      user_id: "account-b",
+      user_id: "2",
       session_generation: "session-b",
     }), {status: 200, headers: {"content-type": "application/json"}})
   })
@@ -260,18 +271,13 @@ test("serializes an in-flight stale refresh before checking a new-session push",
   await Promise.resolve()
 
   const newSessionPush = dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => ({
-      title: "Private message",
-      notification_id: "notification-b",
-      user_id: "account-b",
-      session_generation: "session-b",
-    })},
+    data: {json: () => directPush()},
   })
   await Promise.resolve()
   expect(fetchAccount).toHaveBeenCalledTimes(1)
 
   resolveStaleRefresh(new Response(JSON.stringify({
-    user_id: "account-a",
+    user_id: "1",
     session_generation: "session-a",
   }), {status: 200, headers: {"content-type": "application/json"}}))
 

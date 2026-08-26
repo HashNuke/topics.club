@@ -14,7 +14,7 @@ let latestSynchronizationGeneration: string | null = null
 
 interface SynchronizationContext {
   epoch: number
-  sessionGeneration: string | null
+  sessionGeneration: string
 }
 
 class SupersededNotificationSynchronization extends Error {}
@@ -22,7 +22,7 @@ class SupersededNotificationSynchronization extends Error {}
 interface NotificationInstallation {
   installation_id: string
   server_registration_confirmed: boolean
-  session_generation: string | null
+  session_generation: string
   user_id: string
 }
 
@@ -154,18 +154,18 @@ export function notificationControlState(
 
 export function notificationServerRegistrationConfirmed(
   userId: EntityId,
-  push?: PushConfig
+  push: PushConfig
 ): boolean {
   const installation = storedNotificationInstallation()
-  const currentSession = !push?.session_generation ||
-    installation?.session_generation === push.session_generation
-  return installation?.user_id === String(userId) && currentSession && installation.server_registration_confirmed
+  return installation?.user_id === String(userId) &&
+    installation.session_generation === push.session_generation &&
+    installation.server_registration_confirmed
 }
 
 export function notificationDeliveryCoveredByPush(
   device: NotificationDeviceState,
   userId: EntityId,
-  push?: PushConfig
+  push: PushConfig
 ): boolean {
   return device.subscribed || notificationServerRegistrationConfirmed(userId, push)
 }
@@ -179,7 +179,7 @@ export function clearNotificationServerRegistration(): void {
 
 function deviceBase(push: PushConfig): NotificationDeviceState {
   const capability = pushCapability()
-  return {capability, configured: Boolean(push.configured && push.vapid_public_key), loading: true, subscribed: false}
+  return {capability, configured: push.configured, loading: true, subscribed: false}
 }
 
 function pushCapability() {
@@ -198,24 +198,29 @@ async function persistSubscription(
 ): Promise<void> {
   ensureCurrentSynchronization(synchronization)
   const json = subscription.toJSON()
-  const installation = notificationInstallation(userId)
+  const installation = notificationInstallation(userId, push)
   const response = await apiClient.savePushSubscription(installation.installation_id, {
     endpoint: json.endpoint,
     expirationTime: json.expirationTime,
     keys: json.keys,
   })
   ensureCurrentSynchronization(synchronization)
+  const installationId = response.subscription.installation_id
+  if (typeof installationId !== "string" || installationId.length === 0) {
+    throw new Error("invalid_push_subscription_response")
+  }
+
   storeNotificationInstallation({
     ...installation,
-    installation_id: response.subscription.installation_id,
+    installation_id: installationId,
     server_registration_confirmed: true,
-    session_generation: push.session_generation || null,
+    session_generation: push.session_generation,
   })
 }
 
 function beginSynchronization(push: PushConfig): SynchronizationContext {
   latestSynchronizationEpoch += 1
-  latestSynchronizationGeneration = push.session_generation || null
+  latestSynchronizationGeneration = push.session_generation
 
   return {
     epoch: latestSynchronizationEpoch,
@@ -235,18 +240,21 @@ function ensureCurrentSynchronization(synchronization: SynchronizationContext): 
 function installationOwnedBy(userId: EntityId, push: PushConfig): boolean {
   const installation = storedNotificationInstallation()
   return installation?.user_id === String(userId) &&
-    (!push.session_generation || installation.session_generation === push.session_generation)
+    installation.session_generation === push.session_generation
 }
 
-function notificationInstallation(userId: EntityId): NotificationInstallation {
+function notificationInstallation(userId: EntityId, push: PushConfig): NotificationInstallation {
   const normalizedUserId = String(userId)
   const existing = storedNotificationInstallation()
-  if (existing?.user_id === normalizedUserId) return existing
+  if (
+    existing?.user_id === normalizedUserId &&
+    existing.session_generation === push.session_generation
+  ) return existing
 
   const installation = {
     installation_id: newInstallationId(),
     server_registration_confirmed: false,
-    session_generation: null,
+    session_generation: push.session_generation,
     user_id: normalizedUserId,
   }
 
@@ -256,29 +264,51 @@ function notificationInstallation(userId: EntityId): NotificationInstallation {
 }
 
 function storedNotificationInstallation(): NotificationInstallation | null {
+  let value: string | null
+
   try {
-    const value = localStorage.getItem(INSTALLATION_KEY)
-    if (!value) return inMemoryInstallation
+    value = localStorage.getItem(INSTALLATION_KEY)
+  } catch (_error) {
+    return inMemoryInstallation
+  }
+
+  if (!value) return inMemoryInstallation
+
+  try {
     const parsed = JSON.parse(value)
 
     if (
       parsed &&
-      typeof parsed.installation_id === "string" &&
-      typeof parsed.user_id === "string"
+      typeof parsed.installation_id === "string" && parsed.installation_id.length > 0 &&
+      typeof parsed.user_id === "string" && /^[1-9][0-9]{0,18}$/.test(parsed.user_id) &&
+      typeof parsed.session_generation === "string" && parsed.session_generation.length > 0 &&
+      typeof parsed.server_registration_confirmed === "boolean"
     ) {
       inMemoryInstallation = {
         installation_id: parsed.installation_id,
-        server_registration_confirmed: parsed.server_registration_confirmed === true,
-        session_generation: typeof parsed.session_generation === "string" ? parsed.session_generation : null,
+        server_registration_confirmed: parsed.server_registration_confirmed,
+        session_generation: parsed.session_generation,
         user_id: parsed.user_id,
       }
       return inMemoryInstallation
     }
   } catch (_error) {
-    return inMemoryInstallation
+    discardStoredNotificationInstallation()
+    return null
   }
 
-  return inMemoryInstallation
+  discardStoredNotificationInstallation()
+  return null
+}
+
+function discardStoredNotificationInstallation(): void {
+  inMemoryInstallation = null
+
+  try {
+    localStorage.removeItem(INSTALLATION_KEY)
+  } catch (_error) {
+    // This runtime no longer trusts the malformed persisted record.
+  }
 }
 
 function setServerRegistrationConfirmed(
@@ -287,11 +317,13 @@ function setServerRegistrationConfirmed(
   confirmed: boolean
 ): void {
   const installation = storedNotificationInstallation()
-  if (installation?.user_id !== String(userId)) return
+  if (
+    installation?.user_id !== String(userId) ||
+    installation.session_generation !== push.session_generation
+  ) return
   storeNotificationInstallation({
     ...installation,
     server_registration_confirmed: confirmed,
-    session_generation: push.session_generation || installation.session_generation,
   })
 }
 
@@ -302,18 +334,14 @@ function reconcileNotificationInstallation(userId: EntityId, push: PushConfig): 
   if (push.session_installation_id) {
     storeNotificationInstallation({
       installation_id: push.session_installation_id,
-      server_registration_confirmed: push.session_registration_confirmed === true,
-      session_generation: push.session_generation || null,
+      server_registration_confirmed: push.session_registration_confirmed,
+      session_generation: push.session_generation,
       user_id: normalizedUserId,
     })
     return
   }
 
-  if (
-    existing?.user_id === normalizedUserId &&
-    push.session_generation &&
-    existing.session_generation !== push.session_generation
-  ) {
+  if (existing?.user_id === normalizedUserId) {
     storeNotificationInstallation({
       ...existing,
       server_registration_confirmed: false,
@@ -341,13 +369,17 @@ export function resetNotificationInstallationMemoryForTest(): void {
 }
 
 function newInstallationId(): string {
-  return globalThis.crypto?.randomUUID?.() || `installation-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return globalThis.crypto.randomUUID()
 }
 
 function subscribe(registration: ServiceWorkerRegistration, push: PushConfig): Promise<PushSubscription> {
+  if (!push.configured || !push.vapid_public_key) {
+    return Promise.reject(new Error("push_not_configured"))
+  }
+
   return registration.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(push.vapid_public_key!),
+    applicationServerKey: urlBase64ToUint8Array(push.vapid_public_key),
   })
 }
 

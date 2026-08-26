@@ -819,10 +819,11 @@ defmodule Ircpipe.Irc.Session do
          {message, labeled?} <- maybe_label_command(intent.message, command_id, state) do
       case Ircxd.Client.transmit(client, message) do
         :ok ->
+          {state, managed_outcome} = persist_managed_outcome(state, intent)
+
           state =
-            state
-            |> persist_managed_outcome(intent)
-            |> maybe_track_pending_command(
+            maybe_track_pending_command(
+              state,
               intent,
               message,
               invocation,
@@ -833,12 +834,15 @@ defmodule Ircpipe.Irc.Session do
 
           {:reply,
            {:ok,
-            %{
-              command_id: command_id,
-              status: "sent",
-              command: String.downcase(message.command),
-              display: intent.display
-            }}, state}
+            Map.merge(
+              %{
+                command_id: command_id,
+                status: "sent",
+                command: String.downcase(message.command),
+                display: intent.display
+              },
+              managed_outcome
+            )}, state}
 
         {:error, reason} ->
           Chat.update_command_message(invocation, %{
@@ -937,7 +941,7 @@ defmodule Ircpipe.Irc.Session do
 
   def handle_call({:privmsg_thread, thread_id, body}, _from, state) do
     with {:ok, client} <- fetch_client(state),
-         {:ok, %{thread: thread}} <-
+         {:ok, %{thread: thread, message: message}} <-
            Chat.send_direct_message_thread(
              state.connection,
              thread_id,
@@ -948,7 +952,8 @@ defmodule Ircpipe.Irc.Session do
                end
              end
            ) do
-      {:reply, :ok, remember_pending_echo(state, thread.peer_nick, body, "message")}
+      {:reply, {:ok, %{thread: thread, message: message}},
+       remember_pending_echo(state, thread.peer_nick, body, "message")}
     else
       error -> {:reply, error, state}
     end
@@ -1641,18 +1646,21 @@ defmodule Ircpipe.Irc.Session do
        ) do
     user = Repo.get!(User, state.connection.user_id)
 
-    channels
-    |> String.split(",", trim: true)
-    |> Enum.reduce(state, fn channel, current_state ->
-      {:ok, membership} =
-        Chat.request_channel_join(user, state.connection, channel, casemapping(current_state))
+    next_state =
+      channels
+      |> String.split(",", trim: true)
+      |> Enum.reduce(state, fn channel, current_state ->
+        {:ok, membership} =
+          Chat.request_channel_join(user, state.connection, channel, casemapping(current_state))
 
-      key = channel_key(current_state, membership.channel)
+        key = channel_key(current_state, membership.channel)
 
-      current_state
-      |> Map.update!(:pending_joins, &MapSet.put(&1, key))
-      |> Map.update!(:sent_joins, &MapSet.put(&1, key))
-    end)
+        current_state
+        |> Map.update!(:pending_joins, &MapSet.put(&1, key))
+        |> Map.update!(:sent_joins, &MapSet.put(&1, key))
+      end)
+
+    {next_state, %{}}
   end
 
   defp persist_managed_outcome(
@@ -1662,36 +1670,52 @@ defmodule Ircpipe.Irc.Session do
        when command in ["PRIVMSG", "NOTICE"] do
     {kind, body} = outgoing_kind_and_body(command, body)
 
-    Enum.reduce(String.split(targets, ",", trim: true), state, fn target, state ->
-      metadata = %{direction: "outgoing", peer_nick: target, target: target}
+    {next_state, direct_messages} =
+      Enum.reduce(
+        String.split(targets, ",", trim: true),
+        {state, []},
+        fn target, {current_state, direct_messages} ->
+          metadata = %{direction: "outgoing", peer_nick: target, target: target}
 
-      if channel = channel_message_target(state, target) do
-        Chat.record_inbound_message(
-          state.connection,
-          channel,
-          state.connection.nickname,
-          body,
-          kind,
-          metadata,
-          casemapping(state)
-        )
-      else
-        Chat.record_direct_message(
-          state.connection,
-          target,
-          state.connection.nickname,
-          body,
-          kind,
-          metadata,
-          casemapping(state)
-        )
-      end
+          direct_messages =
+            if channel = channel_message_target(current_state, target) do
+              Chat.record_inbound_message(
+                current_state.connection,
+                channel,
+                current_state.connection.nickname,
+                body,
+                kind,
+                metadata,
+                casemapping(current_state)
+              )
 
-      remember_pending_echo(state, target, body, kind)
-    end)
+              direct_messages
+            else
+              case Chat.record_direct_message(
+                     current_state.connection,
+                     target,
+                     current_state.connection.nickname,
+                     body,
+                     kind,
+                     metadata,
+                     casemapping(current_state)
+                   ) do
+                {:ok, %{thread: thread, message: message}} ->
+                  [%{thread: thread, message: message} | direct_messages]
+
+                _error ->
+                  direct_messages
+              end
+            end
+
+          {remember_pending_echo(current_state, target, body, kind), direct_messages}
+        end
+      )
+
+    {next_state, %{direct_messages: Enum.reverse(direct_messages)}}
   end
 
-  defp persist_managed_outcome(state, _intent), do: state
+  defp persist_managed_outcome(state, _intent), do: {state, %{}}
 
   defp outgoing_kind_and_body("PRIVMSG", <<1, "ACTION ", rest::binary>>) do
     {"action", String.trim_trailing(rest, <<1>>)}

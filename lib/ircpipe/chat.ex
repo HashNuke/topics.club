@@ -131,19 +131,6 @@ defmodule Ircpipe.Chat do
     |> Repo.all()
   end
 
-  def list_direct_message_tombstones(%User{id: user_id}) do
-    DirectMessageThread
-    |> where([thread], thread.user_id == ^user_id and not is_nil(thread.closed_at))
-    |> order_by([thread], asc: thread.id)
-    |> select([thread], %{
-      buffer_id: fragment("'direct:' || ?::text", thread.id),
-      server_connection_id: thread.server_connection_id,
-      direct_message_thread_id: thread.id,
-      revision: thread.mutation_revision
-    })
-    |> Repo.all()
-  end
-
   def get_direct_message_thread!(%User{id: user_id}, id) do
     DirectMessageThread
     |> where([thread], thread.id == ^id and thread.user_id == ^user_id)

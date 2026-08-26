@@ -1,10 +1,4 @@
-interface MentionMessage {
-  body: string
-  channel?: string
-  event_id: string
-  nick: string
-  peer_nick?: string
-}
+import type {NotificationEventPayload} from "./types.ts"
 
 interface NotificationBroadcastChannel {
   addEventListener(type: "message", listener: (event: MessageEvent) => void): void
@@ -37,13 +31,21 @@ interface NotificationDisplayCandidate {
   visible: boolean
 }
 
-interface CoordinationMessage {
-  eligible?: boolean
+interface CandidateCoordinationMessage {
+  eligible: boolean
   event_id: string
   tab_id: string
-  type: "candidate" | "failed" | "shown" | "suppressed"
-  visible?: boolean
+  type: "candidate"
+  visible: boolean
 }
+
+interface ResultCoordinationMessage {
+  event_id: string
+  tab_id: string
+  type: "failed" | "shown" | "suppressed"
+}
+
+type CoordinationMessage = CandidateCoordinationMessage | ResultCoordinationMessage
 
 interface StoredOutcome {
   claimed_at: number
@@ -108,11 +110,13 @@ export function createNotificationEventCoordinator(
       return
     }
 
+    if (message.type !== "candidate") return
+
     if (outcomes.has(message.event_id)) return
     rememberCandidate(candidates, message.event_id, {
-      eligible: Boolean(message.eligible),
+      eligible: message.eligible,
       tab_id: message.tab_id,
-      visible: Boolean(message.visible),
+      visible: message.visible,
     })
   }
 
@@ -257,13 +261,14 @@ export async function requestNotificationPermission(): Promise<BrowserNotificati
 }
 
 export function showMentionNotification(
-  message: MentionMessage,
+  message: NotificationEventPayload,
   {notificationState}: MentionNotificationOptions
 ): boolean {
   if (document.visibilityState !== "hidden") return false
   if (!mentionNotificationEligible(message, {notificationState})) return false
   const eventId = normalizedEventId(message.event_id)
-  if (!eventId) return false
+  const title = notificationTitle(message)
+  if (!eventId || !title) return false
 
   const options: NotificationOptions = {
     body: `${message.nick}: ${message.body}`,
@@ -271,15 +276,20 @@ export function showMentionNotification(
   }
 
   try {
-    new window.Notification(message.channel || message.peer_nick || "topics.club", options)
+    new window.Notification(title, options)
     return true
   } catch (_error) {
     return false
   }
 }
 
+function notificationTitle(message: NotificationEventPayload): string {
+  const title = message.type === "notification:mention" ? message.channel : message.peer_nick
+  return typeof title === "string" && title.length > 0 ? title : ""
+}
+
 export function mentionNotificationEligible(
-  _message: MentionMessage,
+  _message: NotificationEventPayload,
   {notificationState}: MentionNotificationOptions
 ): boolean {
   if (window.isSecureContext === false) return false
@@ -336,7 +346,7 @@ function storeOutcome(
     storage.setItem(storageKey, JSON.stringify(boundedOutcomes))
     return storedOutcomes(storage, storageKey)[eventId]?.tab_id === tabId
   } catch (_error) {
-    return true
+    return false
   }
 }
 
@@ -354,15 +364,17 @@ function storedOutcomes(
     return Object.fromEntries(
       Object.entries(parsed).flatMap(([eventId, value]) => {
         const stored = value as Partial<StoredOutcome> | null
-        const outcome = stored?.outcome === "suppressed" ? "suppressed" : "shown"
 
         return Boolean(
           stored &&
+          normalizedEventId(eventId) === eventId &&
           typeof stored.claimed_at === "number" &&
+          Number.isFinite(stored.claimed_at) &&
           stored.claimed_at >= cutoff &&
-          typeof stored.tab_id === "string"
+          normalizedTabId(stored.tab_id) &&
+          (stored.outcome === "shown" || stored.outcome === "suppressed")
         )
-          ? [[eventId, {...stored, outcome} as StoredOutcome]]
+          ? [[eventId, stored as StoredOutcome]]
           : []
       })
     )
@@ -375,28 +387,41 @@ function coordinationMessage(value: unknown): CoordinationMessage | null {
   if (!value || typeof value !== "object") return null
   const message = value as Partial<CoordinationMessage>
   const eventId = normalizedEventId(message.event_id)
+  const tabId = normalizedTabId(message.tab_id)
 
   if (
     !eventId ||
-    !message.tab_id ||
+    !tabId ||
     !["candidate", "failed", "shown", "suppressed"].includes(message.type || "")
   ) {
     return null
   }
 
-  return {
-    eligible: Boolean(message.eligible),
-    event_id: eventId,
-    tab_id: String(message.tab_id),
-    type: message.type!,
-    visible: Boolean(message.visible),
+  if (message.type === "candidate") {
+    if (typeof message.eligible !== "boolean" || typeof message.visible !== "boolean") return null
+
+    return {
+      eligible: message.eligible,
+      event_id: eventId,
+      tab_id: tabId,
+      type: "candidate",
+      visible: message.visible,
+    }
   }
+
+  return {event_id: eventId, tab_id: tabId, type: message.type!}
 }
 
 function normalizedEventId(value: unknown): string {
   if (typeof value !== "string") return ""
   const eventId = value.trim()
   return eventId && eventId.length <= 256 ? eventId : ""
+}
+
+function normalizedTabId(value: unknown): string {
+  if (typeof value !== "string") return ""
+  const tabId = value.trim()
+  return tabId && tabId.length <= 256 ? tabId : ""
 }
 
 function rememberBounded(values: Set<string>, value: string): void {

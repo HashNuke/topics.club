@@ -218,14 +218,30 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_reply ref,
                  :ok,
                  %{
+                   type: "direct_message:thread",
+                   version: 1,
                    command: %{name: "msg", args: ["akash", "hello privately"]},
                    command_id: command_id,
-                   buffer_id: buffer_id,
-                   message: %{buffer_id: buffer_id, body: "hello privately", nick: "mira"}
+                   connection: %{id: connection_id},
+                   buffer: %{
+                     buffer_id: buffer_id,
+                     direct_message_thread_id: thread_id,
+                     direct_message_revision: revision
+                   },
+                   revision: revision,
+                   message: %{
+                     buffer_id: message_buffer_id,
+                     direct_message_thread_id: message_thread_id,
+                     body: "hello privately",
+                     nick: "mira"
+                   }
                  },
                  1_000
 
+    assert connection_id == connection.id
     assert "direct:" <> _ = buffer_id
+    assert message_buffer_id == buffer_id
+    assert message_thread_id == thread_id
     assert_receive {:irc_server_line, "PRIVMSG akash :hello privately"}, 1_000
     assert_push "direct_message:thread", %{buffer: %{buffer_id: ^buffer_id, title: "akash"}}
 
@@ -290,12 +306,26 @@ defmodule IrcpipeWeb.UserChannelTest do
     block_ref =
       push(socket, "direct_message:block", %{"buffer_id" => buffer_id, "blocked" => true})
 
-    assert_reply block_ref, :ok, %{buffer: %{buffer_id: ^buffer_id, blocked: true}}
+    assert_reply block_ref, :ok, %{
+      type: "direct_message:thread",
+      version: 1,
+      connection: %{id: connection_id},
+      buffer: %{buffer_id: ^buffer_id, blocked: true, direct_message_revision: block_revision},
+      revision: block_revision
+    }
+
+    assert connection_id == connection.id
 
     unblock_ref =
       push(socket, "direct_message:block", %{"buffer_id" => buffer_id, "blocked" => false})
 
-    assert_reply unblock_ref, :ok, %{buffer: %{buffer_id: ^buffer_id, blocked: false}}
+    assert_reply unblock_ref, :ok, %{
+      type: "direct_message:thread",
+      version: 1,
+      connection: %{id: ^connection_id},
+      buffer: %{buffer_id: ^buffer_id, blocked: false, direct_message_revision: unblock_revision},
+      revision: unblock_revision
+    }
 
     close_ref = push(socket, "direct_message:close", %{"buffer_id" => buffer_id})
     assert_reply close_ref, :ok, %{buffer_id: ^buffer_id}
