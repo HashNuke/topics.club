@@ -1,8 +1,22 @@
-import {useEffect, useRef, useState} from "react"
+import {useEffect, useRef, useState, type MutableRefObject} from "react"
+import type {
+  RealtimeClient,
+  RealtimeHandlers,
+  RealtimePayload,
+} from "../realtime_client.ts"
+import type {ConnectionHealth, EntityId} from "../types.ts"
 
-export default function useRealtimeConnection({handlers, onConnected, realtimeClientFactory, realtimeClientRef: providedClientRef, sessionKey}) {
-  const [connectionHealth, setConnectionHealth] = useState("disconnected")
-  const internalClientRef = useRef(null)
+interface RealtimeConnectionOptions {
+  handlers: RealtimeHandlers
+  onConnected?: () => void
+  realtimeClientFactory?: ((options: {handlers: RealtimeHandlers}) => RealtimeClient) | null
+  realtimeClientRef?: MutableRefObject<RealtimeClient | null>
+  sessionKey?: EntityId | null
+}
+
+export default function useRealtimeConnection({handlers, onConnected, realtimeClientFactory, realtimeClientRef: providedClientRef, sessionKey}: RealtimeConnectionOptions) {
+  const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("disconnected")
+  const internalClientRef = useRef<RealtimeClient | null>(null)
   const realtimeClientRef = providedClientRef || internalClientRef
   const handlersRef = useRef(handlers)
   const onConnectedRef = useRef(onConnected)
@@ -13,7 +27,10 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
   useEffect(() => {
     if (!sessionKey || !realtimeClientFactory) return
 
-    const forward = (name) => (...args) => handlersRef.current[name]?.(...args)
+    const forward = (name: keyof RealtimeHandlers) => (payload: RealtimePayload) => {
+      const handler = handlersRef.current[name] as ((value: RealtimePayload) => void) | undefined
+      handler?.(payload)
+    }
     const connected = () => {
       setConnectionHealth("connected")
       defer(() => onConnectedRef.current?.())
@@ -58,7 +75,7 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
   return {connectionHealth, realtimeClientRef, retryRealtimeConnection}
 }
 
-function defer(callback) {
+function defer(callback: () => void): void {
   if (typeof queueMicrotask === "function") {
     queueMicrotask(callback)
     return

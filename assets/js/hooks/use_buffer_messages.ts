@@ -1,4 +1,10 @@
-import {useEffect, useRef, useState} from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react"
+import type {ApiClient} from "../api_client.ts"
 import {
   appendTimelineMessage,
   mergeNewerMessages,
@@ -6,6 +12,22 @@ import {
   normalizeMessage,
   trimMessagesToLimit,
 } from "../chat_store.ts"
+import type {
+  AppView,
+  ChatMessage,
+  EntityId,
+  MessagesByBuffer,
+  ServerConnection,
+} from "../types.ts"
+
+interface BufferMessagesOptions {
+  activeChannelIdRef: MutableRefObject<string | null>
+  activeServerIdRef: MutableRefObject<string | null>
+  apiClient: ApiClient
+  connectionsRef: MutableRefObject<ServerConnection[]>
+  markBufferRead: (bufferId: string) => Promise<void>
+  viewRef: MutableRefObject<AppView>
+}
 
 export default function useBufferMessages({
   activeChannelIdRef,
@@ -14,14 +36,14 @@ export default function useBufferMessages({
   connectionsRef,
   markBufferRead,
   viewRef,
-}) {
-  const [messagesByChannel, setMessagesByChannel] = useState({})
-  const [messagesByServer, setMessagesByServer] = useState({})
-  const loadingOlderRef = useRef(new Set())
-  const readingBuffersRef = useRef(new Set())
+}: BufferMessagesOptions) {
+  const [messagesByChannel, setMessagesByChannel] = useState<MessagesByBuffer>({})
+  const [messagesByServer, setMessagesByServer] = useState<MessagesByBuffer>({})
+  const loadingOlderRef = useRef(new Set<string>())
+  const readingBuffersRef = useRef(new Set<string>())
   const messagesByChannelRef = useRef(messagesByChannel)
   const messagesByServerRef = useRef(messagesByServer)
-  const reconcilingBuffersRef = useRef(new Set())
+  const reconcilingBuffersRef = useRef(new Set<string>())
 
   useEffect(() => {
     messagesByChannelRef.current = messagesByChannel
@@ -31,8 +53,8 @@ export default function useBufferMessages({
     messagesByServerRef.current = messagesByServer
   }, [messagesByServer])
 
-  function appendSystemMessage(body) {
-    const message = {
+  function appendSystemMessage(body: string): void {
+    const message: ChatMessage = {
       id: `system-${Date.now()}`,
       occurredAt: new Date().toISOString(),
       nick: "topics.club",
@@ -66,7 +88,7 @@ export default function useBufferMessages({
     }))
   }
 
-  async function loadOlderMessages(bufferId) {
+  async function loadOlderMessages(bufferId?: string | null): Promise<void> {
     if (!bufferId || loadingOlderRef.current.has(bufferId) || !isBackendBufferId(bufferId)) return
 
     const currentMessages = bufferId.startsWith("server:")
@@ -100,7 +122,7 @@ export default function useBufferMessages({
     }
   }
 
-  function applyRealtimeMessage(message) {
+  function applyRealtimeMessage(message: ChatMessage): void {
     const normalized = normalizeMessage(message)
     const bufferId = normalized.buffer_id || (
       normalized.channel_membership_id ? `channel:${normalized.channel_membership_id}` : null
@@ -133,7 +155,7 @@ export default function useBufferMessages({
     }
   }
 
-  function updateBufferReadingState(bufferId, readingOlder) {
+  function updateBufferReadingState(bufferId: string | null | undefined, readingOlder: boolean): void {
     if (!bufferId) return
 
     if (readingOlder) {
@@ -147,7 +169,7 @@ export default function useBufferMessages({
     pruneBufferMessages(bufferId)
   }
 
-  function pruneBufferMessages(bufferId) {
+  function pruneBufferMessages(bufferId: string): void {
     if (bufferId.startsWith("server:")) {
       setMessagesByServer((current) => ({
         ...current,
@@ -162,7 +184,7 @@ export default function useBufferMessages({
     }))
   }
 
-  function replacePendingMessage(channelId, clientMessageId, message) {
+  function replacePendingMessage(channelId: string, clientMessageId: string, message: ChatMessage): void {
     setMessagesByChannel((current) => ({
       ...current,
       [channelId]: (current[channelId] || []).map((currentMessage) =>
@@ -171,7 +193,7 @@ export default function useBufferMessages({
     }))
   }
 
-  function markPendingFailed(channelId, clientMessageId) {
+  function markPendingFailed(channelId: string, clientMessageId: string): void {
     setMessagesByChannel((current) => ({
       ...current,
       [channelId]: (current[channelId] || []).map((currentMessage) =>
@@ -182,11 +204,11 @@ export default function useBufferMessages({
     }))
   }
 
-  function reconcileBootstrapCursors(cursorsByBuffer) {
+  function reconcileBootstrapCursors(cursorsByBuffer: Record<string, unknown>): void {
     Object.keys(cursorsByBuffer).forEach(reconcileBufferMessages)
   }
 
-  function reconcileServerBuffers(serverConnectionId) {
+  function reconcileServerBuffers(serverConnectionId: EntityId): void {
     const server = connectionsRef.current.find(
       (connection) => connection.server_connection_id === serverConnectionId
     )
@@ -195,13 +217,13 @@ export default function useBufferMessages({
     [server.id, ...server.channels.map((channel) => channel.id)].forEach(reconcileBufferMessages)
   }
 
-  function reconcileAllBuffers() {
+  function reconcileAllBuffers(): void {
     connectionsRef.current.forEach((server) => {
       [server.id, ...server.channels.map((channel) => channel.id)].forEach(reconcileBufferMessages)
     })
   }
 
-  function reconcileBufferMessages(bufferId) {
+  function reconcileBufferMessages(bufferId: string): void {
     if (!isBackendBufferId(bufferId) || reconcilingBuffersRef.current.has(bufferId)) return
 
     reconcilingBuffersRef.current.add(bufferId)
@@ -211,11 +233,12 @@ export default function useBufferMessages({
       : messagesByChannelRef.current[bufferId] || []
     const commandIds = [...new Set(
       currentMessages
-        .filter((message) =>
-          message.kind === "command" && ["sent", "acknowledged"].includes(message.metadata?.command_status)
-        )
+        .filter((message) => {
+          const status = message.metadata?.command_status
+          return message.kind === "command" && (status === "sent" || status === "acknowledged")
+        })
         .map((message) => message.metadata?.command_id)
-        .filter(Boolean)
+        .filter((commandId): commandId is string => Boolean(commandId))
     )]
     const commandIdChunks = []
     for (let index = 0; index < commandIds.length; index += 50) {
@@ -264,11 +287,11 @@ export default function useBufferMessages({
   }
 }
 
-function isBackendBufferId(bufferId) {
-  return bufferId?.startsWith("channel:") || bufferId?.startsWith("server:")
+function isBackendBufferId(bufferId?: string | null): bufferId is string {
+  return Boolean(bufferId?.startsWith("channel:") || bufferId?.startsWith("server:"))
 }
 
-function defer(callback) {
+function defer(callback: () => void): void {
   if (typeof queueMicrotask === "function") {
     queueMicrotask(callback)
     return

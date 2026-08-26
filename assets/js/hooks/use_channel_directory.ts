@@ -1,13 +1,55 @@
-import {useRef, useState} from "react"
+import {
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react"
 import {channelDirectoryError} from "../app_feedback.ts"
+import type {ApiClient} from "../api_client.ts"
+import type {CommandError} from "../app_feedback.ts"
+import type {RealtimeClient} from "../realtime_client.ts"
+import type {
+  AppView,
+  BackendConnection,
+  ChannelDirectory,
+  ChannelDirectoryEntry,
+  ChannelMembership,
+  ServerConnection,
+} from "../types.ts"
 
-const emptyDirectory = {
+export interface ChannelDirectoryState {
+  serverId: string | null
+  channels: ChannelDirectoryEntry[]
+  status: "idle" | "loading" | "ready" | "error"
+  error: string | null
+  joinError: string | null
+  joiningChannel: string | null
+}
+
+const emptyDirectory: ChannelDirectoryState = {
   serverId: null,
   channels: [],
   status: "idle",
   error: null,
   joinError: null,
   joiningChannel: null,
+}
+
+interface ChannelDirectoryOptions {
+  activeServerIdRef: MutableRefObject<string | null>
+  apiClient: ApiClient
+  applyJoinedChannel: (
+    connection: BackendConnection,
+    membership: ChannelMembership,
+    rejectionVersions?: Map<string, number>
+  ) => boolean | undefined
+  connectionsRef: MutableRefObject<ServerConnection[]>
+  joinRejectionVersionsRef: MutableRefObject<Map<string, number>>
+  realtimeClientRef: MutableRefObject<RealtimeClient | null>
+  setActiveServerId: Dispatch<SetStateAction<string | null>>
+  setView: Dispatch<SetStateAction<AppView>>
+  viewRef: MutableRefObject<AppView>
 }
 
 export default function useChannelDirectory({
@@ -20,20 +62,20 @@ export default function useChannelDirectory({
   setActiveServerId,
   setView,
   viewRef,
-}) {
-  const [channelDirectory, setChannelDirectory] = useState(emptyDirectory)
+}: ChannelDirectoryOptions) {
+  const [channelDirectory, setChannelDirectory] = useState<ChannelDirectoryState>(emptyDirectory)
   const requestRef = useRef(0)
 
-  function cancelChannelDirectory() {
+  function cancelChannelDirectory(): void {
     requestRef.current += 1
   }
 
-  function beginChannelDirectoryRequest() {
+  function beginChannelDirectoryRequest(): number {
     return ++requestRef.current
   }
 
-  function applyChannelDirectory(directory, requestId = requestRef.current) {
-    if (requestId !== requestRef.current) return false
+  function applyChannelDirectory(directory?: ChannelDirectory, requestId = requestRef.current): boolean {
+    if (!directory || requestId !== requestRef.current) return false
 
     const server = connectionsRef.current.find(
       (connection) => connection.server_connection_id === directory?.server_connection_id
@@ -55,7 +97,7 @@ export default function useChannelDirectory({
     return true
   }
 
-  async function openChannelDirectory(server) {
+  async function openChannelDirectory(server?: ServerConnection | null): Promise<void> {
     if (!server) return
     const requestId = beginChannelDirectoryRequest()
 
@@ -82,7 +124,7 @@ export default function useChannelDirectory({
     }
 
     try {
-      const reply = await realtimeClientRef.current.push("server:list", {
+      const reply = await realtimeClientRef.current.push<{directory: ChannelDirectory}>("server:list", {
         server_connection_id: server.server_connection_id,
       })
       if (
@@ -91,13 +133,13 @@ export default function useChannelDirectory({
         activeServerIdRef.current !== server.id
       ) return
       applyChannelDirectory(reply.directory, requestId)
-    } catch (error) {
+    } catch (error: unknown) {
       setChannelDirectory((current) =>
         current.serverId === server.id
           ? {
               ...current,
               status: "error",
-              error: channelDirectoryError(error?.reason),
+              error: channelDirectoryError((error as CommandError | null)?.reason),
               joiningChannel: null,
             }
           : current
@@ -105,7 +147,7 @@ export default function useChannelDirectory({
     }
   }
 
-  async function joinDirectoryChannel(channelName) {
+  async function joinDirectoryChannel(channelName: string): Promise<void> {
     const server = connectionsRef.current.find((connection) => connection.id === channelDirectory.serverId)
     if (!server?.server_connection_id || !channelName) return
 

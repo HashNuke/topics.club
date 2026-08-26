@@ -103,7 +103,7 @@ export function createRealtimeClient({
       .receive("timeout", () => handlers.onJoinTimeout?.())
   }
 
-  function push<T extends RealtimePayload = RealtimePayload>(
+  function push<T = RealtimePayload>(
     event: string,
     payload: RealtimePayload = {},
     timeout = pushTimeout

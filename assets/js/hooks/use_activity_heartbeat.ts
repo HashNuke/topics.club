@@ -1,6 +1,7 @@
 import {useEffect} from "react"
+import type {ApiClient} from "../api_client.ts"
 
-export default function useActivityHeartbeat(apiClient, enabled) {
+export default function useActivityHeartbeat(apiClient: ApiClient, enabled: boolean): void {
   useEffect(() => {
     if (!enabled || !apiClient.activity) return
 

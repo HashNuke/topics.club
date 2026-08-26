@@ -1,4 +1,12 @@
-import {useEffect, useRef, useState} from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react"
+import type {ApiClient} from "../api_client.ts"
 import {normalizeChannel, normalizeTopic} from "../chat_store.ts"
 import {
   channelFromBuffer,
@@ -11,6 +19,70 @@ import {
   upsertJoinedChannel,
 } from "../connection_store.ts"
 import {backendTopicFor, numericId} from "../topic_navigation.ts"
+import type {RealtimeClient} from "../realtime_client.ts"
+import type {
+  AppView,
+  BackendConnection,
+  BufferReadPayload,
+  BufferRecord,
+  Channel,
+  ChannelMembership,
+  ChatMessage,
+  ChatUser,
+  EntityId,
+  MessagesByBuffer,
+  ServerConnection,
+  ServerStatusPayload,
+  Topic,
+  TopicInput,
+  UsersByBuffer,
+} from "../types.ts"
+
+export interface ManualServerForm {
+  host: string
+  channels: string
+  port: string | number
+  useTls: boolean
+  nickname: string
+  saslPassword?: string
+  serverPassword?: string
+}
+
+export interface EditServerForm {
+  host: string
+  port: string | number
+  useTls: boolean
+  nickname: string
+}
+
+interface JoinedTopicPayload {
+  connection: BackendConnection
+  buffer: BufferRecord
+  topic?: TopicInput
+}
+
+interface BufferLeftPayload {
+  buffer_id?: string
+  server_connection_id: EntityId
+}
+
+interface ServerConnectionsOptions {
+  activeChannelIdRef: MutableRefObject<string | null>
+  activeServerIdRef: MutableRefObject<string | null>
+  apiClient: ApiClient
+  appendSystemMessage: (body: string) => void
+  canJoinTopics: boolean
+  connectionsRef: MutableRefObject<ServerConnection[]>
+  realtimeClientRef: MutableRefObject<RealtimeClient | null>
+  reconcileServerBuffers: (serverConnectionId: EntityId) => void
+  setActiveChannelId: Dispatch<SetStateAction<string | null>>
+  setActiveServerId: Dispatch<SetStateAction<string | null>>
+  setMessagesByChannel: Dispatch<SetStateAction<MessagesByBuffer>>
+  setMessagesByServer: Dispatch<SetStateAction<MessagesByBuffer>>
+  setUsersByChannel: Dispatch<SetStateAction<UsersByBuffer>>
+  setView: Dispatch<SetStateAction<AppView>>
+  topics: Topic[]
+}
 
 export default function useServerConnections({
   activeChannelIdRef,
@@ -28,16 +100,16 @@ export default function useServerConnections({
   setUsersByChannel,
   setView,
   topics,
-}) {
-  const [connections, setConnections] = useState([])
-  const rejectedBufferIdsRef = useRef(new Set())
-  const joinRejectionVersionsRef = useRef(new Map())
+}: ServerConnectionsOptions) {
+  const [connections, setConnections] = useState<ServerConnection[]>([])
+  const rejectedBufferIdsRef = useRef(new Set<string>())
+  const joinRejectionVersionsRef = useRef(new Map<string, number>())
 
   useEffect(() => {
     connectionsRef.current = connections
   }, [connections, connectionsRef])
 
-  async function joinTopic(topic) {
+  async function joinTopic(topic: TopicInput): Promise<void> {
     const normalized = normalizeTopic(topic)
     const backendTopic = backendTopicFor(normalized, topics)
     const topicId = numericId(normalized.id) || numericId(backendTopic?.id)
@@ -53,15 +125,15 @@ export default function useServerConnections({
     }
   }
 
-  function applyAuthoritativeJoinedTopic(payload) {
+  function applyAuthoritativeJoinedTopic(payload: JoinedTopicPayload): void {
     applyJoinedTopic(payload, true)
   }
 
   function applyJoinedTopic(
-    {connection, buffer, topic},
+    {connection, buffer, topic}: JoinedTopicPayload,
     authoritative = false,
     rejectionVersions = new Map(joinRejectionVersionsRef.current)
-  ) {
+  ): boolean | undefined {
     if (!connection || !buffer) return
 
     if (authoritative) {
@@ -84,7 +156,7 @@ export default function useServerConnections({
     return true
   }
 
-  async function joinManualServer(form) {
+  async function joinManualServer(form: ManualServerForm): Promise<void> {
     const host = form.host.trim()
     const channels = String(form.channels || "")
       .split(",")
@@ -114,10 +186,10 @@ export default function useServerConnections({
   }
 
   function applyJoinedChannel(
-    connection,
-    membership,
+    connection: BackendConnection,
+    membership: ChannelMembership,
     rejectionVersions = new Map(joinRejectionVersionsRef.current)
-  ) {
+  ): boolean | undefined {
     if (!connection || !membership) return
 
     const connectionId = `server:${connection.id}`
@@ -142,12 +214,12 @@ export default function useServerConnections({
     return true
   }
 
-  function applyServerStatus(payload) {
+  function applyServerStatus(payload: ServerStatusPayload): void {
     setConnections((current) => updateServerStatus(current, payload))
     if (payload.status === "connected") defer(() => reconcileServerBuffers(payload.server_connection_id))
   }
 
-  function applyBufferLeft(payload) {
+  function applyBufferLeft(payload: BufferLeftPayload): void {
     const bufferId = payload.buffer_id
     if (bufferId?.startsWith("server:")) {
       applyServerDeleted({server_connection_id: payload.server_connection_id})
@@ -173,12 +245,12 @@ export default function useServerConnections({
     }
   }
 
-  function applyBufferRead(payload) {
+  function applyBufferRead(payload: BufferReadPayload): void {
     if (!payload?.buffer_id) return
     setConnections((current) => updateBufferRead(current, payload))
   }
 
-  async function leaveChannel(channel) {
+  async function leaveChannel(channel?: Channel | null): Promise<void> {
     if (!channel?.id || !realtimeClientRef.current) return
 
     try {
@@ -188,11 +260,11 @@ export default function useServerConnections({
     }
   }
 
-  async function reconnectServer(server) {
+  async function reconnectServer(server?: ServerConnection | null): Promise<void> {
     if (!server?.server_connection_id || !realtimeClientRef.current) return
 
     try {
-      const status = await realtimeClientRef.current.push("server:reconnect", {
+      const status = await realtimeClientRef.current.push<ServerStatusPayload>("server:reconnect", {
         server_connection_id: server.server_connection_id,
       })
       applyServerStatus(status)
@@ -201,11 +273,11 @@ export default function useServerConnections({
     }
   }
 
-  async function disconnectServer(server) {
+  async function disconnectServer(server?: ServerConnection | null): Promise<void> {
     if (!server?.server_connection_id || !realtimeClientRef.current) return
 
     try {
-      const status = await realtimeClientRef.current.push("server:disconnect", {
+      const status = await realtimeClientRef.current.push<ServerStatusPayload>("server:disconnect", {
         server_connection_id: server.server_connection_id,
       })
       applyServerStatus(status)
@@ -214,7 +286,7 @@ export default function useServerConnections({
     }
   }
 
-  async function leaveServer(server) {
+  async function leaveServer(server?: ServerConnection | null): Promise<void> {
     if (!server?.server_connection_id) return
 
     try {
@@ -225,7 +297,7 @@ export default function useServerConnections({
     }
   }
 
-  async function updateServerConnection(server, form) {
+  async function updateServerConnection(server: ServerConnection | null | undefined, form: EditServerForm): Promise<void> {
     if (!server?.server_connection_id) return
 
     const host = form.host.trim()
@@ -246,7 +318,7 @@ export default function useServerConnections({
     }
   }
 
-  function applyServerDeleted(payload) {
+  function applyServerDeleted(payload: {server_connection_id: EntityId}): void {
     const removal = planServerRemoval(connectionsRef.current, payload.server_connection_id)
     if (!removal) return
 
@@ -257,9 +329,12 @@ export default function useServerConnections({
     setMessagesByChannel((current) => omitKeys(current, deletedChannelIds))
     setUsersByChannel((current) => omitKeys(current, deletedChannelIds))
 
-    if (activeServerIdRef.current === deletedServer.id || deletedChannelIds.has(activeChannelIdRef.current)) {
+    if (
+      activeServerIdRef.current === deletedServer.id ||
+      (activeChannelIdRef.current !== null && deletedChannelIds.has(activeChannelIdRef.current))
+    ) {
       if (nextChannel) {
-        setActiveServerId(nextServer.id)
+        setActiveServerId(nextServer!.id)
         setActiveChannelId(nextChannel.id)
         setView("chat")
       } else if (nextServer) {
@@ -290,13 +365,13 @@ export default function useServerConnections({
   }
 }
 
-function omitKeys(object, keys) {
+function omitKeys<T>(object: Record<string, T>, keys: Iterable<string>): Record<string, T> {
   const next = {...object}
   for (const key of keys) delete next[key]
   return next
 }
 
-function defer(callback) {
+function defer(callback: () => void): void {
   if (typeof queueMicrotask === "function") {
     queueMicrotask(callback)
     return

@@ -9,7 +9,7 @@ import type {
   Topic,
 } from "./types.ts"
 
-export function channelFromBuffer(buffer: BufferRecord, topic?: Topic): Channel {
+export function channelFromBuffer(buffer: BufferRecord, topic?: {description?: string}): Channel {
   return {
     id: buffer.buffer_id,
     channel_membership_id: buffer.channel_membership_id,
