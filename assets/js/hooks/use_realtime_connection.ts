@@ -25,7 +25,7 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
 
     let reconciledThisCycle = false
 
-    const connected = () => {
+    const joined = () => {
       setConnectionHealth("connected")
       if (!reconciledThisCycle) {
         reconciledThisCycle = true
@@ -47,13 +47,13 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
         onNotificationMention: (payload) => handlersRef.current.onNotificationMention?.(payload),
         onNotificationDirectMessage: (payload) => handlersRef.current.onNotificationDirectMessage?.(payload),
         onNotificationPreference: (payload) => handlersRef.current.onNotificationPreference?.(payload),
-        onOpen: connected,
+        onOpen: () => setConnectionHealth("reconnecting"),
         onClose: () => {
           reconciledThisCycle = false
           setConnectionHealth("reconnecting")
         },
         onError: () => setConnectionHealth("degraded"),
-        onJoinOk: connected,
+        onJoinOk: joined,
         onJoinError: () => setConnectionHealth("degraded"),
         onJoinTimeout: () => setConnectionHealth("degraded"),
       },

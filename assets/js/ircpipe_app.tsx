@@ -97,6 +97,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const discoverRequestedRef = useRef(false)
   const notificationDeviceStateRef = useRef(notificationDeviceState)
   const notificationEventIdsRef = useRef<Set<string>>(new Set())
+  const queuedNotificationEventsRef = useRef<ChatMessage[]>([])
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
   const realtimeRefreshInFlightRef = useRef(false)
   const requestedBufferIdRef = useRef(requestedBufferId())
@@ -238,7 +239,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (!currentUser || mode === "landing" || !pushConfig.configured) return
 
     const refresh = () => {
-      synchronizeNotificationDevice(apiClient, pushConfig).then(setNotificationDeviceState)
+      applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
+      synchronizeNotificationDevice(apiClient, pushConfig).then(applyNotificationDeviceState)
     }
 
     window.addEventListener("focus", refresh)
@@ -526,9 +528,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   async function enableNotificationsOnDevice(): Promise<boolean> {
-    setNotificationDeviceState((current) => ({...current, loading: true, error: null}))
+    applyNotificationDeviceState({...notificationDeviceStateRef.current, loading: true, error: null})
     const next = await enableNotificationDevice(apiClient, pushConfig)
-    setNotificationDeviceState(next)
+    applyNotificationDeviceState(next)
     return next.subscribed
   }
 
@@ -656,6 +658,14 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function handleMentionNotification(message: ChatMessage): void {
+    if (notificationDeviceStateRef.current.loading) {
+      queuedNotificationEventsRef.current.push(message)
+      if (queuedNotificationEventsRef.current.length > 100) {
+        queuedNotificationEventsRef.current.shift()
+      }
+      return
+    }
+
     if (notificationDeviceStateRef.current.subscribed) return
 
     if (message.event_id) {
@@ -687,6 +697,16 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     })
   }
 
+  function applyNotificationDeviceState(next: NotificationDeviceState): void {
+    notificationDeviceStateRef.current = next
+    setNotificationDeviceState(next)
+
+    if (next.loading || queuedNotificationEventsRef.current.length === 0) return
+
+    const queued = queuedNotificationEventsRef.current.splice(0)
+    queued.forEach(handleMentionNotification)
+  }
+
   function applyBootstrap(bootstrap: BootstrapPayload, preserveSelection = false): void {
     const state = buildBootstrapState(bootstrap)
     if (!state) return
@@ -705,8 +725,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (state.topics) setTopics(state.topics)
     setCommandCatalog(state.commandCatalog)
     setPushConfig(state.push)
-    setNotificationDeviceState((current) => ({...current, configured: state.push.configured, loading: true}))
-    synchronizeNotificationDevice(apiClient, state.push).then(setNotificationDeviceState)
+    applyNotificationDeviceState({
+      ...notificationDeviceStateRef.current,
+      configured: state.push.configured,
+      loading: true,
+    })
+    synchronizeNotificationDevice(apiClient, state.push).then(applyNotificationDeviceState)
     setConnections(state.connections)
     connectionsRef.current = state.connections
     replaceBootstrapMessages(state.messagesByChannel, state.messagesByServer)

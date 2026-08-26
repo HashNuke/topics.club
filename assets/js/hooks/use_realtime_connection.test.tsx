@@ -31,8 +31,8 @@ describe("useRealtimeConnection", () => {
     expect(onMessage).toHaveBeenCalledWith({body: "hello"})
 
     await act(async () => realtimeHandlers.onOpen())
-    expect(result.current.connectionHealth).toBe("connected")
-    expect(onConnected).toHaveBeenCalledTimes(1)
+    expect(result.current.connectionHealth).toBe("reconnecting")
+    expect(onConnected).not.toHaveBeenCalled()
 
     await act(async () => realtimeHandlers.onJoinOk())
     expect(result.current.connectionHealth).toBe("connected")

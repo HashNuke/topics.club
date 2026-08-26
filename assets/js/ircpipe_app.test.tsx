@@ -666,6 +666,8 @@ describe("IrcpipeApp UI prototype", () => {
     expect(apiClient.bootstrap).toHaveBeenCalledTimes(1)
 
     await act(async () => realtimeHandlers.onOpen())
+    expect(apiClient.bootstrap).toHaveBeenCalledTimes(1)
+    await act(async () => realtimeHandlers.onJoinOk())
     expect(apiClient.bootstrap).toHaveBeenCalledTimes(2)
 
     act(() => {
@@ -710,7 +712,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
     await user.type(screen.getByLabelText("Message composer"), "/msg akash hello privately")
     await user.click(screen.getByRole("button", {name: "Send"}))
 
@@ -878,7 +880,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await user.type(screen.getByLabelText("Message composer"), "sent through socket")
     await user.click(screen.getByRole("button", {name: "Send"}))
@@ -913,7 +915,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await user.type(screen.getByLabelText("Message composer"), "will fail")
     await user.click(screen.getByRole("button", {name: "Send"}))
@@ -939,7 +941,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await user.type(screen.getByLabelText("Message composer"), "will timeout")
     await user.click(screen.getByRole("button", {name: "Send"}))
@@ -980,7 +982,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await user.type(screen.getByLabelText("Message composer"), "try again")
     await user.click(screen.getByRole("button", {name: "Send"}))
@@ -1042,7 +1044,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     const composer = screen.getByLabelText("Message composer")
     await user.type(composer, "wait for irc")
@@ -1139,7 +1141,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     expect(await screen.findByText("missed while socket was away")).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -1189,7 +1191,7 @@ describe("IrcpipeApp UI prototype", () => {
       expect(requests).toHaveLength(2)
     })
 
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await waitFor(() => expect(commandRow).toHaveAttribute("data-command-status", "completed"))
     expect(screen.getAllByText("WHOIS mira")).toHaveLength(1)
@@ -1221,7 +1223,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByText("WHOIS user0")).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await waitFor(() => {
       const repairPaths = globalThis.fetch.mock.calls
@@ -1322,7 +1324,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
     await waitFor(() => expect(screen.getByLabelText("Connection connected")).toBeInTheDocument())
 
     realtimeHandlers.onClose()
@@ -1713,6 +1715,98 @@ describe("IrcpipeApp UI prototype", () => {
     }
   })
 
+  test("queues local mention handling until push subscription inspection finishes", async () => {
+    mockBootstrapFetch({push: {configured: true, vapid_public_key: "AQ"}})
+    let realtimeHandlers
+    let resolveSubscription
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+    const originalPushManager = window.PushManager
+    const originalServiceWorker = navigator.serviceWorker
+    const originalVisibilityState = document.visibilityState
+    const subscription = {
+      toJSON: () => ({
+        endpoint: "https://push.example.test/subscription",
+        expirationTime: null,
+        keys: {p256dh: "p256dh", auth: "auth"},
+      }),
+    }
+    const pendingSubscription = new Promise((resolve) => {
+      resolveSubscription = resolve
+    })
+    const registration = {
+      pushManager: {
+        getSubscription: vi.fn().mockReturnValue(pendingSubscription),
+        subscribe: vi.fn(),
+      },
+    }
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(window, "PushManager", {value: vi.fn(), configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: {ready: Promise.resolve(registration), addEventListener: vi.fn(), removeEventListener: vi.fn()},
+      configurable: true,
+    })
+
+    try {
+      render(
+        <IrcpipeApp
+          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+      act(() => {
+        realtimeHandlers.onNotificationMention({
+          event_id: "notification:during-subscription-inspection",
+          buffer_id: "channel:7",
+          server_connection_id: 42,
+          channel: "#testing",
+          nick: "akash",
+          body: "hello mira",
+        })
+      })
+
+      expect(NotificationMock).not.toHaveBeenCalled()
+
+      await act(async () => resolveSubscription(subscription))
+      await waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          "/api/push_subscriptions",
+          expect.objectContaining({method: "POST"})
+        )
+      })
+
+      expect(NotificationMock).not.toHaveBeenCalled()
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      if (originalPushManager) {
+        Object.defineProperty(window, "PushManager", {value: originalPushManager, configurable: true})
+      } else {
+        delete window.PushManager
+      }
+      if (originalServiceWorker) {
+        Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
+      } else {
+        delete navigator.serviceWorker
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
   test("does not show local mention notifications for muted servers", async () => {
     mockBootstrapFetch({serverNotificationsEnabled: false})
     let realtimeHandlers
@@ -1996,7 +2090,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     await user.click(await screen.findByRole("button", {name: "local"}))
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     const composer = screen.getByLabelText("Message composer")
     await user.type(composer, "hello server")
@@ -2497,7 +2591,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
     await user.type(screen.getByLabelText("Message composer"), "/list")
     await user.click(screen.getByRole("button", {name: "Send"}))
     await user.click(screen.getByRole("button", {name: "local"}))
@@ -2549,7 +2643,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await user.type(screen.getByLabelText("Message composer"), "/list")
     await user.click(screen.getByRole("button", {name: "Send"}))
@@ -2594,7 +2688,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await user.type(screen.getByLabelText("Message composer"), "/join #ops")
     await user.click(screen.getByRole("button", {name: "Send"}))
@@ -2633,7 +2727,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     const composer = screen.getByLabelText("Message composer")
     await user.type(composer, "/quote WHOIS")
@@ -2663,7 +2757,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    realtimeHandlers.onOpen()
+    realtimeHandlers.onJoinOk()
 
     await user.type(screen.getByLabelText("Message composer"), "/quote WHOIS")
     await user.click(screen.getByRole("button", {name: "Send"}))
