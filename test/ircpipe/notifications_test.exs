@@ -66,6 +66,17 @@ defmodule Ircpipe.NotificationsTest do
     assert Repo.aggregate(PushSubscription, :count) == 0
   end
 
+  test "cannot replace another user's endpoint subscription", %{scope: scope} do
+    attrs = subscription_attrs("https://push.example.test/subscription/shared")
+    assert {:ok, original} = Notifications.upsert_subscription(scope, attrs)
+
+    other_scope = AccountsFixtures.user_scope_fixture()
+
+    assert {:error, changeset} = Notifications.upsert_subscription(other_scope, attrs)
+    assert "has already been taken" in errors_on(changeset).endpoint_hash
+    assert Repo.get!(PushSubscription, original.id).user_id == scope.user.id
+  end
+
   test "delivers mention payloads when both preference gates are enabled", %{
     scope: scope,
     connection: connection,
@@ -180,6 +191,118 @@ defmodule Ircpipe.NotificationsTest do
     refute Repo.get_by(Notification, message_id: message.id)
     assert {:cancel, :notification_not_found} = Notifications.deliver_notification(-1)
     refute_receive {:push_sent, _, _}
+  end
+
+  test "read and closed direct messages cannot produce a delayed push", %{
+    scope: scope,
+    connection: connection
+  } do
+    assert {:ok, _subscription} =
+             Notifications.upsert_subscription(
+               scope,
+               subscription_attrs("https://push.example.test/subscription/read-direct")
+             )
+
+    assert {:ok, %{thread: thread, message: first}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "first",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    first_notification = Repo.get_by!(Notification, message_id: first.id)
+    assert {:ok, _read} = Chat.mark_direct_message_read(scope, thread.id)
+
+    assert {:cancel, :notification_not_found} =
+             Notifications.deliver_notification(first_notification.id)
+
+    assert {:ok, %{message: second}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "second",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    second_notification = Repo.get_by!(Notification, message_id: second.id)
+    assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
+
+    assert {:cancel, :notification_not_found} =
+             Notifications.deliver_notification(second_notification.id)
+
+    refute_receive {:push_sent, _, _}
+  end
+
+  test "outgoing messages neither create attention counters nor notifications", %{
+    connection: connection,
+    membership: membership
+  } do
+    assert {:ok, message} =
+             Chat.record_inbound_message(
+               connection,
+               membership.channel,
+               connection.nickname,
+               "mira: my own message",
+               "message",
+               %{direction: "outgoing"}
+             )
+
+    membership = Repo.reload(membership)
+    refute message.mentioned
+    assert membership.unread_count == 0
+    assert membership.mention_count == 0
+    refute Repo.get_by(Notification, message_id: message.id)
+  end
+
+  test "mention matching uses IRC casemapping and nick boundaries", %{
+    connection: connection,
+    membership: membership
+  } do
+    assert {:ok, substring} =
+             Chat.record_inbound_message(
+               connection,
+               membership.channel,
+               "akash",
+               "admirable work",
+               "message",
+               %{},
+               :rfc1459
+             )
+
+    refute substring.mentioned
+
+    assert {:ok, punctuated} =
+             Chat.record_inbound_message(
+               connection,
+               membership.channel,
+               "akash",
+               "MIRA: ping",
+               "message",
+               %{},
+               :rfc1459
+             )
+
+    assert punctuated.mentioned
+
+    bracket_connection = %{connection | nickname: "nick["}
+
+    assert {:ok, mapped} =
+             Chat.record_inbound_message(
+               bracket_connection,
+               membership.channel,
+               "akash",
+               "nick{: ping",
+               "message",
+               %{},
+               :rfc1459
+             )
+
+    assert mapped.mentioned
   end
 
   test "queues durable work only for mentions when Web Push is configured", %{

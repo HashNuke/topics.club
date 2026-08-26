@@ -1,5 +1,6 @@
 defmodule Ircpipe.Notifications.WebPush do
   @moduledoc false
+  import Bitwise
 
   @record_size 4_096
   @default_ttl 86_400
@@ -18,10 +19,11 @@ defmodule Ircpipe.Notifications.WebPush do
 
   def send(subscription, payload) when is_map(payload) do
     with true <- configured?(),
+         {:ok, endpoint_ip} <- validate_endpoint(subscription.endpoint),
          {:ok, encrypted} <-
            encrypt(Jason.encode!(payload), subscription.p256dh, subscription.auth),
          {:ok, authorization} <- authorization_header(subscription.endpoint) do
-      request(subscription.endpoint, encrypted, authorization)
+      request(subscription.endpoint, endpoint_ip, encrypted, authorization)
     else
       false -> {:error, :not_configured}
       {:error, reason} -> {:error, reason}
@@ -39,23 +41,60 @@ defmodule Ircpipe.Notifications.WebPush do
     }
   end
 
-  defp request(endpoint, encrypted, authorization) do
+  def validate_endpoint(endpoint) when is_binary(endpoint) do
+    with %URI{scheme: "https", host: host, userinfo: nil} when is_binary(host) and host != "" <-
+           URI.parse(endpoint),
+         true <- public_host_syntax?(host),
+         {:ok, addresses} <- resolve_addresses(host),
+         true <- addresses != [] and Enum.all?(addresses, &public_address?/1) do
+      {:ok, List.first(addresses)}
+    else
+      _invalid -> {:error, :unsafe_push_endpoint}
+    end
+  end
+
+  def validate_endpoint(_endpoint), do: {:error, :unsafe_push_endpoint}
+
+  def public_host_syntax?(host) when is_binary(host) do
+    normalized = host |> String.trim_trailing(".") |> String.downcase()
+
+    normalized not in ["localhost", "localhost.localdomain"] and
+      not String.ends_with?(normalized, ".localhost") and
+      not String.ends_with?(normalized, ".local") and
+      case :inet.parse_address(String.to_charlist(normalized)) do
+        {:ok, address} -> public_address?(address)
+        {:error, :einval} -> true
+      end
+  end
+
+  def public_host_syntax?(_host), do: false
+
+  defp request(endpoint, endpoint_ip, encrypted, authorization) do
+    endpoint_uri = URI.parse(endpoint)
+
+    pinned_endpoint =
+      %{endpoint_uri | host: endpoint_ip |> :inet.ntoa() |> to_string()} |> URI.to_string()
+
+    hostname = endpoint_uri.host
+
     options =
       [
         body: encrypted,
         redirect: false,
         receive_timeout: 10_000,
+        connect_options: [hostname: hostname],
         headers: [
           {"authorization", authorization},
           {"content-encoding", "aes128gcm"},
           {"content-type", "application/octet-stream"},
+          {"host", endpoint_authority(endpoint_uri)},
           {"ttl", Integer.to_string(@default_ttl)},
           {"urgency", "normal"}
         ]
       ]
       |> Keyword.merge(config()[:req_options] || [])
 
-    case Req.post(endpoint, options) do
+    case Req.post(pinned_endpoint, options) do
       {:ok, %{status: status}} when status in [200, 201, 202, 204] ->
         :ok
 
@@ -72,6 +111,61 @@ defmodule Ircpipe.Notifications.WebPush do
         {:error, {:transport, reason}}
     end
   end
+
+  defp endpoint_authority(%URI{host: host, port: port}) when port not in [nil, 443],
+    do: "#{host}:#{port}"
+
+  defp endpoint_authority(%URI{host: host}), do: host
+
+  defp resolve_addresses(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, address} ->
+        {:ok, [address]}
+
+      {:error, :einval} ->
+        resolver = config()[:endpoint_resolver] || (&:inet.getaddrs/2)
+
+        addresses =
+          [:inet, :inet6]
+          |> Enum.flat_map(fn family ->
+            case resolver.(String.to_charlist(host), family) do
+              {:ok, values} -> values
+              {:error, _reason} -> []
+            end
+          end)
+          |> Enum.uniq()
+
+        if addresses == [], do: {:error, :nxdomain}, else: {:ok, addresses}
+    end
+  end
+
+  defp public_address?({a, b, _c, _d}) do
+    cond do
+      a in [0, 10, 127] -> false
+      a == 100 and b in 64..127 -> false
+      a == 169 and b == 254 -> false
+      a == 172 and b in 16..31 -> false
+      a == 192 and b in [0, 168] -> false
+      a == 192 and b == 0 -> false
+      a == 198 and b in 18..19 -> false
+      a >= 224 -> false
+      true -> true
+    end
+  end
+
+  defp public_address?({0, 0, 0, 0, 0, 0, 0, 1}), do: false
+  defp public_address?({0, 0, 0, 0, 0, 0, 0, 0}), do: false
+
+  defp public_address?({0, 0, 0, 0, 0, 0xFFFF, high, low}) do
+    public_address?({high >>> 8, high &&& 0xFF, low >>> 8, low &&& 0xFF})
+  end
+
+  defp public_address?({first, _b, _c, _d, _e, _f, _g, _h}) do
+    first not in 0xFC00..0xFDFF and first not in 0xFE80..0xFEBF and
+      first not in 0xFF00..0xFFFF
+  end
+
+  defp public_address?(_address), do: false
 
   defp encrypt(plaintext, p256dh, auth) do
     user_agent_public = Base.url_decode64!(p256dh, padding: false)

@@ -19,6 +19,7 @@ defmodule Ircpipe.Repo.Migrations.AddDirectMessageNotifications do
 
   def down do
     drop constraint(:notifications, :notifications_buffer_owner_check)
+    execute("DELETE FROM notifications WHERE direct_message_thread_id IS NOT NULL")
     drop index(:notifications, [:direct_message_thread_id, :read_at])
 
     alter table(:notifications) do

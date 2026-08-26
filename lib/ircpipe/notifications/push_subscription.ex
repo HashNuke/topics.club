@@ -31,6 +31,9 @@ defmodule Ircpipe.Notifications.PushSubscription do
     ])
     |> validate_required([:installation_id, :endpoint, :p256dh, :auth])
     |> validate_length(:installation_id, max: 128)
+    |> validate_length(:endpoint, max: 2_048)
+    |> validate_length(:p256dh, max: 256)
+    |> validate_length(:auth, max: 128)
     |> validate_length(:user_agent, max: 1_000)
     |> validate_change(:endpoint, &validate_endpoint/2)
     |> unique_constraint([:user_id, :installation_id])
@@ -39,8 +42,14 @@ defmodule Ircpipe.Notifications.PushSubscription do
 
   defp validate_endpoint(:endpoint, endpoint) do
     case URI.parse(endpoint) do
-      %URI{scheme: "https", host: host, userinfo: nil} when is_binary(host) and host != "" -> []
-      _other -> [endpoint: "must be a valid HTTPS push service URL"]
+      %URI{scheme: "https", host: host, userinfo: nil}
+      when is_binary(host) and host != "" ->
+        if Ircpipe.Notifications.WebPush.public_host_syntax?(host),
+          do: [],
+          else: [endpoint: "must use a public push service host"]
+
+      _other ->
+        [endpoint: "must be a valid HTTPS push service URL"]
     end
   end
 end

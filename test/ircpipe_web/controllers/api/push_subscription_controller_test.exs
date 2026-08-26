@@ -35,15 +35,22 @@ defmodule IrcpipeWeb.Api.PushSubscriptionControllerTest do
   end
 
   test "rejects malformed and insecure subscriptions", %{conn: conn} do
-    conn =
-      post(conn, ~p"/api/push_subscriptions", %{
-        installation_id: "browser-installation",
-        subscription: %{
-          endpoint: "http://push.example.test/subscription/one",
-          keys: %{p256dh: "public", auth: "auth"}
-        }
-      })
+    for endpoint <- [
+          "http://push.example.test/subscription/one",
+          "https://localhost/subscription/one",
+          "https://127.0.0.1/subscription/one",
+          "https://push.local/subscription/one"
+        ] do
+      response =
+        post(conn, ~p"/api/push_subscriptions", %{
+          installation_id: "browser-installation",
+          subscription: %{
+            endpoint: endpoint,
+            keys: %{p256dh: "public", auth: "auth"}
+          }
+        })
 
-    assert %{"error" => "invalid_push_subscription"} = json_response(conn, 422)
+      assert %{"error" => "invalid_push_subscription"} = json_response(response, 422)
+    end
   end
 end

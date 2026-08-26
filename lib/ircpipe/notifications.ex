@@ -25,8 +25,8 @@ defmodule Ircpipe.Notifications do
     Repo.transaction(fn ->
       from(subscription in PushSubscription,
         where:
-          subscription.endpoint_hash == ^endpoint_hash or
-            (subscription.user_id == ^user.id and
+          subscription.user_id == ^user.id and
+            (subscription.endpoint_hash == ^endpoint_hash or
                subscription.installation_id == ^installation_id(attrs))
       )
       |> Repo.delete_all()
@@ -107,7 +107,9 @@ defmodule Ircpipe.Notifications do
       on: membership.id == notification.channel_membership_id,
       join: connection in ServerConnection,
       on: connection.id == membership.server_connection_id,
-      where: notification.id == ^notification_id and message.mentioned == true,
+      where:
+        notification.id == ^notification_id and is_nil(notification.read_at) and
+          message.mentioned == true,
       select: %{
         notification_id: notification.id,
         user_id: notification.user_id,
@@ -133,7 +135,9 @@ defmodule Ircpipe.Notifications do
       on: thread.id == notification.direct_message_thread_id,
       join: connection in ServerConnection,
       on: connection.id == thread.server_connection_id,
-      where: notification.id == ^notification_id and is_nil(thread.blocked_at),
+      where:
+        notification.id == ^notification_id and is_nil(notification.read_at) and
+          is_nil(thread.blocked_at),
       select: %{
         notification_id: notification.id,
         user_id: notification.user_id,
