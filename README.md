@@ -47,7 +47,7 @@ configuration, and testing migrations and queries against both databases.
 Create a `.env` file from the example and set the required values:
 
 ```bash
-cp .env.example .env
+cp env.sample .env
 mix phx.gen.secret
 ```
 
