@@ -95,6 +95,20 @@ export const MixedEvents = {
   },
 }
 
+export const ContiguousJoinAndQuitGroups = {
+  args: {
+    messages: [
+      {id: "join-1", body: "lena joined #elixir.", kind: "join", occurredAt: "2026-08-25T15:00:00Z"},
+      {id: "join-2", body: "nora joined #elixir.", kind: "join", occurredAt: "2026-08-25T15:00:10Z"},
+      {id: "quit-1", body: "max quit.", kind: "quit", occurredAt: "2026-08-25T15:00:20Z"},
+      {id: "quit-2", body: "sam quit.", kind: "quit", occurredAt: "2026-08-25T15:00:30Z"},
+      {id: "chat-between", nick: "mira", body: "This message keeps the groups separate.", kind: "message", occurredAt: "2026-08-25T15:01:00Z"},
+      {id: "join-3", body: "ivy joined #elixir.", kind: "join", occurredAt: "2026-08-25T15:01:10Z"},
+      {id: "join-4", body: "lee joined #elixir.", kind: "join", occurredAt: "2026-08-25T15:01:20Z"},
+    ],
+  },
+}
+
 export const RetryableMessage = {
   args: {
     messages: [

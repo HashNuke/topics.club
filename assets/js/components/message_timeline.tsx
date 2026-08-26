@@ -8,24 +8,61 @@ export interface MessageTimelineProps {
   onRetryMessage?: (message: ChatMessage) => void
 }
 
+interface TimelineEntry {
+  kind: "message" | "membership-events"
+  messages: ChatMessage[]
+}
+
 export default function MessageTimeline({loading = false, messages, onRetryMessage}: MessageTimelineProps) {
   if (loading) return <MessageTimelineSkeleton />
   if (messages.length === 0) return <EmptyMessageTimeline />
 
+  const entries = groupContiguousMembershipEvents(messages)
+
   return (
     <>
-      {messages.map((message, index) => {
-        const previous = messages[index - 1]
+      {entries.map((entry, index) => {
+        const message = entry.messages[0]
+        const previous = entries[index - 1]?.messages.at(-1)
         const showSeparator = !previous || minutesBetween(previous.occurredAt, message.occurredAt) >= 30
 
         return (
-          <Fragment key={message.id}>
+          <Fragment key={message.id ?? `timeline-${index}`}>
             {showSeparator && <TimeSeparator value={message.occurredAt} />}
-            <MessageRow message={message} onRetryMessage={onRetryMessage} />
+            {entry.kind === "membership-events" && entry.messages.length > 1
+              ? <MembershipEventSummary messages={entry.messages} />
+              : <MessageRow message={message} onRetryMessage={onRetryMessage} />}
           </Fragment>
         )
       })}
     </>
+  )
+}
+
+export function groupContiguousMembershipEvents(messages: ChatMessage[]): TimelineEntry[] {
+  return messages.reduce<TimelineEntry[]>((entries, message) => {
+    const membershipEvent = message.kind === "join" || message.kind === "quit"
+    const previous = entries.at(-1)
+
+    if (membershipEvent && previous?.kind === "membership-events") {
+      previous.messages.push(message)
+    } else {
+      entries.push({kind: membershipEvent ? "membership-events" : "message", messages: [message]})
+    }
+
+    return entries
+  }, [])
+}
+
+export function MembershipEventSummary({messages}: {messages: ChatMessage[]}) {
+  const joined = messages.filter((message) => message.kind === "join").length
+  const quit = messages.filter((message) => message.kind === "quit").length
+  const summary = [joined > 0 && `${joined} joined`, quit > 0 && `${quit} quit`].filter(Boolean).join(" · ")
+
+  return (
+    <div className="px-2 py-1 text-xs italic text-slate-500" data-membership-event-count={messages.length}>
+      {summary}
+    </div>
   )
 }
 
