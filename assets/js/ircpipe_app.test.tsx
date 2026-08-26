@@ -696,6 +696,149 @@ describe("IrcpipeApp UI prototype", () => {
     await waitFor(() => expect(apiClient.bootstrap).toHaveBeenCalledTimes(3))
   })
 
+  test("replays a queued mute before deciding whether to show its queued mention", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    let resolveRefresh
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi
+        .fn()
+        .mockResolvedValueOnce(initial)
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve })),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+    const originalVisibilityState = document.visibilityState
+    let realtimeHandlers
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+
+    try {
+      render(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 1, email: "mira@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+      await act(async () => realtimeHandlers.onJoinOk())
+
+      act(() => {
+        realtimeHandlers.onNotificationPreference({
+          scope: "channel",
+          id: 4,
+          mention_notifications_enabled: false,
+        })
+        realtimeHandlers.onNotificationMention({
+          event_id: "queued-muted-mention",
+          buffer_id: "channel:4",
+          server_connection_id: 1,
+          channel: "#zulu",
+          nick: "akash",
+          body: "this mention is muted",
+        })
+      })
+
+      await act(async () => resolveRefresh(initial))
+      expect(NotificationMock).not.toHaveBeenCalled()
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
+  test("replays a queued direct-message thread before its queued notification", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    let resolveRefresh
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi
+        .fn()
+        .mockResolvedValueOnce(initial)
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve })),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+    const originalVisibilityState = document.visibilityState
+    let realtimeHandlers
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+
+    try {
+      render(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 1, email: "mira@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+      await act(async () => realtimeHandlers.onJoinOk())
+
+      act(() => {
+        realtimeHandlers.onDirectMessageThread({
+          connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected"},
+          buffer: {
+            buffer_id: "direct:12",
+            buffer_type: "direct_message",
+            server_connection_id: 1,
+            direct_message_thread_id: 12,
+            title: "Mona",
+            unread_count: 1,
+            blocked: false,
+          },
+        })
+        realtimeHandlers.onNotificationDirectMessage({
+          event_id: "queued-direct-message",
+          buffer_id: "direct:12",
+          server_connection_id: 1,
+          peer_nick: "Mona",
+          nick: "Mona",
+          body: "hello privately",
+        })
+      })
+
+      await act(async () => resolveRefresh(initial))
+      await waitFor(() => expect(NotificationMock).toHaveBeenCalledOnce())
+      expect(NotificationMock).toHaveBeenCalledWith("Mona", {
+        body: "Mona: hello privately",
+        tag: "queued-direct-message",
+      })
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
   test("auto-opens a direct-message thread returned by msg", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
@@ -1713,8 +1856,11 @@ describe("IrcpipeApp UI prototype", () => {
         body: "hello mira",
       })
 
-      expect(NotificationMock).toHaveBeenCalledTimes(1)
-      expect(NotificationMock).toHaveBeenCalledWith("#testing", {body: "akash: hello mira"})
+      await waitFor(() => expect(NotificationMock).toHaveBeenCalledTimes(1))
+      expect(NotificationMock).toHaveBeenCalledWith("#testing", {
+        body: "akash: hello mira",
+        tag: "notification:1",
+      })
     } finally {
       if (originalNotification) {
         Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -95,9 +96,15 @@ export default function useServerConnections({
   setView,
   topics,
 }: ServerConnectionsOptions) {
-  const [connections, setConnections] = useState<ServerConnection[]>([])
+  const [connections, setConnectionsState] = useState<ServerConnection[]>([])
   const rejectedBufferIdsRef = useRef(new Set<string>())
   const joinRejectionVersionsRef = useRef(new Map<string, number>())
+
+  const setConnections = useCallback<Dispatch<SetStateAction<ServerConnection[]>>>((update) => {
+    const next = typeof update === "function" ? update(connectionsRef.current) : update
+    connectionsRef.current = next
+    setConnectionsState(next)
+  }, [connectionsRef])
 
   useEffect(() => {
     connectionsRef.current = connections

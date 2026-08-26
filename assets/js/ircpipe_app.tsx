@@ -9,6 +9,7 @@ import {createApiClient, type ApiClient} from "./api_client.ts"
 import {commandErrorMessage, type CommandError} from "./app_feedback.ts"
 import {buildBootstrapState, type BootstrapPayload} from "./bootstrap_state.ts"
 import {
+  createNotificationEventCoordinator,
   initialNotificationDeviceState,
   showMentionNotification,
   type NotificationDeviceState,
@@ -97,6 +98,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const discoverRequestedRef = useRef(false)
   const notificationDeviceStateRef = useRef(notificationDeviceState)
   const notificationEventIdsRef = useRef<Set<string>>(new Set())
+  const notificationEventCoordinatorRef = useRef<ReturnType<typeof createNotificationEventCoordinator> | null>(null)
   const queuedNotificationEventsRef = useRef<ChatMessage[]>([])
   const queuedRealtimeEventsRef = useRef<Array<() => void>>([])
   const realtimeRefreshInFlightRef = useRef(false)
@@ -105,6 +107,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
   const viewRef = useRef(view)
+
+  const notificationCoordinatorScope = String(currentUser?.id || "anonymous")
+
+  useEffect(() => {
+    const coordinator = createNotificationEventCoordinator({scope: notificationCoordinatorScope})
+    notificationEventCoordinatorRef.current = coordinator
+
+    return () => {
+      coordinator.close()
+      if (notificationEventCoordinatorRef.current === coordinator) {
+        notificationEventCoordinatorRef.current = null
+      }
+    }
+  }, [notificationCoordinatorScope])
 
   const {
     appendSystemMessage,
@@ -658,7 +674,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }))
   }
 
-  function handleMentionNotification(message: ChatMessage): void {
+  async function handleMentionNotification(message: ChatMessage): Promise<void> {
     if (notificationDeviceStateRef.current.loading) {
       queuedNotificationEventsRef.current.push(message)
       if (queuedNotificationEventsRef.current.length > 100) {
@@ -691,6 +707,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       buffer.buffer_type !== "direct_message" &&
       (!server.mention_notifications_enabled || !buffer.mention_notifications_enabled)
     ) return
+
+    if (message.event_id) {
+      const coordinator = notificationEventCoordinatorRef.current
+      if (!coordinator || !await coordinator.claim(message.event_id)) return
+    }
+
+    if (notificationDeviceStateRef.current.subscribed) return
 
     showMentionNotification(message, {
       currentUser,
