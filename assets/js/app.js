@@ -26,9 +26,9 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/ircpipe"
 import topbar from "../vendor/topbar"
-import {createApiClient} from "./api_client.js"
+import {createApiClient} from "./api_client.ts"
 import IrcpipeApp from "./ircpipe_app.jsx"
-import {createRealtimeClient} from "./realtime_client.js"
+import {createRealtimeClient} from "./realtime_client.ts"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {

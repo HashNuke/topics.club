@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
-import {createApiClient} from "./api_client.js"
+import {createApiClient} from "./api_client.ts"
 import {commandErrorMessage} from "./app_feedback.ts"
 import {buildBootstrapState} from "./bootstrap_state.ts"
 import {

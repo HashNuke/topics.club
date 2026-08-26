@@ -1,5 +1,5 @@
 import {describe, expect, test, vi} from "vitest"
-import {createApiClient} from "./api_client.js"
+import {createApiClient} from "./api_client.ts"
 
 describe("api client", () => {
   test("loads bootstrap with same-origin credentials and csrf token", async () => {

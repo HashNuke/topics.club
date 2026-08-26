@@ -1,3 +1,59 @@
+export type RealtimePayload = Record<string, unknown>
+
+interface ReceiveChain {
+  receive(status: "ok" | "error" | "timeout", callback: (payload: RealtimePayload) => void): ReceiveChain
+}
+
+interface ChannelLike {
+  on(event: string, callback: (payload: RealtimePayload) => void): void
+  join(): ReceiveChain
+  push(event: string, payload: RealtimePayload, timeout: number): ReceiveChain
+  leave(): void
+}
+
+interface SocketLike {
+  channel(topic: string, params: RealtimePayload): ChannelLike
+  connect(): void
+  disconnect(): void
+  connectionState?(): string
+  onOpen?(callback: () => void): void
+  onClose?(callback: (event: unknown) => void): void
+  onError?(callback: (error: unknown) => void): void
+}
+
+export interface SocketConstructor {
+  new (path: string, options: {longPollFallbackMs: number; params: {_csrf_token?: string | null}}): SocketLike
+}
+
+export interface RealtimeHandlers {
+  onOpen?(): void
+  onClose?(event: unknown): void
+  onError?(error: unknown): void
+  onJoinOk?(payload: RealtimePayload): void
+  onJoinError?(payload: RealtimePayload): void
+  onJoinTimeout?(): void
+  onMessage?(payload: RealtimePayload): void
+  onMention?(payload: RealtimePayload): void
+  onBufferMessage?(payload: RealtimePayload): void
+  onBufferRead?(payload: RealtimePayload): void
+  onBufferLeft?(payload: RealtimePayload): void
+  onBufferJoined?(payload: RealtimePayload): void
+  onServerStatus?(payload: RealtimePayload): void
+  onPresenceSync?(payload: RealtimePayload): void
+  onPresenceDiff?(payload: RealtimePayload): void
+  onNotificationMention?(payload: RealtimePayload): void
+}
+
+interface RealtimeClientOptions {
+  SocketClass?: SocketConstructor
+  csrfToken?: string | null
+  userId?: string | number
+  handlers?: RealtimeHandlers
+  socketPath?: string
+  pushTimeout?: number
+  longPollFallbackMs?: number
+}
+
 export function createRealtimeClient({
   SocketClass,
   csrfToken,
@@ -6,7 +62,7 @@ export function createRealtimeClient({
   socketPath = "/socket",
   pushTimeout = 10_000,
   longPollFallbackMs = 2500,
-} = {}) {
+}: RealtimeClientOptions = {}) {
   if (!SocketClass) throw new Error("SocketClass is required")
 
   const socket = new SocketClass(socketPath, {
@@ -47,11 +103,15 @@ export function createRealtimeClient({
       .receive("timeout", () => handlers.onJoinTimeout?.())
   }
 
-  function push(event, payload = {}, timeout = pushTimeout) {
-    return new Promise((resolve, reject) => {
+  function push<T extends RealtimePayload = RealtimePayload>(
+    event: string,
+    payload: RealtimePayload = {},
+    timeout = pushTimeout
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
       channel
         .push(event, payload, timeout)
-        .receive("ok", resolve)
+        .receive("ok", (reply) => resolve(reply as T))
         .receive("error", reject)
         .receive("timeout", () => reject({reply: "timeout", reason: "timeout"}))
     })
@@ -74,3 +134,5 @@ export function createRealtimeClient({
   const client = {connect, push, disconnect, reconnect, connectionState, socket, channel}
   return client
 }
+
+export type RealtimeClient = ReturnType<typeof createRealtimeClient>

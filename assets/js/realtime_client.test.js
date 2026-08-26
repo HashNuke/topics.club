@@ -1,5 +1,5 @@
 import {describe, expect, test, vi} from "vitest"
-import {createRealtimeClient} from "./realtime_client.js"
+import {createRealtimeClient} from "./realtime_client.ts"
 
 class FakeSocket {
   constructor(path, options) {
