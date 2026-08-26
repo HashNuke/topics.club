@@ -4,7 +4,7 @@ defmodule Ircpipe.Chat.Topics do
   import Ecto.Query
 
   alias Ircpipe.Accounts.User
-  alias Ircpipe.Chat.{Connections, ServerConnection, Topic}
+  alias Ircpipe.Chat.{ConnectionAttributes, Connections, ServerConnection, Topic}
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
 
@@ -24,7 +24,7 @@ defmodule Ircpipe.Chat.Topics do
           "host" => topic.server_host,
           "port" => topic.server_port,
           "use_tls" => topic.use_tls,
-          "nickname" => Connections.default_nick(user)
+          "nickname" => ConnectionAttributes.default_nick(user)
         })
 
       %{connection: ensure_valid_nick(connection, user), topic: topic}
@@ -38,7 +38,7 @@ defmodule Ircpipe.Chat.Topics do
       {:ok, connection} =
         connection
         |> ServerConnection.changeset(%{
-          nickname: Connections.default_nick(user),
+          nickname: ConnectionAttributes.default_nick(user),
           status: "disconnected"
         })
         |> Repo.update()
