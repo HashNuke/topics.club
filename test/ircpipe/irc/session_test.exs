@@ -1912,9 +1912,10 @@ defmodule Ircpipe.Irc.SessionTest do
       })
 
     {:ok, _membership} = Chat.request_channel_join(user, connection, "~custom", :ascii)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
-    _ = :sys.get_state(Session.via(connection))
+    assert_receive {:presence_sync, %{users: _users}}, 1_000
 
     assert :ok = Session.say(connection, "~custom", "hello")
     assert_receive {:irc_server_line, "PRIVMSG ~custom hello"}, 1_000
