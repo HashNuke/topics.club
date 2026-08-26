@@ -74,9 +74,25 @@ defmodule Ircpipe.Chat do
   end
 
   def create_or_get_connection(%User{} = user, attrs) do
-    name = Map.get(attrs, "name") || Map.get(attrs, :name)
+    host = Map.get(attrs, "host") || Map.get(attrs, :host)
+    port = Map.get(attrs, "port") || Map.get(attrs, :port) || 6697
 
-    case name && Repo.get_by(ServerConnection, user_id: user.id, name: name) do
+    existing_connection =
+      if is_binary(host) do
+        normalized_host = host |> String.trim() |> String.downcase()
+
+        ServerConnection
+        |> where(
+          [connection],
+          connection.user_id == ^user.id and connection.port == ^port and
+            fragment("lower(?)", connection.host) == ^normalized_host
+        )
+        |> order_by([connection], asc: connection.inserted_at, asc: connection.id)
+        |> limit(1)
+        |> Repo.one()
+      end
+
+    case existing_connection do
       %ServerConnection{} = connection -> {:ok, connection}
       _ -> create_connection(user, attrs)
     end

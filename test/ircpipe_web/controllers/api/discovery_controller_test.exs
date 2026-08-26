@@ -66,6 +66,14 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
         now
       )
 
+    {:ok, existing_connection} =
+      Chat.create_connection(user, %{
+        "name" => "127.0.0.1",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false
+      })
+
     [server_channel] = Discovery.list_popular_server_channels()
     conn = post(conn, ~p"/api/discovery/server_channels/#{server_channel.id}/join")
 
@@ -73,7 +81,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
              "connection" => %{
                "id" => connection_id,
                "host" => "127.0.0.1",
-               "name" => "Local IRC"
+               "name" => "127.0.0.1"
              },
              "buffer" => %{
                "buffer_id" => "channel:" <> _,
@@ -86,7 +94,9 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
 
     connection = Chat.get_connection!(user, connection_id)
+    assert connection.id == existing_connection.id
     assert connection.host == "127.0.0.1"
+    assert length(Chat.list_connections(user)) == 1
     assert :ok = Session.quit(connection)
   end
 

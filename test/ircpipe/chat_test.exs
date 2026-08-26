@@ -26,6 +26,38 @@ defmodule Ircpipe.ChatTest do
     assert_raise Ecto.NoResultsError, fn -> Chat.get_connection!(other_user, connection.id) end
   end
 
+  test "gets an existing connection by normalized endpoint and port instead of display name" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, existing} =
+      Chat.create_connection(user, %{
+        "name" => "My Libera connection",
+        "host" => "IRC.Libera.Chat",
+        "port" => 6697,
+        "use_tls" => true
+      })
+
+    assert {:ok, reused} =
+             Chat.create_or_get_connection(user, %{
+               "name" => "Libera.Chat",
+               "host" => "irc.libera.chat",
+               "port" => 6697,
+               "use_tls" => false
+             })
+
+    assert reused.id == existing.id
+
+    assert {:ok, other_port} =
+             Chat.create_or_get_connection(user, %{
+               "name" => "Libera alternate port",
+               "host" => "irc.libera.chat",
+               "port" => 6667,
+               "use_tls" => false
+             })
+
+    refute other_port.id == existing.id
+  end
+
   test "defaults nickname and SASL account while retaining connection credentials" do
     user = AccountsFixtures.user_fixture(%{email: "mira@example.com"})
 
