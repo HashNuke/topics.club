@@ -27,10 +27,11 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/ircpipe"
 import topbar from "../vendor/topbar"
 import {createApiClient} from "./api_client.ts"
-import IrcpipeApp from "./ircpipe_app.jsx"
-import {createRealtimeClient} from "./realtime_client.ts"
+import IrcpipeApp from "./ircpipe_app.tsx"
+import {createRealtimeClient, type RealtimeHandlers} from "./realtime_client.ts"
+import type {CurrentUser} from "./types.ts"
 
-const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
+const csrfToken = document.querySelector<HTMLMetaElement>("meta[name='csrf-token']")?.content || ""
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
@@ -54,12 +55,12 @@ window.liveSocket = liveSocket
 const root = document.getElementById("ircpipe-root")
 
 if (root) {
-  const currentUser = root.dataset.currentUser ? JSON.parse(root.dataset.currentUser) : null
+  const currentUser = root.dataset.currentUser ? JSON.parse(root.dataset.currentUser) as CurrentUser : null
   const developerOauth = root.dataset.developerOauth === "true"
-  const appMode = root.dataset.appMode
+  const appMode = root.dataset.appMode === "landing" ? "landing" : "chat"
   const apiClient = createApiClient({csrfToken})
   const realtimeClientFactory = currentUser
-    ? ({handlers}) => createRealtimeClient({SocketClass: Socket, csrfToken, userId: currentUser.id, handlers})
+    ? ({handlers}: {handlers: RealtimeHandlers}) => createRealtimeClient({SocketClass: Socket, csrfToken, userId: currentUser.id, handlers})
     : null
 
   createRoot(root).render(React.createElement(IrcpipeApp, {apiClient, appMode, currentUser, developerOauth, realtimeClientFactory}))
@@ -72,7 +73,8 @@ if (root) {
 //     2. click on elements to jump to their definitions in your code editor
 //
 if (process.env.NODE_ENV === "development") {
-  window.addEventListener("phx:live_reload:attached", ({detail: reloader}) => {
+  window.addEventListener("phx:live_reload:attached", (event) => {
+    const {detail: reloader} = event as CustomEvent<LiveReloader>
     // Enable server log streaming to client.
     // Disable with reloader.disableServerLogs()
     reloader.enableServerLogs()
@@ -81,7 +83,7 @@ if (process.env.NODE_ENV === "development") {
     //
     //   * click with "c" key pressed to open at caller location
     //   * click with "d" key pressed to open at function component definition location
-    let keyDown
+    let keyDown: string | null = null
     window.addEventListener("keydown", e => keyDown = e.key)
     window.addEventListener("keyup", _e => keyDown = null)
     window.addEventListener("click", e => {

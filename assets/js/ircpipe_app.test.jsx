@@ -2,7 +2,7 @@ import React from "react"
 import {describe, expect, test, vi} from "vitest"
 import {fireEvent, render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import IrcpipeApp, {appendTimelineMessage, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.jsx"
+import IrcpipeApp, {appendTimelineMessage, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.tsx"
 
 const topicFixtures = [
   {id: "fixture-elixir", name: "#elixir", description: "Phoenix, OTP, releases, and production Elixir help.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#elixir", members: 426},

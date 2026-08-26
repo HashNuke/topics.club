@@ -141,6 +141,27 @@ export interface ServerStatusPayload {
   nickname?: string
 }
 
+export interface JoinedTopicPayload {
+  connection: BackendConnection
+  buffer: BufferRecord
+  topic?: TopicInput
+}
+
+export interface BufferLeftPayload {
+  buffer_id?: string
+  server_connection_id: EntityId
+}
+
+export interface PresenceSyncPayload {
+  buffer_id: string
+  users?: ChatUser[]
+}
+
+export interface PresenceDiffPayload {
+  buffer_id: string
+  diff?: PresenceDiff
+}
+
 export type MessagesByBuffer = Record<string, ChatMessage[]>
 export type UsersByBuffer = Record<string, ChatUser[]>
 

@@ -1,3 +1,13 @@
+import type {
+  BufferLeftPayload,
+  BufferReadPayload,
+  ChatMessage,
+  JoinedTopicPayload,
+  PresenceDiffPayload,
+  PresenceSyncPayload,
+  ServerStatusPayload,
+} from "./types.ts"
+
 export type RealtimePayload = Record<string, unknown>
 
 interface ReceiveChain {
@@ -32,16 +42,16 @@ export interface RealtimeHandlers {
   onJoinOk?(payload: RealtimePayload): void
   onJoinError?(payload: RealtimePayload): void
   onJoinTimeout?(): void
-  onMessage?(payload: RealtimePayload): void
-  onMention?(payload: RealtimePayload): void
-  onBufferMessage?(payload: RealtimePayload): void
-  onBufferRead?(payload: RealtimePayload): void
-  onBufferLeft?(payload: RealtimePayload): void
-  onBufferJoined?(payload: RealtimePayload): void
-  onServerStatus?(payload: RealtimePayload): void
-  onPresenceSync?(payload: RealtimePayload): void
-  onPresenceDiff?(payload: RealtimePayload): void
-  onNotificationMention?(payload: RealtimePayload): void
+  onMessage?(payload: ChatMessage): void
+  onMention?(payload: ChatMessage): void
+  onBufferMessage?(payload: ChatMessage): void
+  onBufferRead?(payload: BufferReadPayload): void
+  onBufferLeft?(payload: BufferLeftPayload): void
+  onBufferJoined?(payload: JoinedTopicPayload): void
+  onServerStatus?(payload: ServerStatusPayload): void
+  onPresenceSync?(payload: PresenceSyncPayload): void
+  onPresenceDiff?(payload: PresenceDiffPayload): void
+  onNotificationMention?(payload: ChatMessage): void
 }
 
 interface RealtimeClientOptions {
@@ -75,18 +85,18 @@ export function createRealtimeClient({
   socket.onClose?.((event) => handlers.onClose?.(event))
   socket.onError?.((error) => handlers.onError?.(error))
 
-  channel.on("message", (payload) => handlers.onMessage?.(payload))
-  channel.on("mention", (payload) => handlers.onMention?.(payload))
-  channel.on("buffer:message", (payload) => handlers.onBufferMessage?.(payload))
-  channel.on("buffer:error", (payload) => handlers.onBufferMessage?.(payload))
-  channel.on("buffer:system", (payload) => handlers.onBufferMessage?.(payload))
-  channel.on("buffer:read", (payload) => handlers.onBufferRead?.(payload))
-  channel.on("buffer:left", (payload) => handlers.onBufferLeft?.(payload))
-  channel.on("buffer:joined", (payload) => handlers.onBufferJoined?.(payload))
-  channel.on("server:status", (payload) => handlers.onServerStatus?.(payload))
-  channel.on("presence:sync", (payload) => handlers.onPresenceSync?.(payload))
-  channel.on("presence:diff", (payload) => handlers.onPresenceDiff?.(payload))
-  channel.on("notification:mention", (payload) => handlers.onNotificationMention?.(payload))
+  channel.on("message", (payload) => handlers.onMessage?.(payload as unknown as ChatMessage))
+  channel.on("mention", (payload) => handlers.onMention?.(payload as unknown as ChatMessage))
+  channel.on("buffer:message", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
+  channel.on("buffer:error", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
+  channel.on("buffer:system", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
+  channel.on("buffer:read", (payload) => handlers.onBufferRead?.(payload as unknown as BufferReadPayload))
+  channel.on("buffer:left", (payload) => handlers.onBufferLeft?.(payload as unknown as BufferLeftPayload))
+  channel.on("buffer:joined", (payload) => handlers.onBufferJoined?.(payload as unknown as JoinedTopicPayload))
+  channel.on("server:status", (payload) => handlers.onServerStatus?.(payload as unknown as ServerStatusPayload))
+  channel.on("presence:sync", (payload) => handlers.onPresenceSync?.(payload as unknown as PresenceSyncPayload))
+  channel.on("presence:diff", (payload) => handlers.onPresenceDiff?.(payload as unknown as PresenceDiffPayload))
+  channel.on("notification:mention", (payload) => handlers.onNotificationMention?.(payload as unknown as ChatMessage))
 
   function connect() {
     socket.connect()

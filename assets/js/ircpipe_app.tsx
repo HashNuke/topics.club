@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
-import {createApiClient} from "./api_client.ts"
-import {commandErrorMessage} from "./app_feedback.ts"
-import {buildBootstrapState} from "./bootstrap_state.ts"
+import {createApiClient, type ApiClient} from "./api_client.ts"
+import {commandErrorMessage, type CommandError} from "./app_feedback.ts"
+import {buildBootstrapState, type BootstrapPayload} from "./bootstrap_state.ts"
 import {
   notificationPermission,
   requestNotificationPermission,
@@ -24,6 +24,20 @@ import useBufferMessages from "./hooks/use_buffer_messages.ts"
 import useChannelDirectory from "./hooks/use_channel_directory.ts"
 import useRealtimeConnection from "./hooks/use_realtime_connection.ts"
 import useServerConnections from "./hooks/use_server_connections.ts"
+import type {RealtimeClient, RealtimeHandlers} from "./realtime_client.ts"
+import type {
+  AppView,
+  Channel,
+  ChannelDirectory,
+  ChatMessage,
+  CommandCatalogEntry,
+  CurrentUser,
+  PresenceDiffPayload,
+  PresenceSyncPayload,
+  ServerConnection,
+  Topic,
+  UsersByBuffer,
+} from "./types.ts"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.ts"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.tsx"
 export {default as TopicGrid} from "./components/topic_grid.tsx"
@@ -31,26 +45,34 @@ export {default as LandingPage} from "./components/landing_page.tsx"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 
-export default function IrcpipeApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}) {
+export interface IrcpipeAppProps {
+  apiClient?: ApiClient
+  appMode?: "landing" | "chat"
+  currentUser?: CurrentUser | null
+  developerOauth: boolean
+  realtimeClientFactory?: ((options: {handlers: RealtimeHandlers}) => RealtimeClient) | null
+}
+
+export default function IrcpipeApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}: IrcpipeAppProps) {
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
-  const [topics, setTopics] = useState([])
+  const [topics, setTopics] = useState<Topic[]>([])
   const [topicsLoaded, setTopicsLoaded] = useState(false)
-  const [authTopic, setAuthTopic] = useState(null)
-  const [view, setView] = useState("chat")
-  const [notificationState, setNotificationState] = useState(notificationPermission())
-  const [activeChannelId, setActiveChannelId] = useState(null)
-  const [activeServerId, setActiveServerId] = useState(null)
-  const [usersByChannel, setUsersByChannel] = useState({})
+  const [authTopic, setAuthTopic] = useState<Topic | null>(null)
+  const [view, setView] = useState<AppView>("chat")
+  const [notificationState, setNotificationState] = useState<NotificationPermission | "unsupported">(notificationPermission())
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
+  const [activeServerId, setActiveServerId] = useState<string | null>(null)
+  const [usersByChannel, setUsersByChannel] = useState<UsersByBuffer>({})
   const [draft, setDraft] = useState("")
-  const [composerError, setComposerError] = useState(null)
-  const [commandCatalog, setCommandCatalog] = useState([])
+  const [composerError, setComposerError] = useState<string | null>(null)
+  const [commandCatalog, setCommandCatalog] = useState<CommandCatalogEntry[]>([])
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
-  const connectionsRef = useRef([])
+  const connectionsRef = useRef<ServerConnection[]>([])
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
-  const realtimeClientRef = useRef(null)
+  const realtimeClientRef = useRef<RealtimeClient | null>(null)
   const viewRef = useRef(view)
 
   const {
@@ -217,7 +239,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     markBufferRead(activeChannel.id)
   }, [mode, view, activeChannel?.id, activeChannel?.unread_count, activeChannel?.mention_count])
 
-  function selectTopic(topic) {
+  function selectTopic(topic: Topic): void {
     if (mode === "landing" && currentUser) {
       window.location.href = `/chat?topic=${encodeURIComponent(topic.id)}`
       return
@@ -231,7 +253,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     joinTopic(topic)
   }
 
-  async function sendMessage(event) {
+  async function sendMessage(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     if (!draft.trim()) return
 
@@ -250,7 +272,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setComposerError(null)
 
       try {
-        const reply = await realtimeClientRef.current.push("command:run", {
+        const reply = await realtimeClientRef.current.push<{directory?: ChannelDirectory}>("command:run", {
           command_id: commandId,
           input: body,
           buffer_id: bufferId,
@@ -258,10 +280,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
         setDraft("")
         if (reply.directory) {
-          applyChannelDirectory(reply.directory, directoryRequestId)
+          applyChannelDirectory(reply.directory, directoryRequestId ?? undefined)
         }
-      } catch (error) {
-        setComposerError(commandErrorMessage(error))
+      } catch (error: unknown) {
+        setComposerError(commandErrorMessage(error as CommandError))
       }
 
       return
@@ -279,20 +301,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)) return
     setComposerError(null)
 
-    const nextMessage = {
+    const nextMessage: ChatMessage = {
       id: `${view}-${Date.now()}`,
       occurredAt: new Date().toISOString(),
       nick: currentUser?.email?.split("@")[0] || "you",
       body,
-    }
-
-    if (view === "server" && activeServer) {
-      setMessagesByServer((current) => ({
-        ...current,
-        [activeServer.id]: [...(current[activeServer.id] || []), nextMessage],
-      }))
-      setDraft("")
-      return
     }
 
     if (realtimeClientRef.current && activeChannel.id?.startsWith("channel:")) {
@@ -306,7 +319,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setDraft("")
 
       try {
-        const reply = await realtimeClientRef.current.push("message:send", {
+        const reply = await realtimeClientRef.current.push<{message: ChatMessage}>("message:send", {
           client_message_id: clientMessageId,
           buffer_id: activeChannel.id,
           body,
@@ -327,7 +340,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setDraft("")
   }
 
-  async function retryMessage(message) {
+  async function retryMessage(message: ChatMessage): Promise<void> {
     if (!activeChannel || !isRealtimeChannel(activeChannel) || !realtimeClientRef.current || !realtimeReadyFor(activeChannel, connectionHealth)) return
 
     const clientMessageId = `client-${Date.now()}`
@@ -348,7 +361,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }))
 
     try {
-      const reply = await realtimeClientRef.current.push("message:send", {
+      const reply = await realtimeClientRef.current.push<{message: ChatMessage}>("message:send", {
         client_message_id: clientMessageId,
         buffer_id: activeChannel.id,
         body: message.body,
@@ -360,37 +373,37 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
   }
 
-  function currentBufferId() {
+  function currentBufferId(): string | undefined {
     if (view === "server" && activeServer) return `server:${activeServer.server_connection_id || activeServer.id}`
     return activeChannel?.id
   }
 
-  async function requestNotifications() {
+  async function requestNotifications(): Promise<void> {
     setNotificationState(await requestNotificationPermission())
   }
 
-  function applyPresenceSync(payload) {
+  function applyPresenceSync(payload: PresenceSyncPayload): void {
     setUsersByChannel((current) => ({
       ...current,
       [payload.buffer_id]: payload.users || [],
     }))
   }
 
-  function applyPresenceDiff(payload) {
+  function applyPresenceDiff(payload: PresenceDiffPayload): void {
     setUsersByChannel((current) => ({
       ...current,
       [payload.buffer_id]: applyUserDiff(current[payload.buffer_id] || [], payload.diff),
     }))
   }
 
-  function handleMentionNotification(message) {
+  function handleMentionNotification(message: ChatMessage): void {
     showMentionNotification(message, {
       currentUser,
       notificationState: notificationStateRef.current,
     })
   }
 
-  function applyBootstrap(bootstrap) {
+  function applyBootstrap(bootstrap: BootstrapPayload): void {
     const state = buildBootstrapState(bootstrap)
     if (!state) return
 
@@ -464,7 +477,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onLeaveServer={leaveServer}
       onReconnectServer={reconnectServer}
       onUpdateServer={updateServerConnection}
-      onSelectChannel={(channel) => {
+      onSelectChannel={(channel: Channel) => {
         cancelChannelDirectory()
         viewRef.current = "chat"
         activeServerIdRef.current = channel.connection?.id || activeServerId
@@ -472,7 +485,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         setActiveChannelId(channel.id)
         setView("chat")
       }}
-      onSelectServer={(server) => {
+      onSelectServer={(server: ServerConnection) => {
         cancelChannelDirectory()
         viewRef.current = "server"
         activeServerIdRef.current = server.id
@@ -490,7 +503,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         viewRef.current = "chat"
         setView("chat")
       }}
-      onUpdateDraft={(value) => {
+      onUpdateDraft={(value: string) => {
         setDraft(value)
         setComposerError(null)
       }}
@@ -498,11 +511,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     />
   )
 
-  async function markChannelRead(channel) {
+  async function markChannelRead(channel: Channel): Promise<void> {
     return markBufferRead(channel?.id)
   }
 
-  async function markBufferRead(bufferId) {
+  async function markBufferRead(bufferId?: string | null): Promise<void> {
     if (!bufferId || !realtimeClientRef.current) return
 
     try {

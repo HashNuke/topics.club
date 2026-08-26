@@ -1,9 +1,5 @@
 import {useEffect, useRef, useState, type MutableRefObject} from "react"
-import type {
-  RealtimeClient,
-  RealtimeHandlers,
-  RealtimePayload,
-} from "../realtime_client.ts"
+import type {RealtimeClient, RealtimeHandlers} from "../realtime_client.ts"
 import type {ConnectionHealth, EntityId} from "../types.ts"
 
 interface RealtimeConnectionOptions {
@@ -27,26 +23,22 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
   useEffect(() => {
     if (!sessionKey || !realtimeClientFactory) return
 
-    const forward = (name: keyof RealtimeHandlers) => (payload: RealtimePayload) => {
-      const handler = handlersRef.current[name] as ((value: RealtimePayload) => void) | undefined
-      handler?.(payload)
-    }
     const connected = () => {
       setConnectionHealth("connected")
       defer(() => onConnectedRef.current?.())
     }
     const realtimeClient = realtimeClientFactory({
       handlers: {
-        onMessage: forward("onMessage"),
-        onMention: forward("onMention"),
-        onBufferMessage: forward("onBufferMessage"),
-        onBufferJoined: forward("onBufferJoined"),
-        onBufferLeft: forward("onBufferLeft"),
-        onBufferRead: forward("onBufferRead"),
-        onPresenceDiff: forward("onPresenceDiff"),
-        onPresenceSync: forward("onPresenceSync"),
-        onServerStatus: forward("onServerStatus"),
-        onNotificationMention: forward("onNotificationMention"),
+        onMessage: (payload) => handlersRef.current.onMessage?.(payload),
+        onMention: (payload) => handlersRef.current.onMention?.(payload),
+        onBufferMessage: (payload) => handlersRef.current.onBufferMessage?.(payload),
+        onBufferJoined: (payload) => handlersRef.current.onBufferJoined?.(payload),
+        onBufferLeft: (payload) => handlersRef.current.onBufferLeft?.(payload),
+        onBufferRead: (payload) => handlersRef.current.onBufferRead?.(payload),
+        onPresenceDiff: (payload) => handlersRef.current.onPresenceDiff?.(payload),
+        onPresenceSync: (payload) => handlersRef.current.onPresenceSync?.(payload),
+        onServerStatus: (payload) => handlersRef.current.onServerStatus?.(payload),
+        onNotificationMention: (payload) => handlersRef.current.onNotificationMention?.(payload),
         onOpen: connected,
         onClose: () => setConnectionHealth("reconnecting"),
         onError: () => setConnectionHealth("degraded"),

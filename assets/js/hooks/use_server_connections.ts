@@ -24,12 +24,13 @@ import type {
   AppView,
   BackendConnection,
   BufferReadPayload,
-  BufferRecord,
+  BufferLeftPayload,
   Channel,
   ChannelMembership,
   ChatMessage,
   ChatUser,
   EntityId,
+  JoinedTopicPayload,
   MessagesByBuffer,
   ServerConnection,
   ServerStatusPayload,
@@ -53,17 +54,6 @@ export interface EditServerForm {
   port: string | number
   useTls: boolean
   nickname: string
-}
-
-interface JoinedTopicPayload {
-  connection: BackendConnection
-  buffer: BufferRecord
-  topic?: TopicInput
-}
-
-interface BufferLeftPayload {
-  buffer_id?: string
-  server_connection_id: EntityId
 }
 
 interface ServerConnectionsOptions {
