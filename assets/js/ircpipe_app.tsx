@@ -310,12 +310,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onPresenceDiff: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceDiff(payload)),
       onPresenceSync: (payload) => applyOrQueueRealtimeEvent(() => applyPresenceSync(payload)),
       onServerStatus: (payload) => applyOrQueueRealtimeEvent(() => applyServerStatus(payload)),
-      onNotificationMention: (payload) => applyOrQueueRealtimeEvent(
-        () => handleMentionNotification(payload, "notification:mention")
-      ),
-      onNotificationDirectMessage: (payload) => applyOrQueueRealtimeEvent(
-        () => handleMentionNotification(payload, "notification:direct_message")
-      ),
+      onNotificationMention: (payload) => {
+        void handleMentionNotification(payload, "notification:mention")
+      },
+      onNotificationDirectMessage: (payload) => {
+        void handleMentionNotification(payload, "notification:direct_message")
+      },
       onNotificationPreference: (payload) => applyOrQueueRealtimeEvent(() => applyNotificationPreference(payload)),
     },
     onConnected: refreshAuthoritativeBootstrap,
@@ -929,6 +929,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         visible: true,
         display: () => false,
       })
+      return
+    }
+
+    if (realtimeRefreshInFlightRef.current) {
+      queuedRealtimeEventsRef.current.push(
+        () => void handleMentionNotification(message, expectedType)
+      )
       return
     }
 
