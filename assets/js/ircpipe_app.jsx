@@ -7,16 +7,6 @@ import {
   requestNotificationPermission,
   showMentionNotification,
 } from "./browser_notifications.js"
-import {
-  channelFromBuffer,
-  channelFromMembership,
-  planServerRemoval,
-  removeChannel,
-  updateBufferRead,
-  updateConnectionDetails,
-  updateServerStatus,
-  upsertJoinedChannel,
-} from "./connection_store.js"
 import AppShell from "./components/app_shell.jsx"
 import LandingPage from "./components/landing_page.jsx"
 import {
@@ -25,15 +15,15 @@ import {
 } from "./components/chat_pane.jsx"
 import {
   applyUserDiff,
-  normalizeChannel,
   normalizeMessage,
   normalizeTopic,
 } from "./chat_store.js"
-import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
+import {requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.js"
 import useBufferMessages from "./hooks/use_buffer_messages.js"
 import useChannelDirectory from "./hooks/use_channel_directory.js"
 import useRealtimeConnection from "./hooks/use_realtime_connection.js"
+import useServerConnections from "./hooks/use_server_connections.js"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
 export {MESSAGE_RENDER_LIMIT, visibleTimelineMessages} from "./components/chat_pane.jsx"
 export {default as TopicGrid} from "./components/topic_grid.jsx"
@@ -49,7 +39,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [authTopic, setAuthTopic] = useState(null)
   const [view, setView] = useState("chat")
   const [notificationState, setNotificationState] = useState(notificationPermission())
-  const [connections, setConnections] = useState([])
   const [activeChannelId, setActiveChannelId] = useState(null)
   const [activeServerId, setActiveServerId] = useState(null)
   const [usersByChannel, setUsersByChannel] = useState({})
@@ -58,32 +47,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [commandCatalog, setCommandCatalog] = useState([])
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
-  const connectionsRef = useRef(connections)
-  const rejectedBufferIdsRef = useRef(new Set())
-  const joinRejectionVersionsRef = useRef(new Map())
+  const connectionsRef = useRef([])
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef(null)
   const viewRef = useRef(view)
-
-  const {
-    applyChannelDirectory,
-    beginChannelDirectoryRequest,
-    cancelChannelDirectory,
-    channelDirectory,
-    joinDirectoryChannel,
-    openChannelDirectory,
-  } = useChannelDirectory({
-    activeServerIdRef,
-    apiClient,
-    applyJoinedChannel,
-    connectionsRef,
-    joinRejectionVersionsRef,
-    realtimeClientRef,
-    setActiveServerId,
-    setView,
-    viewRef,
-  })
 
   const {
     appendSystemMessage,
@@ -108,6 +76,59 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     viewRef,
   })
 
+  const {
+    applyAuthoritativeJoinedTopic,
+    applyBufferLeft,
+    applyBufferRead,
+    applyJoinedChannel,
+    applyServerStatus,
+    connections,
+    disconnectServer,
+    joinManualServer,
+    joinRejectionVersionsRef,
+    joinTopic,
+    leaveChannel,
+    leaveServer,
+    reconnectServer,
+    setConnections,
+    updateServerConnection,
+  } = useServerConnections({
+    activeChannelIdRef,
+    activeServerIdRef,
+    apiClient,
+    appendSystemMessage,
+    canJoinTopics: Boolean(currentUser),
+    connectionsRef,
+    realtimeClientRef,
+    reconcileServerBuffers,
+    setActiveChannelId,
+    setActiveServerId,
+    setMessagesByChannel,
+    setMessagesByServer,
+    setUsersByChannel,
+    setView,
+    topics,
+  })
+
+  const {
+    applyChannelDirectory,
+    beginChannelDirectoryRequest,
+    cancelChannelDirectory,
+    channelDirectory,
+    joinDirectoryChannel,
+    openChannelDirectory,
+  } = useChannelDirectory({
+    activeServerIdRef,
+    apiClient,
+    applyJoinedChannel,
+    connectionsRef,
+    joinRejectionVersionsRef,
+    realtimeClientRef,
+    setActiveServerId,
+    setView,
+    viewRef,
+  })
+
   const {connectionHealth, retryRealtimeConnection} = useRealtimeConnection({
     handlers: {
       onMessage: applyRealtimeMessage,
@@ -126,10 +147,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     realtimeClientRef,
     sessionKey: currentUser && mode !== "landing" ? currentUser.id : null,
   })
-
-  useEffect(() => {
-    connectionsRef.current = connections
-  }, [connections])
 
   useEffect(() => {
     viewRef.current = view
@@ -212,121 +229,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
 
     joinTopic(topic)
-  }
-
-  async function joinTopic(topic) {
-    const normalized = normalizeTopic(topic)
-    const backendTopic = backendTopicFor(normalized, topics)
-    const topicId = numericId(normalized.id) || numericId(backendTopic?.id)
-
-    if (currentUser && topicId) {
-      const rejectionVersions = new Map(joinRejectionVersionsRef.current)
-
-      try {
-        const joined = await apiClient.joinTopic(topicId)
-        applyJoinedTopic(joined, false, rejectionVersions)
-        return
-      } catch (_error) {
-        return
-      }
-    }
-
-  }
-
-  function applyAuthoritativeJoinedTopic(payload) {
-    applyJoinedTopic(payload, true)
-  }
-
-  function applyJoinedTopic(
-    {connection, buffer, topic},
-    authoritative = false,
-    rejectionVersions = new Map(joinRejectionVersionsRef.current)
-  ) {
-    if (!connection || !buffer) return
-
-    if (authoritative) {
-      rejectedBufferIdsRef.current.delete(buffer.buffer_id)
-    } else if (rejectedBufferIdsRef.current.has(buffer.buffer_id)) {
-      const previousVersion = rejectionVersions.get(buffer.buffer_id) || 0
-      const currentVersion = joinRejectionVersionsRef.current.get(buffer.buffer_id) || 0
-      if (currentVersion > previousVersion) return false
-      rejectedBufferIdsRef.current.delete(buffer.buffer_id)
-    }
-
-    const connectionId = `server:${connection.id}`
-    const channel = channelFromBuffer(buffer, topic)
-
-    setConnections((current) => upsertJoinedChannel(current, connection, channel))
-
-    setMessagesByChannel((current) => ({
-      ...current,
-      [channel.id]: current[channel.id] || [],
-    }))
-    setActiveServerId(connectionId)
-    setActiveChannelId(channel.id)
-    setView("chat")
-    return true
-  }
-
-  async function joinManualServer(form) {
-    const host = form.host.trim()
-    const channels = String(form.channels || "")
-      .split(",")
-      .map((channel) => normalizeChannel(channel.trim()))
-      .filter(Boolean)
-
-    if (!host || channels.length === 0) return
-
-    try {
-      const {connection} = await apiClient.createConnection({
-        name: host,
-        host,
-        port: Number(form.port) || 6669,
-        use_tls: form.useTls,
-        nickname: form.nickname.trim(),
-        sasl_password: form.saslPassword,
-        server_password: form.serverPassword,
-      })
-
-      for (const channel of channels) {
-        const rejectionVersions = new Map(joinRejectionVersionsRef.current)
-        const joined = await apiClient.joinChannel(connection.id, channel)
-        applyJoinedChannel(connection, joined.channel, rejectionVersions)
-      }
-    } catch (_error) {
-      appendSystemMessage("Server join failed.")
-    }
-  }
-
-  function applyJoinedChannel(
-    connection,
-    membership,
-    rejectionVersions = new Map(joinRejectionVersionsRef.current)
-  ) {
-    if (!connection || !membership) return
-
-    const connectionId = `server:${connection.id}`
-    const bufferId = `channel:${membership.id}`
-
-    if (rejectedBufferIdsRef.current.has(bufferId)) {
-      const previousVersion = rejectionVersions.get(bufferId) || 0
-      const currentVersion = joinRejectionVersionsRef.current.get(bufferId) || 0
-      if (currentVersion > previousVersion) return false
-      rejectedBufferIdsRef.current.delete(bufferId)
-    }
-
-    const channel = channelFromMembership(membership, connection.host)
-
-    setConnections((current) => upsertJoinedChannel(current, connection, channel, {updateStatus: true}))
-
-    setMessagesByChannel((current) => ({
-      ...current,
-      [channel.id]: current[channel.id] || [],
-    }))
-    setActiveServerId(connectionId)
-    setActiveChannelId(channel.id)
-    setView("chat")
-    return true
   }
 
   async function sendMessage(event) {
@@ -467,14 +369,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setNotificationState(await requestNotificationPermission())
   }
 
-  function applyServerStatus(payload) {
-    setConnections((current) => updateServerStatus(current, payload))
-
-    if (payload.status === "connected") {
-      defer(() => reconcileServerBuffers(payload.server_connection_id))
-    }
-  }
-
   function applyPresenceSync(payload) {
     setUsersByChannel((current) => ({
       ...current,
@@ -487,48 +381,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       ...current,
       [payload.buffer_id]: applyUserDiff(current[payload.buffer_id] || [], payload.diff),
     }))
-  }
-
-  function applyBufferLeft(payload) {
-    const bufferId = payload.buffer_id
-    if (bufferId?.startsWith("server:")) {
-      applyServerDeleted({server_connection_id: payload.server_connection_id})
-      return
-    }
-
-    const channelId = bufferId?.startsWith("channel:") ? bufferId : null
-    if (!channelId) return
-
-    rejectedBufferIdsRef.current.add(channelId)
-    joinRejectionVersionsRef.current.set(
-      channelId,
-      (joinRejectionVersionsRef.current.get(channelId) || 0) + 1
-    )
-
-    setConnections((current) => removeChannel(current, channelId))
-    setMessagesByChannel((current) => {
-      const next = {...current}
-      delete next[channelId]
-      return next
-    })
-    setUsersByChannel((current) => {
-      const next = {...current}
-      delete next[channelId]
-      return next
-    })
-
-    if (activeChannelIdRef.current === channelId) {
-      const nextServerId = `server:${payload.server_connection_id}`
-      setActiveServerId(nextServerId)
-      setView("server")
-    }
-  }
-
-  function applyBufferRead(payload) {
-    const bufferId = payload?.buffer_id
-    if (!bufferId) return
-
-    setConnections((current) => updateBufferRead(current, payload))
   }
 
   function handleMentionNotification(message) {
@@ -661,125 +513,4 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
   }
 
-  async function leaveChannel(channel) {
-    if (!channel?.id || !realtimeClientRef.current) return
-
-    try {
-      await realtimeClientRef.current.push("channel:leave", {buffer_id: channel.id})
-    } catch (_error) {
-      // The channel remains visible if the backend cannot leave it.
-    }
-  }
-
-  async function reconnectServer(server) {
-    if (!server?.server_connection_id || !realtimeClientRef.current) return
-
-    try {
-      const status = await realtimeClientRef.current.push("server:reconnect", {
-        server_connection_id: server.server_connection_id,
-      })
-      applyServerStatus(status)
-    } catch (_error) {
-      // Keep the current server status if reconnect fails.
-    }
-  }
-
-  async function disconnectServer(server) {
-    if (!server?.server_connection_id || !realtimeClientRef.current) return
-
-    try {
-      const status = await realtimeClientRef.current.push("server:disconnect", {
-        server_connection_id: server.server_connection_id,
-      })
-      applyServerStatus(status)
-    } catch (_error) {
-      // Keep the current server status if disconnect fails.
-    }
-  }
-
-  async function leaveServer(server) {
-    if (!server?.server_connection_id) return
-
-    try {
-      const {deleted} = await apiClient.deleteConnection(server.server_connection_id)
-      applyServerDeleted(deleted || {server_connection_id: server.server_connection_id})
-    } catch (_error) {
-      // Keep the server visible if deletion fails.
-    }
-  }
-
-  async function updateServerConnection(server, form) {
-    if (!server?.server_connection_id) return
-
-    const host = form.host.trim()
-    const nickname = form.nickname.trim()
-    if (!host || !nickname) return
-
-    try {
-      const {connection} = await apiClient.updateConnection(server.server_connection_id, {
-        name: server.name || host,
-        host,
-        port: Number(form.port) || 6669,
-        use_tls: form.useTls,
-        nickname,
-      })
-      applyUpdatedConnection(connection)
-    } catch (_error) {
-      // Leave the current connection details visible if the backend rejects the edit.
-    }
-  }
-
-  function applyUpdatedConnection(connection) {
-    if (!connection?.id) return
-
-    setConnections((current) => updateConnectionDetails(current, connection))
-  }
-
-  function applyServerDeleted(payload) {
-    const currentConnections = connectionsRef.current
-    const removal = planServerRemoval(currentConnections, payload.server_connection_id)
-    if (!removal) return
-
-    const {deletedChannelIds, deletedServer, nextChannel, nextConnections, nextServer} = removal
-
-    connectionsRef.current = nextConnections
-    setConnections(nextConnections)
-    setMessagesByServer((current) => {
-      const next = {...current}
-      delete next[deletedServer.id]
-      return next
-    })
-    setMessagesByChannel((current) => {
-      const next = {...current}
-      deletedChannelIds.forEach((channelId) => delete next[channelId])
-      return next
-    })
-    setUsersByChannel((current) => {
-      const next = {...current}
-      deletedChannelIds.forEach((channelId) => delete next[channelId])
-      return next
-    })
-
-    if (activeServerIdRef.current === deletedServer.id || deletedChannelIds.has(activeChannelIdRef.current)) {
-      if (nextChannel) {
-        setActiveServerId(nextServer.id)
-        setActiveChannelId(nextChannel.id)
-        setView("chat")
-      } else if (nextServer) {
-        setActiveServerId(nextServer.id)
-        setView("server")
-      } else {
-        setView("discover")
-      }
-    }
-  }
-}
-
-function defer(callback) {
-  if (typeof queueMicrotask === "function") {
-    queueMicrotask(callback)
-    return
-  }
-
-  Promise.resolve().then(callback)
 }
