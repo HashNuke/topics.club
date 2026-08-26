@@ -82,6 +82,12 @@ describe("connection store", () => {
     expect(updated[0].channels.map((item) => item.id)).toEqual(["direct:9", "channel:2"])
     expect(updated[0].channels[0]).toMatchObject({channel: "akash_", unread_count: 4})
 
+    const closed = upsertDirectMessage(updated, connection, {
+      ...direct,
+      closed_at: "2026-08-26T10:00:00Z",
+    })
+    expect(closed[0].channels.map((item) => item.id)).toEqual(["channel:2"])
+
     expect(sortConversationBuffers([
       {id: "channel:4", channel: "#Zulu", buffer_type: "channel"},
       {id: "direct:2", channel: "zed", buffer_type: "direct_message"},

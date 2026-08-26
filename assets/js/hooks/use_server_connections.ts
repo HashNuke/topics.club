@@ -246,6 +246,16 @@ export default function useServerConnections({
 
   function applyDirectMessageThread(payload: DirectMessageThreadPayload): void {
     if (!payload?.connection || !payload?.buffer) return
+    if (payload.buffer.closed_at) {
+      applyDirectMessageClosed({
+        buffer_id: payload.buffer.buffer_id,
+        server_connection_id: payload.buffer.server_connection_id,
+        direct_message_thread_id:
+          payload.buffer.direct_message_thread_id || payload.buffer.buffer_id.replace("direct:", ""),
+      })
+      return
+    }
+
     const directMessage = directMessageFromBuffer(payload.buffer)
     setConnections((current) => upsertDirectMessage(current, payload.connection, directMessage))
     setMessagesByChannel((current) => ({

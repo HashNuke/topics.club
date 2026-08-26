@@ -34,6 +34,7 @@ export function directMessageFromBuffer(buffer: BufferRecord): Channel {
     account: buffer.account,
     hostmask: buffer.hostmask,
     blocked: Boolean(buffer.blocked),
+    closed_at: buffer.closed_at,
   }
 }
 
@@ -99,6 +100,8 @@ export function upsertDirectMessage(
   connection: BackendConnection,
   directMessage: Channel
 ): ServerConnection[] {
+  if (directMessage.closed_at) return removeChannel(connections, directMessage.id)
+
   const connectionId = `server:${connection.id}`
   const existingConnection = connections.find(
     (item) => item.server_connection_id === connection.id || item.id === connectionId

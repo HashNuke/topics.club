@@ -469,6 +469,108 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     end)
   end
 
+  test "a block waiting behind peer displacement cannot resurrect the archived thread" do
+    test_pid = self()
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {user, scope, connection, account_a, account_b} =
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        user = AccountsFixtures.user_fixture()
+        scope = AccountsFixtures.user_scope_fixture(user)
+        connection = connection_fixture(user, "concurrent-displacement")
+
+        {:ok, %{thread: account_a}} =
+          Chat.record_direct_message(
+            connection,
+            "alpha",
+            "alpha",
+            "from A",
+            "message",
+            %{direction: "incoming", account: "account-a", hostmask: "alpha!a@example.test"}
+          )
+
+        {:ok, %{thread: account_b}} =
+          Chat.record_direct_message(
+            connection,
+            "beta",
+            "beta",
+            "from B",
+            "message",
+            %{direction: "incoming", account: "account-b", hostmask: "beta!b@example.test"}
+          )
+
+        {user, scope, connection, account_a, account_b}
+      end)
+
+    on_exit(fn ->
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
+          do: Repo.delete!(persisted_user)
+      end)
+    end)
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    displacement =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Repo.transaction(fn ->
+            Ircpipe.Chat.ServerConnection
+            |> where([server], server.id == ^connection.id)
+            |> lock("FOR UPDATE")
+            |> Repo.one!()
+
+            send(test_pid, {:displacement_lock_acquired, self()})
+
+            receive do
+              :displace ->
+                Chat.rename_direct_message_peer(
+                  connection,
+                  account_a.peer_nick,
+                  account_b.peer_nick,
+                  %{account: "account-a", hostmask: "beta!a@example.test"},
+                  :rfc1459
+                )
+            end
+          end)
+        end)
+      end)
+
+    assert_receive {:displacement_lock_acquired, displacement_pid}
+
+    blocker =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        send(test_pid, :blocking_started)
+
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Chat.set_direct_message_blocked(scope, account_b.id, true)
+        end)
+      end)
+
+    assert_receive :blocking_started
+    refute Task.yield(blocker, 100)
+    send(displacement_pid, :displace)
+
+    assert {:ok, {:ok, renamed}} = Task.await(displacement)
+    assert renamed.id == account_a.id
+    assert {:error, :direct_message_closed} = Task.await(blocker)
+
+    archived =
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        Chat.get_direct_message_thread!(user, account_b.id)
+      end)
+
+    assert archived.closed_at
+    assert String.starts_with?(archived.peer_key, "archived:")
+    refute archived.blocked_at
+
+    archived_buffer_id = "direct:#{account_b.id}"
+    assert_receive {:direct_message_closed, %{buffer_id: ^archived_buffer_id}}
+
+    refute_receive {:direct_message_thread,
+                    %{buffer: %{buffer_id: ^archived_buffer_id, blocked: true}}}
+  end
+
   test "valid nick targets honor IRC special characters and negotiated NICKLEN" do
     assert Chat.valid_nick?("pipe|nick", %{"NICKLEN" => "30"})
     assert Chat.valid_nick?(String.duplicate("a", 30), %{"NICKLEN" => "30"})

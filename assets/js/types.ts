@@ -86,6 +86,7 @@ export interface Channel {
   account?: string | null
   hostmask?: string | null
   blocked?: boolean
+  closed_at?: string | null
   connection?: ServerConnection
   [key: string]: unknown
 }
@@ -134,6 +135,7 @@ export interface BufferRecord {
   account?: string | null
   hostmask?: string | null
   blocked?: boolean
+  closed_at?: string | null
   status?: string
   [key: string]: unknown
 }

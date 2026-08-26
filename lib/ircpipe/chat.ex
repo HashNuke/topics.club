@@ -180,35 +180,50 @@ defmodule Ircpipe.Chat do
       when is_boolean(blocked?) do
     now = DateTime.utc_now(:second)
 
-    Repo.transaction(fn ->
-      thread = get_direct_message_thread!(user, id)
-      lock_direct_message_connection!(thread.server_connection_id)
+    result =
+      Repo.transaction(fn ->
+        candidate = get_direct_message_thread!(user, id)
+        lock_direct_message_connection!(candidate.server_connection_id)
+        thread = get_direct_message_thread!(user, id)
 
-      attrs =
-        if blocked? do
-          %{blocked_at: now, last_read_at: now, unread_count: 0}
+        if archived_direct_message_thread?(thread) do
+          {:closed, thread}
         else
-          %{blocked_at: nil}
+          attrs =
+            if blocked? do
+              %{blocked_at: now, last_read_at: now, unread_count: 0}
+            else
+              %{blocked_at: nil}
+            end
+
+          updated = thread |> DirectMessageThread.changeset(attrs) |> Repo.update!()
+
+          if blocked? do
+            persist_direct_message_block_identities(updated)
+            mark_direct_message_notifications_read(updated.id, now)
+          else
+            from(identity in DirectMessageBlockIdentity,
+              where: identity.direct_message_thread_id == ^updated.id
+            )
+            |> Repo.delete_all()
+          end
+
+          {:updated, updated}
         end
+      end)
 
-      updated = thread |> DirectMessageThread.changeset(attrs) |> Repo.update!()
+    case result do
+      {:ok, {:updated, updated}} ->
+        broadcast_direct_message_thread(updated)
+        {:ok, updated}
 
-      if blocked? do
-        persist_direct_message_block_identities(updated)
-        mark_direct_message_notifications_read(updated.id, now)
-      else
-        from(identity in DirectMessageBlockIdentity,
-          where: identity.direct_message_thread_id == ^updated.id
-        )
-        |> Repo.delete_all()
-      end
+      {:ok, {:closed, closed}} ->
+        broadcast_direct_message_closed(closed)
+        {:error, :direct_message_closed}
 
-      updated
-    end)
-    |> tap(fn
-      {:ok, updated} -> broadcast_direct_message_thread(updated)
-      _result -> :ok
-    end)
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   def mark_direct_message_read(%Scope{user: user}, id) do
@@ -1412,6 +1427,10 @@ defmodule Ircpipe.Chat do
 
     mark_direct_message_notifications_read(archived.id, now)
     archived
+  end
+
+  defp archived_direct_message_thread?(thread) do
+    is_binary(thread.peer_key) and String.starts_with?(thread.peer_key, "archived:")
   end
 
   defp normalized_account(account) when is_binary(account) do
