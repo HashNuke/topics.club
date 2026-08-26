@@ -14,6 +14,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.ConnectionLock
   alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Identifier
+  alias Ircpipe.Irc.Session.Identity
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Targets
   alias Ircpipe.Repo
@@ -404,7 +405,7 @@ defmodule Ircpipe.Irc.Session do
 
     state =
       if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
-           names_include_nick?(names, state.connection.nickname) do
+           Identity.listed?(names, state.connection.nickname) do
         mark_channel_joined(state, channel)
       else
         state
@@ -431,7 +432,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:join, %{channel: channel, nick: nick} = payload}}, state) do
-    self? = source_self?(state, payload, nick)
+    self? = Identity.source_self?(state, payload, nick)
 
     if self? do
       {:ok, _membership} =
@@ -463,7 +464,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:part, %{channel: channel, nick: nick} = payload}}, state) do
-    self? = source_self?(state, payload, nick)
+    self? = Identity.source_self?(state, payload, nick)
 
     Presence.diff(
       state.connection,
@@ -503,7 +504,7 @@ defmodule Ircpipe.Irc.Session do
         {:ircxd, {:nick, %{old_nick: old_nick, new_nick: new_nick} = payload}},
         state
       ) do
-    self? = source_self?(state, payload, old_nick)
+    self? = Identity.source_self?(state, payload, old_nick)
 
     record_channel_line_for_present_nick(
       state.connection,
@@ -585,7 +586,7 @@ defmodule Ircpipe.Irc.Session do
         {:ircxd, {:kick, %{channel: channel, nick: nick, target_nick: target_nick} = payload}},
         state
       ) do
-    target_self? = self_identity_event?(state, payload, :target_self?, target_nick)
+    target_self? = Identity.event_self?(state, payload, :target_self?, target_nick)
 
     Presence.diff(
       state.connection,
@@ -1992,7 +1993,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp self_event?(state, payload, nick) do
-    self_identity_event?(state, payload, :source_self?, nick)
+    Identity.event_self?(state, payload, :source_self?, nick)
   end
 
   defp target_matches?(state, target, targets) when is_binary(target),
@@ -2174,63 +2175,12 @@ defmodule Ircpipe.Irc.Session do
     normalized = Targets.key(state, channel)
 
     if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
-         names_include_nick?(names, state.connection.nickname) do
+         Identity.listed?(names, state.connection.nickname) do
       mark_channel_joined(state, channel)
     else
       state
     end
   end
-
-  defp names_include_nick?(names, nick) when is_list(names) do
-    Enum.any?(names, fn
-      %{nick: listed_nick} -> same_nick?(listed_nick, nick)
-      %{"nick" => listed_nick} -> same_nick?(listed_nick, nick)
-      listed_nick when is_binary(listed_nick) -> same_nick?(listed_nick, nick)
-      _other -> false
-    end)
-  end
-
-  defp names_include_nick?(_names, _nick), do: false
-
-  defp source_self?(state, payload, nick) do
-    self_identity_event?(state, payload, :source_self?, nick)
-  end
-
-  defp self_identity_event?(%{isupport_received?: true} = state, payload, key, nick) do
-    Map.get(payload, key, identifier_self?(state, nick))
-  end
-
-  defp self_identity_event?(state, _payload, _key, nick), do: identifier_self?(state, nick)
-
-  defp identifier_self?(%{client_info: %Info{} = info, isupport_received?: true} = state, nick) do
-    is_binary(info.current_nick) and is_binary(nick) and
-      Ircxd.Casemapping.normalize(info.current_nick, Targets.casemapping(state)) ==
-        Ircxd.Casemapping.normalize(nick, Targets.casemapping(state))
-  end
-
-  defp identifier_self?(%{connection: connection}, nick) do
-    is_binary(nick) and
-      Ircxd.Casemapping.normalize(nick, stored_connection_casemapping(connection)) ==
-        Ircxd.Casemapping.normalize(
-          connection.nickname,
-          stored_connection_casemapping(connection)
-        )
-  end
-
-  defp identifier_self?(_state, _nick), do: false
-
-  defp same_nick?(left, right) when is_binary(left) and is_binary(right) do
-    String.downcase(left) == String.downcase(right)
-  end
-
-  defp same_nick?(_left, _right), do: false
-
-  defp stored_connection_casemapping(%ServerConnection{casemapping: "rfc1459"}), do: :rfc1459
-
-  defp stored_connection_casemapping(%ServerConnection{casemapping: "strict_rfc1459"}),
-    do: :strict_rfc1459
-
-  defp stored_connection_casemapping(_connection), do: :ascii
 
   defp remember_pending_echo(state, target, body, kind) do
     pending_echoes =
@@ -2245,7 +2195,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp pop_pending_echo(state, channel, body, kind, %{nick: nick} = payload) do
-    if source_self?(state, payload, nick) do
+    if Identity.source_self?(state, payload, nick) do
       case PendingEchoes.pop(
              state.pending_echoes,
              Targets.normalize(state, channel),
