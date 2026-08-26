@@ -1,7 +1,6 @@
 defmodule IrcpipeWeb.Api.ConnectionController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -54,8 +53,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     user = conn.assigns.current_scope.user
     connection = Connections.get!(user, id)
 
-    :ok = SessionSupervisor.stop_session(connection)
-    {:ok, _connection} = Chat.delete_connection(user, id)
+    {:ok, _connection} = Connections.delete(user, id)
 
     json(conn, %{deleted: Event.server_deleted(connection)})
   end

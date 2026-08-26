@@ -6,8 +6,8 @@ defmodule Ircpipe.Irc.SessionSupervisor do
 
   @stop_attempts 3
   @stop_timeout 5_000
-  @registry_release_attempts 100
-  @registry_release_interval 1
+  @name_release_attempts 100
+  @name_release_interval 1
 
   def start_link(opts) do
     DynamicSupervisor.start_link(__MODULE__, opts, name: __MODULE__)
@@ -15,7 +15,7 @@ defmodule Ircpipe.Irc.SessionSupervisor do
 
   @impl true
   def init(_opts) do
-    DynamicSupervisor.init(strategy: :one_for_one)
+    DynamicSupervisor.init(strategy: :one_for_one, max_restarts: 1_000, max_seconds: 10)
   end
 
   def start_session(%ServerConnection{} = connection) do
@@ -24,6 +24,7 @@ defmodule Ircpipe.Irc.SessionSupervisor do
     case DynamicSupervisor.start_child(__MODULE__, spec) do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} -> {:ok, pid}
+      :ignore -> {:error, :connection_not_found}
       other -> other
     end
   end
@@ -32,11 +33,24 @@ defmodule Ircpipe.Irc.SessionSupervisor do
     do_stop_session(connection, reason, @stop_attempts)
   end
 
+  def stop_for_deletion(%ServerConnection{} = connection) do
+    case Session.whereis(connection) do
+      pid when is_pid(pid) ->
+        maybe_pause_stop_after_lookup(pid)
+        monitor_ref = Process.monitor(pid)
+        _result = quit_session_for_deletion(pid)
+        await_deletion_session_down(monitor_ref, pid)
+
+      nil ->
+        :ok
+    end
+  end
+
   defp do_stop_session(_connection, _reason, 0), do: {:error, :session_stop_race}
 
   defp do_stop_session(connection, reason, attempts_left) do
-    case Registry.lookup(Ircpipe.Irc.SessionRegistry, {connection.user_id, connection.id}) do
-      [{pid, _value}] ->
+    case Session.whereis(connection) do
+      pid when is_pid(pid) ->
         maybe_pause_stop_after_lookup(pid)
         monitor_ref = Process.monitor(pid)
 
@@ -88,7 +102,7 @@ defmodule Ircpipe.Irc.SessionSupervisor do
             forget_monitor(monitor_ref, error)
         end
 
-      [] ->
+      nil ->
         :ok
     end
   end
@@ -99,24 +113,30 @@ defmodule Ircpipe.Irc.SessionSupervisor do
     :exit, exit_reason -> {:exit, exit_reason}
   end
 
+  defp quit_session_for_deletion(pid) do
+    GenServer.call(pid, :quit_for_deletion)
+  catch
+    :exit, exit_reason -> {:exit, exit_reason}
+  end
+
   defp retry_stop(connection, reason, pid, attempts_left) do
     case DynamicSupervisor.terminate_child(__MODULE__, pid) do
       :ok ->
-        await_registry_release(
+        await_name_release(
           connection,
           reason,
           pid,
           attempts_left,
-          @registry_release_attempts
+          @name_release_attempts
         )
 
       {:error, :not_found} ->
-        await_registry_release(
+        await_name_release(
           connection,
           reason,
           pid,
           attempts_left,
-          @registry_release_attempts
+          @name_release_attempts
         )
 
       {:error, terminate_reason} ->
@@ -137,32 +157,50 @@ defmodule Ircpipe.Irc.SessionSupervisor do
   defp await_session_down(monitor_ref, pid, connection, reason, attempts_left) do
     receive do
       {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
-        await_registry_release(
+        await_name_release(
           connection,
           reason,
           pid,
           attempts_left,
-          @registry_release_attempts
+          @name_release_attempts
         )
     after
       @stop_timeout -> forget_monitor(monitor_ref, {:error, :session_stop_timeout})
     end
   end
 
-  defp await_registry_release(_connection, _reason, _pid, _attempts_left, 0) do
-    {:error, :session_registry_release_timeout}
+  defp await_deletion_session_down(monitor_ref, pid) do
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
+        :ok
+    after
+      @stop_timeout ->
+        Process.exit(pid, :shutdown)
+
+        receive do
+          {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+        after
+          @stop_timeout -> forget_monitor(monitor_ref, {:error, :session_stop_timeout})
+        end
+    end
   end
 
-  defp await_registry_release(connection, reason, pid, attempts_left, release_attempts_left) do
-    case Registry.lookup(Ircpipe.Irc.SessionRegistry, {connection.user_id, connection.id}) do
+  defp await_name_release(_connection, _reason, _pid, _attempts_left, 0) do
+    {:error, :session_name_release_timeout}
+  end
+
+  defp await_name_release(connection, reason, pid, attempts_left, release_attempts_left) do
+    registry_key = {connection.user_id, connection.id}
+
+    case Registry.lookup(Ircpipe.Irc.SessionRegistry, registry_key) do
       [] ->
         :ok
 
       [{^pid, _value}] ->
         receive do
         after
-          @registry_release_interval ->
-            await_registry_release(
+          @name_release_interval ->
+            await_name_release(
               connection,
               reason,
               pid,

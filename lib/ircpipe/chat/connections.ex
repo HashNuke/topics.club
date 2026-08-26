@@ -6,12 +6,17 @@ defmodule Ircpipe.Chat.Connections do
   alias Ircpipe.Accounts.User
 
   alias Ircpipe.Chat.{
+    ConnectionDeletionEventBatch,
+    ConnectionDeletionEventsWorker,
     ChannelMembership,
+    ConnectionDeletionWorker,
     DirectMessageThread,
     MembershipReconciler,
     ServerConnection
   }
 
+  alias Ircpipe.Irc.ConnectionLock
+  alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Repo
 
   def list(%User{} = user) do
@@ -37,7 +42,7 @@ defmodule Ircpipe.Chat.Connections do
 
     connections =
       ServerConnection
-      |> where([connection], connection.user_id == ^user_id)
+      |> where([connection], connection.user_id == ^user_id and not connection.deleting)
       |> order_by([connection], asc: connection.inserted_at, asc: connection.id)
       |> Repo.all()
 
@@ -64,7 +69,10 @@ defmodule Ircpipe.Chat.Connections do
 
     direct_message_threads =
       DirectMessageThread
-      |> where([thread], thread.user_id == ^user_id)
+      |> join(:inner, [thread], connection in ServerConnection,
+        on: connection.id == thread.server_connection_id
+      )
+      |> where([thread, connection], thread.user_id == ^user_id and not connection.deleting)
       |> order_by([thread], asc: fragment("lower(?)", thread.peer_nick), asc: thread.id)
       |> Repo.all()
 
@@ -141,7 +149,10 @@ defmodule Ircpipe.Chat.Connections do
 
   def get!(%User{id: user_id}, id) do
     ServerConnection
-    |> where([connection], connection.user_id == ^user_id and connection.id == ^id)
+    |> where(
+      [connection],
+      connection.user_id == ^user_id and connection.id == ^id and not connection.deleting
+    )
     |> preload(:channel_memberships)
     |> Repo.one!()
   end
@@ -151,6 +162,99 @@ defmodule Ircpipe.Chat.Connections do
     |> get!(id)
     |> ServerConnection.changeset(normalize_host(attrs))
     |> Repo.update()
+  end
+
+  def delete(%User{} = user, id) do
+    if Repo.in_transaction?() do
+      raise ArgumentError,
+            "cannot delete inside an existing transaction because buffer events must follow commit"
+    end
+
+    {:ok, id} = Ecto.Type.cast(:id, id)
+
+    with %ServerConnection{} = connection <- mark_deleting(user, id),
+         :ok <- maybe_pause_delete_after_mark(connection) do
+      case finalize_deletion(user.id, id) do
+        :ok -> {:ok, connection}
+        result -> result
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def finalize_deletion(user_id, id) when is_integer(user_id) and is_integer(id) do
+    if Repo.in_transaction?() do
+      raise ArgumentError,
+            "cannot finalize deletion inside an existing transaction because buffer events must follow commit"
+    end
+
+    case deleting_connection(user_id, id) do
+      nil ->
+        :ok
+
+      %ServerConnection{} = connection ->
+        with :ok <- SessionSupervisor.stop_for_deletion(connection),
+             {:ok, result} <- Repo.transaction(fn -> delete_in_transaction(user_id, id) end) do
+          case result do
+            :already_deleted ->
+              :ok
+
+            {deleted, event_batch, event_job} ->
+              maybe_pause_delete_after_commit(event_batch)
+              :ok = ConnectionDeletionEventsWorker.dispatch(event_batch.id)
+              :ok = Oban.cancel_job(event_job)
+              {:ok, deleted}
+          end
+        end
+    end
+  end
+
+  defp mark_deleting(user, id) do
+    ConnectionLock.run(user, id, fn ->
+      connection =
+        ServerConnection
+        |> where([connection], connection.user_id == ^user.id and connection.id == ^id)
+        |> Repo.one!()
+
+      connection
+      |> Ecto.Changeset.change(deleting: true)
+      |> Repo.update!()
+      |> tap(fn marked_connection ->
+        %{user_id: marked_connection.user_id, connection_id: marked_connection.id}
+        |> ConnectionDeletionWorker.new()
+        |> Oban.insert!()
+      end)
+    end)
+  end
+
+  defp deleting_connection(user_id, id) do
+    ServerConnection
+    |> where(
+      [connection],
+      connection.user_id == ^user_id and connection.id == ^id and connection.deleting
+    )
+    |> Repo.one()
+  end
+
+  defp maybe_pause_delete_after_mark(connection) do
+    case Application.get_env(:ircpipe, :connection_delete_after_mark_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+        send(test_pid, {:connection_delete_marked, self(), barrier_ref, connection.id})
+
+        receive do
+          {:continue_marked_connection_delete, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
   end
 
   def default_nick(%User{email: email}) do
@@ -191,6 +295,152 @@ defmodule Ircpipe.Chat.Connections do
     result
   end
 
+  defp delete_in_transaction(user_id, id) do
+    case ServerConnection
+         |> where(
+           [connection],
+           connection.user_id == ^user_id and connection.id == ^id and connection.deleting
+         )
+         |> lock("FOR UPDATE")
+         |> Repo.one() do
+      nil ->
+        :already_deleted
+
+      %ServerConnection{} = connection ->
+        delete_locked_connection(connection)
+    end
+  end
+
+  defp delete_locked_connection(connection) do
+    connection = Repo.preload(connection, :channel_memberships, force: true)
+    maybe_pause_delete_after_lock(connection)
+    maybe_fail_final_delete(connection)
+
+    case Repo.delete(connection) do
+      {:ok, deleted} ->
+        event_batch = insert_event_batch!(connection)
+
+        event_job =
+          %{event_batch_id: event_batch.id}
+          |> ConnectionDeletionEventsWorker.new(scheduled_in: {1, :minute})
+          |> Oban.insert!()
+
+        {deleted, event_batch, event_job}
+
+      {:error, changeset} ->
+        Repo.rollback(changeset)
+    end
+  end
+
+  defp insert_event_batch!(connection) do
+    occurred_at = DateTime.utc_now(:second)
+
+    payloads =
+      connection
+      |> deleted_buffer_payloads()
+      |> Enum.map(fn payload ->
+        payload
+        |> Map.drop([:user_id])
+        |> Map.put(:event_id, "connection_deletion:#{connection.id}:#{payload.buffer_id}")
+        |> Map.put(:occurred_at, DateTime.to_iso8601(occurred_at))
+      end)
+
+    %ConnectionDeletionEventBatch{
+      user_id: connection.user_id,
+      server_connection_id: connection.id,
+      payloads: %{events: payloads}
+    }
+    |> Repo.insert!()
+  end
+
+  defp maybe_fail_final_delete(connection) do
+    maybe_raise_final_delete(connection)
+
+    case Application.get_env(:ircpipe, :connection_final_delete_failure) do
+      {test_pid, failure_ref} when is_pid(test_pid) ->
+        send(test_pid, {:connection_final_delete_failed, self(), failure_ref, connection.id})
+        Repo.rollback(:forced_final_delete_failure)
+
+      _no_failure ->
+        :ok
+    end
+  end
+
+  defp maybe_raise_final_delete(connection) do
+    case Application.get_env(:ircpipe, :connection_final_delete_exception) do
+      {test_pid, exception_ref} when is_pid(test_pid) ->
+        send(test_pid, {:connection_final_delete_raised, self(), exception_ref, connection.id})
+        raise "forced connection final-delete exception"
+
+      _no_exception ->
+        :ok
+    end
+  end
+
+  defp maybe_pause_delete_after_commit(event_batch) do
+    case Application.get_env(:ircpipe, :connection_delete_after_commit_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+        send(test_pid, {:connection_delete_committed, self(), barrier_ref, event_batch.id})
+
+        receive do
+          {:continue_connection_delete_after_commit, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
+  end
+
+  defp maybe_pause_delete_after_lock(connection) do
+    case Application.get_env(:ircpipe, :connection_delete_after_lock_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+        send(test_pid, {:connection_delete_paused, self(), barrier_ref, connection.id})
+
+        receive do
+          {:continue_connection_delete, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
+  end
+
+  defp deleted_buffer_payloads(connection) do
+    channel_payloads =
+      connection.channel_memberships
+      |> Enum.sort_by(& &1.id)
+      |> Enum.map(fn membership ->
+        %{
+          user_id: connection.user_id,
+          buffer_id: "channel:#{membership.id}",
+          server_connection_id: connection.id,
+          channel_membership_id: membership.id
+        }
+      end)
+
+    channel_payloads ++
+      [
+        %{
+          user_id: connection.user_id,
+          buffer_id: "server:#{connection.id}",
+          server_connection_id: connection.id,
+          channel_membership_id: nil
+        }
+      ]
+  end
+
   defp lock_user!(user_id) do
     User
     |> where([user], user.id == ^user_id)
@@ -204,6 +454,7 @@ defmodule Ircpipe.Chat.Connections do
     |> where(
       [connection],
       connection.user_id == ^user_id and connection.port == ^port and
+        not connection.deleting and
         fragment("lower(btrim(?))", connection.host) == ^host
     )
     |> order_by([connection], asc: connection.inserted_at, asc: connection.id)

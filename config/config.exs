@@ -28,8 +28,13 @@ config :ircpipe,
 
 config :ircpipe, Oban,
   repo: Ircpipe.Repo,
-  queues: [notifications: 5],
-  plugins: [Oban.Plugins.Pruner]
+  queues: [notifications: 5, connection_deletions: 2],
+  plugins: [Oban.Plugins.Pruner],
+  cron: [
+    crontab: [
+      {"* * * * *", Ircpipe.Chat.ConnectionDeletionReconcilerWorker}
+    ]
+  ]
 
 # Configure the endpoint
 config :ircpipe, IrcpipeWeb.Endpoint,

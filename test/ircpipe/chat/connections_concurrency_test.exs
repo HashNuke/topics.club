@@ -6,6 +6,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ircpipe.Accounts.User
   alias Ircpipe.AccountsFixtures
+  alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Repo
@@ -87,6 +88,74 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
              end)
   end
 
+  test "connection deletion locks out a concurrent channel join" do
+    user = unboxed(fn -> AccountsFixtures.user_fixture() end)
+
+    connection =
+      unboxed(fn ->
+        {:ok, connection} =
+          Connections.create(user, %{
+            "name" => "delete race",
+            "host" => "irc.delete-race.test",
+            "nickname" => "mira"
+          })
+
+        connection
+      end)
+
+    barrier_ref = make_ref()
+    previous_barrier = Application.get_env(:ircpipe, :connection_delete_after_lock_barrier)
+
+    Application.put_env(
+      :ircpipe,
+      :connection_delete_after_lock_barrier,
+      {self(), barrier_ref}
+    )
+
+    on_exit(fn ->
+      restore_env(:connection_delete_after_lock_barrier, previous_barrier)
+
+      unboxed(fn ->
+        User
+        |> where([user], user.id == ^user.id)
+        |> Repo.delete_all()
+      end)
+    end)
+
+    supervisor = start_supervised!(Task.Supervisor)
+
+    delete_task =
+      unboxed_task(supervisor, fn -> Connections.delete(user, connection.id) end)
+
+    assert_receive {:connection_delete_paused, delete_pid, ^barrier_ref, connection_id}, 5_000
+    assert connection_id == connection.id
+
+    test_pid = self()
+
+    join_task =
+      unboxed_task(supervisor, fn ->
+        send(test_pid, {:connection_join_attempting, self(), barrier_ref})
+
+        try do
+          Chat.request_channel_join(user, connection, "#late")
+        rescue
+          Ecto.NoResultsError -> {:error, :connection_deleted}
+          Ecto.ConstraintError -> {:error, :connection_deleted}
+        end
+      end)
+
+    assert_receive {:connection_join_attempting, _join_pid, ^barrier_ref}
+    refute Task.yield(join_task, 100)
+
+    send(delete_pid, {:continue_connection_delete, barrier_ref})
+
+    assert {:ok, deleted} = Task.await(delete_task, 5_000)
+    assert deleted.id == connection.id
+    assert {:error, :connection_deleted} = Task.await(join_task, 5_000)
+
+    assert nil == unboxed(fn -> Repo.get(ServerConnection, connection.id) end)
+  end
+
   defp await_contenders(0, _barrier_ref, _user_id, contenders), do: contenders
 
   defp await_contenders(remaining, barrier_ref, user_id, contenders) do
@@ -107,6 +176,18 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
     end
   end
 
+  defp unboxed_task(supervisor, callback) do
+    Task.Supervisor.async_nolink(supervisor, fn ->
+      :ok = Sandbox.checkout(Repo, sandbox: false)
+
+      try do
+        callback.()
+      after
+        :ok = Sandbox.checkin(Repo)
+      end
+    end)
+  end
+
   defp restore_barrier(nil) do
     Application.delete_env(:ircpipe, :connection_endpoint_create_barrier)
   end
@@ -114,4 +195,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   defp restore_barrier(previous_barrier) do
     Application.put_env(:ircpipe, :connection_endpoint_create_barrier, previous_barrier)
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 end

@@ -108,9 +108,9 @@ defmodule Ircpipe.Notifications.Delivery do
       on: connection.id == membership.server_connection_id
     )
     |> where(
-      [notification, message],
+      [notification, message, _membership, connection],
       notification.id == ^notification_id and is_nil(notification.read_at) and
-        message.mentioned == true
+        message.mentioned == true and not connection.deleting
     )
     |> maybe_scope_notification_user(user_id)
     |> select([notification, message, membership, connection], %{
@@ -139,9 +139,9 @@ defmodule Ircpipe.Notifications.Delivery do
       on: connection.id == thread.server_connection_id
     )
     |> where(
-      [notification, _message, thread],
+      [notification, _message, thread, connection],
       notification.id == ^notification_id and is_nil(notification.read_at) and
-        is_nil(thread.blocked_at) and is_nil(thread.closed_at)
+        is_nil(thread.blocked_at) and is_nil(thread.closed_at) and not connection.deleting
     )
     |> maybe_scope_notification_user(user_id)
     |> select([notification, message, thread, connection], %{

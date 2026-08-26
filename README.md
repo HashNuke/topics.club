@@ -44,6 +44,11 @@ compiled with `Ecto.Adapters.Postgres` and the dependency set includes `postgrex
 Adding SQLite later would mean adding a second adapter dependency, changing repo
 configuration, and testing migrations and queries against both databases.
 
+Run exactly one Ircpipe app container/replica. IRC session ownership is
+intentionally node-local, and the app disables its IRC session subsystem while
+another visible BEAM node is connected. Do not horizontally scale the app until
+database-backed session ownership leases and fencing are implemented.
+
 Create a `.env` file from the example and set the required values:
 
 ```bash

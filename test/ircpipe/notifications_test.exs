@@ -28,6 +28,7 @@ defmodule Ircpipe.NotificationsTest do
     previous_rotation_pause = Application.get_env(:ircpipe, :pause_session_rotation)
     previous_snapshot_pause = Application.get_env(:ircpipe, :pause_push_delivery_snapshot)
     previous_reset_pause = Application.get_env(:ircpipe, :pause_session_reset)
+    previous_delete_failure = Application.get_env(:ircpipe, :connection_final_delete_failure)
 
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
@@ -42,6 +43,7 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:pause_session_rotation, previous_rotation_pause)
       restore_env(:pause_push_delivery_snapshot, previous_snapshot_pause)
       restore_env(:pause_session_reset, previous_reset_pause)
+      restore_env(:connection_final_delete_failure, previous_delete_failure)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -435,6 +437,81 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     assert Repo.aggregate(Ircpipe.Chat.Message, :count) == message_count
+    refute_receive {:push_sent, _, _}
+  end
+
+  test "a connection marked for deletion is ineligible for mention and direct-message delivery",
+       %{
+         scope: scope,
+         connection: connection,
+         membership: membership
+       } do
+    assert {:ok, _subscription} =
+             upsert_subscription(
+               scope,
+               subscription_attrs("https://push.example.test/subscription/deleting-connection")
+             )
+
+    session_token = Accounts.generate_user_session_token(scope.user)
+    generation = UserToken.session_token_fingerprint(session_token)
+    mention_notification = mention_notification(connection, membership)
+
+    assert {:ok, %{message: direct_message}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               "akash",
+               "do not deliver after deletion starts",
+               "message",
+               %{direction: "incoming", account: "akash-account"}
+             )
+
+    direct_notification = Repo.get_by!(Notification, message_id: direct_message.id)
+
+    assert Delivery.eligible?(
+             scope,
+             session_token,
+             mention_notification.id,
+             generation
+           )
+
+    assert Delivery.eligible?(
+             scope,
+             session_token,
+             direct_notification.id,
+             generation
+           )
+
+    failure_ref = make_ref()
+
+    Application.put_env(
+      :ircpipe,
+      :connection_final_delete_failure,
+      {self(), failure_ref}
+    )
+
+    assert {:error, :forced_final_delete_failure} =
+             Connections.delete(scope.user, connection.id)
+
+    assert_receive {:connection_final_delete_failed, _pid, ^failure_ref, connection_id}
+    assert connection_id == connection.id
+
+    refute Delivery.eligible?(
+             scope,
+             session_token,
+             mention_notification.id,
+             generation
+           )
+
+    refute Delivery.eligible?(
+             scope,
+             session_token,
+             direct_notification.id,
+             generation
+           )
+
+    assert {:cancel, :notification_not_found} = Delivery.deliver(mention_notification.id)
+    assert {:cancel, :notification_not_found} = Delivery.deliver(direct_notification.id)
     refute_receive {:push_sent, _, _}
   end
 

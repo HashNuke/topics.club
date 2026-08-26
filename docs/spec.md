@@ -90,6 +90,7 @@ Runtime expectations:
 - Keep one IRC session process per `{user_id, server_connection_id}`.
 - Supervise sessions under `Ircpipe.Irc.SessionSupervisor`.
 - Register sessions in `Ircpipe.Irc.SessionRegistry`.
+- Run exactly one BEAM application node/replica. The IRC runtime is intentionally single-node; horizontal application scaling requires database-backed session ownership leases and fencing first.
 - Reuse an existing session when the same user joins another channel on the same server.
 - Use local InspIRCd and irssi installations for development and integration testing.
 

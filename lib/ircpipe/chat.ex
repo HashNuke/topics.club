@@ -8,7 +8,6 @@ defmodule Ircpipe.Chat do
     BufferEvents,
     ChannelMembership,
     ChannelUser,
-    Connections,
     DirectMessageBlockIdentity,
     DirectMessageThread,
     MembershipReconciler,
@@ -325,28 +324,6 @@ defmodule Ircpipe.Chat do
       {:error, changeset} ->
         {:error, changeset}
     end
-  end
-
-  def delete_connection(%User{} = user, id) do
-    connection = Connections.get!(user, id)
-
-    Enum.each(connection.channel_memberships, fn membership ->
-      BufferEvents.left(%{
-        user_id: user.id,
-        buffer_id: "channel:#{membership.id}",
-        server_connection_id: connection.id,
-        channel_membership_id: membership.id
-      })
-    end)
-
-    BufferEvents.left(%{
-      user_id: user.id,
-      buffer_id: "server:#{connection.id}",
-      server_connection_id: connection.id,
-      channel_membership_id: nil
-    })
-
-    Repo.delete(connection)
   end
 
   def update_connection_casemapping(%ServerConnection{} = connection, casemapping) do

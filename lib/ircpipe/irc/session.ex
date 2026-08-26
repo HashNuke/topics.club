@@ -11,6 +11,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat.MembershipReconciler
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.CommandResult
+  alias Ircpipe.Irc.ConnectionLock
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Repo
@@ -82,11 +83,11 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def status(%ServerConnection{} = connection) do
-    case Registry.lookup(Ircpipe.Irc.SessionRegistry, {connection.user_id, connection.id}) do
-      [] ->
+    case whereis(connection) do
+      nil ->
         "disconnected"
 
-      [{_pid, _value}] ->
+      _pid ->
         case connection_info(connection) do
           {:ok, %Info{registered?: true}} -> "connected"
           _other -> "connecting"
@@ -104,31 +105,42 @@ defmodule Ircpipe.Irc.Session do
     {:via, Registry, {Ircpipe.Irc.SessionRegistry, {user_id, id}}}
   end
 
-  @impl true
-  def init(%ServerConnection{} = connection) do
-    send(self(), :connect)
+  def whereis(%ServerConnection{} = connection), do: GenServer.whereis(via(connection))
 
-    {:ok,
-     %{
-       connection: connection,
-       client: nil,
-       registered?: false,
-       pending_joins: persisted_channels(connection),
-       joined_channels: MapSet.new(),
-       names_buffers: %{},
-       pending_echoes: PendingEchoes.new(),
-       pending_commands: %{},
-       ignored_event_logs: %{},
-       client_info: nil,
-       isupport_received?: false,
-       isupport_seen?: false,
-       registration_boundary_reached?: false,
-       join_validation_ready?: false,
-       joins_flushed?: false,
-       join_flush_timer: nil,
-       sent_joins: MapSet.new(),
-       channel_list_request: nil
-     }}
+  @impl true
+  def init(%ServerConnection{} = requested_connection) do
+    case start_payload(requested_connection) do
+      {%ServerConnection{} = connection, pending_channels} ->
+        send(self(), :connect)
+
+        {:ok,
+         %{
+           connection: connection,
+           client: nil,
+           registered?: false,
+           pending_joins: pending_channels,
+           joined_channels: MapSet.new(),
+           names_buffers: %{},
+           pending_echoes: PendingEchoes.new(),
+           pending_commands: %{},
+           ignored_event_logs: %{},
+           client_info: nil,
+           isupport_received?: false,
+           isupport_seen?: false,
+           registration_boundary_reached?: false,
+           join_validation_ready?: false,
+           joins_flushed?: false,
+           join_flush_timer: nil,
+           sent_joins: MapSet.new(),
+           channel_list_request: nil
+         }}
+
+      nil ->
+        :ignore
+
+      {:error, reason} ->
+        {:stop, reason}
+    end
   end
 
   @impl true
@@ -989,7 +1001,19 @@ defmodule Ircpipe.Irc.Session do
     {:stop, :normal, normalize_result(result), state}
   end
 
+  def handle_call(:quit_for_deletion, _from, state) do
+    result =
+      case state.client do
+        nil -> :ok
+        client -> Ircxd.Client.quit(client, "connection deleted")
+      end
+
+    {:stop, :normal, normalize_result(result), Map.put(state, :deleting?, true)}
+  end
+
   @impl true
+  def terminate(_reason, %{deleting?: true}), do: :ok
+
   def terminate(_reason, %{connection: connection} = state) do
     fail_pending_commands(state, "IRC session stopped before completion.")
     update_status(connection, "disconnected")
@@ -2677,6 +2701,49 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp present?(value), do: is_binary(value) and value != ""
+
+  defp start_payload(requested_connection) do
+    ConnectionLock.run(requested_connection, fn ->
+      case authoritative_connection(requested_connection) do
+        %ServerConnection{} = connection ->
+          pending_channels = persisted_channels(connection)
+          maybe_pause_start_after_lookup(connection)
+          {connection, pending_channels}
+
+        nil ->
+          nil
+      end
+    end)
+  end
+
+  defp authoritative_connection(%ServerConnection{id: id, user_id: user_id}) do
+    ServerConnection
+    |> where(
+      [connection],
+      connection.id == ^id and connection.user_id == ^user_id and not connection.deleting
+    )
+    |> Repo.one()
+  end
+
+  defp maybe_pause_start_after_lookup(connection) do
+    case Application.get_env(:ircpipe, :session_start_after_lookup_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+        send(test_pid, {:session_start_paused, self(), barrier_ref, connection.id})
+
+        receive do
+          {:continue_session_start, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
+  end
 
   defp legacy_event_name(name) when is_atom(name), do: Atom.to_string(name)
   defp legacy_event_name(event) when is_tuple(event), do: event |> elem(0) |> to_string()

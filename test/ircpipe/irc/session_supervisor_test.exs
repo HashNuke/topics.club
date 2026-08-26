@@ -2,6 +2,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
   use ExUnit.Case, async: false
 
   alias Ircpipe.Chat.ServerConnection
+  alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
 
   setup do
@@ -23,10 +24,16 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
     connection = %ServerConnection{id: unique_id, user_id: unique_id}
 
     pid = start_supervised!({Ircpipe.ClosedIrcSession, connection})
+
+    assert {:via, Registry, {Ircpipe.Irc.SessionRegistry, registry_key}} =
+             Session.via(connection)
+
+    assert Registry.lookup(Ircpipe.Irc.SessionRegistry, registry_key) == [{pid, nil}]
     ref = Process.monitor(pid)
 
     assert :ok = SessionSupervisor.stop_session(connection)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    assert Registry.lookup(Ircpipe.Irc.SessionRegistry, registry_key) == []
   end
 
   @tag :capture_log
@@ -42,7 +49,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
   end
 
   @tag :capture_log
-  test "stops a transient replacement that starts after registry lookup" do
+  test "stops a transient replacement that starts after session name lookup" do
     unique_id = System.unique_integer([:positive])
     connection = %ServerConnection{id: unique_id, user_id: unique_id}
     test_pid = self()
@@ -57,7 +64,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
     on_exit(fn ->
       Application.delete_env(:ircpipe, :pause_session_stop_after_lookup)
       _ = terminate_test_session(original_pid)
-      stop_registered_test_session(connection, 3)
+      stop_named_test_session(connection, 3)
     end)
 
     assert_receive {:restarting_irc_session_started, ^original_pid}
@@ -84,18 +91,48 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
     assert :ok = Task.await(stop_task)
     assert_receive {:restarting_irc_session_stopped, ^replacement_pid}
 
-    assert Registry.lookup(Ircpipe.Irc.SessionRegistry, {connection.user_id, connection.id}) == []
+    assert Session.whereis(connection) == nil
   end
 
-  defp stop_registered_test_session(_connection, 0), do: :ok
+  @tag :capture_log
+  test "independent session failures do not exhaust the shared supervisor" do
+    supervisor_pid = Process.whereis(SessionSupervisor)
+    start_counter = start_supervised!({Agent, fn -> 0 end})
 
-  defp stop_registered_test_session(connection, attempts_left) do
-    case Registry.lookup(Ircpipe.Irc.SessionRegistry, {connection.user_id, connection.id}) do
-      [{pid, _value}] ->
+    Enum.each(1..4, fn _attempt ->
+      unique_id = System.unique_integer([:positive])
+      connection = %ServerConnection{id: unique_id, user_id: unique_id}
+
+      {:ok, original_pid} =
+        DynamicSupervisor.start_child(
+          SessionSupervisor,
+          {Ircpipe.RestartingIrcSession, {connection, self(), start_counter}}
+        )
+
+      assert_receive {:restarting_irc_session_started, ^original_pid}
+      original_ref = Process.monitor(original_pid)
+      GenServer.cast(original_pid, :crash)
+      assert_receive {:DOWN, ^original_ref, :process, ^original_pid, :session_crashed}
+      assert_receive {:restarting_irc_session_start_paused, restart_pid}
+      send(restart_pid, {:continue_restarting_irc_session_start, connection.id})
+      assert_receive {:restarting_irc_session_started, replacement_pid}
+      replacement_ref = Process.monitor(replacement_pid)
+      assert :ok = DynamicSupervisor.terminate_child(SessionSupervisor, replacement_pid)
+      assert_receive {:DOWN, ^replacement_ref, :process, ^replacement_pid, :shutdown}
+      assert Process.whereis(SessionSupervisor) == supervisor_pid
+      Agent.update(start_counter, fn _count -> 0 end)
+    end)
+  end
+
+  defp stop_named_test_session(_connection, 0), do: :ok
+
+  defp stop_named_test_session(connection, attempts_left) do
+    case Session.whereis(connection) do
+      pid when is_pid(pid) ->
         _ = DynamicSupervisor.terminate_child(SessionSupervisor, pid)
-        stop_registered_test_session(connection, attempts_left - 1)
+        stop_named_test_session(connection, attempts_left - 1)
 
-      [] ->
+      nil ->
         :ok
     end
   catch

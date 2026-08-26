@@ -109,17 +109,21 @@ defmodule Ircpipe.Realtime.Event do
   end
 
   def buffer_left(payload) do
-    occurred_at = DateTime.utc_now(:second)
     payload = Map.new(payload)
+    buffer_id = Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")
+    occurred_at = Map.get(payload, :occurred_at) || DateTime.utc_now(:second)
+    event_id = Map.get(payload, :event_id) || "buffer_left:#{buffer_id}:#{timestamp(occurred_at)}"
 
     Map.merge(payload, %{
       type: "buffer:left",
       version: @version,
-      event_id:
-        "buffer_left:#{Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+      event_id: event_id,
       occurred_at: occurred_at
     })
   end
+
+  defp timestamp(%DateTime{} = occurred_at), do: DateTime.to_unix(occurred_at, :microsecond)
+  defp timestamp(occurred_at), do: occurred_at
 
   def buffer_read(payload) do
     occurred_at = DateTime.utc_now(:second)
