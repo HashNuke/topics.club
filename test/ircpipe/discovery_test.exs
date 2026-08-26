@@ -58,7 +58,7 @@ defmodule Ircpipe.DiscoveryTest do
     {:ok, [libera, oftc]} = Discovery.sync_networks(network_entries(), now)
 
     assert {:ok, 2} =
-             Discovery.replace_channels(
+             Discovery.replace_server_channels(
                libera,
                [
                  %{name: "#elixir", user_count: 420, topic: "Elixir and OTP"},
@@ -68,7 +68,7 @@ defmodule Ircpipe.DiscoveryTest do
              )
 
     assert {:ok, 1} =
-             Discovery.replace_channels(
+             Discovery.replace_server_channels(
                oftc,
                [
                  %{name: "#debian", user_count: 900, topic: "Debian support"}
@@ -76,7 +76,10 @@ defmodule Ircpipe.DiscoveryTest do
                now
              )
 
-    assert Enum.map(Discovery.list_popular_channels(), &{&1.name, &1.user_count, &1.network.name}) ==
+    assert Enum.map(
+             Discovery.list_popular_server_channels(),
+             &{&1.name, &1.user_count, &1.network.name}
+           ) ==
              [
                {"#linux", 1_800, "Libera.Chat"},
                {"#debian", 900, "OFTC"},
@@ -84,13 +87,13 @@ defmodule Ircpipe.DiscoveryTest do
              ]
 
     assert {:ok, 1} =
-             Discovery.replace_channels(
+             Discovery.replace_server_channels(
                libera,
                [%{name: "#beam", user_count: 80, topic: nil}],
                now
              )
 
-    assert Enum.map(Discovery.list_popular_channels(), & &1.name) == ["#debian", "#beam"]
+    assert Enum.map(Discovery.list_popular_server_channels(), & &1.name) == ["#debian", "#beam"]
     assert Repo.reload!(libera).channels_refreshed_at == now
   end
 
@@ -100,7 +103,8 @@ defmodule Ircpipe.DiscoveryTest do
     {:ok, [libera, oftc]} =
       Discovery.sync_networks(network_entries(), DateTime.add(now, -8, :day))
 
-    {:ok, 0} = Discovery.replace_channels(libera, [], DateTime.add(now, -23, :hour))
+    {:ok, 0} =
+      Discovery.replace_server_channels(libera, [], DateTime.add(now, -23, :hour))
 
     assert Enum.map(Discovery.networks_due_for_channel_refresh(now), & &1.id) == [oftc.id]
     assert Discovery.network_catalog_due?(now)
