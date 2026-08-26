@@ -34,6 +34,7 @@ import type {
   ChatUser,
   DirectMessageClosedPayload,
   DirectMessageThreadPayload,
+  DirectMessageTombstone,
   EntityId,
   JoinedTopicPayload,
   MessagesByBuffer,
@@ -250,11 +251,6 @@ export default function useServerConnections({
 
   function applyBufferRead(payload: BufferReadPayload): void {
     if (!payload?.buffer_id) return
-    if (
-      payload.buffer_id.startsWith("direct:") &&
-      !acceptDirectMessageRevision(payload.buffer_id, payload.direct_message_revision)
-    ) return
-
     setConnections((current) => updateBufferRead(current, payload))
   }
 
@@ -477,6 +473,18 @@ export default function useServerConnections({
     return true
   }
 
+  function seedDirectMessageTombstones(tombstones: DirectMessageTombstone[]): void {
+    for (const tombstone of tombstones) {
+      if (!tombstone?.buffer_id?.startsWith("direct:")) continue
+      if (!Number.isSafeInteger(tombstone.revision) || tombstone.revision < 0) continue
+
+      const previous = directMessageRevisionsRef.current.get(tombstone.buffer_id) ?? -1
+      if (tombstone.revision > previous) {
+        directMessageRevisionsRef.current.set(tombstone.buffer_id, tombstone.revision)
+      }
+    }
+  }
+
   return {
     applyAuthoritativeJoinedTopic,
     applyBufferLeft,
@@ -494,6 +502,7 @@ export default function useServerConnections({
     leaveChannel,
     leaveServer,
     reconnectServer,
+    seedDirectMessageTombstones,
     setDirectMessageBlocked,
     setConnections,
     updateServerConnection,

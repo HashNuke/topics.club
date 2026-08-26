@@ -279,7 +279,13 @@ defmodule IrcpipeWeb.UserChannelTest do
     buffer_id = "direct:#{thread.id}"
 
     read_ref = push(socket, "buffer:read", %{"buffer_id" => buffer_id})
-    assert_reply read_ref, :ok, %{buffer_id: ^buffer_id, unread_count: 0}
+
+    assert_reply read_ref, :ok, %{
+      buffer: %{buffer_id: ^buffer_id, unread_count: 0},
+      revision: read_revision
+    }
+
+    assert read_revision > thread.mutation_revision
 
     block_ref =
       push(socket, "direct_message:block", %{"buffer_id" => buffer_id, "blocked" => true})
@@ -298,6 +304,67 @@ defmodule IrcpipeWeb.UserChannelTest do
       push(socket, "direct_message:close", %{"buffer_id" => "direct:#{other_thread.id}"})
 
     assert_reply foreign_ref, :error, %{reason: "invalid_direct_message"}
+  end
+
+  test "rejects sends through a displaced direct-message buffer" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    assert {:ok, %{thread: original}} =
+             Chat.record_direct_message(
+               connection,
+               "alpha",
+               "alpha",
+               "first",
+               "message",
+               %{direction: "incoming", account: "account-a"}
+             )
+
+    assert {:ok, %{thread: displaced}} =
+             Chat.record_direct_message(
+               connection,
+               "beta",
+               "beta",
+               "second",
+               "message",
+               %{direction: "incoming", account: "account-b"}
+             )
+
+    assert {:ok, renamed} =
+             Chat.rename_direct_message_peer(
+               connection,
+               original.peer_nick,
+               displaced.peer_nick,
+               %{account: "account-a"},
+               :rfc1459
+             )
+
+    assert renamed.id == original.id
+    archived = Chat.get_direct_message_thread!(user, displaced.id)
+    assert archived.closed_at
+    assert String.starts_with?(archived.peer_key, "archived:")
+
+    socket = join_user_channel(user)
+
+    ref =
+      push(socket, "message:send", %{
+        "buffer_id" => "direct:#{archived.id}",
+        "body" => "must not reach whoever owns beta now",
+        "client_message_id" => "stale-displaced-send"
+      })
+
+    assert_reply ref, :error, %{
+      reason: "direct_message_closed",
+      client_message_id: "stale-displaced-send"
+    }
   end
 
   test "rejects unknown slash commands over the user channel" do
@@ -738,8 +805,11 @@ defmodule IrcpipeWeb.UserChannelTest do
       version: 1,
       event_id: "notification_mention:message:" <> _,
       body: "hello mira",
-      mentioned: true
+      mentioned: true,
+      notification_id: notification_id
     }
+
+    assert is_integer(notification_id)
   end
 
   test "pushes presence sync over the user channel" do

@@ -43,11 +43,16 @@ function mockBootstrapFetch({
   channelNotificationsEnabled = true,
   notificationPreferenceRevision = 0,
   channelPreferenceResponsePromise = null,
+  notificationEligible = true,
 } = {}) {
   let bufferMessageRequestCount = 0
   let joinRequestCount = 0
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
+    if (String(path).startsWith("/api/notifications/") && String(path).includes("/eligibility?")) {
+      return {ok: true, json: async () => ({eligible: notificationEligible})}
+    }
+
     if (path === "/api/push_subscriptions" && options.method === "POST") {
       const {installation_id} = JSON.parse(options.body)
       return {
@@ -206,7 +211,7 @@ function mockBootstrapFetch({
         json: async () => ({
           user: {id: 1, email: "mira@example.com", message_retention_days: 3},
           notification_state: "default",
-          push,
+          push: {session_generation: "test-session", ...push},
           server_time: "2026-05-13T10:00:00Z",
           command_catalog: [
             {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["server", "channel"], availability: "enabled"},
@@ -227,6 +232,7 @@ function mockBootstrapFetch({
               channels: [7],
             },
           ],
+          direct_message_tombstones: [],
           buffers: [
             {
               buffer_id: "server:42",
@@ -297,7 +303,7 @@ function mockDiscoveryFetch() {
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/bootstrap") {
-      return {ok: true, json: async () => ({connections: [], buffers: [], messages_by_buffer: {}, users_by_buffer: {}, topics: [], notification_state: "default"})}
+      return {ok: true, json: async () => ({connections: [], buffers: [], direct_message_tombstones: [], messages_by_buffer: {}, users_by_buffer: {}, topics: [], notification_state: "default"})}
     }
 
     if (path === "/api/discovery/server_channels") {
@@ -338,6 +344,7 @@ function mockResolvedLocalTopicFetch() {
         json: async () => ({
           connections: [],
           buffers: [],
+          direct_message_tombstones: [],
           messages_by_buffer: {},
           users_by_buffer: {},
           topics: [],
@@ -390,6 +397,7 @@ function mockManualJoinFetch() {
         json: async () => ({
           connections: [],
           buffers: [],
+          direct_message_tombstones: [],
           messages_by_buffer: {},
           users_by_buffer: {},
           topics: topicFixtures,
@@ -460,7 +468,8 @@ function directMessageApiClient() {
     topics: vi.fn().mockResolvedValue({topics: []}),
     bootstrap: vi.fn().mockResolvedValue({
       user: {id: 1, email: "mira@example.com"},
-      push: {configured: false, vapid_public_key: null},
+      push: {configured: false, vapid_public_key: null, session_generation: "test-session"},
+      direct_message_tombstones: [],
       connections: [
         {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", notification_preference_revision: 0},
         {id: 2, name: "New Network", host: "irc.new.test", nickname: "mira", status: "connected", notification_preference_revision: 0},
@@ -481,6 +490,7 @@ function directMessageApiClient() {
       users_by_buffer: {},
       command_catalog: [{name: "/msg", contexts: ["channel"]}],
     }),
+    notificationEligibility: vi.fn().mockResolvedValue({eligible: true}),
   }
 }
 
@@ -713,6 +723,119 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByLabelText("1 unread message from Zed")).toBeInTheDocument()
   })
 
+  test("keeps a full read snapshot when an older private-message snapshot is delayed", async () => {
+    const apiClient = directMessageApiClient()
+    const client = fakeRealtimeClient(vi.fn())
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+
+    const connection = {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", notification_preference_revision: 0}
+    act(() => {
+      realtimeHandlers.onDirectMessageThread({
+        connection,
+        buffer: {
+          buffer_id: "direct:9",
+          buffer_type: "direct_message",
+          server_connection_id: 1,
+          direct_message_thread_id: 9,
+          direct_message_revision: 3,
+          title: "Zed",
+          unread_count: 0,
+          blocked: true,
+          closed_at: null,
+        },
+        revision: 3,
+      })
+      realtimeHandlers.onDirectMessageThread({
+        connection,
+        buffer: {
+          buffer_id: "direct:9",
+          buffer_type: "direct_message",
+          server_connection_id: 1,
+          direct_message_thread_id: 9,
+          direct_message_revision: 2,
+          title: "Zed",
+          unread_count: 2,
+          blocked: false,
+          closed_at: null,
+        },
+        revision: 2,
+      })
+    })
+
+    expect(screen.getByRole("button", {name: "Unblock user"})).toBeInTheDocument()
+    expect(screen.queryByLabelText("2 unread messages from Zed")).not.toBeInTheDocument()
+  })
+
+  test("seeds closed-thread tombstones before replaying realtime events", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn().mockResolvedValue({
+        ...initial,
+        active_buffer_id: "direct:8",
+        buffers: initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9"),
+        direct_message_tombstones: [{
+          buffer_id: "direct:9",
+          server_connection_id: 1,
+          direct_message_thread_id: 9,
+          revision: 2,
+        }],
+      }),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+    act(() => {
+      realtimeHandlers.onDirectMessageThread({
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", status: "connected", notification_preference_revision: 0},
+        buffer: {
+          buffer_id: "direct:9",
+          buffer_type: "direct_message",
+          server_connection_id: 1,
+          direct_message_thread_id: 9,
+          direct_message_revision: 1,
+          title: "Zed",
+          unread_count: 1,
+          blocked: false,
+          closed_at: null,
+        },
+        revision: 1,
+      })
+    })
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    expect(within(nav).queryByText("Zed")).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "akash"})).toBeInTheDocument()
+  })
+
   test("authoritatively refreshes on reconnect and replays events that arrive during refresh", async () => {
     const seedClient = directMessageApiClient()
     const initial = await seedClient.bootstrap()
@@ -894,6 +1017,7 @@ describe("IrcpipeApp UI prototype", () => {
         })
         realtimeHandlers.onNotificationMention({
           event_id: "queued-muted-mention",
+          notification_id: 101,
           buffer_id: "channel:4",
           server_connection_id: 1,
           channel: "#zulu",
@@ -969,6 +1093,7 @@ describe("IrcpipeApp UI prototype", () => {
         })
         realtimeHandlers.onNotificationDirectMessage({
           event_id: "queued-direct-message",
+          notification_id: 102,
           buffer_id: "direct:12",
           server_connection_id: 1,
           peer_nick: "Mona",
@@ -2000,6 +2125,7 @@ describe("IrcpipeApp UI prototype", () => {
 
       realtimeHandlers.onNotificationMention({
         event_id: "notification:1",
+        notification_id: 103,
         buffer_id: "channel:7",
         server_connection_id: 42,
         channel: "#testing",
@@ -2008,6 +2134,7 @@ describe("IrcpipeApp UI prototype", () => {
       })
       realtimeHandlers.onNotificationMention({
         event_id: "notification:1",
+        notification_id: 103,
         buffer_id: "channel:7",
         server_connection_id: 42,
         channel: "#testing",
@@ -2020,6 +2147,56 @@ describe("IrcpipeApp UI prototype", () => {
         body: "akash: hello mira",
         tag: "notification:1",
       })
+    } finally {
+      if (originalNotification) {
+        Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+      } else {
+        delete window.Notification
+      }
+      Object.defineProperty(document, "visibilityState", {value: originalVisibilityState, configurable: true})
+    }
+  })
+
+  test("fails closed when server eligibility rejects a delayed local notification", async () => {
+    mockBootstrapFetch({notificationEligible: false})
+    let realtimeHandlers
+    const client = fakeRealtimeClient(vi.fn())
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    const originalNotification = window.Notification
+    const originalVisibilityState = document.visibilityState
+
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+
+    try {
+      render(
+        <IrcpipeApp
+          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return client
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+      realtimeHandlers.onNotificationMention({
+        event_id: "notification:committed-mute-read-or-close",
+        notification_id: 106,
+        buffer_id: "channel:7",
+        server_connection_id: 42,
+        channel: "#testing",
+        nick: "akash",
+        body: "must stay private",
+      })
+
+      await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/notifications/106/eligibility?session_generation=test-session",
+        expect.objectContaining({credentials: "same-origin"})
+      ))
+      expect(NotificationMock).not.toHaveBeenCalled()
     } finally {
       if (originalNotification) {
         Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
@@ -2092,6 +2269,7 @@ describe("IrcpipeApp UI prototype", () => {
       act(() => {
         realtimeHandlers.onNotificationMention({
           event_id: "notification:during-subscription-inspection",
+          notification_id: 104,
           buffer_id: "channel:7",
           server_connection_id: 42,
           channel: "#testing",
@@ -2166,6 +2344,7 @@ describe("IrcpipeApp UI prototype", () => {
       expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
       realtimeHandlers.onNotificationMention({
         event_id: "notification:muted",
+        notification_id: 105,
         buffer_id: "channel:7",
         server_connection_id: 42,
         channel: "#testing",
@@ -2416,6 +2595,16 @@ describe("IrcpipeApp UI prototype", () => {
 
       await user.click(await screen.findByLabelText("Mute mention notifications for #testing"))
       expect(await screen.findByLabelText("Enable mention notifications for #testing")).toBeInTheDocument()
+
+      act(() => {
+        realtimeHandlers.onNotificationPreference({
+          scope: "channel",
+          id: 7,
+          mention_notifications_enabled: true,
+          revision: 0,
+        })
+      })
+      expect(screen.getByLabelText("Enable mention notifications for #testing")).toBeInTheDocument()
 
       act(() => {
         realtimeHandlers.onNotificationPreference({

@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   ChatUser,
   CommandCatalogEntry,
+  DirectMessageTombstone,
   MessagesByBuffer,
   ServerConnection,
   Topic,
@@ -19,6 +20,7 @@ export interface BootstrapPayload {
   buffers?: BufferRecord[]
   command_catalog?: CommandCatalogEntry[]
   connections?: BackendConnection[]
+  direct_message_tombstones?: DirectMessageTombstone[]
   message_cursors_by_buffer?: Record<string, unknown>
   messages_by_buffer?: MessagesByBuffer
   notification_state?: NotificationPermission | null
@@ -32,6 +34,7 @@ export interface BootstrapState {
   activeServerId: string | null
   commandCatalog: CommandCatalogEntry[]
   connections: ServerConnection[]
+  directMessageTombstones: DirectMessageTombstone[]
   cursorsByBuffer: Record<string, unknown>
   messagesByChannel: MessagesByBuffer
   messagesByServer: MessagesByBuffer
@@ -43,7 +46,11 @@ export interface BootstrapState {
 }
 
 export function buildBootstrapState(bootstrap?: BootstrapPayload | null): BootstrapState | null {
-  if (!bootstrap?.buffers || !bootstrap?.connections) return null
+  if (
+    !bootstrap?.buffers ||
+    !bootstrap?.connections ||
+    !Array.isArray(bootstrap.direct_message_tombstones)
+  ) return null
 
   const buffers = bootstrap.buffers
   const connections = bootstrap.connections.map((connection) => {
@@ -112,6 +119,7 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     activeServerId,
     commandCatalog: bootstrap.command_catalog || [],
     connections,
+    directMessageTombstones: bootstrap.direct_message_tombstones,
     cursorsByBuffer: bootstrap.message_cursors_by_buffer || {},
     messagesByChannel,
     messagesByServer,

@@ -42,13 +42,16 @@ describe("browser notifications", () => {
     Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
 
     expect(showMentionNotification(
-      {nick: "akash", channel: "#elixir", body: "mira: ping"},
+      {event_id: "notification:akash", nick: "akash", channel: "#elixir", body: "mira: ping"},
       {notificationState: "granted"}
     )).toBe(true)
-    expect(NotificationMock).toHaveBeenCalledWith("#elixir", {body: "akash: mira: ping"})
+    expect(NotificationMock).toHaveBeenCalledWith("#elixir", {
+      body: "akash: mira: ping",
+      tag: "notification:akash",
+    })
 
     expect(showMentionNotification(
-      {nick: "mira", channel: "#elixir", body: "legitimate sender matching email prefix"},
+      {event_id: "notification:mira", nick: "mira", channel: "#elixir", body: "legitimate sender matching email prefix"},
       {notificationState: "granted"}
     )).toBe(true)
     expect(NotificationMock).toHaveBeenCalledTimes(2)
@@ -66,7 +69,7 @@ describe("browser notifications", () => {
     await expect(requestNotificationPermission()).resolves.toBe("insecure")
     expect(NotificationMock.requestPermission).not.toHaveBeenCalled()
     expect(showMentionNotification(
-      {nick: "akash", channel: "#elixir", body: "mira: ping"},
+      {event_id: "notification:insecure", nick: "akash", channel: "#elixir", body: "mira: ping"},
       {notificationState: "insecure"}
     )).toBe(false)
   })
@@ -78,10 +81,13 @@ describe("browser notifications", () => {
     Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
 
     expect(showMentionNotification(
-      {nick: "akash", peer_nick: "akash", body: "hello privately"},
+      {event_id: "notification:direct", nick: "akash", peer_nick: "akash", body: "hello privately"},
       {notificationState: "granted"}
     )).toBe(true)
-    expect(NotificationMock).toHaveBeenCalledWith("akash", {body: "akash: hello privately"})
+    expect(NotificationMock).toHaveBeenCalledWith("akash", {
+      body: "akash: hello privately",
+      tag: "notification:direct",
+    })
   })
 
   test("elects one tab to show a shared notification event", async () => {
@@ -247,6 +253,31 @@ describe("browser notifications", () => {
     })
 
     await expect(coordinator.coordinate("notification:no-channel", {
+      eligible: true,
+      visible: false,
+      display,
+    })).resolves.toBe(false)
+
+    expect(display).not.toHaveBeenCalled()
+    coordinator.close()
+  })
+
+  test("fails closed for missing or malformed event IDs", async () => {
+    const display = vi.fn().mockReturnValue(true)
+    const coordinator = createNotificationEventCoordinator({
+      channelFactory: inMemoryBroadcastChannelFactory(),
+      claimWindowMs: 1,
+      scope: "strict-events",
+      storage: null,
+      tabId: "tab-a",
+    })
+
+    await expect(coordinator.coordinate("", {
+      eligible: true,
+      visible: false,
+      display,
+    })).resolves.toBe(false)
+    await expect(coordinator.coordinate("x".repeat(257), {
       eligible: true,
       visible: false,
       display,

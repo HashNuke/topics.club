@@ -278,12 +278,7 @@ defmodule IrcpipeWeb.UserChannel do
 
     with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
          {:ok, updated} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
-      reply_ok(socket, %{
-        buffer_id: "direct:#{thread.id}",
-        unread_count: 0,
-        mention_count: 0,
-        direct_message_revision: updated.mutation_revision
-      })
+      reply_ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
     end
@@ -304,7 +299,7 @@ defmodule IrcpipeWeb.UserChannel do
     with {:ok, thread} <- fetch_direct_message_thread(user, thread_id),
          {:ok, updated} <-
            Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
-      event = Event.direct_message_thread(updated, thread.server_connection)
+      event = Event.direct_message_thread(updated, updated.server_connection)
       reply_ok(socket, %{buffer: event.buffer, revision: event.revision})
     else
       {:error, reason} -> reply_error(socket, %{reason: error_reason(reason)})
@@ -752,7 +747,11 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp direct_message(thread, body) do
-    Session.privmsg(thread.server_connection, thread.peer_nick, body)
+    if not is_nil(thread.closed_at) or String.starts_with?(thread.peer_key, "archived:") do
+      {:error, :direct_message_closed}
+    else
+      Session.privmsg_thread(thread.server_connection, thread.id, body)
+    end
   catch
     :exit, _reason -> {:error, :not_connected}
   end

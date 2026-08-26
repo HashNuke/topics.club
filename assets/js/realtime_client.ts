@@ -5,6 +5,7 @@ import type {
   DirectMessageClosedPayload,
   DirectMessageThreadPayload,
   JoinedTopicPayload,
+  NotificationEventPayload,
   NotificationPreferencePayload,
   PresenceDiffPayload,
   PresenceSyncPayload,
@@ -59,8 +60,8 @@ export interface RealtimeHandlers {
   onServerStatus?(payload: ServerStatusPayload): void
   onPresenceSync?(payload: PresenceSyncPayload): void
   onPresenceDiff?(payload: PresenceDiffPayload): void
-  onNotificationMention?(payload: ChatMessage): void
-  onNotificationDirectMessage?(payload: ChatMessage): void
+  onNotificationMention?(payload: NotificationEventPayload): void
+  onNotificationDirectMessage?(payload: NotificationEventPayload): void
   onNotificationPreference?(payload: NotificationPreferencePayload): void
 }
 
@@ -110,8 +111,8 @@ export function createRealtimeClient({
   channel.on("server:status", (payload) => handlers.onServerStatus?.(payload as unknown as ServerStatusPayload))
   channel.on("presence:sync", (payload) => handlers.onPresenceSync?.(payload as unknown as PresenceSyncPayload))
   channel.on("presence:diff", (payload) => handlers.onPresenceDiff?.(payload as unknown as PresenceDiffPayload))
-  channel.on("notification:mention", (payload) => handlers.onNotificationMention?.(payload as unknown as ChatMessage))
-  channel.on("notification:direct_message", (payload) => handlers.onNotificationDirectMessage?.(payload as unknown as ChatMessage))
+  channel.on("notification:mention", (payload) => handlers.onNotificationMention?.(payload as unknown as NotificationEventPayload))
+  channel.on("notification:direct_message", (payload) => handlers.onNotificationDirectMessage?.(payload as unknown as NotificationEventPayload))
   channel.on("notification:preference", (payload) => handlers.onNotificationPreference?.(payload as unknown as NotificationPreferencePayload))
 
   function connect() {

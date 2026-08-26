@@ -108,7 +108,10 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert reopened.identity_key == "account:akash-account"
     buffer_id = "direct:#{thread.id}"
 
-    assert_receive {:direct_message_notification, %{buffer_id: ^buffer_id, body: "ping"}}
+    assert_receive {:direct_message_notification,
+                    %{buffer_id: ^buffer_id, body: "ping", notification_id: notification_id}}
+
+    assert is_integer(notification_id)
 
     assert {:ok, read} = Chat.mark_direct_message_read(scope, thread.id)
     assert read.unread_count == 0
@@ -174,6 +177,72 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     stored = Chat.get_direct_message_thread!(user, thread.id)
     assert stored.closed_at == nil
     assert stored.mutation_revision == 4
+  end
+
+  test "a read returns the full newer snapshot before a delayed block broadcast", %{
+    user: user,
+    scope: scope,
+    connection: connection
+  } do
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    assert thread.mutation_revision == 1
+
+    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_thread_broadcast)
+
+    on_exit(fn ->
+      if is_nil(previous_pause) do
+        Application.delete_env(:ircpipe, :pause_direct_message_thread_broadcast)
+      else
+        Application.put_env(:ircpipe, :pause_direct_message_thread_broadcast, previous_pause)
+      end
+    end)
+
+    Application.put_env(:ircpipe, :pause_direct_message_thread_broadcast, {self(), 2})
+    supervisor = start_supervised!(Task.Supervisor)
+
+    block =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        receive do
+          :block_thread -> Chat.set_direct_message_blocked(scope, thread.id, true)
+        end
+      end)
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), block.pid)
+    send(block.pid, :block_thread)
+
+    assert_receive {:direct_message_thread_broadcast_paused, block_pid, thread_id, 2}
+    assert thread_id == thread.id
+
+    assert {:ok, read} = Chat.mark_direct_message_read(scope, thread.id)
+    assert read.mutation_revision == 3
+    assert read.blocked_at
+    buffer_id = "direct:#{thread.id}"
+
+    assert_receive {:direct_message_thread,
+                    %{buffer: %{buffer_id: ^buffer_id, blocked: true}, revision: 3}}
+
+    send(block_pid, {:continue_direct_message_thread_broadcast, 2})
+    assert {:ok, blocked} = Task.await(block)
+    assert blocked.mutation_revision == 2
+
+    assert_receive {:direct_message_thread,
+                    %{buffer: %{buffer_id: ^buffer_id, blocked: true}, revision: 2}}
+  end
+
+  test "reads reject closed threads without advancing their revision", %{
+    user: user,
+    scope: scope,
+    connection: connection
+  } do
+    assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    assert {:ok, closed} = Chat.close_direct_message_thread(scope, thread.id)
+
+    assert {:error, :direct_message_closed} = Chat.mark_direct_message_read(scope, thread.id)
+
+    stored = Chat.get_direct_message_thread!(user, thread.id)
+    assert stored.closed_at
+    assert stored.mutation_revision == closed.mutation_revision
   end
 
   test "blocking follows account identity across nick changes without attention spam", %{

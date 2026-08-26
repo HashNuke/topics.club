@@ -1,7 +1,7 @@
 interface MentionMessage {
   body: string
   channel?: string
-  event_id?: string
+  event_id: string
   nick: string
   peer_nick?: string
 }
@@ -32,7 +32,7 @@ export interface NotificationEventCoordinator {
 }
 
 interface NotificationDisplayCandidate {
-  display(): boolean
+  display(): boolean | Promise<boolean>
   eligible: boolean
   visible: boolean
 }
@@ -125,10 +125,7 @@ export function createNotificationEventCoordinator(
     ): Promise<boolean> {
       if (closed) return false
       const eventId = normalizedEventId(rawEventId)
-      if (!eventId) {
-        return Boolean(channel) && displayCandidate.eligible && !displayCandidate.visible &&
-          safeDisplay(displayCandidate.display)
-      }
+      if (!eventId) return false
 
       if (!channel) return false
 
@@ -187,7 +184,7 @@ export function createNotificationEventCoordinator(
         if (failures.get(eventId)?.has(candidate.tab_id)) continue
 
         if (candidate.tab_id === tabId) {
-          if (safeDisplay(displayCandidate.display)) {
+          if (await safeDisplay(displayCandidate.display)) {
             return commitOutcome(
               storage,
               storageKey,
@@ -265,11 +262,13 @@ export function showMentionNotification(
 ): boolean {
   if (document.visibilityState !== "hidden") return false
   if (!mentionNotificationEligible(message, {notificationState})) return false
+  const eventId = normalizedEventId(message.event_id)
+  if (!eventId) return false
 
   const options: NotificationOptions = {
     body: `${message.nick}: ${message.body}`,
+    tag: eventId,
   }
-  if (message.event_id) options.tag = normalizedEventId(message.event_id)
 
   try {
     new window.Notification(message.channel || message.peer_nick || "topics.club", options)
@@ -395,7 +394,9 @@ function coordinationMessage(value: unknown): CoordinationMessage | null {
 }
 
 function normalizedEventId(value: unknown): string {
-  return typeof value === "string" ? value.trim().slice(0, 256) : ""
+  if (typeof value !== "string") return ""
+  const eventId = value.trim()
+  return eventId && eventId.length <= 256 ? eventId : ""
 }
 
 function rememberBounded(values: Set<string>, value: string): void {
@@ -436,9 +437,9 @@ function compareCandidates(left: TabCandidate, right: TabCandidate): number {
   return left.tab_id.localeCompare(right.tab_id)
 }
 
-function safeDisplay(display: () => boolean): boolean {
+async function safeDisplay(display: () => boolean | Promise<boolean>): Promise<boolean> {
   try {
-    return display()
+    return Boolean(await display())
   } catch (_error) {
     return false
   }

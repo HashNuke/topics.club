@@ -231,17 +231,40 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              "buffer_id" => ^buffer_id,
              "buffer_type" => "direct_message",
              "direct_message_thread_id" => thread_id,
+             "direct_message_revision" => direct_message_revision,
              "title" => "akash",
              "unread_count" => 1,
              "blocked" => false
            } = Enum.find(payload["buffers"], &(&1["buffer_id"] == buffer_id))
 
     assert thread_id == thread.id
+    assert direct_message_revision == thread.mutation_revision
 
     assert [%{"id" => message_id, "body" => "hello privately"}] =
              payload["messages_by_buffer"][buffer_id]
 
     assert message_id == message.id
+
+    scope = AccountsFixtures.user_scope_fixture(user)
+    assert {:ok, closed} = Chat.close_direct_message_thread(scope, thread.id)
+
+    closed_payload = conn |> recycle() |> get(~p"/api/bootstrap") |> json_response(200)
+    refute Enum.any?(closed_payload["buffers"], &(&1["buffer_id"] == buffer_id))
+
+    assert %{
+             "buffer_id" => ^buffer_id,
+             "server_connection_id" => server_connection_id,
+             "direct_message_thread_id" => ^thread_id,
+             "revision" => tombstone_revision
+           } =
+             Enum.find(
+               closed_payload["direct_message_tombstones"],
+               &(&1["buffer_id"] == buffer_id)
+             )
+
+    assert server_connection_id == connection.id
+    assert tombstone_revision == closed.mutation_revision
+    :ok = SessionSupervisor.stop_session(connection)
   end
 
   test "prefers a joined channel over an earlier pending channel", %{conn: conn, user: user} do

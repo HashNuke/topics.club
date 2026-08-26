@@ -26,19 +26,22 @@ defmodule Ircpipe.Realtime.Event do
     |> Map.merge(extra)
   end
 
-  def notification_mention(message_event) do
+  def notification_mention(message_event, notification_id) when is_integer(notification_id) do
     message_event
     |> Map.merge(%{
       type: "notification:mention",
-      event_id: "notification_mention:#{message_event.event_id}"
+      event_id: "notification_mention:#{message_event.event_id}",
+      notification_id: notification_id
     })
   end
 
-  def direct_message_notification(message_event) do
+  def direct_message_notification(message_event, notification_id)
+      when is_integer(notification_id) do
     message_event
     |> Map.merge(%{
       type: "notification:direct_message",
-      event_id: "notification_direct_message:#{message_event.event_id}"
+      event_id: "notification_direct_message:#{message_event.event_id}",
+      notification_id: notification_id
     })
   end
 

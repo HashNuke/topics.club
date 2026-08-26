@@ -36,6 +36,11 @@ export interface ChatMessage {
   [key: string]: unknown
 }
 
+export interface NotificationEventPayload extends ChatMessage {
+  event_id: string
+  notification_id: EntityId
+}
+
 export interface ChatUser {
   nick: string
   role?: string
@@ -160,7 +165,6 @@ export interface BufferReadPayload {
   buffer_id: string
   unread_count?: number
   mention_count?: number
-  direct_message_revision?: number
 }
 
 export interface ServerStatusPayload {
@@ -192,6 +196,8 @@ export interface DirectMessageClosedPayload {
   direct_message_thread_id: EntityId
   revision: number
 }
+
+export type DirectMessageTombstone = DirectMessageClosedPayload
 
 export interface PresenceSyncPayload {
   buffer_id: string

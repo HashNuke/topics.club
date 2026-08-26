@@ -90,6 +90,12 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch}: ApiCl
         method: "DELETE",
         body: JSON.stringify({}),
       }),
+    notificationEligibility: (notificationId: EntityId, sessionGeneration: string) => {
+      const query = new URLSearchParams({session_generation: sessionGeneration})
+      return request<{eligible: boolean}>(
+        `/api/notifications/${encodeURIComponent(String(notificationId))}/eligibility?${query}`
+      )
+    },
     updateServerNotificationPreference: (connectionId: EntityId, enabled: boolean) =>
       request<{preference: NotificationPreferencePayload}>(`/api/connections/${connectionId}/notification_preferences`, {
         method: "PUT",

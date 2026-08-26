@@ -98,6 +98,19 @@ defmodule Ircpipe.Chat do
     |> Repo.all()
   end
 
+  def list_direct_message_tombstones(%User{id: user_id}) do
+    DirectMessageThread
+    |> where([thread], thread.user_id == ^user_id and not is_nil(thread.closed_at))
+    |> order_by([thread], asc: thread.id)
+    |> select([thread], %{
+      buffer_id: fragment("'direct:' || ?::text", thread.id),
+      server_connection_id: thread.server_connection_id,
+      direct_message_thread_id: thread.id,
+      revision: thread.mutation_revision
+    })
+    |> Repo.all()
+  end
+
   def get_direct_message_thread!(%User{id: user_id}, id) do
     DirectMessageThread
     |> where([thread], thread.id == ^id and thread.user_id == ^user_id)
@@ -236,6 +249,10 @@ defmodule Ircpipe.Chat do
         lock_direct_message_connection!(candidate.server_connection_id)
         thread = get_direct_message_thread!(user, id)
 
+        if archived_direct_message_thread?(thread) or not is_nil(thread.closed_at) do
+          Repo.rollback(:direct_message_closed)
+        end
+
         updated =
           thread
           |> direct_message_thread_changeset(%{last_read_at: now, unread_count: 0})
@@ -247,19 +264,37 @@ defmodule Ircpipe.Chat do
 
     case result do
       {:ok, updated} ->
-        broadcast_buffer_read(%{
-          user_id: user.id,
-          buffer_id: "direct:#{updated.id}",
-          server_connection_id: updated.server_connection_id,
-          direct_message_thread_id: updated.id,
-          direct_message_revision: updated.mutation_revision
-        })
+        broadcast_direct_message_thread(updated)
 
       _result ->
         :ok
     end
 
     result
+  end
+
+  def get_active_direct_message_thread(
+        %ServerConnection{user_id: user_id, id: connection_id},
+        id
+      ) do
+    Repo.transaction(fn ->
+      user = Repo.get!(User, user_id)
+      candidate = get_direct_message_thread!(user, id)
+
+      if candidate.server_connection_id != connection_id,
+        do: Repo.rollback(:invalid_direct_message)
+
+      lock_direct_message_connection!(connection_id)
+      thread = get_direct_message_thread!(user, id)
+
+      if archived_direct_message_thread?(thread) or not is_nil(thread.closed_at) do
+        Repo.rollback(:direct_message_closed)
+      end
+
+      thread
+    end)
+  rescue
+    Ecto.NoResultsError -> {:error, :invalid_direct_message}
   end
 
   def rename_direct_message_peer(
@@ -819,12 +854,19 @@ defmodule Ircpipe.Chat do
           notification
         end
 
-      if notification, do: Notifications.enqueue_delivery(notification)
-
       prune_old_messages(user)
-      broadcast_message(message, membership, connection, notification)
-      %{message | channel_membership: membership, server_connection: connection}
+      {message, notification}
     end)
+    |> case do
+      {:ok, {message, notification}} ->
+        if notification, do: Notifications.enqueue_delivery(notification)
+        broadcast_message(message, membership, connection, notification)
+
+        {:ok, %{message | channel_membership: membership, server_connection: connection}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   def record_server_message(
@@ -996,7 +1038,8 @@ defmodule Ircpipe.Chat do
           Phoenix.PubSub.broadcast(
             Ircpipe.PubSub,
             "user:#{connection.user_id}",
-            {:direct_message_notification, Event.direct_message_notification(event)}
+            {:direct_message_notification,
+             Event.direct_message_notification(event, notification.id)}
           )
         end
 
@@ -1733,7 +1776,7 @@ defmodule Ircpipe.Chat do
       Phoenix.PubSub.broadcast(
         Ircpipe.PubSub,
         "user:#{connection.user_id}",
-        {:irc_mention, Event.notification_mention(payload)}
+        {:irc_mention, Event.notification_mention(payload, notification.id)}
       )
     end
   end
@@ -1751,12 +1794,27 @@ defmodule Ircpipe.Chat do
   defp broadcast_direct_message_thread(thread) do
     connection = Repo.get!(ServerConnection, thread.server_connection_id)
     event = Event.direct_message_thread(thread, connection)
+    maybe_pause_direct_message_thread_broadcast(thread)
 
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{thread.user_id}",
       {:direct_message_thread, event}
     )
+  end
+
+  defp maybe_pause_direct_message_thread_broadcast(thread) do
+    case Application.get_env(:ircpipe, :pause_direct_message_thread_broadcast) do
+      {pid, revision} when is_pid(pid) and revision == thread.mutation_revision ->
+        send(pid, {:direct_message_thread_broadcast_paused, self(), thread.id, revision})
+
+        receive do
+          {:continue_direct_message_thread_broadcast, ^revision} -> :ok
+        end
+
+      _other ->
+        :ok
+    end
   end
 
   defp broadcast_direct_message_closed(thread) do

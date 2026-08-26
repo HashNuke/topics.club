@@ -58,6 +58,10 @@ defmodule Ircpipe.Irc.Session do
     GenServer.call(via(connection), {:privmsg, target, body})
   end
 
+  def privmsg_thread(%ServerConnection{} = connection, thread_id, body) do
+    GenServer.call(via(connection), {:privmsg_thread, thread_id, body})
+  end
+
   def nick(%ServerConnection{} = connection, nick) do
     GenServer.call(via(connection), {:nick, nick})
   end
@@ -926,6 +930,33 @@ defmodule Ircpipe.Irc.Session do
       )
 
       {:reply, :ok, remember_pending_echo(state, target, body, "message")}
+    else
+      error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:privmsg_thread, thread_id, body}, _from, state) do
+    with {:ok, thread} <- Chat.get_active_direct_message_thread(state.connection, thread_id),
+         :ok <- CommandRegistry.validate_private_message(thread.peer_nick, body),
+         {:ok, client} <- fetch_client(state),
+         :ok <- Ircxd.Client.privmsg(client, thread.peer_nick, body) do
+      record_direct_received_line(
+        state.connection,
+        thread.peer_nick,
+        state.connection.nickname,
+        body,
+        "message",
+        %{
+          direction: "outgoing",
+          peer_nick: thread.peer_nick,
+          target: thread.peer_nick,
+          account: thread.account,
+          hostmask: thread.hostmask
+        },
+        casemapping(state)
+      )
+
+      {:reply, :ok, remember_pending_echo(state, thread.peer_nick, body, "message")}
     else
       error -> {:reply, error, state}
     end

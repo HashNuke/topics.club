@@ -32,6 +32,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       server_time: DateTime.utc_now(:second),
       connections: Enum.map(connections, &connection_json/1),
       buffers: buffers,
+      direct_message_tombstones: Chat.list_direct_message_tombstones(user),
       active_buffer_id: active_buffer_id,
       messages_by_buffer: messages_by_buffer,
       message_cursors_by_buffer: message_cursors_by_buffer(messages_by_buffer),
