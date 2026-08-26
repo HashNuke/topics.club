@@ -8,6 +8,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
+  alias Ircpipe.Chat.MembershipReconciler
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.CommandResult
   alias Ircpipe.Irc.Identifier
@@ -2476,7 +2477,7 @@ defmodule Ircpipe.Irc.Session do
       connection
     else
       {:ok, updated} = Chat.update_connection_casemapping(connection, casemapping)
-      {:ok, _losers} = Chat.reconcile_channel_memberships(updated, casemapping)
+      {:ok, _losers} = MembershipReconciler.reconcile(updated, casemapping)
       updated
     end
   end

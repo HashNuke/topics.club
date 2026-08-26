@@ -10,6 +10,7 @@ defmodule Ircpipe.Chat do
     Connections,
     DirectMessageBlockIdentity,
     DirectMessageThread,
+    MembershipReconciler,
     Message,
     Notification,
     Presence,
@@ -41,7 +42,7 @@ defmodule Ircpipe.Chat do
 
     Enum.each(connections, fn connection ->
       if mapping = stored_casemapping(connection) do
-        reconcile_channel_memberships(connection, mapping)
+        MembershipReconciler.reconcile(connection, mapping)
       end
     end)
 
@@ -431,8 +432,7 @@ defmodule Ircpipe.Chat do
     channel = String.trim(channel)
 
     case Repo.transaction(fn ->
-           lock_memberships(connection)
-           losers = reconcile_channel_memberships_locked(connection, casemapping)
+           losers = MembershipReconciler.reconcile_in_transaction(connection, casemapping)
 
            membership =
              case channel_membership(connection, channel, casemapping) do
@@ -461,7 +461,7 @@ defmodule Ircpipe.Chat do
            {membership, losers}
          end) do
       {:ok, {membership, losers}} ->
-        Enum.each(losers, &broadcast_reconciled_membership(&1, connection))
+        MembershipReconciler.broadcast_losers(connection, losers)
         {:ok, membership}
 
       {:error, reason} ->
@@ -1495,109 +1495,6 @@ defmodule Ircpipe.Chat do
     |> Repo.all()
     |> Enum.find(&(Identifier.key(&1.channel, casemapping) == key))
   end
-
-  def reconcile_channel_memberships(%ServerConnection{} = connection, casemapping) do
-    case Repo.transaction(fn ->
-           lock_memberships(connection)
-           reconcile_channel_memberships_locked(connection, casemapping)
-         end) do
-      {:ok, losers} ->
-        Enum.each(losers, &broadcast_reconciled_membership(&1, connection))
-        {:ok, losers}
-
-      error ->
-        error
-    end
-  end
-
-  defp lock_memberships(connection) do
-    ServerConnection
-    |> where([server], server.id == ^connection.id)
-    |> lock("FOR UPDATE")
-    |> Repo.one!()
-
-    ChannelMembership
-    |> where([membership], membership.server_connection_id == ^connection.id)
-    |> lock("FOR UPDATE")
-    |> Repo.all()
-  end
-
-  defp reconcile_channel_memberships_locked(connection, casemapping) do
-    losers =
-      connection
-      |> all_channel_memberships()
-      |> Enum.group_by(&Identifier.key(&1.channel, casemapping))
-      |> Enum.flat_map(fn {_key, memberships} -> merge_equivalent_memberships(memberships) end)
-
-    losers
-  end
-
-  defp all_channel_memberships(connection) do
-    ChannelMembership
-    |> where([membership], membership.server_connection_id == ^connection.id)
-    |> order_by([membership], asc: membership.id)
-    |> Repo.all()
-  end
-
-  defp merge_equivalent_memberships([_membership]), do: []
-
-  defp merge_equivalent_memberships(memberships) do
-    winner = Enum.min_by(memberships, &{membership_status_rank(&1.status), &1.id})
-    losers = Enum.reject(memberships, &(&1.id == winner.id))
-
-    Enum.each(losers, fn loser ->
-      from(message in Message, where: message.channel_membership_id == ^loser.id)
-      |> Repo.update_all(set: [channel_membership_id: winner.id])
-
-      from(notification in Notification, where: notification.channel_membership_id == ^loser.id)
-      |> Repo.update_all(set: [channel_membership_id: winner.id])
-
-      Presence.merge_users(loser, winner)
-
-      Repo.delete!(loser)
-    end)
-
-    merged_status = winner.status
-
-    winner
-    |> ChannelMembership.changeset(%{
-      auto_join: Enum.any?(memberships, & &1.auto_join),
-      unread_count: Enum.reduce(memberships, 0, &(&1.unread_count + &2)),
-      mention_count: Enum.reduce(memberships, 0, &(&1.mention_count + &2)),
-      joined_at:
-        memberships
-        |> Enum.map(& &1.joined_at)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.min(fn -> nil end),
-      left_at:
-        if(merged_status in ["joined", "pending"],
-          do: nil,
-          else:
-            memberships
-            |> Enum.map(& &1.left_at)
-            |> Enum.reject(&is_nil/1)
-            |> Enum.max(fn -> nil end)
-        )
-    })
-    |> Repo.update!()
-
-    losers
-  end
-
-  defp broadcast_reconciled_membership(loser, connection) do
-    broadcast_buffer_left(%{
-      user_id: connection.user_id,
-      buffer_id: "channel:#{loser.id}",
-      server_connection_id: connection.id,
-      channel_membership_id: loser.id,
-      channel: loser.channel
-    })
-  end
-
-  defp membership_status_rank("joined"), do: 0
-  defp membership_status_rank("pending"), do: 1
-  defp membership_status_rank("left"), do: 2
-  defp membership_status_rank("error"), do: 3
 
   defp stored_casemapping(%ServerConnection{casemapping: mapping}) when is_binary(mapping) do
     case mapping do

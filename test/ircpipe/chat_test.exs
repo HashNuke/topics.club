@@ -8,6 +8,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat.{
     ChannelMembership,
     ChannelUser,
+    MembershipReconciler,
     Message,
     MessageHistory,
     Presence,
@@ -190,7 +191,7 @@ defmodule Ircpipe.ChatTest do
     )
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
-    assert {:ok, [_loser]} = Chat.reconcile_channel_memberships(connection, :rfc1459)
+    assert {:ok, [_loser]} = MembershipReconciler.reconcile(connection, :rfc1459)
     assert_receive {:buffer_left, %{channel_membership_id: loser_id}}
     assert loser_id in [first.id, second.id]
     membership = Chat.get_channel_membership(connection, "#" <> "{OPS}", :rfc1459)
@@ -234,7 +235,7 @@ defmodule Ircpipe.ChatTest do
     assert Enum.count(memberships) == 2
 
     {:ok, ascii_connection} = Chat.update_connection_casemapping(connection, :ascii)
-    assert {:ok, []} = Chat.reconcile_channel_memberships(ascii_connection, :ascii)
+    assert {:ok, []} = MembershipReconciler.reconcile(ascii_connection, :ascii)
     assert [%{channel_memberships: memberships}] = Chat.list_connections(user)
     assert Enum.count(memberships) == 2
   end
