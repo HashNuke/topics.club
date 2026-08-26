@@ -1,3 +1,4 @@
+import {useRef} from "react"
 import {act, renderHook} from "@testing-library/react"
 import {describe, expect, test, vi} from "vitest"
 import useRealtimeConnection from "./use_realtime_connection.js"
@@ -14,14 +15,16 @@ describe("useRealtimeConnection", () => {
     })
     const onMessage = vi.fn()
     const onConnected = vi.fn()
-    const {result, unmount} = renderHook(() =>
-      useRealtimeConnection({
+    const {result, unmount} = renderHook(() => {
+      const realtimeClientRef = useRef(null)
+      return useRealtimeConnection({
         handlers: {onMessage},
         onConnected,
         realtimeClientFactory,
+        realtimeClientRef,
         sessionKey: 1,
       })
-    )
+    })
 
     expect(result.current.realtimeClientRef.current).toBe(connectedClient)
     act(() => realtimeHandlers.onMessage({body: "hello"}))

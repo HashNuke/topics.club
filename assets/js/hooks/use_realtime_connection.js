@@ -1,8 +1,9 @@
 import {useEffect, useRef, useState} from "react"
 
-export default function useRealtimeConnection({handlers, onConnected, realtimeClientFactory, sessionKey}) {
+export default function useRealtimeConnection({handlers, onConnected, realtimeClientFactory, realtimeClientRef: providedClientRef, sessionKey}) {
   const [connectionHealth, setConnectionHealth] = useState("disconnected")
-  const realtimeClientRef = useRef(null)
+  const internalClientRef = useRef(null)
+  const realtimeClientRef = providedClientRef || internalClientRef
   const handlersRef = useRef(handlers)
   const onConnectedRef = useRef(onConnected)
 

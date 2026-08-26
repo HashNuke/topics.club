@@ -25,16 +25,13 @@ import {
 } from "./components/chat_pane.jsx"
 import {
   applyUserDiff,
-  appendTimelineMessage,
-  mergeNewerMessages,
-  mergeOlderMessages,
   normalizeChannel,
   normalizeMessage,
   normalizeTopic,
-  trimMessagesToLimit,
 } from "./chat_store.js"
 import {backendTopicFor, numericId, requestedTopicId, topicForRequestedId} from "./topic_navigation.js"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.js"
+import useBufferMessages from "./hooks/use_buffer_messages.js"
 import useChannelDirectory from "./hooks/use_channel_directory.js"
 import useRealtimeConnection from "./hooks/use_realtime_connection.js"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.js"
@@ -55,43 +52,19 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const [connections, setConnections] = useState([])
   const [activeChannelId, setActiveChannelId] = useState(null)
   const [activeServerId, setActiveServerId] = useState(null)
-  const [messagesByChannel, setMessagesByChannel] = useState({})
-  const [messagesByServer, setMessagesByServer] = useState({})
   const [usersByChannel, setUsersByChannel] = useState({})
   const [draft, setDraft] = useState("")
   const [composerError, setComposerError] = useState(null)
   const [commandCatalog, setCommandCatalog] = useState([])
-  const loadingOlderRef = useRef(new Set())
-  const readingBuffersRef = useRef(new Set())
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef(connections)
-  const messagesByChannelRef = useRef(messagesByChannel)
-  const messagesByServerRef = useRef(messagesByServer)
-  const reconcilingBuffersRef = useRef(new Set())
   const rejectedBufferIdsRef = useRef(new Set())
   const joinRejectionVersionsRef = useRef(new Map())
   const notificationStateRef = useRef(notificationState)
   const requestedTopicIdRef = useRef(requestedTopicId())
+  const realtimeClientRef = useRef(null)
   const viewRef = useRef(view)
-
-  const {connectionHealth, realtimeClientRef, retryRealtimeConnection} = useRealtimeConnection({
-    handlers: {
-      onMessage: applyRealtimeMessage,
-      onMention: handleMentionNotification,
-      onBufferMessage: applyRealtimeMessage,
-      onBufferJoined: applyAuthoritativeJoinedTopic,
-      onBufferLeft: applyBufferLeft,
-      onBufferRead: applyBufferRead,
-      onPresenceDiff: applyPresenceDiff,
-      onPresenceSync: applyPresenceSync,
-      onServerStatus: applyServerStatus,
-      onNotificationMention: handleMentionNotification,
-    },
-    onConnected: reconcileAllBuffers,
-    realtimeClientFactory,
-    sessionKey: currentUser && mode !== "landing" ? currentUser.id : null,
-  })
 
   const {
     applyChannelDirectory,
@@ -112,6 +85,48 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     viewRef,
   })
 
+  const {
+    appendSystemMessage,
+    applyRealtimeMessage,
+    loadOlderMessages,
+    markPendingFailed,
+    messagesByChannel,
+    messagesByServer,
+    reconcileAllBuffers,
+    reconcileBootstrapCursors,
+    reconcileServerBuffers,
+    replacePendingMessage,
+    setMessagesByChannel,
+    setMessagesByServer,
+    updateBufferReadingState,
+  } = useBufferMessages({
+    activeChannelIdRef,
+    activeServerIdRef,
+    apiClient,
+    connectionsRef,
+    markBufferRead,
+    viewRef,
+  })
+
+  const {connectionHealth, retryRealtimeConnection} = useRealtimeConnection({
+    handlers: {
+      onMessage: applyRealtimeMessage,
+      onMention: handleMentionNotification,
+      onBufferMessage: applyRealtimeMessage,
+      onBufferJoined: applyAuthoritativeJoinedTopic,
+      onBufferLeft: applyBufferLeft,
+      onBufferRead: applyBufferRead,
+      onPresenceDiff: applyPresenceDiff,
+      onPresenceSync: applyPresenceSync,
+      onServerStatus: applyServerStatus,
+      onNotificationMention: handleMentionNotification,
+    },
+    onConnected: reconcileAllBuffers,
+    realtimeClientFactory,
+    realtimeClientRef,
+    sessionKey: currentUser && mode !== "landing" ? currentUser.id : null,
+  })
+
   useEffect(() => {
     connectionsRef.current = connections
   }, [connections])
@@ -119,14 +134,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   useEffect(() => {
     viewRef.current = view
   }, [view])
-
-  useEffect(() => {
-    messagesByChannelRef.current = messagesByChannel
-  }, [messagesByChannel])
-
-  useEffect(() => {
-    messagesByServerRef.current = messagesByServer
-  }, [messagesByServer])
 
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId
@@ -456,124 +463,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return activeChannel?.id
   }
 
-  function appendSystemMessage(body) {
-    const message = {
-      id: `system-${Date.now()}`,
-      occurredAt: new Date().toISOString(),
-      nick: "topics.club",
-      body,
-      kind: "system",
-    }
-
-    if (view === "server" && activeServer) {
-      setMessagesByServer((current) => ({
-        ...current,
-        [activeServer.id]: appendTimelineMessage(
-          current[activeServer.id] || [],
-          message,
-          readingBuffersRef.current.has(activeServer.id)
-        ),
-      }))
-      return
-    }
-
-    if (!activeChannel) return
-
-    setMessagesByChannel((current) => ({
-      ...current,
-      [activeChannel.id]: appendTimelineMessage(current[activeChannel.id] || [], message, readingBuffersRef.current.has(activeChannel.id)),
-    }))
-  }
-
-  async function loadOlderMessages(bufferId) {
-    if (!bufferId || loadingOlderRef.current.has(bufferId)) return
-    if (!isBackendBufferId(bufferId)) return
-
-    const currentMessages = bufferId.startsWith("server:")
-      ? messagesByServer[bufferId] || []
-      : messagesByChannel[bufferId] || []
-    const oldest = currentMessages[0]
-    if (!oldest?.id || String(oldest.id).startsWith("client-")) return
-
-    loadingOlderRef.current.add(bufferId)
-
-    try {
-      const {messages = []} = await apiClient.bufferMessages(bufferId, {before: oldest.id, limit: 50})
-      const normalized = messages.map(normalizeMessage)
-      if (normalized.length === 0) return
-
-      if (bufferId.startsWith("server:")) {
-        setMessagesByServer((current) => ({
-          ...current,
-          [bufferId]: mergeOlderMessages(normalized, current[bufferId] || []),
-        }))
-      } else {
-        setMessagesByChannel((current) => ({
-          ...current,
-          [bufferId]: mergeOlderMessages(normalized, current[bufferId] || []),
-        }))
-      }
-    } catch (_error) {
-      // Keep the current scrollback stable if history pagination fails.
-    } finally {
-      loadingOlderRef.current.delete(bufferId)
-    }
-  }
-
   async function requestNotifications() {
     setNotificationState(await requestNotificationPermission())
-  }
-
-  function applyRealtimeMessage(message) {
-    const normalized = normalizeMessage(message)
-    const bufferId = normalized.buffer_id || (normalized.channel_membership_id ? `channel:${normalized.channel_membership_id}` : null)
-    if (!bufferId) return
-
-    if (bufferId.startsWith("server:")) {
-      setMessagesByServer((current) => ({
-        ...current,
-        [bufferId]: appendTimelineMessage(current[bufferId] || [], normalized, readingBuffersRef.current.has(bufferId)),
-      }))
-      return
-    }
-
-    setMessagesByChannel((current) => ({
-      ...current,
-      [bufferId]: appendTimelineMessage(current[bufferId] || [], normalized, readingBuffersRef.current.has(bufferId)),
-    }))
-
-    if (viewRef.current === "chat" && activeChannelIdRef.current === bufferId) {
-      defer(() => markBufferRead(bufferId))
-    }
-  }
-
-  function updateBufferReadingState(bufferId, readingOlder) {
-    if (!bufferId) return
-
-    if (readingOlder) {
-      readingBuffersRef.current.add(bufferId)
-      return
-    }
-
-    if (!readingBuffersRef.current.has(bufferId)) return
-
-    readingBuffersRef.current.delete(bufferId)
-    pruneBufferMessages(bufferId)
-  }
-
-  function pruneBufferMessages(bufferId) {
-    if (bufferId.startsWith("server:")) {
-      setMessagesByServer((current) => ({
-        ...current,
-        [bufferId]: trimMessagesToLimit(current[bufferId] || []),
-      }))
-      return
-    }
-
-    setMessagesByChannel((current) => ({
-      ...current,
-      [bufferId]: trimMessagesToLimit(current[bufferId] || []),
-    }))
   }
 
   function applyServerStatus(payload) {
@@ -645,24 +536,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       currentUser,
       notificationState: notificationStateRef.current,
     })
-  }
-
-  function replacePendingMessage(channelId, clientMessageId, message) {
-    setMessagesByChannel((current) => ({
-      ...current,
-      [channelId]: (current[channelId] || []).map((currentMessage) =>
-        currentMessage.clientMessageId === clientMessageId ? message : currentMessage
-      ),
-    }))
-  }
-
-  function markPendingFailed(channelId, clientMessageId) {
-    setMessagesByChannel((current) => ({
-      ...current,
-      [channelId]: (current[channelId] || []).map((currentMessage) =>
-        currentMessage.clientMessageId === clientMessageId ? {...currentMessage, pending: false, failed: true} : currentMessage
-      ),
-    }))
   }
 
   function applyBootstrap(bootstrap) {
@@ -788,74 +661,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
   }
 
-  function reconcileBootstrapCursors(cursorsByBuffer) {
-    Object.keys(cursorsByBuffer).forEach((bufferId) => {
-      reconcileBufferMessages(bufferId)
-    })
-  }
-
-  function reconcileServerBuffers(serverConnectionId) {
-    const server = connectionsRef.current.find((connection) => connection.server_connection_id === serverConnectionId)
-    if (!server) return
-
-    const bufferIds = [server.id, ...server.channels.map((channel) => channel.id)]
-    bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId))
-  }
-
-  function reconcileAllBuffers() {
-    connectionsRef.current.forEach((server) => {
-      const bufferIds = [server.id, ...server.channels.map((channel) => channel.id)]
-      bufferIds.forEach((bufferId) => reconcileBufferMessages(bufferId))
-    })
-  }
-
-  function reconcileBufferMessages(bufferId) {
-    if (!isBackendBufferId(bufferId)) return
-    if (reconcilingBuffersRef.current.has(bufferId)) return
-
-    reconcilingBuffersRef.current.add(bufferId)
-
-    const currentMessages = bufferId.startsWith("server:")
-      ? messagesByServerRef.current[bufferId] || []
-      : messagesByChannelRef.current[bufferId] || []
-    const commandIds = [...new Set(currentMessages
-      .filter((message) =>
-        message.kind === "command" && ["sent", "acknowledged"].includes(message.metadata?.command_status)
-      )
-      .map((message) => message.metadata?.command_id)
-      .filter(Boolean))]
-    const commandIdChunks = []
-    for (let index = 0; index < commandIds.length; index += 50) {
-      commandIdChunks.push(commandIds.slice(index, index + 50))
-    }
-
-    Promise.all([
-      apiClient.bufferMessages(bufferId, {limit: 50}),
-      ...commandIdChunks.map((ids) => apiClient.bufferMessages(bufferId, {commandIds: ids})),
-    ])
-      .then(([tail, ...commandUpdates]) => {
-        const repairedCommands = commandUpdates.flatMap((response) => response.messages || [])
-        const normalized = [...(tail.messages || []), ...repairedCommands].map(normalizeMessage)
-        if (normalized.length === 0) return
-
-        if (bufferId.startsWith("server:")) {
-          setMessagesByServer((current) => ({
-            ...current,
-            [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
-          }))
-        } else {
-          setMessagesByChannel((current) => ({
-            ...current,
-            [bufferId]: mergeNewerMessages(current[bufferId] || [], normalized),
-          }))
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        reconcilingBuffersRef.current.delete(bufferId)
-      })
-  }
-
   async function leaveChannel(channel) {
     if (!channel?.id || !realtimeClientRef.current) return
 
@@ -968,10 +773,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       }
     }
   }
-}
-
-function isBackendBufferId(bufferId) {
-  return bufferId?.startsWith("channel:") || bufferId?.startsWith("server:")
 }
 
 function defer(callback) {
