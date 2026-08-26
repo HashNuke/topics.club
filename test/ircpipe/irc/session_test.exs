@@ -546,7 +546,15 @@ defmodule Ircpipe.Irc.SessionTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
-    state = %{connection: connection}
+    state = %{
+      connection: connection,
+      client_info: %{
+        isupport: %{
+          "CHANMODES" => "beI,kfL,lj,psmntirRcOAQKVCuzNSMTGZ",
+          "PREFIX" => "(ov)@+"
+        }
+      }
+    }
 
     assert {:noreply, ^state} =
              Session.handle_info(
@@ -585,6 +593,20 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_message,
                     %{kind: "mode", body: "server set mode +b-o *!*@example.test akash."}}
+
+    assert {:noreply, ^state} =
+             Session.handle_info(
+               {:ircxd, {:mode, %{target: "#pipe", modes: "+f-o", params: ["5:10", "akash"]}}},
+               state
+             )
+
+    assert_receive {:presence_diff,
+                    %{
+                      buffer_id: ^buffer_id,
+                      diff: %{action: "role", nick: "akash", role: "user"}
+                    }}
+
+    refute_receive {:presence_diff, %{diff: %{action: "role", nick: "5:10"}}}
   end
 
   test "persists and broadcasts a confirmed self nickname change" do

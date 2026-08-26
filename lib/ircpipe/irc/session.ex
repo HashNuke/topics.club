@@ -12,6 +12,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.CommandResult
   alias Ircpipe.Irc.ConnectionLock
+  alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Repo
@@ -307,7 +308,7 @@ defmodule Ircpipe.Irc.Session do
         state
       ) do
     state =
-      case action_body(Map.get(payload, :ctcp)) do
+      case EventFormatting.action_body(Map.get(payload, :ctcp)) do
         {:ok, action} ->
           {echo_status, state} = pop_pending_echo(state, target, action, "action", payload)
 
@@ -518,7 +519,7 @@ defmodule Ircpipe.Irc.Session do
         state.connection,
         old_nick,
         new_nick,
-        sender_metadata(payload),
+        EventFormatting.sender_metadata(payload),
         casemapping(state)
       )
     end
@@ -551,7 +552,7 @@ defmodule Ircpipe.Irc.Session do
   def handle_info({:ircxd, {:mode, %{target: target} = payload}}, state) do
     if channel_target?(state, target) do
       payload
-      |> mode_presence_diffs()
+      |> EventFormatting.mode_presence_diffs(session_isupport(state))
       |> Enum.each(
         &Presence.diff(
           state.connection,
@@ -566,10 +567,10 @@ defmodule Ircpipe.Irc.Session do
         target,
         "mode",
         Map.get(payload, :nick),
-        mode_body(payload)
+        EventFormatting.mode_body(payload)
       )
     else
-      record_server_line(state.connection, mode_body(payload), "mode")
+      record_server_line(state.connection, EventFormatting.mode_body(payload), "mode")
     end
 
     {:noreply, state}
@@ -593,7 +594,7 @@ defmodule Ircpipe.Irc.Session do
       channel,
       "kick",
       nick,
-      kick_body(payload)
+      EventFormatting.kick_body(payload)
     )
 
     state =
@@ -2271,7 +2272,7 @@ defmodule Ircpipe.Irc.Session do
   defp record_outgoing_echo(state, target, nick, body, kind, payload) do
     metadata =
       payload
-      |> sender_metadata()
+      |> EventFormatting.sender_metadata()
       |> Map.merge(%{direction: "outgoing", peer_nick: target, target: target})
 
     if channel = channel_message_target(state, target) do
@@ -2300,7 +2301,7 @@ defmodule Ircpipe.Irc.Session do
   defp record_received_message(state, target, nick, body, kind, payload) do
     metadata =
       payload
-      |> sender_metadata()
+      |> EventFormatting.sender_metadata()
       |> Map.merge(%{direction: "incoming", peer_nick: nick, target: target})
 
     if channel = channel_message_target(state, target) do
@@ -2321,7 +2322,7 @@ defmodule Ircpipe.Irc.Session do
           nick,
           body,
           kind,
-          Map.put(metadata, :service, service_name(nick)),
+          Map.put(metadata, :service, EventFormatting.service_name(nick)),
           casemapping(state)
         )
       else
@@ -2330,7 +2331,7 @@ defmodule Ircpipe.Irc.Session do
           body,
           kind,
           nick,
-          Map.put(metadata, :service, service_name(nick))
+          Map.put(metadata, :service, EventFormatting.service_name(nick))
         )
       end
     end
@@ -2387,6 +2388,11 @@ defmodule Ircpipe.Irc.Session do
   defp channel_message_target(_state, _target), do: nil
 
   defp channel_target?(state, target), do: not is_nil(channel_message_target(state, target))
+
+  defp session_isupport(%{client_info: %{isupport: isupport}}) when is_map(isupport),
+    do: isupport
+
+  defp session_isupport(_state), do: %{}
 
   defp normalize_identifier(
          %{client_info: %Info{casemapping: mapping}, isupport_received?: true},
@@ -2582,108 +2588,6 @@ defmodule Ircpipe.Irc.Session do
     channels
     |> Enum.map(&Identifier.key(&1, casemapping))
     |> MapSet.new()
-  end
-
-  defp action_body({:ok, %{command: "ACTION", params: params}}), do: {:ok, params}
-  defp action_body(_ctcp), do: :error
-
-  defp sender_metadata(payload) do
-    %{
-      account: Map.get(payload, :account),
-      hostmask: Map.get(payload, :raw_source),
-      sender_role: role_from_prefixes(Map.get(payload, :prefixes, []))
-    }
-  end
-
-  defp role_from_prefixes(prefixes) when is_list(prefixes) do
-    cond do
-      "~" in prefixes -> "owner"
-      "&" in prefixes -> "admin"
-      "@" in prefixes -> "op"
-      "%" in prefixes -> "halfop"
-      "+" in prefixes -> "voice"
-      true -> nil
-    end
-  end
-
-  defp role_from_prefixes(_prefixes), do: nil
-
-  defp mode_presence_diffs(%{modes: modes, params: params}) do
-    modes
-    |> String.graphemes()
-    |> Enum.reduce({"+", params, []}, fn
-      sign, {_current_sign, remaining_params, diffs} when sign in ["+", "-"] ->
-        {sign, remaining_params, diffs}
-
-      mode, {sign, remaining_params, diffs} ->
-        {nick, next_params} =
-          if mode_argument?(mode, sign) do
-            {List.first(remaining_params), Enum.drop(remaining_params, 1)}
-          else
-            {nil, remaining_params}
-          end
-
-        diff =
-          if mode in ["q", "a", "o", "h", "v"] && is_binary(nick) do
-            %{
-              action: "role",
-              nick: nick,
-              role: if(sign == "+", do: role_for_mode(mode), else: "user")
-            }
-          end
-
-        {sign, next_params, maybe_append(diffs, diff)}
-    end)
-    |> elem(2)
-    |> Enum.reverse()
-  end
-
-  defp mode_presence_diffs(_payload), do: []
-
-  defp mode_argument?(mode, _sign) when mode in ["q", "a", "o", "h", "v", "b", "e", "I", "k"],
-    do: true
-
-  defp mode_argument?("l", "+"), do: true
-  defp mode_argument?(_mode, _sign), do: false
-
-  defp role_for_mode("q"), do: "owner"
-  defp role_for_mode("a"), do: "admin"
-  defp role_for_mode("o"), do: "op"
-  defp role_for_mode("h"), do: "halfop"
-  defp role_for_mode("v"), do: "voice"
-
-  defp maybe_append(list, nil), do: list
-  defp maybe_append(list, item), do: [item | list]
-
-  defp service_name(nick) when is_binary(nick) do
-    if String.ends_with?(nick, "Serv"), do: nick
-  end
-
-  defp service_name(_nick), do: nil
-
-  defp mode_body(payload) do
-    setter = if present?(Map.get(payload, :nick)), do: Map.get(payload, :nick), else: "server"
-    modes = Map.get(payload, :modes)
-    rendered_params = Enum.join(Map.get(payload, :params, []), " ")
-
-    mode_text =
-      if present?(rendered_params) do
-        "#{modes} #{rendered_params}"
-      else
-        modes
-      end
-
-    "#{setter} set mode #{mode_text}."
-  end
-
-  defp kick_body(%{nick: nick, target_nick: target_nick, reason: reason}) do
-    kicker = if present?(nick), do: nick, else: "server"
-
-    if present?(reason) do
-      "#{target_nick} was kicked by #{kicker}: #{reason}"
-    else
-      "#{target_nick} was kicked by #{kicker}."
-    end
   end
 
   defp persisted_channels(connection, casemapping \\ :rfc1459)
