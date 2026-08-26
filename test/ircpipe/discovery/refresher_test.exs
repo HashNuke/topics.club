@@ -75,4 +75,48 @@ defmodule Ircpipe.Discovery.RefresherTest do
                max_concurrency: 1
              )
   end
+
+  test "contains a failed server-channel refresh to its network" do
+    now = ~U[2026-08-26 12:00:00Z]
+
+    {:ok, [broken, working]} =
+      Discovery.sync_networks(
+        [
+          %{
+            name: "Broken IRC",
+            slug: "Broken",
+            host: "broken.irc.test",
+            port: 6697,
+            use_tls: true,
+            rank: 1,
+            source_url: "https://netsplit.de/networks/Broken/"
+          },
+          %{
+            name: "Working IRC",
+            slug: "Working",
+            host: "working.irc.test",
+            port: 6697,
+            use_tls: true,
+            rank: 2,
+            source_url: "https://netsplit.de/networks/Working/"
+          }
+        ],
+        now
+      )
+
+    list_channels = fn
+      %{id: id} when id == broken.id -> raise "invalid IRC payload"
+      %{id: id} when id == working.id -> {:ok, [%{name: "#working", user_count: 8}]}
+    end
+
+    assert :ok =
+             Refresher.run(now,
+               fetch_networks: fn -> flunk("network source should not be called") end,
+               list_channels: list_channels,
+               max_concurrency: 1
+             )
+
+    assert Discovery.list_popular_server_channels() |> Enum.map(& &1.name) == ["#working"]
+    assert Repo.reload!(broken).last_refresh_error =~ "invalid IRC payload"
+  end
 end

@@ -110,6 +110,23 @@ defmodule Ircpipe.DiscoveryTest do
     assert Discovery.network_catalog_due?(now)
   end
 
+  test "replaces invalid IRC text before persisting a server-channel snapshot" do
+    now = ~U[2026-08-26 12:00:00Z]
+    {:ok, [network | _rest]} = Discovery.sync_networks(network_entries(), now)
+
+    assert {:ok, 1} =
+             Discovery.replace_server_channels(
+               network,
+               [
+                 %{name: <<"#caf", 0xE9>>, topic: <<"caf", 0xE9>>, user_count: 12},
+                 %{name: <<"#caf", 0xF1>>, topic: "duplicate after repair", user_count: 4}
+               ],
+               now
+             )
+
+    assert [%{name: "#caf�", topic: "caf�"}] = Discovery.list_popular_server_channels()
+  end
+
   defp network_entries do
     [
       %{

@@ -90,9 +90,18 @@ defmodule Ircpipe.Discovery.Refresher do
   end
 
   defp refresh_channel_list(network, now, list_channels) do
-    case list_channels.(network) do
-      {:ok, channels} -> Discovery.replace_server_channels(network, channels, now)
-      {:error, reason} -> Discovery.mark_channel_refresh_error(network, reason)
+    try do
+      case list_channels.(network) do
+        {:ok, channels} -> Discovery.replace_server_channels(network, channels, now)
+        {:error, reason} -> Discovery.mark_channel_refresh_error(network, reason)
+      end
+    rescue
+      exception ->
+        Logger.warning(
+          "IRC discovery refresh failed for #{network.name}: #{Exception.message(exception)}"
+        )
+
+        Discovery.mark_channel_refresh_error(network, Exception.message(exception))
     end
   end
 end

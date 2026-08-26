@@ -50,17 +50,19 @@ defmodule Ircpipe.Discovery do
       now = DateTime.utc_now(:second)
 
       rows =
-        Enum.map(channels, fn channel ->
+        channels
+        |> Enum.map(fn channel ->
           %{
             irc_network_id: network.id,
-            name: Map.fetch!(channel, :name),
-            topic: Map.get(channel, :topic),
+            name: channel |> Map.fetch!(:name) |> sanitize_irc_text(),
+            topic: channel |> Map.get(:topic) |> sanitize_irc_text(),
             user_count: Map.get(channel, :user_count, 0),
             listed_at: listed_at,
             inserted_at: now,
             updated_at: now
           }
         end)
+        |> Enum.uniq_by(& &1.name)
 
       {_count, _rows} = Repo.insert_all(ServerChannel, rows)
 
@@ -127,4 +129,7 @@ defmodule Ircpipe.Discovery do
     |> Ecto.Changeset.change(last_refresh_error: inspect(reason))
     |> Repo.update()
   end
+
+  defp sanitize_irc_text(nil), do: nil
+  defp sanitize_irc_text(value) when is_binary(value), do: String.replace_invalid(value, "�")
 end
