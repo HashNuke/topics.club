@@ -195,6 +195,7 @@ defmodule IrcpipeWeb.UserChannelTest do
                  :ok,
                  %{
                    command: %{name: "msg", args: ["akash", "hello privately"]},
+                   command_id: command_id,
                    buffer_id: buffer_id,
                    message: %{buffer_id: buffer_id, body: "hello privately", nick: "mira"}
                  },
@@ -203,6 +204,16 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert "direct:" <> _ = buffer_id
     assert_receive {:irc_server_line, "PRIVMSG akash :hello privately"}, 1_000
     assert_push "direct_message:thread", %{buffer: %{buffer_id: ^buffer_id, title: "akash"}}
+
+    server_history = Chat.list_buffer_messages(user, "server:#{connection.id}")
+    repair_rows = Chat.list_buffer_command_messages(user, "server:#{connection.id}", [command_id])
+
+    assert repair_rows != []
+
+    refute Enum.any?(server_history ++ repair_rows, fn message ->
+             String.contains?(message.body, "hello privately") or
+               String.contains?(message.metadata["input"] || "", "hello privately")
+           end)
 
     assert :ok = Session.quit(connection)
   end

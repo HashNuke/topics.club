@@ -1925,6 +1925,61 @@ defmodule Ircpipe.Irc.SessionTest do
     assert :ok = Session.quit(connection)
   end
 
+  test "routes negotiated status-message targets through their underlying channel" do
+    server =
+      start_supervised!(
+        {IrcTestServer,
+         {self(),
+          isupport_lines: [
+            ":ircpipe-test 005 ircpipe CHANTYPES=# STATUSMSG=@+ CASEMAPPING=ascii :are supported"
+          ]}}
+      )
+
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Chat.create_connection(user, %{
+        "name" => "status-message-targets",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "ircpipe"
+      })
+
+    {:ok, membership} = Chat.request_channel_join(user, connection, "#pipe", :ascii)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000
+    _ = :sys.get_state(Session.via(connection))
+
+    assert :ok =
+             IrcTestServer.send_line(
+               server,
+               ":akash!user@example.test PRIVMSG @#pipe :operators only"
+             )
+
+    assert_receive {:irc_message, %{body: "operators only", buffer_id: "channel:" <> _}}, 1_000
+
+    {:ok, info} = Session.connection_info(connection)
+    {:ok, intent} = CommandRegistry.resolve("PRIVMSG +#pipe :hello voiced users", info)
+
+    assert {:ok, %{status: "sent"}} =
+             Session.execute(
+               connection,
+               intent,
+               "status-message-command",
+               "channel:#{membership.id}"
+             )
+
+    assert_receive {:irc_server_line, "PRIVMSG +#pipe :hello voiced users"}, 1_000
+
+    messages = Chat.list_messages(user, membership.id)
+    assert Enum.any?(messages, &(&1.body == "operators only" and &1.nick == "akash"))
+    assert Enum.any?(messages, &(&1.body == "hello voiced users" and &1.nick == "ircpipe"))
+    assert Chat.list_direct_message_threads(user, connection) == []
+    assert :ok = Session.quit(connection)
+  end
+
   test "an envelope JOIN failure rejects only its correlated pending invocation" do
     Enum.each([:unlabeled_461, :labeled_461, :contextless_fail], fn scenario ->
       {user, connection, state, first, second} = two_pending_joins(scenario)

@@ -1069,10 +1069,10 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp record_irc_error(state, %{target: target} = payload) when is_binary(target) do
-    if channel_target?(state, target) do
+    if channel = channel_message_target(state, target) do
       Chat.record_channel_system_message(
         state.connection,
-        target,
+        channel,
         "error",
         nil,
         irc_error_body(payload),
@@ -1556,19 +1556,40 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp record_command_invocation(state, intent, command_id, buffer_id) do
+    display = command_invocation_display(state, intent)
+
     metadata = %{
       command_id: command_id,
       command: intent.message.command,
       command_status: "sent",
       disposition: Atom.to_string(intent.disposition),
-      input: intent.display
+      input: display
     }
 
-    case Chat.record_command_message(state.connection, buffer_id, intent.display, metadata) do
+    case Chat.record_command_message(state.connection, buffer_id, display, metadata) do
       {:ok, invocation} -> {:ok, invocation}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp command_invocation_display(
+         state,
+         %{
+           display: display,
+           message: %{command: command, params: [targets, _body]}
+         }
+       )
+       when command in ["PRIVMSG", "NOTICE"] do
+    if targets
+       |> String.split(",", trim: true)
+       |> Enum.any?(&(not channel_target?(state, &1))) do
+      "#{command} #{targets} :[private message redacted]"
+    else
+      display
+    end
+  end
+
+  defp command_invocation_display(_state, intent), do: intent.display
 
   defp maybe_label_command(message, command_id, %{client_info: %Info{} = info}) do
     if MapSet.member?(info.active_caps, "labeled-response") do
@@ -1610,10 +1631,10 @@ defmodule Ircpipe.Irc.Session do
     Enum.reduce(String.split(targets, ",", trim: true), state, fn target, state ->
       metadata = %{direction: "outgoing", peer_nick: target, target: target}
 
-      if channel_target?(state, target) do
+      if channel = channel_message_target(state, target) do
         Chat.record_inbound_message(
           state.connection,
-          target,
+          channel,
           state.connection.nickname,
           body,
           kind,
@@ -2180,10 +2201,10 @@ defmodule Ircpipe.Irc.Session do
       |> sender_metadata()
       |> Map.merge(%{direction: "incoming", peer_nick: nick, target: target})
 
-    if channel_target?(state, target) do
+    if channel = channel_message_target(state, target) do
       Chat.record_inbound_message(
         state.connection,
-        target,
+        channel,
         nick,
         body,
         kind,
@@ -2245,17 +2266,25 @@ defmodule Ircpipe.Irc.Session do
     :exit, _reason -> {:ok, nil}
   end
 
-  defp channel_target?(
+  defp channel_message_target(
          %{client_info: %Info{isupport: isupport}, isupport_received?: true},
          target
        )
-       when is_binary(target),
-       do: ISupport.channel?(isupport, target)
+       when is_binary(target) do
+    cond do
+      ISupport.status_target?(isupport, target) -> String.slice(target, 1..-1//1)
+      ISupport.channel?(isupport, target) -> target
+      true -> nil
+    end
+  end
 
-  defp channel_target?(_state, <<prefix, _rest::binary>>) when prefix in [?#, ?&, ?+, ?!],
-    do: true
+  defp channel_message_target(_state, <<prefix, _rest::binary>> = target)
+       when prefix in [?#, ?&, ?+, ?!],
+       do: target
 
-  defp channel_target?(_state, _target), do: false
+  defp channel_message_target(_state, _target), do: nil
+
+  defp channel_target?(state, target), do: not is_nil(channel_message_target(state, target))
 
   defp normalize_identifier(
          %{client_info: %Info{casemapping: mapping}, isupport_received?: true},
@@ -2276,7 +2305,9 @@ defmodule Ircpipe.Irc.Session do
   defp casemapping(%{connection: %ServerConnection{casemapping: "rfc1459"}}), do: :rfc1459
   defp casemapping(_state), do: :ascii
 
-  defp channel_key(state, channel), do: Chat.channel_key(channel, casemapping(state))
+  defp channel_key(state, channel) do
+    Chat.channel_key(channel_message_target(state, channel) || channel, casemapping(state))
+  end
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error
