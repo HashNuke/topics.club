@@ -1,0 +1,24 @@
+export function commandErrorMessage(error) {
+  if (error?.error?.message) {
+    const usage = error.error.usage ? ` Usage: ${error.error.usage}` : ""
+    return `${error.error.message}${usage}`
+  }
+
+  const messages = {
+    invalid_buffer: "Choose a server or channel where this command can run.",
+    invalid_command_args: "The command arguments are incomplete or invalid.",
+    joining_channel: "Wait for the channel join to finish, then try again.",
+    not_connected: "Reconnect to the IRC server before running this command.",
+    not_joined: "Join that channel before sending to it.",
+    unknown_command: "That slash command is not supported.",
+  }
+
+  return messages[error?.reason] || "The IRC command could not be sent."
+}
+
+export function channelDirectoryError(reason) {
+  if (reason === "list_in_progress") return "This server is already preparing a channel list. Try again in a moment."
+  if (reason === "list_timeout") return "The server took too long to return its channel list."
+  if (reason === "not_connected") return "Reconnect to this server before browsing its channels."
+  return "The server could not return its channel list. Try again shortly."
+}
