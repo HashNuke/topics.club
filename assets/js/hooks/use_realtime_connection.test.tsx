@@ -58,4 +58,40 @@ describe("useRealtimeConnection", () => {
     unmount()
     expect(disconnect).toHaveBeenCalledTimes(1)
   })
+
+  test("creates a fresh client generation when retrying after a permanent channel close", async () => {
+    const generations = []
+    const realtimeClientFactory = vi.fn(({handlers}) => {
+      const client = {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        reconnect: vi.fn(),
+      }
+      client.connect.mockReturnValue(client)
+      generations.push({client, handlers})
+      return client
+    })
+    const onConnected = vi.fn()
+    const {result} = renderHook(() => useRealtimeConnection({
+      handlers: {},
+      onConnected,
+      realtimeClientFactory,
+      sessionKey: 1,
+    }))
+
+    expect(generations).toHaveLength(1)
+    act(() => generations[0].handlers.onChannelClose("closed"))
+    expect(result.current.connectionHealth).toBe("degraded")
+
+    act(() => result.current.retryRealtimeConnection())
+
+    expect(generations).toHaveLength(2)
+    expect(generations[0].client.disconnect).toHaveBeenCalledOnce()
+    expect(generations[0].client.reconnect).not.toHaveBeenCalled()
+    expect(generations[1].client.connect).toHaveBeenCalledOnce()
+
+    await act(async () => generations[1].handlers.onJoinOk())
+    expect(result.current.connectionHealth).toBe("connected")
+    expect(onConnected).toHaveBeenCalledOnce()
+  })
 })

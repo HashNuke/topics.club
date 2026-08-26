@@ -12,6 +12,8 @@ interface RealtimeConnectionOptions {
 
 export default function useRealtimeConnection({handlers, onConnected, realtimeClientFactory, realtimeClientRef: providedClientRef, sessionKey}: RealtimeConnectionOptions) {
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>("disconnected")
+  const [clientGeneration, setClientGeneration] = useState(0)
+  const channelClosedRef = useRef(false)
   const internalClientRef = useRef<RealtimeClient | null>(null)
   const realtimeClientRef = providedClientRef || internalClientRef
   const handlersRef = useRef(handlers)
@@ -23,7 +25,12 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
   useEffect(() => {
     if (!sessionKey || !realtimeClientFactory) return
 
+    let active = true
+    channelClosedRef.current = false
+
     const joined = () => {
+      if (!active) return
+      channelClosedRef.current = false
       setConnectionHealth("connected")
       onConnectedRef.current?.()
     }
@@ -42,27 +49,37 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
         onNotificationMention: (payload) => handlersRef.current.onNotificationMention?.(payload),
         onNotificationDirectMessage: (payload) => handlersRef.current.onNotificationDirectMessage?.(payload),
         onNotificationPreference: (payload) => handlersRef.current.onNotificationPreference?.(payload),
-        onOpen: () => setConnectionHealth("reconnecting"),
-        onClose: () => setConnectionHealth("reconnecting"),
-        onError: () => setConnectionHealth("degraded"),
+        onOpen: () => active && setConnectionHealth("reconnecting"),
+        onClose: () => active && setConnectionHealth("reconnecting"),
+        onError: () => active && setConnectionHealth("degraded"),
         onJoinOk: joined,
-        onJoinError: () => setConnectionHealth("degraded"),
-        onJoinTimeout: () => setConnectionHealth("degraded"),
-        onChannelError: () => setConnectionHealth("reconnecting"),
-        onChannelClose: () => setConnectionHealth("degraded"),
+        onJoinError: () => active && setConnectionHealth("degraded"),
+        onJoinTimeout: () => active && setConnectionHealth("degraded"),
+        onChannelError: () => active && setConnectionHealth("reconnecting"),
+        onChannelClose: () => {
+          if (!active) return
+          channelClosedRef.current = true
+          setConnectionHealth("degraded")
+        },
       },
     })
 
     realtimeClientRef.current = realtimeClient.connect()
 
     return () => {
+      active = false
       realtimeClient.disconnect()
       realtimeClientRef.current = null
-      setConnectionHealth("disconnected")
     }
-  }, [realtimeClientFactory, sessionKey])
+  }, [clientGeneration, realtimeClientFactory, sessionKey])
 
   function retryRealtimeConnection() {
+    if (channelClosedRef.current) {
+      setConnectionHealth("reconnecting")
+      setClientGeneration((generation) => generation + 1)
+      return
+    }
+
     if (!realtimeClientRef.current?.reconnect) return
 
     setConnectionHealth("reconnecting")
