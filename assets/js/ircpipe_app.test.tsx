@@ -826,6 +826,81 @@ describe("IrcpipeApp UI prototype", () => {
     }
   })
 
+  test("discards pending notification navigation when bootstrap rotates the session generation", async () => {
+    const user = userEvent.setup()
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    const rotatedSession = {
+      ...initial,
+      push: {...initial.push, session_generation: "session-b"},
+      buffers: [...initial.buffers, directBufferRecord(12, "Mona", {unread_count: 1})],
+    }
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn()
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValue(rotatedSession),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    const listeners = new Map<string, Set<(event: any) => void>>()
+    const originalServiceWorker = navigator.serviceWorker
+    let rendered
+
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: {
+        ready: Promise.resolve({active: {postMessage: vi.fn()}}),
+        controller: null,
+        addEventListener: (type, listener) => {
+          const current = listeners.get(type) || new Set()
+          current.add(listener)
+          listeners.set(type, current)
+        },
+        removeEventListener: (type, listener) => listeners.get(type)?.delete(listener),
+      },
+      configurable: true,
+    })
+
+    try {
+      rendered = render(
+        <IrcpipeApp
+          apiClient={apiClient as any}
+          currentUser={{id: 1, email: "mira@example.com"}}
+          developerOauth={true}
+          realtimeClientFactory={() => client}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+      await waitFor(() => expect(listeners.get("message")?.size).toBe(1))
+      const nav = screen.getByRole("navigation", {name: "Joined topics"})
+      await user.click(within(nav).getByText("akash"))
+      expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+
+      act(() => {
+        listeners.get("message")?.forEach((listener) => listener({
+          data: {
+            type: "notification:navigate",
+            bufferId: "direct:12",
+            sessionGeneration: "test-session",
+            userId: "1",
+          },
+        }))
+      })
+
+      await waitFor(() => expect(apiClient.bootstrap).toHaveBeenCalledTimes(2))
+      expect(await within(nav).findByText("Mona")).toBeInTheDocument()
+      expect(screen.getByRole("heading", {name: "akash"})).toBeInTheDocument()
+    } finally {
+      rendered?.unmount()
+      if (originalServiceWorker) {
+        Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
+      } else {
+        delete navigator.serviceWorker
+      }
+    }
+  })
+
   test("discards pending notification navigation when the account generation changes", async () => {
     const seedClient = directMessageApiClient()
     const initial = await seedClient.bootstrap()

@@ -960,7 +960,15 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const state = buildBootstrapState(bootstrap)
     if (!state) return false
 
-    const notificationRequest = notificationBufferRequestRef.current
+    const pendingNotificationRequest = notificationBufferRequestRef.current
+    const notificationRequest = pendingNotificationRequest &&
+      pendingNotificationRequest.userId === String(bootstrap.user.id) &&
+      pendingNotificationRequest.sessionGeneration === state.push.session_generation
+      ? pendingNotificationRequest
+      : null
+    if (pendingNotificationRequest && !notificationRequest) {
+      notificationBufferRequestRef.current = null
+    }
     const notificationPreferredBuffer = selectPreferredBuffer(
       state.connections,
       notificationRequest?.bufferId
