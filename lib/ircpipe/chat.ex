@@ -138,25 +138,6 @@ defmodule Ircpipe.Chat do
     |> Repo.one!()
   end
 
-  def get_direct_message_thread_by_peer!(
-        %User{} = user,
-        %ServerConnection{} = connection,
-        peer_nick,
-        casemapping \\ nil
-      ) do
-    mapping = casemapping || stored_casemapping(connection) || :ascii
-    peer_key = channel_key(peer_nick, mapping)
-
-    DirectMessageThread
-    |> where(
-      [thread],
-      thread.user_id == ^user.id and thread.server_connection_id == ^connection.id and
-        thread.peer_key == ^peer_key
-    )
-    |> preload(:server_connection)
-    |> Repo.one!()
-  end
-
   def open_direct_message(
         %User{id: user_id} = user,
         %ServerConnection{user_id: user_id} = connection,
