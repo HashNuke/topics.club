@@ -22,6 +22,7 @@ export default {
     activeChannel: {channel: "#elixir"},
     mobile: true,
     users,
+    onSetDirectMessageBlocked: () => {},
   },
 }
 
@@ -42,4 +43,26 @@ export const AwayOnly = {
 
 export const NoActiveChannel = {
   args: {activeChannel: null},
+}
+
+export const DirectMessagePeer = {
+  args: {
+    activeChannel: {
+      id: "direct:8",
+      buffer_type: "direct_message",
+      channel: "akash",
+      topic: "on irc.libera.chat",
+      account: "akash-account",
+      hostmask: "akash!user@example.net",
+      blocked: false,
+    },
+    users: [],
+  },
+}
+
+export const BlockedDirectMessagePeer = {
+  args: {
+    ...DirectMessagePeer.args,
+    activeChannel: {...DirectMessagePeer.args.activeChannel, blocked: true},
+  },
 }

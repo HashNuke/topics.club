@@ -2,11 +2,14 @@ import {describe, expect, test} from "vitest"
 import {
   channelFromBuffer,
   channelFromMembership,
+  directMessageFromBuffer,
   planServerRemoval,
   removeChannel,
+  sortConversationBuffers,
   updateBufferRead,
   updateConnectionDetails,
   updateServerStatus,
+  upsertDirectMessage,
   upsertJoinedChannel,
 } from "./connection_store.ts"
 
@@ -60,5 +63,30 @@ describe("connection store", () => {
     const plan = planServerRemoval([server, {...server, id: "server:5", server_connection_id: 5}], 1)
     expect([...plan.deletedChannelIds]).toEqual(["channel:2"])
     expect(plan.nextServer.id).toBe("server:5")
+  })
+
+  test("upserts and sorts direct messages before alphabetized channels", () => {
+    const direct = directMessageFromBuffer({
+      buffer_id: "direct:9",
+      buffer_type: "direct_message",
+      server_connection_id: 1,
+      direct_message_thread_id: 9,
+      title: "Akash",
+      unread_count: 3,
+      blocked: false,
+    })
+    const connection = {id: 1, name: "local", host: "127.0.0.1", status: "connected"}
+    const added = upsertDirectMessage([server], connection, direct)
+    const updated = upsertDirectMessage(added, connection, {...direct, channel: "akash_", unread_count: 4})
+
+    expect(updated[0].channels.map((item) => item.id)).toEqual(["direct:9", "channel:2"])
+    expect(updated[0].channels[0]).toMatchObject({channel: "akash_", unread_count: 4})
+
+    expect(sortConversationBuffers([
+      {id: "channel:4", channel: "#Zulu", buffer_type: "channel"},
+      {id: "direct:2", channel: "zed", buffer_type: "direct_message"},
+      {id: "channel:3", channel: "#alpha", buffer_type: "channel"},
+      {id: "direct:1", channel: "Akash", buffer_type: "direct_message"},
+    ]).map((item) => item.id)).toEqual(["direct:1", "direct:2", "channel:3", "channel:4"])
   })
 })

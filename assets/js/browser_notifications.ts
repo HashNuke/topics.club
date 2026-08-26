@@ -2,6 +2,7 @@ interface MentionMessage {
   body: string
   channel?: string
   nick: string
+  peer_nick?: string
 }
 
 export type BrowserNotificationState = NotificationPermission | "unsupported" | "insecure"
@@ -58,6 +59,8 @@ export function showMentionNotification(
   if (notificationState !== "granted" && window.Notification.permission !== "granted") return false
   if (message.nick === currentUser?.email?.split("@")[0]) return false
 
-  new window.Notification(message.channel || "topics.club", {body: `${message.nick}: ${message.body}`})
+  new window.Notification(message.channel || message.peer_nick || "topics.club", {
+    body: `${message.nick}: ${message.body}`,
+  })
   return true
 }

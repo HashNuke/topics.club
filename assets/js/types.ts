@@ -18,6 +18,8 @@ export interface ChatMessage {
   id?: EntityId
   buffer_id?: string
   channel_membership_id?: EntityId
+  direct_message_thread_id?: EntityId
+  peer_nick?: string
   occurredAt?: string
   occurred_at?: string
   nick: string
@@ -71,12 +73,17 @@ export interface TopicInput extends Partial<Topic> {
 
 export interface Channel {
   id: string
+  buffer_type?: "channel" | "direct_message"
   channel_membership_id?: EntityId
+  direct_message_thread_id?: EntityId
   channel: string
   topic?: string
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled?: boolean
+  account?: string | null
+  hostmask?: string | null
+  blocked?: boolean
   connection?: ServerConnection
   [key: string]: unknown
 }
@@ -116,11 +123,15 @@ export interface BufferRecord {
   buffer_type?: string
   server_connection_id: EntityId
   channel_membership_id?: EntityId
+  direct_message_thread_id?: EntityId
   title: string
   subtitle?: string
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled?: boolean
+  account?: string | null
+  hostmask?: string | null
+  blocked?: boolean
   status?: string
   [key: string]: unknown
 }
@@ -155,6 +166,17 @@ export interface JoinedTopicPayload {
 export interface BufferLeftPayload {
   buffer_id?: string
   server_connection_id: EntityId
+}
+
+export interface DirectMessageThreadPayload {
+  connection: BackendConnection
+  buffer: BufferRecord
+}
+
+export interface DirectMessageClosedPayload {
+  buffer_id: string
+  server_connection_id: EntityId
+  direct_message_thread_id: EntityId
 }
 
 export interface PresenceSyncPayload {

@@ -37,7 +37,7 @@ function ActionMenu({ariaLabel, buttonClass, items}: {ariaLabel: string; buttonC
           {items.map((item) => (
             <button
               key={item.label}
-              className={["w-full rounded-md px-3 py-2 text-left transition", item.danger ? "text-rose-200 hover:bg-rose-950/50" : "text-slate-200 hover:bg-slate-800"].join(" ")}
+              className={["w-full rounded-md px-3 py-2 text-left transition", item.danger ? "text-rose-200 hover:bg-rose-950/50" : "text-white/90 hover:bg-slate-800"].join(" ")}
               onClick={() => run(item.action)}
               role="menuitem"
               type="button"
@@ -61,6 +61,16 @@ export function ChannelActionMenu({channel, onCopyChannel, onLeaveChannel, onMar
         {label: "Copy channel name", action: onCopyChannel},
         {label: "Leave channel", action: onLeaveChannel, danger: true},
       ]}
+    />
+  )
+}
+
+export function DirectMessageActionMenu({channel, onClose}: {channel: Channel; onClose: () => void}) {
+  return (
+    <ActionMenu
+      ariaLabel={`Private message actions for ${channel.channel}`}
+      buttonClass="grid size-7 place-items-center rounded-md text-slate-500 opacity-0 transition hover:bg-slate-700 hover:text-white focus:opacity-100 group-hover:opacity-100"
+      items={[{label: "Close", action: onClose, danger: true}]}
     />
   )
 }

@@ -17,6 +17,7 @@ export interface LeftSidebarProps {
   view: AppView
   onDiscover: () => void
   onDisconnectServer: (server: ServerConnection) => void
+  onCloseDirectMessage: (channel: Channel) => void
   onJoinManualServer: (form: ManualServerForm) => void
   onLeaveChannel: (channel: Channel) => void
   onLeaveServer: (server: ServerConnection) => void
@@ -31,7 +32,7 @@ export interface LeftSidebarProps {
 }
 
 export default function LeftSidebar(props: LeftSidebarProps) {
-  const {activeChannel, activeServer, connections, currentUser, mobile = false, notificationDeviceState, notificationSavingIds, view, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onToggleServerNotifications, onUpdateServer} = props
+  const {activeChannel, activeServer, connections, currentUser, mobile = false, notificationDeviceState, notificationSavingIds, view, onCloseDirectMessage, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onToggleServerNotifications, onUpdateServer} = props
   const [manualOpen, setManualOpen] = useState(false)
   const [editingServer, setEditingServer] = useState<ServerConnection | null>(null)
   const [leavingServer, setLeavingServer] = useState<ServerConnection | null>(null)
@@ -62,6 +63,7 @@ export default function LeftSidebar(props: LeftSidebarProps) {
             connection={connection}
             notificationDeviceState={notificationDeviceState}
             notificationSavingIds={notificationSavingIds}
+            onCloseDirectMessage={onCloseDirectMessage}
             onDisconnectServer={onDisconnectServer}
             onEditServer={setEditingServer}
             onLeaveChannel={onLeaveChannel}

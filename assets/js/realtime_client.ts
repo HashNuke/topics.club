@@ -2,6 +2,8 @@ import type {
   BufferLeftPayload,
   BufferReadPayload,
   ChatMessage,
+  DirectMessageClosedPayload,
+  DirectMessageThreadPayload,
   JoinedTopicPayload,
   NotificationPreferencePayload,
   PresenceDiffPayload,
@@ -49,10 +51,13 @@ export interface RealtimeHandlers {
   onBufferRead?(payload: BufferReadPayload): void
   onBufferLeft?(payload: BufferLeftPayload): void
   onBufferJoined?(payload: JoinedTopicPayload): void
+  onDirectMessageThread?(payload: DirectMessageThreadPayload): void
+  onDirectMessageClosed?(payload: DirectMessageClosedPayload): void
   onServerStatus?(payload: ServerStatusPayload): void
   onPresenceSync?(payload: PresenceSyncPayload): void
   onPresenceDiff?(payload: PresenceDiffPayload): void
   onNotificationMention?(payload: ChatMessage): void
+  onNotificationDirectMessage?(payload: ChatMessage): void
   onNotificationPreference?(payload: NotificationPreferencePayload): void
 }
 
@@ -95,10 +100,13 @@ export function createRealtimeClient({
   channel.on("buffer:read", (payload) => handlers.onBufferRead?.(payload as unknown as BufferReadPayload))
   channel.on("buffer:left", (payload) => handlers.onBufferLeft?.(payload as unknown as BufferLeftPayload))
   channel.on("buffer:joined", (payload) => handlers.onBufferJoined?.(payload as unknown as JoinedTopicPayload))
+  channel.on("direct_message:thread", (payload) => handlers.onDirectMessageThread?.(payload as unknown as DirectMessageThreadPayload))
+  channel.on("direct_message:closed", (payload) => handlers.onDirectMessageClosed?.(payload as unknown as DirectMessageClosedPayload))
   channel.on("server:status", (payload) => handlers.onServerStatus?.(payload as unknown as ServerStatusPayload))
   channel.on("presence:sync", (payload) => handlers.onPresenceSync?.(payload as unknown as PresenceSyncPayload))
   channel.on("presence:diff", (payload) => handlers.onPresenceDiff?.(payload as unknown as PresenceDiffPayload))
   channel.on("notification:mention", (payload) => handlers.onNotificationMention?.(payload as unknown as ChatMessage))
+  channel.on("notification:direct_message", (payload) => handlers.onNotificationDirectMessage?.(payload as unknown as ChatMessage))
   channel.on("notification:preference", (payload) => handlers.onNotificationPreference?.(payload as unknown as NotificationPreferencePayload))
 
   function connect() {

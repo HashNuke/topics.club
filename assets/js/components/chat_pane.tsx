@@ -67,7 +67,7 @@ export function NewMessagesButton({count, onClick}: {count: number; onClick: () 
 }
 
 export function isRealtimeChannel(channel?: Channel | null): boolean {
-  return Boolean(channel?.id?.startsWith("channel:"))
+  return Boolean(channel?.id?.startsWith("channel:") || channel?.id?.startsWith("direct:"))
 }
 
 export function realtimeReadyFor(channel: Channel | null | undefined, connectionHealth: ConnectionHealth): boolean {

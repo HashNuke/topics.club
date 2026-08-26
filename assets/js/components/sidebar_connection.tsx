@@ -1,5 +1,9 @@
 import React from "react"
-import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.tsx"
+import {
+  ChannelActionMenu,
+  DirectMessageActionMenu,
+  ServerActionMenu,
+} from "./sidebar_action_menus.tsx"
 import type {AppView, Channel, ServerConnection} from "../types.ts"
 import type {NotificationDeviceState} from "../browser_notifications.ts"
 import {notificationControlState} from "../push_notifications.ts"
@@ -12,6 +16,7 @@ export interface SidebarConnectionProps {
   notificationDeviceState: NotificationDeviceState
   notificationSavingIds: Set<string>
   onDisconnectServer?: (server: ServerConnection) => void
+  onCloseDirectMessage?: (channel: Channel) => void
   onEditServer: (server: ServerConnection) => void
   onLeaveChannel?: (channel: Channel) => void
   onLeaveServer: (server: ServerConnection) => void
@@ -25,7 +30,7 @@ export interface SidebarConnectionProps {
 }
 
 export default function SidebarConnection(props: SidebarConnectionProps) {
-  const {activeChannel, activeServer, connection, notificationDeviceState, notificationSavingIds, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onToggleServerNotifications, view} = props
+  const {activeChannel, activeServer, connection, notificationDeviceState, notificationSavingIds, onCloseDirectMessage, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onToggleServerNotifications, view} = props
   return (
     <section className="mb-5">
       <div className={[
@@ -62,10 +67,26 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
             activeChannel?.id === channel.id ? "border border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-transparent text-white/75 hover:bg-slate-800/80 hover:text-white",
           ].join(" ")}>
             <button className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left" onClick={() => onSelectChannel(channel)} type="button">
+              {channel.buffer_type === "direct_message" && (
+                <span className="hero-user size-3.5 shrink-0 text-slate-500" aria-hidden="true" />
+              )}
               <span className="min-w-0 flex-1 truncate">{channel.channel}</span>
-              {(channel.mention_count || 0) > 0 && <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-rose-950">{channel.mention_count}</span>}
+              {channel.buffer_type === "direct_message" && (channel.unread_count || 0) > 0 ? (
+                <span className="min-w-5 rounded-full bg-rose-400 px-1.5 text-center text-xs font-semibold text-rose-950" aria-label={`${channel.unread_count} unread ${channel.unread_count === 1 ? "message" : "messages"} from ${channel.channel}`}>
+                  {channel.unread_count}
+                </span>
+              ) : (channel.mention_count || 0) > 0 ? (
+                <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-rose-950">{channel.mention_count}</span>
+              ) : null}
             </button>
-            <ChannelActionMenu channel={channel} onCopyChannel={() => navigator.clipboard?.writeText(channel.channel)} onLeaveChannel={() => onLeaveChannel?.(channel)} onMarkRead={() => onMarkChannelRead?.(channel)} />
+            {channel.buffer_type === "direct_message" ? (
+              <DirectMessageActionMenu
+                channel={channel}
+                onClose={() => onCloseDirectMessage?.(channel)}
+              />
+            ) : (
+              <ChannelActionMenu channel={channel} onCopyChannel={() => navigator.clipboard?.writeText(channel.channel)} onLeaveChannel={() => onLeaveChannel?.(channel)} onMarkRead={() => onMarkChannelRead?.(channel)} />
+            )}
           </div>
         ))}
       </div>

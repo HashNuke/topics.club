@@ -1,4 +1,4 @@
-import {ChannelActionMenu, ServerActionMenu} from "./sidebar_action_menus.tsx"
+import {ChannelActionMenu, DirectMessageActionMenu, ServerActionMenu} from "./sidebar_action_menus.tsx"
 
 export default {
   title: "Navigation/SidebarActionMenus",
@@ -11,4 +11,8 @@ export const ChannelActions = {
 
 export const ServerActions = {
   render: () => <ServerActionMenu server={{id: "server:1", name: "Libera Chat", host: "irc.libera.chat", channels: []}} onDisconnect={() => {}} onEdit={() => {}} onLeave={() => {}} onReconnect={() => {}} />,
+}
+
+export const DirectMessageActions = {
+  render: () => <DirectMessageActionMenu channel={{id: "direct:8", buffer_type: "direct_message", channel: "akash"}} onClose={() => {}} />,
 }

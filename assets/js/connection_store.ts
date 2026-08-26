@@ -12,6 +12,7 @@ import type {
 export function channelFromBuffer(buffer: BufferRecord, topic?: {description?: string}): Channel {
   return {
     id: buffer.buffer_id,
+    buffer_type: "channel",
     channel_membership_id: buffer.channel_membership_id,
     channel: buffer.title,
     topic: topic?.description || buffer.subtitle,
@@ -21,9 +22,25 @@ export function channelFromBuffer(buffer: BufferRecord, topic?: {description?: s
   }
 }
 
+export function directMessageFromBuffer(buffer: BufferRecord): Channel {
+  return {
+    id: buffer.buffer_id,
+    buffer_type: "direct_message",
+    direct_message_thread_id: buffer.direct_message_thread_id,
+    channel: buffer.title,
+    topic: buffer.subtitle,
+    unread_count: buffer.unread_count,
+    mention_count: 0,
+    account: buffer.account,
+    hostmask: buffer.hostmask,
+    blocked: Boolean(buffer.blocked),
+  }
+}
+
 export function channelFromMembership(membership: ChannelMembership, host: string): Channel {
   return {
     id: `channel:${membership.id}`,
+    buffer_type: "channel",
     channel_membership_id: membership.id,
     channel: membership.channel,
     topic: `on ${host}`,
@@ -51,9 +68,11 @@ export function upsertJoinedChannel(
       return {
         ...item,
         ...(updateStatus ? {status: connection.status} : {}),
-        channels: item.channels.some((existing) => existing.id === channel.id)
-          ? item.channels
-          : [...item.channels, channel],
+        channels: sortConversationBuffers(
+          item.channels.some((existing) => existing.id === channel.id)
+            ? item.channels
+            : [...item.channels, channel]
+        ),
       }
     })
   }
@@ -73,6 +92,57 @@ export function upsertJoinedChannel(
       channels: [channel],
     },
   ]
+}
+
+export function upsertDirectMessage(
+  connections: ServerConnection[],
+  connection: BackendConnection,
+  directMessage: Channel
+): ServerConnection[] {
+  const connectionId = `server:${connection.id}`
+  const existingConnection = connections.find(
+    (item) => item.server_connection_id === connection.id || item.id === connectionId
+  )
+
+  if (existingConnection) {
+    return connections.map((item) => {
+      if (item.id !== existingConnection.id) return item
+
+      const exists = item.channels.some((conversation) => conversation.id === directMessage.id)
+      const conversations = exists
+        ? item.channels.map((conversation) =>
+            conversation.id === directMessage.id ? {...conversation, ...directMessage} : conversation
+          )
+        : [...item.channels, directMessage]
+
+      return {...item, status: connection.status || item.status, channels: sortConversationBuffers(conversations)}
+    })
+  }
+
+  return [
+    ...connections,
+    {
+      id: connectionId,
+      server_connection_id: connection.id,
+      name: connection.name,
+      host: connection.host,
+      port: connection.port,
+      use_tls: connection.use_tls,
+      nickname: connection.nickname,
+      status: connection.status,
+      mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
+      channels: [directMessage],
+    },
+  ]
+}
+
+export function sortConversationBuffers(channels: Channel[]): Channel[] {
+  return [...channels].sort((left, right) => {
+    const leftRank = left.buffer_type === "direct_message" ? 0 : 1
+    const rightRank = right.buffer_type === "direct_message" ? 0 : 1
+    if (leftRank !== rightRank) return leftRank - rightRank
+    return left.channel.localeCompare(right.channel, undefined, {sensitivity: "base"})
+  })
 }
 
 export function updateServerStatus(

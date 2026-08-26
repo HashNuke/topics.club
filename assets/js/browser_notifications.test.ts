@@ -69,6 +69,19 @@ describe("browser notifications", () => {
     )).toBe(false)
   })
 
+  test("uses the peer nick as the title for a direct message", () => {
+    const NotificationMock = vi.fn()
+    NotificationMock.permission = "granted"
+    Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+    Object.defineProperty(document, "visibilityState", {value: "hidden", configurable: true})
+
+    expect(showMentionNotification(
+      {nick: "akash", peer_nick: "akash", body: "hello privately"},
+      {currentUser: {email: "mira@example.com"}, notificationState: "granted"}
+    )).toBe(true)
+    expect(NotificationMock).toHaveBeenCalledWith("akash", {body: "akash: hello privately"})
+  })
+
   test("reports notifications as unsupported when the API is missing", async () => {
     delete window.Notification
 

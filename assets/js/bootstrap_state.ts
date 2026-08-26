@@ -1,4 +1,5 @@
 import {normalizeMessage, normalizeTopic} from "./chat_store.ts"
+import {channelFromBuffer, directMessageFromBuffer, sortConversationBuffers} from "./connection_store.ts"
 import type {
   AppView,
   BackendConnection,
@@ -46,8 +47,10 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
 
   const buffers = bootstrap.buffers
   const connections = bootstrap.connections.map((connection) => {
-    const channelBuffers = buffers.filter(
-      (buffer) => buffer.buffer_type === "channel" && buffer.server_connection_id === connection.id
+    const conversationBuffers = buffers.filter(
+      (buffer) =>
+        ["channel", "direct_message"].includes(buffer.buffer_type || "") &&
+        buffer.server_connection_id === connection.id
     )
 
     return {
@@ -62,15 +65,13 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
       unread_count: connection.unread_count || 0,
       mention_count: connection.mention_count || 0,
       mention_notifications_enabled: connection.mention_notifications_enabled ?? true,
-      channels: channelBuffers.map((buffer) => ({
-        id: buffer.buffer_id,
-        channel_membership_id: buffer.channel_membership_id,
-        channel: buffer.title,
-        topic: buffer.subtitle,
-        unread_count: buffer.unread_count,
-        mention_count: buffer.mention_count,
-        mention_notifications_enabled: buffer.mention_notifications_enabled ?? true,
-      })),
+      channels: sortConversationBuffers(
+        conversationBuffers.map((buffer) =>
+          buffer.buffer_type === "direct_message"
+            ? directMessageFromBuffer(buffer)
+            : channelFromBuffer(buffer)
+        )
+      ),
     }
   })
 
@@ -91,11 +92,15 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
   let activeServerId: string | null = null
   let view: AppView | null = null
 
-  if (bootstrap.active_buffer_id?.startsWith("channel:")) {
+  if (
+    bootstrap.active_buffer_id?.startsWith("channel:") ||
+    bootstrap.active_buffer_id?.startsWith("direct:")
+  ) {
     activeChannelId = bootstrap.active_buffer_id
     activeServerId = connections.find((connection) =>
       connection.channels.some((channel) => channel.id === activeChannelId)
     )?.id || null
+    view = "chat"
   } else if (bootstrap.active_buffer_id?.startsWith("server:")) {
     activeServerId = bootstrap.active_buffer_id
     view = "server"

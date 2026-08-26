@@ -497,6 +497,7 @@ defmodule IrcpipeWeb.UserChannel do
         command_id: result.command_id,
         status: result.status,
         buffer_id: "direct:#{thread.id}",
+        buffer: Event.direct_message_thread(thread, connection).buffer,
         message: Event.message(message, "direct:#{thread.id}", %{peer_nick: thread.peer_nick})
       })
     else

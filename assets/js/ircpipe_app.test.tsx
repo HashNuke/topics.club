@@ -425,6 +425,35 @@ function fakeRealtimeClient(pushImpl) {
   return client
 }
 
+function directMessageApiClient() {
+  return {
+    topics: vi.fn().mockResolvedValue({topics: []}),
+    bootstrap: vi.fn().mockResolvedValue({
+      user: {id: 1, email: "mira@example.com"},
+      push: {configured: false, vapid_public_key: null},
+      connections: [
+        {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected"},
+        {id: 2, name: "New Network", host: "irc.new.test", nickname: "mira", status: "connected"},
+      ],
+      buffers: [
+        {buffer_id: "server:1", buffer_type: "server", server_connection_id: 1, title: "irc.old.test"},
+        {buffer_id: "channel:4", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 4, title: "#zulu"},
+        {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, title: "Zed", subtitle: "on irc.old.test", unread_count: 2, blocked: false, account: "zed-account"},
+        {buffer_id: "channel:3", buffer_type: "channel", server_connection_id: 1, channel_membership_id: 3, title: "#alpha"},
+        {buffer_id: "direct:8", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 8, title: "akash", subtitle: "on irc.old.test", unread_count: 0, blocked: false},
+        {buffer_id: "server:2", buffer_type: "server", server_connection_id: 2, title: "irc.new.test"},
+      ],
+      active_buffer_id: "direct:9",
+      messages_by_buffer: {
+        "direct:9": [{id: 31, buffer_id: "direct:9", nick: "Zed", body: "private hello"}],
+      },
+      message_cursors_by_buffer: {},
+      users_by_buffer: {},
+      command_catalog: [{name: "/msg", contexts: ["channel"]}],
+    }),
+  }
+}
+
 describe("IrcpipeApp UI prototype", () => {
   test("caps rendered messages only while the reader is near the bottom", () => {
     const messages = Array.from({length: 6}, (_, index) => ({id: index + 1, body: `message ${index + 1}`}))
@@ -541,6 +570,130 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(nav).getByText("local")).toBeInTheDocument()
     expect(within(nav).getByText("#testing")).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/bootstrap", expect.objectContaining({credentials: "same-origin"}))
+  })
+
+  test("renders ordered private-message navigation, unread state, and peer context", async () => {
+    const apiClient = directMessageApiClient()
+
+    render(<IrcpipeApp apiClient={apiClient as any} currentUser={{id: 1, email: "mira@example.com"}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    expect(screen.getByText("on Old Network")).toBeInTheDocument()
+    expect(screen.getByRole("complementary", {name: "About Zed"})).toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "Block user"})).toBeInTheDocument()
+    expect(screen.getByLabelText("2 unread messages from Zed")).toBeInTheDocument()
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    const copy = nav.textContent || ""
+    expect(copy.indexOf("Old Network")).toBeLessThan(copy.indexOf("New Network"))
+    expect(copy.indexOf("akash")).toBeLessThan(copy.indexOf("Zed"))
+    expect(copy.indexOf("Zed")).toBeLessThan(copy.indexOf("#alpha"))
+    expect(copy.indexOf("#alpha")).toBeLessThan(copy.indexOf("#zulu"))
+  })
+
+  test("adds incoming private-message threads without stealing focus", async () => {
+    mockBootstrapFetch()
+    const client = fakeRealtimeClient(vi.fn())
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onDirectMessageThread({
+      connection: {id: 42, name: "local", host: "127.0.0.1", status: "connected"},
+      buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, title: "akash", subtitle: "on 127.0.0.1", unread_count: 1, blocked: false},
+    })
+    realtimeHandlers.onBufferMessage({id: 88, buffer_id: "direct:12", nick: "akash", body: "incoming DM"})
+
+    expect(await screen.findByLabelText("1 unread message from akash")).toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    await userEvent.click(within(nav).getByText("akash"))
+    expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+    expect(screen.getByText("incoming DM")).toBeInTheDocument()
+  })
+
+  test("auto-opens a direct-message thread returned by msg", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn().mockImplementation((event) => {
+      if (event !== "command:run") return Promise.resolve({})
+      return Promise.resolve({
+        buffer_id: "direct:12",
+        buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, title: "akash", subtitle: "on 127.0.0.1", unread_count: 0, blocked: false},
+        message: {id: 89, buffer_id: "direct:12", nick: "mira", body: "hello privately"},
+      })
+    })
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onOpen()
+    await user.type(screen.getByLabelText("Message composer"), "/msg akash hello privately")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+    expect(screen.getByText("hello privately")).toBeInTheDocument()
+    expect(push).toHaveBeenCalledWith("command:run", expect.objectContaining({input: "/msg akash hello privately", buffer_id: "channel:7"}))
+  })
+
+  test("blocks, unblocks, and closes a direct-message thread", async () => {
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    const push = vi.fn().mockImplementation((event, payload) => {
+      if (event === "direct_message:block") {
+        return Promise.resolve({
+          buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, title: "Zed", subtitle: "on irc.old.test", unread_count: 0, blocked: payload.blocked, account: "zed-account"},
+        })
+      }
+      if (event === "direct_message:close") {
+        return Promise.resolve({buffer_id: "direct:9", server_connection_id: 1, direct_message_thread_id: 9})
+      }
+      return Promise.resolve({})
+    })
+    const client = fakeRealtimeClient(push)
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={() => client}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    await user.click(screen.getByRole("button", {name: "Block user"}))
+    expect(await screen.findByRole("button", {name: "Unblock user"})).toBeInTheDocument()
+    await user.click(screen.getByRole("button", {name: "Unblock user"}))
+    expect(await screen.findByRole("button", {name: "Block user"})).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", {name: "Private message actions for Zed"}))
+    await user.click(screen.getByRole("menuitem", {name: "Close"}))
+
+    expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+    expect(push).toHaveBeenCalledWith("direct_message:close", {buffer_id: "direct:9"})
   })
 
   test("renders IRC join events as channel meta messages", async () => {

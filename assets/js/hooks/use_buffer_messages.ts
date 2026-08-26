@@ -288,7 +288,11 @@ export default function useBufferMessages({
 }
 
 function isBackendBufferId(bufferId?: string | null): bufferId is string {
-  return Boolean(bufferId?.startsWith("channel:") || bufferId?.startsWith("server:"))
+  return Boolean(
+    bufferId?.startsWith("channel:") ||
+      bufferId?.startsWith("direct:") ||
+      bufferId?.startsWith("server:")
+  )
 }
 
 function defer(callback: () => void): void {

@@ -11,11 +11,13 @@ import {normalizeChannel, normalizeTopic} from "../chat_store.ts"
 import {
   channelFromBuffer,
   channelFromMembership,
+  directMessageFromBuffer,
   planServerRemoval,
   removeChannel,
   updateBufferRead,
   updateConnectionDetails,
   updateServerStatus,
+  upsertDirectMessage,
   upsertJoinedChannel,
 } from "../connection_store.ts"
 import {backendTopicFor, numericId} from "../topic_navigation.ts"
@@ -29,6 +31,8 @@ import type {
   ChannelMembership,
   ChatMessage,
   ChatUser,
+  DirectMessageClosedPayload,
+  DirectMessageThreadPayload,
   EntityId,
   JoinedTopicPayload,
   MessagesByBuffer,
@@ -240,6 +244,81 @@ export default function useServerConnections({
     setConnections((current) => updateBufferRead(current, payload))
   }
 
+  function applyDirectMessageThread(payload: DirectMessageThreadPayload): void {
+    if (!payload?.connection || !payload?.buffer) return
+    const directMessage = directMessageFromBuffer(payload.buffer)
+    setConnections((current) => upsertDirectMessage(current, payload.connection, directMessage))
+    setMessagesByChannel((current) => ({
+      ...current,
+      [directMessage.id]: current[directMessage.id] || [],
+    }))
+  }
+
+  function applyDirectMessageClosed(payload: DirectMessageClosedPayload): void {
+    const bufferId = payload?.buffer_id
+    if (!bufferId?.startsWith("direct:")) return
+
+    const serverId = `server:${payload.server_connection_id}`
+    const currentServer = connectionsRef.current.find((server) => server.id === serverId)
+    const remaining = currentServer?.channels.filter((channel) => channel.id !== bufferId) || []
+
+    setConnections((current) => removeChannel(current, bufferId))
+    setMessagesByChannel((current) => omitKeys(current, [bufferId]))
+    setUsersByChannel((current) => omitKeys(current, [bufferId]))
+
+    if (activeChannelIdRef.current !== bufferId) return
+
+    const nextConversation = remaining[0]
+    activeChannelIdRef.current = nextConversation?.id || null
+    setActiveChannelId(nextConversation?.id || null)
+    setActiveServerId(serverId)
+    setView(nextConversation ? "chat" : "server")
+  }
+
+  async function closeDirectMessage(channel?: Channel | null): Promise<void> {
+    if (channel?.buffer_type !== "direct_message" || !realtimeClientRef.current) return
+
+    try {
+      const payload = await realtimeClientRef.current.push<DirectMessageClosedPayload>(
+        "direct_message:close",
+        {buffer_id: channel.id}
+      )
+      applyDirectMessageClosed(payload)
+    } catch (_error) {
+      // Keep the thread visible if the backend cannot close it.
+    }
+  }
+
+  async function setDirectMessageBlocked(channel: Channel, blocked: boolean): Promise<void> {
+    if (channel.buffer_type !== "direct_message" || !realtimeClientRef.current) return
+
+    try {
+      const payload = await realtimeClientRef.current.push<{buffer: import("../types.ts").BufferRecord}>(
+        "direct_message:block",
+        {buffer_id: channel.id, blocked}
+      )
+      const server = connectionsRef.current.find((connection) =>
+        connection.channels.some((conversation) => conversation.id === channel.id)
+      )
+      if (!server || !payload.buffer) return
+
+      applyDirectMessageThread({
+        connection: {
+          id: server.server_connection_id || server.id.replace("server:", ""),
+          name: server.name,
+          host: server.host,
+          port: server.port,
+          use_tls: server.use_tls,
+          nickname: server.nickname,
+          status: server.status,
+        },
+        buffer: payload.buffer,
+      })
+    } catch (_error) {
+      // Preserve the current blocking state if the backend rejects the change.
+    }
+  }
+
   async function leaveChannel(channel?: Channel | null): Promise<void> {
     if (!channel?.id || !realtimeClientRef.current) return
 
@@ -340,9 +419,12 @@ export default function useServerConnections({
     applyAuthoritativeJoinedTopic,
     applyBufferLeft,
     applyBufferRead,
+    applyDirectMessageClosed,
+    applyDirectMessageThread,
     applyJoinedChannel,
     applyServerStatus,
     connections,
+    closeDirectMessage,
     disconnectServer,
     joinManualServer,
     joinRejectionVersionsRef,
@@ -350,6 +432,7 @@ export default function useServerConnections({
     leaveChannel,
     leaveServer,
     reconnectServer,
+    setDirectMessageBlocked,
     setConnections,
     updateServerConnection,
   }

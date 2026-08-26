@@ -38,6 +38,8 @@ import useServerConnections from "./hooks/use_server_connections.ts"
 import type {RealtimeClient, RealtimeHandlers} from "./realtime_client.ts"
 import type {
   AppView,
+  BackendConnection,
+  BufferRecord,
   Channel,
   ChannelDirectory,
   ChatMessage,
@@ -125,9 +127,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     applyAuthoritativeJoinedTopic,
     applyBufferLeft,
     applyBufferRead,
+    applyDirectMessageClosed,
+    applyDirectMessageThread,
     applyJoinedChannel,
     applyServerStatus,
     connections,
+    closeDirectMessage,
     disconnectServer,
     joinManualServer,
     joinRejectionVersionsRef,
@@ -135,6 +140,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     leaveChannel,
     leaveServer,
     reconnectServer,
+    setDirectMessageBlocked,
     setConnections,
     updateServerConnection,
   } = useServerConnections({
@@ -182,10 +188,13 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onBufferJoined: applyAuthoritativeJoinedTopic,
       onBufferLeft: applyBufferLeft,
       onBufferRead: applyBufferRead,
+      onDirectMessageThread: applyDirectMessageThread,
+      onDirectMessageClosed: applyDirectMessageClosed,
       onPresenceDiff: applyPresenceDiff,
       onPresenceSync: applyPresenceSync,
       onServerStatus: applyServerStatus,
       onNotificationMention: handleMentionNotification,
+      onNotificationDirectMessage: handleMentionNotification,
       onNotificationPreference: applyNotificationPreference,
     },
     onConnected: reconcileAllBuffers,
@@ -321,7 +330,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const users = activeChannel ? usersByChannel[activeChannel.id] || [] : []
 
   useEffect(() => {
-    if (mode === "landing" || view !== "chat" || !activeChannel?.id?.startsWith("channel:")) return
+    if (
+      mode === "landing" ||
+      view !== "chat" ||
+      !activeChannel ||
+      !["channel:", "direct:"].some((prefix) => activeChannel.id.startsWith(prefix))
+    ) return
     if ((activeChannel.unread_count || 0) === 0 && (activeChannel.mention_count || 0) === 0) return
 
     markBufferRead(activeChannel.id)
@@ -360,13 +374,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setComposerError(null)
 
       try {
-        const reply = await realtimeClientRef.current.push<{directory?: ChannelDirectory}>("command:run", {
+        const reply = await realtimeClientRef.current.push<{
+          buffer?: BufferRecord
+          directory?: ChannelDirectory
+          message?: ChatMessage
+        }>("command:run", {
           command_id: commandId,
           input: body,
           buffer_id: bufferId,
         })
 
         setDraft("")
+        if (reply.buffer?.buffer_type === "direct_message") {
+          openDirectMessage(reply.buffer, reply.message)
+        }
         if (reply.directory) {
           applyChannelDirectory(reply.directory, directoryRequestId ?? undefined)
         }
@@ -396,7 +417,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       body,
     }
 
-    if (realtimeClientRef.current && activeChannel.id?.startsWith("channel:")) {
+    if (
+      realtimeClientRef.current &&
+      (activeChannel.id?.startsWith("channel:") || activeChannel.id?.startsWith("direct:"))
+    ) {
       const clientMessageId = `client-${Date.now()}`
       const pendingMessage = {...nextMessage, id: clientMessageId, clientMessageId, pending: true}
 
@@ -736,8 +760,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onJoinThisServerChannel={joinThisServerChannel}
       onJoinManualServer={joinManualServer}
       onLeaveChannel={leaveChannel}
+      onCloseDirectMessage={closeDirectMessage}
       onMarkChannelRead={markChannelRead}
       onToggleChannelNotifications={toggleChannelNotifications}
+      onSetDirectMessageBlocked={setDirectMessageBlocked}
       onToggleServerNotifications={toggleServerNotifications}
       onOpenChannelDirectory={openChannelDirectory}
       onDisconnectServer={disconnectServer}
@@ -780,6 +806,40 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   async function markChannelRead(channel: Channel): Promise<void> {
     return markBufferRead(channel?.id)
+  }
+
+  function openDirectMessage(buffer: BufferRecord, message?: ChatMessage): void {
+    const server = connectionsRef.current.find(
+      (connection) => String(connection.server_connection_id) === String(buffer.server_connection_id)
+    )
+    if (!server) return
+
+    const backendConnection: BackendConnection = {
+      id: server.server_connection_id || buffer.server_connection_id,
+      name: server.name,
+      host: server.host,
+      port: server.port,
+      use_tls: server.use_tls,
+      nickname: server.nickname,
+      status: server.status,
+    }
+
+    applyDirectMessageThread({connection: backendConnection, buffer})
+    if (message) {
+      setMessagesByChannel((current) => ({
+        ...current,
+        [buffer.buffer_id]: [
+          ...(current[buffer.buffer_id] || []),
+          normalizeMessage(message),
+        ],
+      }))
+    }
+    activeChannelIdRef.current = buffer.buffer_id
+    activeServerIdRef.current = server.id
+    viewRef.current = "chat"
+    setActiveChannelId(buffer.buffer_id)
+    setActiveServerId(server.id)
+    setView("chat")
   }
 
   async function markBufferRead(bufferId?: string | null): Promise<void> {
