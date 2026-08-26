@@ -182,6 +182,8 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert_push "server:status", %{status: "connected"}, 1_000
+    assert {:ok, _client_info} = Session.connection_info(connection)
 
     ref =
       push(socket, "command:run", %{
@@ -189,11 +191,14 @@ defmodule IrcpipeWeb.UserChannelTest do
         "buffer_id" => "server:#{connection.id}"
       })
 
-    assert_reply ref, :ok, %{
-      command: %{name: "msg", args: ["akash", "hello privately"]},
-      buffer_id: buffer_id,
-      message: %{buffer_id: buffer_id, body: "hello privately", nick: "mira"}
-    }
+    assert_reply ref,
+                 :ok,
+                 %{
+                   command: %{name: "msg", args: ["akash", "hello privately"]},
+                   buffer_id: buffer_id,
+                   message: %{buffer_id: buffer_id, body: "hello privately", nick: "mira"}
+                 },
+                 1_000
 
     assert "direct:" <> _ = buffer_id
     assert_receive {:irc_server_line, "PRIVMSG akash :hello privately"}, 1_000

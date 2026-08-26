@@ -49,7 +49,6 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   def handle_info({:irc_mention, message}, socket) do
-    push(socket, "mention", message)
     push(socket, "notification:mention", message)
     {:noreply, socket}
   end
@@ -481,11 +480,13 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
-    with true <- Chat.valid_nick?(target),
-         {:ok, connection} <- connection_from_buffer(user, buffer_id),
+    with {:ok, connection} <- connection_from_buffer(user, buffer_id),
+         {:ok, client_info} <- session_connection_info(connection),
+         true <- Chat.valid_nick?(target, Map.get(client_info, :isupport, %{})),
          {:ok, result} <-
-           execute_intent(
+           resolve_and_execute_intent(
              connection,
+             client_info,
              "PRIVMSG #{target} :#{body}",
              "server:#{connection.id}",
              socket
@@ -696,7 +697,14 @@ defmodule IrcpipeWeb.UserChannel do
 
   defp execute_intent(connection, line, buffer_id, socket) do
     with {:ok, client_info} <- session_connection_info(connection),
-         {:ok, intent} <- CommandRegistry.resolve(line, client_info) do
+         {:ok, result} <-
+           resolve_and_execute_intent(connection, client_info, line, buffer_id, socket) do
+      {:ok, result}
+    end
+  end
+
+  defp resolve_and_execute_intent(connection, client_info, line, buffer_id, socket) do
+    with {:ok, intent} <- CommandRegistry.resolve(line, client_info) do
       Session.execute(connection, intent, socket.assigns.command_id, buffer_id)
     end
   end

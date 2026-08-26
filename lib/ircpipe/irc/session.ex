@@ -871,7 +871,7 @@ defmodule Ircpipe.Irc.Session do
         state.connection.nickname,
         body,
         "message",
-        %{},
+        %{direction: "outgoing"},
         casemapping(state)
       )
 
@@ -890,7 +890,7 @@ defmodule Ircpipe.Irc.Session do
         state.connection.nickname,
         body,
         "action",
-        %{},
+        %{direction: "outgoing"},
         casemapping(state)
       )
 

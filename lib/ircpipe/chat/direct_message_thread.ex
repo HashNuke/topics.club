@@ -3,7 +3,7 @@ defmodule Ircpipe.Chat.DirectMessageThread do
   import Ecto.Changeset
 
   alias Ircpipe.Accounts.User
-  alias Ircpipe.Chat.{Message, ServerConnection}
+  alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, ServerConnection}
 
   schema "direct_message_threads" do
     field :peer_nick, :string
@@ -19,6 +19,7 @@ defmodule Ircpipe.Chat.DirectMessageThread do
     belongs_to :server_connection, ServerConnection
     belongs_to :user, User
     has_many :messages, Message
+    has_many :block_identities, DirectMessageBlockIdentity
 
     timestamps(type: :utc_datetime)
   end

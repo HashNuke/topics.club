@@ -156,7 +156,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              )
 
     assert renamed.id == thread.id
-    assert renamed.peer_nick == "akash_"
+    assert renamed.peer_nick == "akash"
     assert renamed.closed_at
     assert renamed.unread_count == 0
     assert Repo.aggregate(Message, :count) == message_count
@@ -199,6 +199,203 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert same_thread.id == thread.id
     assert Repo.aggregate(Message, :count) == message_count
     assert Chat.list_direct_message_threads(user, connection) == []
+  end
+
+  test "a different account reusing a blocked nick gets an independent thread", %{
+    user: user,
+    scope: scope,
+    connection: connection
+  } do
+    assert {:ok, %{thread: blocked_thread}} =
+             Chat.record_direct_message(
+               connection,
+               "guest",
+               "guest",
+               "first",
+               "message",
+               %{
+                 direction: "incoming",
+                 account: "first-account",
+                 hostmask: "guest!first@example.test"
+               }
+             )
+
+    assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, blocked_thread.id, true)
+
+    assert {:ok, %{thread: new_thread, message: message, dropped?: false}} =
+             Chat.record_direct_message(
+               connection,
+               "guest",
+               "guest",
+               "I am somebody else",
+               "message",
+               %{
+                 direction: "incoming",
+                 account: "second-account",
+                 hostmask: "guest!second@example.test"
+               }
+             )
+
+    refute new_thread.id == blocked_thread.id
+    assert message.body == "I am somebody else"
+    assert is_nil(new_thread.blocked_at)
+    assert Chat.get_direct_message_thread!(user, blocked_thread.id).blocked_at
+  end
+
+  test "an account appearing later preserves a user-at-host thread", %{
+    connection: connection
+  } do
+    assert {:ok, %{thread: original}} =
+             Chat.record_direct_message(
+               connection,
+               "guest",
+               "guest",
+               "first",
+               "message",
+               %{direction: "incoming", hostmask: "guest!same-user@example.test"}
+             )
+
+    assert {:ok, %{thread: identified}} =
+             Chat.record_direct_message(
+               connection,
+               "renamed",
+               "renamed",
+               "second",
+               "message",
+               %{
+                 direction: "incoming",
+                 account: "known-account",
+                 hostmask: "renamed!same-user@example.test"
+               }
+             )
+
+    assert identified.id == original.id
+    assert identified.peer_nick == "renamed"
+  end
+
+  test "server history never includes direct-message rows", %{
+    user: user,
+    connection: connection
+  } do
+    Chat.record_server_message(connection, "server line")
+
+    assert {:ok, %{message: direct_message}} =
+             Chat.record_direct_message(
+               connection,
+               "akash",
+               connection.nickname,
+               "private line",
+               "command",
+               %{
+                 direction: "outgoing",
+                 command_id: "private-command",
+                 command_status: "sent"
+               }
+             )
+
+    assert Enum.map(Chat.list_buffer_messages(user, "server:#{connection.id}"), & &1.body) == [
+             "server line"
+           ]
+
+    refute direct_message.id in Enum.map(
+             Chat.list_buffer_command_messages(user, "server:#{connection.id}", [
+               "private-command"
+             ]),
+             & &1.id
+           )
+  end
+
+  test "an ingestion waiting behind a block transaction is dropped before persistence" do
+    test_pid = self()
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {user, scope, connection, thread} =
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        user = AccountsFixtures.user_fixture()
+        scope = AccountsFixtures.user_scope_fixture(user)
+        connection = connection_fixture(user, "concurrent-block")
+
+        {:ok, %{thread: thread}} =
+          Chat.record_direct_message(
+            connection,
+            "guest",
+            "guest",
+            "first",
+            "message",
+            %{
+              direction: "incoming",
+              account: "stable-account",
+              hostmask: "guest!stable@example.test"
+            }
+          )
+
+        {user, scope, connection, thread}
+      end)
+
+    on_exit(fn ->
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
+          do: Repo.delete!(persisted_user)
+      end)
+    end)
+
+    blocker =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Repo.transaction(fn ->
+            Ircpipe.Chat.ServerConnection
+            |> where([server], server.id == ^connection.id)
+            |> lock("FOR UPDATE")
+            |> Repo.one!()
+
+            send(test_pid, {:block_lock_acquired, self()})
+
+            receive do
+              :finish_block -> Chat.set_direct_message_blocked(scope, thread.id, true)
+            end
+          end)
+        end)
+      end)
+
+    assert_receive {:block_lock_acquired, blocker_pid}
+
+    ingestion =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        send(test_pid, :ingestion_started)
+
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Chat.record_direct_message(
+            connection,
+            "renamed",
+            "renamed",
+            "must never persist",
+            "message",
+            %{
+              direction: "incoming",
+              account: "stable-account",
+              hostmask: "renamed!stable@example.test"
+            }
+          )
+        end)
+      end)
+
+    assert_receive :ingestion_started
+    refute Task.yield(ingestion, 100)
+    send(blocker_pid, :finish_block)
+
+    assert {:ok, {:ok, _blocked}} = Task.await(blocker)
+    assert {:ok, %{message: nil, dropped?: true}} = Task.await(ingestion)
+
+    Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+      refute Repo.exists?(from(message in Message, where: message.body == "must never persist"))
+    end)
+  end
+
+  test "valid nick targets honor IRC special characters and negotiated NICKLEN" do
+    assert Chat.valid_nick?("pipe|nick", %{"NICKLEN" => "30"})
+    assert Chat.valid_nick?(String.duplicate("a", 30), %{"NICKLEN" => "30"})
+    refute Chat.valid_nick?(String.duplicate("a", 31), %{"NICKLEN" => "30"})
+    refute Chat.valid_nick?("#channel", %{"NICKLEN" => "30"})
   end
 
   defp connection_fixture(user, name) do
