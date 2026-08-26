@@ -3,7 +3,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.Message
+  alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, Notification}
+  alias Ircpipe.Notifications
 
   setup do
     user = AccountsFixtures.user_fixture()
@@ -137,6 +138,13 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     flush_mailbox()
     assert {:ok, blocked} = Chat.set_direct_message_blocked(scope, thread.id, true)
     assert blocked.blocked_at
+
+    assert DirectMessageBlockIdentity
+           |> where([identity], identity.direct_message_thread_id == ^thread.id)
+           |> select([identity], identity.identity_key)
+           |> Repo.all()
+           |> Enum.sort() == ["account:akash-account", "hostmask:user@example.test"]
+
     assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
 
     message_count = Repo.aggregate(Message, :count)
@@ -299,6 +307,9 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
                %{direction: "incoming", account: "account-b", hostmask: "beta!b@example.test"}
              )
 
+    delayed_notification =
+      Repo.get_by!(Notification, direct_message_thread_id: account_b.id)
+
     flush_mailbox()
 
     assert {:ok, renamed} =
@@ -318,7 +329,13 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     displaced = Chat.get_direct_message_thread!(user, account_b.id)
     assert displaced.closed_at
+    assert displaced.last_read_at
+    assert displaced.unread_count == 0
     assert String.starts_with?(displaced.peer_key, "archived:")
+    assert Repo.get!(Notification, delayed_notification.id).read_at
+
+    assert {:cancel, :notification_not_found} =
+             Notifications.deliver_notification(delayed_notification.id)
 
     assert {:ok, %{thread: same_a, message: message}} =
              Chat.record_direct_message(

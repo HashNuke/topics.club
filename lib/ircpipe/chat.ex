@@ -1398,13 +1398,20 @@ defmodule Ircpipe.Chat do
 
   defp archive_direct_message_thread(thread) do
     archived_key = "archived:#{thread.id}:#{thread.peer_key}" |> String.slice(0, 128)
+    now = DateTime.utc_now(:second)
 
-    thread
-    |> DirectMessageThread.changeset(%{
-      peer_key: archived_key,
-      closed_at: thread.closed_at || DateTime.utc_now(:second)
-    })
-    |> Repo.update!()
+    archived =
+      thread
+      |> DirectMessageThread.changeset(%{
+        peer_key: archived_key,
+        closed_at: thread.closed_at || now,
+        last_read_at: now,
+        unread_count: 0
+      })
+      |> Repo.update!()
+
+    mark_direct_message_notifications_read(archived.id, now)
+    archived
   end
 
   defp normalized_account(account) when is_binary(account) do
