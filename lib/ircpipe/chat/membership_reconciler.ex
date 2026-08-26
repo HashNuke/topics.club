@@ -3,9 +3,16 @@ defmodule Ircpipe.Chat.MembershipReconciler do
 
   import Ecto.Query
 
-  alias Ircpipe.Chat.{ChannelMembership, Message, Notification, Presence, ServerConnection}
+  alias Ircpipe.Chat.{
+    BufferEvents,
+    ChannelMembership,
+    Message,
+    Notification,
+    Presence,
+    ServerConnection
+  }
+
   alias Ircpipe.Irc.Identifier
-  alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
   def reconcile(%ServerConnection{} = connection, casemapping) do
@@ -34,22 +41,13 @@ defmodule Ircpipe.Chat.MembershipReconciler do
 
   def broadcast_losers(%ServerConnection{} = connection, losers) when is_list(losers) do
     Enum.each(losers, fn loser ->
-      event =
-        %{
-          user_id: connection.user_id,
-          buffer_id: "channel:#{loser.id}",
-          server_connection_id: connection.id,
-          channel_membership_id: loser.id,
-          channel: loser.channel
-        }
-        |> Event.buffer_left()
-        |> Map.drop([:user_id])
-
-      Phoenix.PubSub.broadcast(
-        Ircpipe.PubSub,
-        "user:#{connection.user_id}",
-        {:buffer_left, event}
-      )
+      BufferEvents.left(%{
+        user_id: connection.user_id,
+        buffer_id: "channel:#{loser.id}",
+        server_connection_id: connection.id,
+        channel_membership_id: loser.id,
+        channel: loser.channel
+      })
     end)
   end
 

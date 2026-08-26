@@ -5,6 +5,7 @@ defmodule Ircpipe.Chat do
   alias Ircpipe.Accounts.User
 
   alias Ircpipe.Chat.{
+    BufferEvents,
     ChannelMembership,
     ChannelUser,
     Connections,
@@ -330,7 +331,7 @@ defmodule Ircpipe.Chat do
     connection = Connections.get!(user, id)
 
     Enum.each(connection.channel_memberships, fn membership ->
-      broadcast_buffer_left(%{
+      BufferEvents.left(%{
         user_id: user.id,
         buffer_id: "channel:#{membership.id}",
         server_connection_id: connection.id,
@@ -338,7 +339,7 @@ defmodule Ircpipe.Chat do
       })
     end)
 
-    broadcast_buffer_left(%{
+    BufferEvents.left(%{
       user_id: user.id,
       buffer_id: "server:#{connection.id}",
       server_connection_id: connection.id,
@@ -454,7 +455,7 @@ defmodule Ircpipe.Chat do
       end
 
     with {:ok, membership} <- result do
-      if broadcast?, do: broadcast_buffer_joined(connection, membership, connection_status)
+      if broadcast?, do: BufferEvents.joined(connection, membership, connection_status)
       {:ok, membership}
     end
   end
@@ -477,7 +478,7 @@ defmodule Ircpipe.Chat do
           |> Repo.update()
 
         with {:ok, rejected} <- result do
-          broadcast_buffer_left(%{
+          BufferEvents.left(%{
             user_id: connection.user_id,
             buffer_id: "channel:#{rejected.id}",
             server_connection_id: connection.id,
@@ -515,7 +516,7 @@ defmodule Ircpipe.Chat do
           |> Repo.delete_all()
 
           if membership.status != "left" do
-            broadcast_buffer_left(%{
+            BufferEvents.left(%{
               user_id: connection.user_id,
               buffer_id: "channel:#{updated.id}",
               server_connection_id: connection.id,
@@ -971,7 +972,7 @@ defmodule Ircpipe.Chat do
       |> Repo.update_all(set: [read_at: now])
     end)
 
-    broadcast_buffer_read(%{
+    BufferEvents.read(%{
       user_id: user_id,
       buffer_id: "channel:#{membership.id}",
       server_connection_id: membership.server_connection_id,
@@ -987,7 +988,7 @@ defmodule Ircpipe.Chat do
     from(c in ServerConnection, where: c.id == ^connection.id and c.user_id == ^user_id)
     |> Repo.update_all(set: [last_read_at: now, unread_count: 0, mention_count: 0])
 
-    broadcast_buffer_read(%{
+    BufferEvents.read(%{
       user_id: user_id,
       buffer_id: "server:#{connection.id}",
       server_connection_id: connection.id,
@@ -1008,48 +1009,6 @@ defmodule Ircpipe.Chat do
     else
       {:error, :invalid_buffer}
     end
-  end
-
-  def broadcast_buffer_left(payload) do
-    user_id = Map.fetch!(payload, :user_id)
-
-    event =
-      payload
-      |> Event.buffer_left()
-      |> Map.drop([:user_id])
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{user_id}",
-      {:buffer_left, event}
-    )
-  end
-
-  def broadcast_buffer_read(payload) do
-    user_id = Map.fetch!(payload, :user_id)
-
-    event =
-      payload
-      |> Event.buffer_read()
-      |> Map.drop([:user_id])
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{user_id}",
-      {:buffer_read, event}
-    )
-  end
-
-  def broadcast_buffer_joined(
-        %ServerConnection{} = connection,
-        %ChannelMembership{} = membership,
-        status \\ nil
-      ) do
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{connection.user_id}",
-      {:buffer_joined, Event.buffer_joined(connection, membership, status || connection.status)}
-    )
   end
 
   defp ensure_direct_message_thread(

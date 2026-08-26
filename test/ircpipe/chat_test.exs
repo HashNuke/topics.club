@@ -192,8 +192,21 @@ defmodule Ircpipe.ChatTest do
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     assert {:ok, [_loser]} = MembershipReconciler.reconcile(connection, :rfc1459)
-    assert_receive {:buffer_left, %{channel_membership_id: loser_id}}
+
+    assert_receive {:buffer_left,
+                    %{
+                      type: "buffer:left",
+                      version: 1,
+                      buffer_id: "channel:" <> _,
+                      server_connection_id: connection_id,
+                      channel_membership_id: loser_id,
+                      channel: loser_channel
+                    } = event}
+
+    refute Map.has_key?(event, :user_id)
+    assert connection_id == connection.id
     assert loser_id in [first.id, second.id]
+    assert loser_channel in [first.channel, second.channel]
     membership = Chat.get_channel_membership(connection, "#" <> "{OPS}", :rfc1459)
     assert membership.id in [first.id, second.id]
 
