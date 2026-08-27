@@ -6,10 +6,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
-  alias Ircpipe.Chat.DirectMessageSender
   alias Ircpipe.Chat.DirectMessageRenamer
-  alias Ircpipe.Chat.MessageIngestion
-  alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
@@ -20,6 +17,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircpipe.Irc.Session.JoinReconciliation
+  alias Ircpipe.Irc.Session.OutboundMessages
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.StartupAuthorization
@@ -806,62 +804,18 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_call({:say, channel, body}, _from, state) do
-    with :ok <- CommandRegistry.validate_chat_message(body),
-         {:ok, client} <- fetch_joined_client(state, channel),
-         :ok <- Ircxd.Client.privmsg(client, channel, body) do
-      MessageIngestion.record_channel(
-        state.connection,
-        channel,
-        state.connection.nickname,
-        body,
-        "message",
-        %{direction: "outgoing"},
-        Targets.casemapping(state)
-      )
-
-      {:reply, :ok, remember_pending_echo(state, channel, body, "message")}
-    else
-      error -> {:reply, error, state}
-    end
+    {reply, state} = OutboundMessages.say(state, channel, body)
+    {:reply, reply, state}
   end
 
   def handle_call({:action, channel, body}, _from, state) do
-    with {:ok, client} <- fetch_joined_client(state, channel),
-         :ok <- Ircxd.Client.privmsg(client, channel, <<1, "ACTION ", body::binary, 1>>) do
-      MessageIngestion.record_channel(
-        state.connection,
-        channel,
-        state.connection.nickname,
-        body,
-        "action",
-        %{direction: "outgoing"},
-        Targets.casemapping(state)
-      )
-
-      {:reply, :ok, remember_pending_echo(state, channel, body, "action")}
-    else
-      error -> {:reply, error, state}
-    end
+    {reply, state} = OutboundMessages.action(state, channel, body)
+    {:reply, reply, state}
   end
 
   def handle_call({:privmsg_thread, thread_id, body}, _from, state) do
-    with {:ok, client} <- fetch_client(state),
-         {:ok, %{thread: thread, message: message}} <-
-           DirectMessageSender.send(
-             state.connection,
-             thread_id,
-             body,
-             fn peer_nick ->
-               with :ok <- CommandRegistry.validate_private_message(peer_nick, body) do
-                 Ircxd.Client.privmsg(client, peer_nick, body)
-               end
-             end
-           ) do
-      {:reply, {:ok, %{thread: thread, message: message}},
-       remember_pending_echo(state, thread.peer_nick, body, "message")}
-    else
-      error -> {:reply, error, state}
-    end
+    {reply, state} = OutboundMessages.direct(state, thread_id, body)
+    {:reply, reply, state}
   end
 
   def handle_call({:nick, nick}, _from, state) do
@@ -967,36 +921,6 @@ defmodule Ircpipe.Irc.Session do
        do: EventRecorder.irc_error(state, payload)
 
   defp maybe_record_membership_failure(%Event{}, _state), do: :ok
-
-  defp fetch_joined_client(state, channel) do
-    normalized = Targets.key(state, channel)
-
-    cond do
-      state.client == nil ->
-        {:error, :not_connected}
-
-      MapSet.member?(state.joined_channels, normalized) ->
-        {:ok, state.client}
-
-      MapSet.member?(state.pending_joins, normalized) ->
-        {:error, :joining_channel}
-
-      true ->
-        {:error, :not_joined}
-    end
-  end
-
-  defp remember_pending_echo(state, target, body, kind) do
-    pending_echoes =
-      PendingEchoes.remember(
-        state.pending_echoes,
-        Targets.normalize(state, target),
-        body,
-        kind
-      )
-
-    %{state | pending_echoes: pending_echoes}
-  end
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error

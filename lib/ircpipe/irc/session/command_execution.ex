@@ -4,6 +4,7 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
   alias Ircpipe.Accounts.User
   alias Ircpipe.Chat
   alias Ircpipe.Chat.{DirectMessageIngestion, MessageIngestion}
+  alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session.{PendingEchoes, Targets}
   alias Ircpipe.Repo
 
@@ -32,19 +33,21 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
 
   def prepare(
         state,
-        %{disposition: :managed, message: %{command: command, params: [targets, _body]}}
+        %{disposition: :managed, message: %{command: command, params: [targets, body]}}
       )
       when command in ["PRIVMSG", "NOTICE"] do
-    targets
-    |> String.split(",", trim: true)
-    |> Enum.reduce_while(:ok, fn target, :ok ->
-      if Targets.channel?(state, target) and
-           not MapSet.member?(state.joined_channels, Targets.key(state, target)) do
-        {:halt, {:error, :not_joined}}
-      else
-        {:cont, :ok}
-      end
-    end)
+    with :ok <- CommandRegistry.validate_managed_body(command, body) do
+      targets
+      |> String.split(",", trim: true)
+      |> Enum.reduce_while(:ok, fn target, :ok ->
+        if Targets.channel?(state, target) and
+             not MapSet.member?(state.joined_channels, Targets.key(state, target)) do
+          {:halt, {:error, :not_joined}}
+        else
+          {:cont, :ok}
+        end
+      end)
+    end
   end
 
   def prepare(state, %{message: %{command: "PART", params: [channels | _rest]}}) do

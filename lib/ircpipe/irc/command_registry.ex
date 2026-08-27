@@ -44,24 +44,55 @@ defmodule Ircpipe.Irc.CommandRegistry do
     "WHOWAS" => 1..3
   }
 
-  def validate_private_message(targets, body) when is_binary(targets) and is_binary(body),
-    do: validate_product_policy(%Message{command: "PRIVMSG", params: [targets, body]})
+  def validate_private_message(targets, body) when is_binary(targets) and is_binary(body) do
+    validate_product_policy(%Message{command: "PRIVMSG", params: [targets, body]})
+  end
 
   def validate_chat_message(body) when is_binary(body) do
-    if String.contains?(body, <<1>>) do
-      {:error,
-       policy_error(
-         "unsupported_ctcp",
-         "PRIVMSG",
-         "CTCP and DCC payloads are not accepted as ordinary chat messages."
-       )}
-    else
-      :ok
+    with :ok <- validate_message_body("PRIVMSG", body) do
+      if String.contains?(body, <<1>>) do
+        {:error,
+         policy_error(
+           "unsupported_ctcp",
+           "PRIVMSG",
+           "CTCP and DCC payloads are not accepted as ordinary chat messages."
+         )}
+      else
+        :ok
+      end
     end
   end
 
   def validate_chat_message(_body),
     do: {:error, policy_error("invalid_arguments", "PRIVMSG", "Message text is invalid.")}
+
+  def validate_managed_body("PRIVMSG", <<1, "ACTION ", rest::binary>> = body) do
+    logical_body =
+      if String.ends_with?(rest, <<1>>) do
+        binary_part(rest, 0, byte_size(rest) - 1)
+      else
+        body
+      end
+
+    validate_message_body("PRIVMSG", logical_body)
+  end
+
+  def validate_managed_body(command, body)
+      when command in ["PRIVMSG", "NOTICE"] and is_binary(body) do
+    validate_message_body(command, body)
+  end
+
+  def validate_managed_body(command, _body) when command in ["PRIVMSG", "NOTICE"] do
+    {:error, policy_error("invalid_arguments", command, "Message text is invalid.")}
+  end
+
+  defp validate_message_body(command, body) do
+    if String.trim(body) == "" do
+      {:error, policy_error("invalid_arguments", command, "Message text cannot be empty.")}
+    else
+      :ok
+    end
+  end
 
   def validate_join_channel(channel, client_info \\ %{isupport: %{}})
 
@@ -154,26 +185,32 @@ defmodule Ircpipe.Irc.CommandRegistry do
          command: "PRIVMSG",
          params: [targets, body]
        }) do
-    cond do
-      service_target?(targets) and credential_message?(body) ->
-        {:error,
-         policy_error(
-           "credential_bearing",
-           "PRIVMSG",
-           "Known service credential commands are blocked because message history is retained."
-         )}
+    with :ok <- validate_managed_body("PRIVMSG", body) do
+      cond do
+        service_target?(targets) and credential_message?(body) ->
+          {:error,
+           policy_error(
+             "credential_bearing",
+             "PRIVMSG",
+             "Known service credential commands are blocked because message history is retained."
+           )}
 
-      unsupported_ctcp?(body) ->
-        {:error,
-         policy_error(
-           "unsupported_ctcp",
-           "PRIVMSG",
-           "Only CTCP ACTION is available; DCC and other CTCP commands are disabled."
-         )}
+        unsupported_ctcp?(body) ->
+          {:error,
+           policy_error(
+             "unsupported_ctcp",
+             "PRIVMSG",
+             "Only CTCP ACTION is available; DCC and other CTCP commands are disabled."
+           )}
 
-      true ->
-        :ok
+        true ->
+          :ok
+      end
     end
+  end
+
+  defp validate_product_policy(%Message{command: "NOTICE", params: [_targets, body]}) do
+    validate_managed_body("NOTICE", body)
   end
 
   defp validate_product_policy(%Message{command: "JOIN", params: [channels | _rest]}) do

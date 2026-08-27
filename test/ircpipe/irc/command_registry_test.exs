@@ -82,4 +82,17 @@ defmodule Ircpipe.Irc.CommandRegistryTest do
     assert {:ok, %{disposition: :managed}} =
              CommandRegistry.resolve("PRIVMSG #elixir :\x01ACTION waves\x01", %{isupport: %{}})
   end
+
+  test "rejects empty logical bodies for every managed message command" do
+    for line <- [
+          "PRIVMSG mira :",
+          "PRIVMSG mira :   ",
+          "NOTICE mira :   ",
+          "PRIVMSG #elixir :\x01ACTION \x01",
+          "PRIVMSG #elixir :\x01ACTION    \x01"
+        ] do
+      assert {:error, %{code: "invalid_arguments"}} =
+               CommandRegistry.resolve(line, %{isupport: %{}})
+    end
+  end
 end
