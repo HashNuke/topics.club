@@ -4,11 +4,10 @@ defmodule Ircpipe.Irc.Session do
   require Logger
 
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
   alias Ircpipe.Irc.Session.ChannelListRequest
-  alias Ircpipe.Irc.Session.ClientOptions
+  alias Ircpipe.Irc.Session.ConnectionEvents
   alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.JoinLifecycle
@@ -144,27 +143,9 @@ defmodule Ircpipe.Irc.Session do
 
   @impl true
   def handle_info(:connect, state) do
-    connection = state.connection
-    EventRecorder.server_line(connection, "Connecting to #{connection.host}:#{connection.port}.")
-    update_status(connection, "connecting")
-
-    case Ircxd.Client.start_link(ClientOptions.build(connection, self())) do
-      {:ok, client} ->
-        {:noreply, %{state | client: client}}
-
-      {:error, reason} ->
-        Logger.warning(
-          "IRC connection failed for #{connection.host}:#{connection.port}: #{inspect(reason)}"
-        )
-
-        EventRecorder.server_line(
-          connection,
-          "Connection to #{connection.host}:#{connection.port} failed: #{inspect(reason)}.",
-          "error"
-        )
-
-        update_status(connection, "errored")
-        {:stop, reason, state}
+    case ConnectionEvents.connect(state) do
+      {:ok, state} -> {:noreply, state}
+      {:stop, reason} -> {:stop, reason, state}
     end
   end
 
@@ -191,57 +172,19 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, :registered}, state) do
-    {:ok, updated} = update_status(state.connection, "connected")
-    EventRecorder.server_line(updated, "Connected to #{updated.host}.")
-
-    {:noreply,
-     state
-     |> Map.put(:connection, updated)
-     |> Map.put(:registered?, true)
-     |> Registration.refresh_client_info()
-     |> JoinLifecycle.schedule_flush()}
+    {:noreply, ConnectionEvents.registered(state)}
   end
 
   def handle_info({:ircxd, {:connect_error, reason}}, state) do
-    Logger.warning("IRC connection error for #{state.connection.host}: #{inspect(reason)}")
-
-    EventRecorder.server_line(
-      state.connection,
-      "Connection error for #{state.connection.host}: #{inspect(reason)}.",
-      "error"
-    )
-
-    update_status(state.connection, "errored")
-    {:noreply, state}
+    {:noreply, ConnectionEvents.connect_error(state, reason)}
   end
 
   def handle_info({:ircxd, :disconnected}, state) do
-    EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
-    update_status(state.connection, "disconnected")
-    {:noreply, CommandLifecycle.fail_all(state, "Connection closed before completion.")}
+    {:noreply, ConnectionEvents.disconnected(state)}
   end
 
   def handle_info({:ircxd, {:reconnecting, _payload}}, state) do
-    EventRecorder.server_line(
-      state.connection,
-      "Reconnecting to #{state.connection.host}:#{state.connection.port}."
-    )
-
-    update_status(state.connection, "connecting")
-
-    {:noreply,
-     %{
-       state
-       | registered?: false,
-         isupport_received?: false,
-         isupport_seen?: false,
-         registration_boundary_reached?: false,
-         join_validation_ready?: false,
-         joins_flushed?: false,
-         join_flush_timer: JoinLifecycle.cancel_flush(state),
-         sent_joins: MapSet.new(),
-         joined_channels: MapSet.new()
-     }}
+    {:noreply, ConnectionEvents.reconnecting(state)}
   end
 
   def handle_info(
@@ -639,32 +582,9 @@ defmodule Ircpipe.Irc.Session do
   @impl true
   def terminate(_reason, %{deleting?: true}), do: :ok
 
-  def terminate(_reason, %{connection: connection} = state) do
-    CommandLifecycle.fail_all(state, "IRC session stopped before completion.")
-    update_status(connection, "disconnected")
+  def terminate(_reason, state) do
+    _state = ConnectionEvents.terminate(state)
     :ok
-  end
-
-  defp update_status(connection, status) do
-    connection =
-      if status == "connected" do
-        case ConnectionLifecycle.touch_connected(connection) do
-          {:ok, updated} -> updated
-          {:error, _changeset} -> connection
-        end
-      else
-        connection
-      end
-
-    ConnectionLifecycle.broadcast_status(connection, status)
-    {:ok, connection}
-  rescue
-    DBConnection.ConnectionError -> {:ok, connection}
-    Ecto.NoResultsError -> {:ok, connection}
-    Ecto.StaleEntryError -> {:ok, connection}
-    DBConnection.OwnershipError -> {:ok, connection}
-  catch
-    :exit, _reason -> {:ok, connection}
   end
 
   defp fetch_client(%{client: nil}), do: {:error, :not_connected}
