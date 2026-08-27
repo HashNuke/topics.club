@@ -5,6 +5,7 @@ defmodule Ircpipe.Irc.Session.JoinRequests do
   alias Ircpipe.Chat
 
   alias Ircpipe.Chat.{
+    ChannelJoinRequest,
     ChannelMembership,
     MembershipLookup,
     ServerConnection,
@@ -64,7 +65,7 @@ defmodule Ircpipe.Irc.Session.JoinRequests do
   defp persist_and_transmit(state, user, channel) do
     with :ok <- JoinLifecycle.validate(state, channel),
          {:ok, membership} <-
-           Chat.request_channel_join(
+           ChannelJoinRequest.request(
              user,
              state.connection,
              channel,

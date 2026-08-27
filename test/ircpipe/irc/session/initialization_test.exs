@@ -2,8 +2,7 @@ defmodule Ircpipe.Irc.Session.InitializationTest do
   use Ircpipe.DataCase, async: true
 
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.{ChannelJoinRequest, Connections}
   alias Ircpipe.Irc.Session.{Initialization, PendingEchoes}
 
   test "authorizes the connection and builds the complete initial session state" do
@@ -16,7 +15,7 @@ defmodule Ircpipe.Irc.Session.InitializationTest do
                "nickname" => "mira"
              })
 
-    assert {:ok, _membership} = Chat.request_channel_join(user, connection, "#elixir")
+    assert {:ok, _membership} = ChannelJoinRequest.request(user, connection, "#elixir")
 
     assert {:ok, state} = Initialization.initialize(connection)
     assert_receive :connect

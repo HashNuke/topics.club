@@ -2,8 +2,14 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
   @moduledoc false
 
   alias Ircpipe.Accounts.User
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.{CommandMessages, DirectMessageIngestion, MessageIngestion}
+
+  alias Ircpipe.Chat.{
+    ChannelJoinRequest,
+    CommandMessages,
+    DirectMessageIngestion,
+    MessageIngestion
+  }
+
   alias Ircpipe.Irc.{CommandRegistry, ConnectionLock}
   alias Ircpipe.Irc.Session.{CommandLifecycle, PendingEchoes, Targets}
   alias Ircpipe.Repo
@@ -114,7 +120,7 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
       |> String.split(",", trim: true)
       |> Enum.reduce(state, fn channel, current_state ->
         {:ok, membership} =
-          Chat.request_channel_join(
+          ChannelJoinRequest.request(
             user,
             state.connection,
             channel,

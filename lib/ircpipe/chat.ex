@@ -5,10 +5,10 @@ defmodule Ircpipe.Chat do
 
   alias Ircpipe.Chat.{
     BufferEvents,
+    ChannelJoinRequest,
     ChannelMembership,
     ChannelUser,
     MembershipLookup,
-    MembershipReconciler,
     ServerConnection,
     ServerConnectionLock
   }
@@ -27,68 +27,8 @@ defmodule Ircpipe.Chat do
     end)
   end
 
-  def request_channel_join(user, %ServerConnection{} = connection, channel),
-    do:
-      request_channel_join(
-        user,
-        connection,
-        channel,
-        MembershipLookup.casemapping(connection) || :ascii
-      )
-
-  def request_channel_join(
-        %User{id: user_id} = user,
-        %ServerConnection{user_id: user_id} = connection,
-        channel,
-        casemapping
-      ) do
-    assert_no_outer_transaction!()
-    channel = String.trim(channel)
-
-    case Repo.transaction(fn ->
-           active_connection = ServerConnectionLock.lock_active!(connection.id)
-           losers = MembershipReconciler.reconcile_in_transaction(active_connection, casemapping)
-
-           membership =
-             case MembershipLookup.find_by_channel(active_connection, channel, casemapping) do
-               %ChannelMembership{} = membership ->
-                 attrs =
-                   if membership.status == "joined" do
-                     %{auto_join: true, left_at: nil, last_error: nil}
-                   else
-                     %{status: "pending", auto_join: true, left_at: nil, last_error: nil}
-                   end
-
-                 membership
-                 |> ChannelMembership.changeset(attrs)
-                 |> Repo.update!()
-
-               nil ->
-                 %ChannelMembership{user_id: user.id, server_connection_id: active_connection.id}
-                 |> ChannelMembership.changeset(%{
-                   channel: channel,
-                   status: "pending",
-                   auto_join: true
-                 })
-                 |> Repo.insert!()
-             end
-
-           {membership, losers, active_connection}
-         end) do
-      {:ok, {membership, losers, active_connection}} ->
-        MembershipReconciler.broadcast_losers(active_connection, losers)
-        {:ok, membership}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  def request_channel_join(%User{}, %ServerConnection{}, _channel, _casemapping),
-    do: {:error, :invalid_connection}
-
   def join_channel(%User{} = user, %ServerConnection{} = connection, channel) do
-    with {:ok, pending} <- request_channel_join(user, connection, channel),
+    with {:ok, pending} <- ChannelJoinRequest.request(user, connection, channel),
          {:ok, membership} <- confirm_channel_join(connection, pending.channel) do
       {:ok, membership}
     end

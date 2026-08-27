@@ -2,9 +2,9 @@ defmodule Ircpipe.Irc.Session.JoinFailureEventsTest do
   use Ircpipe.DataCase, async: true
 
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat
 
   alias Ircpipe.Chat.{
+    ChannelJoinRequest,
     CommandMessages,
     Connections,
     MembershipLookup,
@@ -16,7 +16,7 @@ defmodule Ircpipe.Irc.Session.JoinFailureEventsTest do
 
   test "reconciles an IRC numeric and records its error" do
     {user, connection, state} = state_fixture()
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#missing", :ascii)
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#missing", :ascii)
 
     state = %{
       state
@@ -54,7 +54,7 @@ defmodule Ircpipe.Irc.Session.JoinFailureEventsTest do
 
   test "does not record a second generic error for a managed JOIN failure" do
     {user, connection, state} = state_fixture()
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#managed", :ascii)
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#managed", :ascii)
 
     {:ok, invocation} =
       CommandMessages.record(

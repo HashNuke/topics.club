@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.Session.DepartureCommandsTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{Connections, MembershipLookup, MessageHistory}
+  alias Ircpipe.Chat.{ChannelJoinRequest, Connections, MembershipLookup, MessageHistory}
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.Session.DepartureCommands
 
@@ -33,7 +33,7 @@ defmodule Ircpipe.Irc.Session.DepartureCommandsTest do
   end
 
   test "cancels a locally queued join without requiring a client", context do
-    {:ok, membership} = Chat.request_channel_join(context.user, context.connection, "#queued")
+    {:ok, membership} = ChannelJoinRequest.request(context.user, context.connection, "#queued")
     state = %{context.state | pending_joins: MapSet.new(["#queued"])}
 
     assert {:ok, returned} = DepartureCommands.part(state, "#queued", "leaving")

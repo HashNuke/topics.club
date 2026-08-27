@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.ChannelJoinRequest
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
@@ -315,7 +316,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
         "nickname" => "mira"
       })
 
-    {:ok, pending} = Chat.request_channel_join(user, connection, "#pending")
+    {:ok, pending} = ChannelJoinRequest.request(user, connection, "#pending")
     {:ok, joined} = Chat.join_channel(user, connection, "#joined")
 
     conn = get(conn, ~p"/api/bootstrap")

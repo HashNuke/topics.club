@@ -8,6 +8,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat.ReadState
 
   alias Ircpipe.Chat.{
+    ChannelJoinRequest,
     ChannelMembership,
     ChannelUser,
     MembershipLookup,
@@ -68,7 +69,7 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    {:ok, pending} = Chat.request_channel_join(user, connection, "#elixir")
+    {:ok, pending} = ChannelJoinRequest.request(user, connection, "#elixir")
     assert pending.status == "pending"
     assert pending.auto_join
 
@@ -93,7 +94,7 @@ defmodule Ircpipe.ChatTest do
     assert duplicate_left.left_at == left.left_at
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
-    {:ok, rejoining} = Chat.request_channel_join(user, connection, "#elixir")
+    {:ok, rejoining} = ChannelJoinRequest.request(user, connection, "#elixir")
     assert rejoining.id == pending.id
     assert rejoining.status == "pending"
     assert rejoining.auto_join
@@ -123,11 +124,11 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    {:ok, ascii_pending} = Chat.request_channel_join(user, connection, "#Pipe", :ascii)
+    {:ok, ascii_pending} = ChannelJoinRequest.request(user, connection, "#Pipe", :ascii)
     {:ok, ascii_joined} = Chat.confirm_channel_join(connection, "#pipe", :ascii)
     assert ascii_joined.id == ascii_pending.id
 
-    {:ok, rfc_pending} = Chat.request_channel_join(user, connection, "#[Ops]", :rfc1459)
+    {:ok, rfc_pending} = ChannelJoinRequest.request(user, connection, "#[Ops]", :rfc1459)
     {:ok, rfc_joined} = Chat.confirm_channel_join(connection, "#" <> "{ops}", :rfc1459)
     assert rfc_joined.id == rfc_pending.id
 
@@ -267,8 +268,8 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    {:ok, pending_join} = Chat.request_channel_join(user, connection, "#confirm")
-    {:ok, pending_rejection} = Chat.request_channel_join(user, connection, "#reject")
+    {:ok, pending_join} = ChannelJoinRequest.request(user, connection, "#confirm")
+    {:ok, pending_rejection} = ChannelJoinRequest.request(user, connection, "#reject")
     {:ok, joined_left} = Chat.join_channel(user, connection, "#left")
     {:ok, joined_part} = Chat.join_channel(user, connection, "#part")
 
@@ -282,7 +283,7 @@ defmodule Ircpipe.ChatTest do
              Chat.update_connection_casemapping(connection, :rfc1459)
 
     assert {:error, :connection_deleting} =
-             Chat.request_channel_join(user, connection, "#after-mark")
+             ChannelJoinRequest.request(user, connection, "#after-mark")
 
     assert {:error, :connection_deleting} =
              Chat.confirm_channel_join(connection, pending_join.channel)
@@ -317,14 +318,14 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    {:ok, pending} = Chat.request_channel_join(user, connection, "#pending")
+    {:ok, pending} = ChannelJoinRequest.request(user, connection, "#pending")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, :committed} =
              Repo.transaction(fn ->
                for callback <- [
                      fn -> Chat.update_connection_casemapping(connection, :rfc1459) end,
-                     fn -> Chat.request_channel_join(user, connection, "#new") end,
+                     fn -> ChannelJoinRequest.request(user, connection, "#new") end,
                      fn -> Chat.confirm_channel_join(connection, pending.channel) end,
                      fn -> Chat.reject_channel_join(connection, pending.channel, "too late") end,
                      fn -> Chat.confirm_channel_left(connection, pending.channel) end,

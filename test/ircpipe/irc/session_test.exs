@@ -10,6 +10,7 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat.MessageIngestion
 
   alias Ircpipe.Chat.{
+    ChannelJoinRequest,
     CommandMessages,
     DirectMessageThread,
     MembershipLookup,
@@ -797,7 +798,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, _pending} = Chat.request_channel_join(user, connection, "#room")
+    {:ok, _pending} = ChannelJoinRequest.request(user, connection, "#room")
     {:ok, membership} = Chat.confirm_channel_join(connection, "#room")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
@@ -833,7 +834,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#queued")
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#queued")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     state = %{
@@ -910,7 +911,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, _pending} = Chat.request_channel_join(user, connection, "#returning")
+    {:ok, _pending} = ChannelJoinRequest.request(user, connection, "#returning")
     {:ok, membership} = Chat.confirm_channel_join(connection, "#returning")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
@@ -1396,7 +1397,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#wanted")
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#wanted")
     buffer_id = "server:#{connection.id}"
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
@@ -1534,7 +1535,7 @@ defmodule Ircpipe.Irc.SessionTest do
       })
 
     {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#room", :ascii)
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#room", :ascii)
 
     state = %{
       connection: connection,
@@ -1890,7 +1891,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, membership} = Chat.request_channel_join(user, connection, "~custom", :ascii)
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "~custom", :ascii)
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
@@ -1929,7 +1930,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, membership} = Chat.request_channel_join(user, connection, "~custom", :ascii)
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "~custom", :ascii)
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
@@ -1964,7 +1965,7 @@ defmodule Ircpipe.Irc.SessionTest do
       })
 
     {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
-    {:ok, _membership} = Chat.request_channel_join(user, connection, "#[room", :ascii)
+    {:ok, _membership} = ChannelJoinRequest.request(user, connection, "#[room", :ascii)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN #[room"}, 1_000
 
@@ -2047,7 +2048,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, _membership} = Chat.request_channel_join(user, connection, "~custom", :ascii)
+    {:ok, _membership} = ChannelJoinRequest.request(user, connection, "~custom", :ascii)
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
@@ -2083,7 +2084,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#pipe", :ascii)
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#pipe", :ascii)
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000
@@ -2181,7 +2182,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#native")
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#native")
 
     state = %{
       connection: connection,
@@ -2224,7 +2225,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, membership} = Chat.request_channel_join(user, connection, "#new")
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#new")
 
     state = %{
       connection: connection,
@@ -2324,7 +2325,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, _pending} = Chat.request_channel_join(user, connection, channel, :ascii)
+    {:ok, _pending} = ChannelJoinRequest.request(user, connection, channel, :ascii)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN " <> ^channel}, 1_000
     assert Connections.get!(user, connection.id).casemapping == expected_mapping

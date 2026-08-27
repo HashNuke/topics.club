@@ -6,9 +6,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ircpipe.Accounts.User
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.Connections
-  alias Ircpipe.Chat.ServerConnection
+  alias Ircpipe.Chat.{ChannelJoinRequest, Connections, ServerConnection}
   alias Ircpipe.Repo
 
   test "concurrent endpoint discovery serializes equivalent port representations" do
@@ -135,7 +133,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
     join_task =
       unboxed_task(supervisor, fn ->
         send(test_pid, {:connection_join_attempting, self(), barrier_ref})
-        Chat.request_channel_join(user, connection, "#late")
+        ChannelJoinRequest.request(user, connection, "#late")
       end)
 
     assert_receive {:connection_join_attempting, _join_pid, ^barrier_ref}
