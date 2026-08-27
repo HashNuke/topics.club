@@ -9,13 +9,12 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.ClientLifecycle
   alias Ircpipe.Irc.Session.ConnectionEvents
   alias Ircpipe.Irc.Session.DepartureCommands
-  alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.EventPipeline
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.Initialization
   alias Ircpipe.Irc.Session.JoinFlush
+  alias Ircpipe.Irc.Session.JoinFailureEvents
   alias Ircpipe.Irc.Session.JoinRequests
-  alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.MembershipEvents
   alias Ircpipe.Irc.Session.OutboundMessages
   alias Ircpipe.Irc.Session.ServerEvents
@@ -189,27 +188,14 @@ defmodule Ircpipe.Irc.Session do
       do: {:noreply, MembershipEvents.handle(:topic, state, payload)}
 
   def handle_info({:ircxd, {:irc_error, payload}}, state) do
-    state = JoinReconciliation.reconcile_legacy_error(state, payload)
-    EventRecorder.irc_error(state, payload)
-    {:noreply, state}
+    {:noreply, JoinFailureEvents.irc_error(state, payload)}
   end
 
   def handle_info(
         {:ircxd, {:standard_reply, %{type: :fail, command: "JOIN"} = payload}},
         state
       ) do
-    pending? = JoinReconciliation.pending_command?(state)
-    state = JoinReconciliation.reconcile_standard_failure(state, payload)
-
-    unless pending? do
-      EventRecorder.server_line(
-        state.connection,
-        Map.get(payload, :description) || "JOIN failed.",
-        "error"
-      )
-    end
-
-    {:noreply, state}
+    {:noreply, JoinFailureEvents.standard_reply(state, payload)}
   end
 
   def handle_info({:ircxd, {:nick_in_use, payload}}, state) do
