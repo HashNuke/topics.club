@@ -5,8 +5,21 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.{CommandMessages, DirectMessageIngestion, MessageIngestion}
   alias Ircpipe.Irc.CommandRegistry
-  alias Ircpipe.Irc.Session.{PendingEchoes, Targets}
+  alias Ircpipe.Irc.Session.{CommandLifecycle, PendingEchoes, Targets}
   alias Ircpipe.Repo
+
+  def execute(state, intent, command_id, buffer_id) do
+    with :ok <- CommandLifecycle.validate_id(command_id, state),
+         {:ok, client} <- fetch_registered_client(state),
+         :ok <- prepare(state, intent),
+         {:ok, invocation} <- record_invocation(state, intent, command_id, buffer_id),
+         {message, labeled?} <- CommandLifecycle.label(intent.message, command_id, state) do
+      transmit(state, intent, invocation, message, labeled?, command_id, buffer_id, client)
+    else
+      {:error, %{code: _code} = error} -> {{:error, error}, state}
+      {:error, reason} -> {{:error, CommandLifecycle.execution_error(reason)}, state}
+    end
+  end
 
   def prepare(
         state,
@@ -162,6 +175,59 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
   end
 
   def persist_outcome(state, _intent), do: {state, %{}}
+
+  defp transmit(
+         state,
+         intent,
+         invocation,
+         message,
+         labeled?,
+         command_id,
+         buffer_id,
+         client
+       ) do
+    case Ircxd.Client.transmit(client, message) do
+      :ok ->
+        {state, managed_outcome} = persist_outcome(state, intent)
+
+        state =
+          CommandLifecycle.track(
+            state,
+            intent,
+            message,
+            invocation,
+            command_id,
+            buffer_id,
+            labeled?
+          )
+
+        reply =
+          Map.merge(
+            %{
+              command_id: command_id,
+              status: "sent",
+              command: String.downcase(message.command),
+              display: intent.display
+            },
+            managed_outcome
+          )
+
+        {{:ok, reply}, state}
+
+      {:error, reason} ->
+        CommandMessages.update(invocation, %{
+          command_status: "failed",
+          error: inspect(reason)
+        })
+
+        {{:error, CommandLifecycle.execution_error(reason)}, state}
+    end
+  end
+
+  defp fetch_registered_client(%{registered?: true, client: client}) when not is_nil(client),
+    do: {:ok, client}
+
+  defp fetch_registered_client(_state), do: {:error, :not_connected}
 
   defp validate_joined_targets(state, targets) do
     targets

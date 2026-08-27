@@ -12,4 +12,8 @@ defmodule Ircpipe.FailingIrcClient do
   def handle_call({:send, _command, _params}, _from, reason) do
     {:reply, {:error, reason}, reason}
   end
+
+  def handle_call({:send, _message}, _from, reason) do
+    {:reply, {:error, reason}, reason}
+  end
 end

@@ -19,7 +19,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.ServerEvents
   alias Ircpipe.Irc.Session.StartupAuthorization
-  alias Ircpipe.Chat.{CommandMessages, ServerConnection}
+  alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
   alias Ircxd.Client.{Event, Info}
@@ -370,51 +370,8 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_call({:execute, intent, command_id, buffer_id}, _from, state) do
-    with :ok <- CommandLifecycle.validate_id(command_id, state),
-         {:ok, client} <- fetch_registered_client(state),
-         :ok <- CommandExecution.prepare(state, intent),
-         {:ok, invocation} <-
-           CommandExecution.record_invocation(state, intent, command_id, buffer_id),
-         {message, labeled?} <- CommandLifecycle.label(intent.message, command_id, state) do
-      case Ircxd.Client.transmit(client, message) do
-        :ok ->
-          {state, managed_outcome} = CommandExecution.persist_outcome(state, intent)
-
-          state =
-            CommandLifecycle.track(
-              state,
-              intent,
-              message,
-              invocation,
-              command_id,
-              buffer_id,
-              labeled?
-            )
-
-          {:reply,
-           {:ok,
-            Map.merge(
-              %{
-                command_id: command_id,
-                status: "sent",
-                command: String.downcase(message.command),
-                display: intent.display
-              },
-              managed_outcome
-            )}, state}
-
-        {:error, reason} ->
-          CommandMessages.update(invocation, %{
-            command_status: "failed",
-            error: inspect(reason)
-          })
-
-          {:reply, {:error, CommandLifecycle.execution_error(reason)}, state}
-      end
-    else
-      {:error, %{code: _code} = error} -> {:reply, {:error, error}, state}
-      {:error, reason} -> {:reply, {:error, CommandLifecycle.execution_error(reason)}, state}
-    end
+    {reply, state} = CommandExecution.execute(state, intent, command_id, buffer_id)
+    {:reply, reply, state}
   end
 
   def handle_call(:list_channels, _from, %{registered?: false} = state) do
@@ -475,9 +432,6 @@ defmodule Ircpipe.Irc.Session do
 
   defp fetch_client(%{client: nil}), do: {:error, :not_connected}
   defp fetch_client(%{client: client}), do: {:ok, client}
-
-  defp fetch_registered_client(%{registered?: true} = state), do: fetch_client(state)
-  defp fetch_registered_client(_state), do: {:error, :not_connected}
 
   defp maybe_record_membership_failure(%Event{name: name, payload: payload}, state)
        when name in [:irc_error, :error],
