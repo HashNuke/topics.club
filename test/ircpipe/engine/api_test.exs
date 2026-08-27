@@ -57,6 +57,9 @@ defmodule Ircpipe.Engine.APITest do
 
     assert %{status: :error, error: :unsupported_operation} =
              API.dispatch(unsupported_operation)
+
+    assert %{status: :error, error: :invalid_request, operation: nil, request_id: nil} =
+             API.dispatch(self())
   end
 
   test "the local adapter exercises the same envelope and returns plain status data", %{
