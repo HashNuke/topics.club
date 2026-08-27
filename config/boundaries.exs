@@ -5,10 +5,16 @@
       component: :shared,
       description: "Pure IRC protocol policy and identifiers shared by web, core, and engine",
       paths: [
+        "lib/ircpipe/engine_client.ex",
+        "lib/ircpipe/engine_client/adapter.ex",
+        "lib/ircpipe/engine_client/contract.ex",
+        "lib/ircpipe/engine_client/discovery.ex",
+        "lib/ircpipe/engine_client/reply.ex",
         "lib/ircpipe/chat/mention_detection.ex",
         "lib/ircpipe/irc/command_registry.ex",
         "lib/ircpipe/irc/commands.ex",
-        "lib/ircpipe/irc/identifier.ex"
+        "lib/ircpipe/irc/identifier.ex",
+        "test/support/engine_client_test_adapter.ex"
       ]
     },
     %{
@@ -37,6 +43,7 @@
         "lib/ircpipe/chat/presence_diff.ex",
         "lib/ircpipe/chat/presence_membership_lookup.ex",
         "lib/ircpipe/chat/system_messages.ex",
+        "lib/ircpipe/engine/**/*.ex",
         "lib/ircpipe/engine_supervisor.ex",
         "lib/ircpipe/irc/**/*.ex",
         "test/support/closed_irc_session.ex",
@@ -74,6 +81,7 @@
         "lib/ircpipe/mailer.ex",
         "lib/ircpipe/notifications/**/*.ex",
         "lib/ircpipe/realtime/**/*.ex",
+        "lib/ircpipe/engine_client/rpc_adapter.ex",
         "lib/ircpipe_web.ex",
         "lib/ircpipe_web/**/*.ex",
         "test/support/channel_case.ex",
