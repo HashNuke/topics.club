@@ -4,7 +4,7 @@
     %{
       component: :shared,
       description:
-        "Pure IRC protocol policy, identifiers, and versioned engine contracts shared by web, core, and engine",
+        "EngineClient port and versioned contracts plus IRC protocol policy and identifiers shared across roles",
       paths: [
         "lib/ircpipe/engine_client.ex",
         "lib/ircpipe/engine_client/adapter.ex",
