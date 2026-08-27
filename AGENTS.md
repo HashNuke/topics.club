@@ -491,7 +491,7 @@ And **never** do this:
 
 ## Ircpipe app notes
 
-- Ircpipe is a Phoenix app with server-rendered auth and a React IRC client mounted at `/` and `/app` via `assets/js/ircpipe_app.jsx`.
+- Ircpipe is a Phoenix app with server-rendered auth and a React IRC client mounted at `/` and `/app` via `assets/js/ircpipe_app.tsx`.
 - The backend keeps IRC domain data in `Ircpipe.Chat`: suggested topics, user server connections, joined channels, messages, notifications, and per-user message retention.
 - Message retention is user configurable from 1 to 3 days. `Ircpipe.Chat.prune_old_messages/1` enforces it after inbound message persistence.
 - IRC runtime processes are supervised by `Ircpipe.Irc.SessionSupervisor` and registered in `Ircpipe.Irc.SessionRegistry` by `{user_id, server_connection_id}`. Keep the one-process-per-user-server invariant when adding features.
