@@ -99,6 +99,21 @@ defmodule Ircpipe.EngineClient.ContractTest do
     end
   end
 
+  test "rejects improper lists without raising" do
+    improper_list = [1 | 2]
+
+    refute Contract.plain_term?(improper_list)
+
+    assert {:error, :invalid_request} =
+             Contract.new(
+               :connection_statuses,
+               1,
+               nil,
+               %{connection_ids: improper_list},
+               request_id: "request-1"
+             )
+  end
+
   test "builds and decodes versioned success and stable error replies" do
     {:ok, request} =
       Contract.new(:connection_info, 1, 2, %{}, request_id: "request-1")
@@ -126,6 +141,16 @@ defmodule Ircpipe.EngineClient.ContractTest do
 
     assert {:error, %{code: :invalid_response}} =
              Reply.decode(%{status: :ok, data: self()}, request)
+
+    improper_reply = %{
+      version: 1,
+      operation: request.operation,
+      request_id: request.request_id,
+      status: :ok,
+      data: %{connection_ids: [1 | 2]}
+    }
+
+    assert {:error, %{code: :invalid_response}} = Reply.decode(improper_reply, request)
 
     assert %{status: :error, error: :internal_error} = Reply.ok(request, %{pid: self()})
   end

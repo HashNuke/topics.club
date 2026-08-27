@@ -149,7 +149,8 @@ defmodule Ircpipe.EngineClient.Contract do
              is_binary(value) or is_atom(value),
       do: true
 
-  def plain_term?(value) when is_list(value), do: Enum.all?(value, &plain_term?/1)
+  def plain_term?([]), do: true
+  def plain_term?([head | tail]), do: plain_term?(head) and plain_list?(tail)
 
   def plain_term?(value) when is_map(value) do
     not Map.has_key?(value, :__struct__) and
@@ -200,11 +201,19 @@ defmodule Ircpipe.EngineClient.Contract do
   defp valid_type?(value, :string), do: is_binary(value)
   defp valid_type?(value, :nonempty_string), do: is_binary(value) and String.trim(value) != ""
 
-  defp valid_type?(value, {:list, type}) when is_list(value),
-    do: Enum.all?(value, &valid_type?(&1, type))
-
-  defp valid_type?(_value, {:list, _type}), do: false
+  defp valid_type?(value, {:list, type}), do: valid_list_type?(value, type)
   defp valid_type?(value, {:one_of, values}), do: value in values
+
+  defp valid_list_type?([], _type), do: true
+
+  defp valid_list_type?([head | tail], type),
+    do: valid_type?(head, type) and valid_list_type?(tail, type)
+
+  defp valid_list_type?(_value, _type), do: false
+
+  defp plain_list?([]), do: true
+  defp plain_list?([head | tail]), do: plain_term?(head) and plain_list?(tail)
+  defp plain_list?(_value), do: false
 
   defp valid_connection_id?(connection_id, true), do: positive_integer?(connection_id)
   defp valid_connection_id?(nil, false), do: true

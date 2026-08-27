@@ -228,6 +228,17 @@ defmodule Ircpipe.Engine.APITest do
                connection.id,
                %{channel: self()}
              )
+
+    improper_request = %{
+      version: 1,
+      operation: :connection_statuses,
+      request_id: "request-improper-list",
+      user_id: user.id,
+      connection_id: nil,
+      payload: %{connection_ids: [connection.id | connection.id]}
+    }
+
+    assert %{status: :error, error: :invalid_request} = API.dispatch(improper_request)
   end
 
   test "the local adapter executes the initial live operation set with plain replies", %{
