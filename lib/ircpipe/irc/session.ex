@@ -10,6 +10,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.ConnectionEvents
   alias Ircpipe.Irc.Session.DepartureCommands
   alias Ircpipe.Irc.Session.EventRecorder
+  alias Ircpipe.Irc.Session.EventPipeline
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.Initialization
   alias Ircpipe.Irc.Session.JoinFlush
@@ -17,7 +18,6 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.MembershipEvents
   alias Ircpipe.Irc.Session.OutboundMessages
-  alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.ServerEvents
   alias Ircpipe.Irc.Session.UnhandledEvents
   alias Ircpipe.Irc.SessionLocator
@@ -95,24 +95,9 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, %Event{} = event}, state) do
-    suppress_legacy? = CommandLifecycle.suppress_legacy_output?(state, event)
-
-    state =
-      state
-      |> Registration.refresh(event.name)
-      |> CommandLifecycle.process_event(event)
-      |> JoinReconciliation.reconcile_event(event)
-
-    cond do
-      JoinReconciliation.failure_event?(event) ->
-        maybe_record_membership_failure(event, state)
-        {:noreply, state}
-
-      suppress_legacy? ->
-        {:noreply, state}
-
-      true ->
-        handle_info({:ircxd, event.legacy}, state)
+    case EventPipeline.handle(state, event) do
+      {:handled, state} -> {:noreply, state}
+      {:legacy, legacy, state} -> handle_info({:ircxd, legacy}, state)
     end
   end
 
@@ -318,10 +303,4 @@ defmodule Ircpipe.Irc.Session do
     _state = ConnectionEvents.terminate(state)
     :ok
   end
-
-  defp maybe_record_membership_failure(%Event{name: name, payload: payload}, state)
-       when name in [:irc_error, :error],
-       do: EventRecorder.irc_error(state, payload)
-
-  defp maybe_record_membership_failure(%Event{}, _state), do: :ok
 end
