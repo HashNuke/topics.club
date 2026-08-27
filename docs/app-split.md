@@ -26,7 +26,7 @@ Sizing used by this document:
 - [x] A Phoenix release Dockerfile builds the combined release from the repository root.
 - [x] Production Docker Compose provides one combined application service and one persistent PostgreSQL service.
 - [x] `ircxd` is fetched from `HashNuke/ircxd` and pinned by `mix.lock` until it is published on Hex.
-- [ ] Every current module has a documented logical owner: core, shared protocol, engine, or web.
+- [x] Every current module has a documented logical owner: core, shared protocol, engine, web, combined assembly, or tooling.
 - [ ] All web-to-IRC calls pass through `Ircpipe.EngineClient`.
 - [ ] Core and web modules have no direct dependency on engine implementation modules.
 - [ ] The combined supervision tree is divided into logical core, engine, and web supervisors.
@@ -143,8 +143,8 @@ Use the following logical ownership before creating the umbrella:
 
 | Logical component | Current/future namespaces | Allowed dependencies | Future OTP application |
 | --- | --- | --- | --- |
-| Core/data | `Ircpipe.Repo`, `Ircpipe.Vault`, accounts, schemas, shared persistence primitives | External libraries and other core modules only | `ircpipe_core` |
-| Shared protocol/contracts | Versioned request, reply, and event envelopes; pure IRC identifiers, command metadata, and validation needed by more than one role | Core and `ircxd` | `ircpipe_core` initially; split further only if justified |
+| Core/data | `Ircpipe.Repo`, `Ircpipe.Vault`, shared identity/data schemas, migration modules, and persistence primitives | External libraries and other core modules only | `ircpipe_core` |
+| Shared protocol/contracts | Versioned request, reply, and event envelopes; pure IRC identifiers, command metadata, and validation needed by more than one role | Standard library and `ircxd`; never Repo, Ecto schemas, or another Ircpipe component | `ircpipe_core` initially; split further only if justified |
 | Engine | `Ircpipe.Irc` process ownership, per-user session orchestration, ingestion, hosted server | Core and shared contracts | `ircpipe_engine` |
 | Web | `IrcpipeWeb`, browser auth, controllers, Channels, serializers, frontend, directory discovery workers, web-owned jobs | Core, shared contracts, `Ircpipe.EngineClient`, and `ircxd` for discovery | `ircpipe_web` |
 
@@ -171,7 +171,23 @@ This rule requires deliberate untangling before any file move. In particular:
 
 The monolith should expose three logical supervisors—core, engine, and web—under the existing root application. Combined mode starts all three. Their child lists, registered names, configuration, and job ownership must already match the future child applications before the umbrella conversion begins.
 
-Boundary enforcement must be automated. CI should fail when web code references engine implementation modules, core code references engine or web modules, engine code references web modules, or a dependency cycle is introduced. The check should operate on compiler/xref information where possible, with a narrow explicit allowlist for temporary migration edges. Every temporary edge needs an owner and removal task.
+Boundary enforcement must be automated. Local precommit fails when web code references engine implementation modules, core code references engine or web modules, engine code references web modules, or an unapproved dependency cycle is introduced. The same gate must be added to CI before the workstream exit gate can close. The check operates on compiler/xref information where possible, with a narrow explicit allowlist for temporary migration edges. Every temporary edge needs an owner and removal task.
+
+The authoritative ownership and transition manifest is `config/boundaries.exs`. It currently tracks compiled production files, all 29 migration modules, and test-support files under six owners: the four deployable logical components plus `assembly` for the temporary combined composition root and `tooling` for Mix tasks. `assembly` and `tooling` are not future OTP applications and are excluded from deployable-component cycle analysis. Migration files receive an owner, but Mix does not compile them into the application xref graph; their internal references therefore require migration tests and review rather than xref enforcement.
+
+Run `mix ircpipe.check_boundaries` to validate the manifest against Mix's direct xref graph. The checker fails on unowned or multiply owned files, unknown components, cycles in the permanent allowed-dependency policy, actual deployable cycles outside the explicit transition-cycle baseline, new forbidden file edges, dependency-label escalation, malformed or duplicate exceptions, stale exceptions or transition cycles, and compiled production files missing from xref. `mix precommit` runs this check immediately after warning-free compilation.
+
+The initial graph already has one temporary strongly connected component containing core, engine, and web because the monolith has allowlisted reverse edges in all three components. The checker records that component set explicitly and rejects a different or additional deployable strongly connected component. This baseline must disappear when the reverse edges are removed; it is not a permitted final umbrella topology.
+
+The initial inventory records 36 exact temporary dependency edges:
+
+| Source direction | Count | Required resolution |
+| --- | ---: | --- |
+| Core to web | 1 | Replace browser-shaped payload construction with a stable internal event boundary |
+| Engine to web | 6 | Separate browser events and Web Push enqueueing from engine-owned persistence/effects |
+| Web to engine | 29 | Route live operations through `EngineClient` and separate connection/deletion orchestration |
+
+Every exception records its current xref label, responsible logical owner, reason, and removal checkpoint. The initial allowlist is capped at 36 entries, and a removed edge makes its exception stale and fails the check until the manifest is deliberately tightened. Mix xref reports dependencies at file-edge granularity: a second call added between an already-exempt source/target pair is not a new xref edge. Review and focused behavioral tests must therefore police call-site growth within an existing exception, while the automated gate prevents new file pairs and a growing exception count.
 
 ## OTP application and release layout
 
@@ -578,34 +594,35 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 #### Declare module and runtime ownership
 
-- [ ] Create a checked-in ownership manifest covering every production module and assigning it to core, shared protocol/contracts, engine, or web.
-- [ ] Assign every test-support module and fixture to the component whose public behavior it supports.
+- [x] Create a checked-in ownership manifest covering every production module and assigning it to core, shared protocol/contracts, engine, web, assembly, or tooling.
+- [x] Assign every test-support module and fixture to the component whose public behavior it supports.
 - [ ] Classify every external dependency by the logical component that uses it.
 - [ ] Classify every application environment key by logical owner and compile-time versus runtime use.
 - [ ] Classify every registered process name, Registry, supervisor, and PubSub name by logical owner.
 - [ ] Mark the intended future source and test destination for each current directory.
 - [ ] Preserve existing module names when moving them later unless a rename is independently justified and tested.
-- [ ] Record every temporary cross-boundary edge in a narrow allowlist with an owner and removal checklist item.
-- [ ] Document the allowed dependency graph in contributor guidance.
+- [x] Record every temporary cross-boundary edge in a narrow allowlist with an owner and removal checklist item.
+- [x] Document the allowed dependency graph in contributor guidance.
 
 #### Extract shared protocol primitives from engine internals
 
-- [ ] Identify pure IRC identifier, casemapping, command metadata, validation, request, reply, and event code needed by both web and engine.
-- [ ] Assign those pure modules to the shared boundary even when their existing module name begins with `Ircpipe.Irc`.
+- [x] Identify the current pure IRC identifier, command metadata, and validation code needed by more than one component.
+- [x] Assign those current pure modules to the shared boundary even when their existing module name begins with `Ircpipe.Irc`.
 - [ ] Keep PIDs, process names, Registry lookups, supervisors, sockets, and `ircxd` runtime structs out of shared contracts.
-- [ ] Treat `ircxd` as an allowed shared library dependency while keeping all Ircpipe process ownership explicit.
+- [x] Treat `ircxd` as an allowed shared library dependency while keeping all Ircpipe process ownership explicit.
 - [ ] Document which core, engine, and web modules directly use `ircxd` so each child application declares its actual dependency.
 - [ ] Add focused tests proving shared protocol modules run without engine supervision.
 
 #### Enforce dependency direction in the monolith
 
-- [ ] Add an automated boundary check based on compiler/xref data where possible.
-- [ ] Fail the boundary check when `IrcpipeWeb` references engine implementation modules outside `Ircpipe.EngineClient`.
-- [ ] Fail the boundary check when a core module references an engine or web implementation module.
-- [ ] Fail the boundary check when an engine module references `IrcpipeWeb`.
-- [ ] Fail the boundary check when an application-level dependency cycle is introduced.
-- [ ] Keep any migration allowlist explicit, minimal, and shrinking; do not permit namespace-wide exceptions.
-- [ ] Run the boundary check from `mix precommit`.
+- [x] Add an automated boundary check based on Mix's direct xref graph.
+- [x] Reject new `IrcpipeWeb` references to engine implementation modules outside the exact migration allowlist.
+- [x] Reject new core references to engine or web implementation modules outside the exact migration allowlist.
+- [x] Reject new engine references to web modules outside the exact migration allowlist.
+- [x] Reject cycles in the permanent dependency policy and actual deployable cycles outside the explicit transition-cycle baseline.
+- [x] Keep the migration allowlist explicit, file-exact, label-sensitive, capped at the initial 36 edges, and free of namespace-wide exceptions.
+- [ ] Add the boundary gate to CI and enforce that exception, budget, and transition-cycle baseline changes only shrink against the base branch.
+- [x] Run the boundary check from `mix precommit`.
 
 #### Versioned request and reply contracts
 

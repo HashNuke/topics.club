@@ -97,6 +97,7 @@ defmodule Ircpipe.MixProject do
       ],
       precommit: [
         "compile --warnings-as-errors",
+        "ircpipe.check_boundaries",
         "deps.unlock --unused",
         "format",
         "cmd --cd assets npm run typecheck",
