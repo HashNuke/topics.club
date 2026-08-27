@@ -3,9 +3,8 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
 
   alias Ircpipe.Chat.{ChannelMembership, CommandMessages, MembershipLookup}
   alias Ircpipe.Irc.CommandResult
-  alias Ircpipe.Irc.Session.{Identity, Targets}
+  alias Ircpipe.Irc.Session.{CommandTargetCorrelation, Identity, Targets}
   alias Ircxd.Client.{Event, Info}
-  alias Ircxd.Message
 
   @command_grace_timeout 300
   @command_timeout 15_000
@@ -43,7 +42,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
         command_id: command_id,
         buffer_id: buffer_id,
         command: message.command,
-        targets: correlation_targets(state, message),
+        targets: CommandTargetCorrelation.for_message(state, message),
         spec: Map.put(intent.spec, :terminal_events, terminal_events),
         invocation: invocation,
         labeled?: labeled?,
@@ -167,45 +166,6 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
     :exit, _reason -> {:ok, nil}
   end
 
-  defp correlation_targets(state, %Message{command: command, params: [targets | _rest]})
-       when command in ["JOIN", "PART", "PRIVMSG", "NOTICE"] do
-    targets
-    |> String.split(",", trim: true)
-    |> Enum.map(&normalize_target(state, &1))
-  end
-
-  defp correlation_targets(state, %Message{command: command, params: [target | _rest]})
-       when command in ["NICK", "TOPIC", "MODE", "KICK", "INVITE"] do
-    [normalize_target(state, target)]
-  end
-
-  defp correlation_targets(state, %Message{command: command, params: params})
-       when command in ["ISON", "USERHOST"] do
-    Enum.map(params, &normalize_target(state, &1))
-  end
-
-  defp correlation_targets(state, %Message{command: "WHOIS", params: params}) do
-    case List.last(params) do
-      target when is_binary(target) -> [normalize_target(state, target)]
-      _target -> []
-    end
-  end
-
-  defp correlation_targets(state, %Message{command: command, params: [targets | _rest]})
-       when command in ["LIST", "NAMES", "WHO", "WHOWAS"] do
-    targets
-    |> String.split(",", trim: true)
-    |> Enum.map(&normalize_target(state, &1))
-  end
-
-  defp correlation_targets(_state, %Message{}), do: []
-
-  defp normalize_target(state, target) do
-    if Targets.channel?(state, target),
-      do: Targets.key(state, target),
-      else: Targets.normalize(state, target)
-  end
-
   defp effective_terminal_events(command, spec) do
     application_events =
       case {command, spec.family} do
@@ -245,7 +205,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
          %{command: "JOIN"} = pending
        ) do
     self_event?(state, payload, Map.get(payload, :nick)) and
-      target_matches?(state, Map.get(payload, :channel), pending.targets)
+      CommandTargetCorrelation.matches?(state, Map.get(payload, :channel), pending.targets)
   end
 
   defp event_matches_pending?(
@@ -254,7 +214,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
          %{command: "PART"} = pending
        ) do
     self_event?(state, payload, Map.get(payload, :nick)) and
-      target_matches?(state, Map.get(payload, :channel), pending.targets)
+      CommandTargetCorrelation.matches?(state, Map.get(payload, :channel), pending.targets)
   end
 
   defp event_matches_pending?(
@@ -263,7 +223,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
          %{command: "NICK"} = pending
        ) do
     self_event?(state, payload, Map.get(payload, :old_nick)) and
-      target_matches?(state, Map.get(payload, :new_nick), pending.targets)
+      CommandTargetCorrelation.matches?(state, Map.get(payload, :new_nick), pending.targets)
   end
 
   defp event_matches_pending?(
@@ -273,7 +233,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
        ) do
     pending.spec.family == :mutation and
       self_event?(state, payload, Map.get(payload, :nick)) and
-      target_matches?(state, Map.get(payload, :channel), pending.targets)
+      CommandTargetCorrelation.matches?(state, Map.get(payload, :channel), pending.targets)
   end
 
   defp event_matches_pending?(state, %Event{name: name, payload: payload}, pending)
@@ -295,7 +255,8 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
       |> Enum.map(&Map.get(payload, &1))
       |> Enum.filter(&is_binary/1)
 
-    candidates == [] or Enum.any?(candidates, &target_matches?(state, &1, targets))
+    candidates == [] or
+      Enum.any?(candidates, &CommandTargetCorrelation.matches?(state, &1, targets))
   end
 
   defp query_target_matches?(_state, _event, _targets), do: true
@@ -309,7 +270,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
 
       context ->
         Enum.any?(context, fn
-          value when is_binary(value) -> normalize_target(state, value) in targets
+          value when is_binary(value) -> CommandTargetCorrelation.matches?(state, value, targets)
           _value -> false
         end)
     end
@@ -318,11 +279,6 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
   defp self_event?(state, payload, nick) do
     Identity.event_self?(state, payload, :source_self?, nick)
   end
-
-  def target_matches?(state, target, targets) when is_binary(target),
-    do: normalize_target(state, target) in targets
-
-  def target_matches?(_state, _target, _targets), do: false
 
   defp maybe_record_result(state, event, pending) do
     if result_event?(event, pending) do

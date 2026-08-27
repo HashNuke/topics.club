@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.Session.JoinReconciliation do
 
   alias Ircpipe.Chat
   alias Ircpipe.Chat.MessageIngestion
-  alias Ircpipe.Irc.Session.{CommandLifecycle, Targets}
+  alias Ircpipe.Irc.Session.{CommandLifecycle, CommandTargetCorrelation, Targets}
   alias Ircxd.Client.Event
 
   def failure_event?(%Event{name: name, payload: payload})
@@ -104,7 +104,7 @@ defmodule Ircpipe.Irc.Session.JoinReconciliation do
              is_binary(target) do
     case pending_for_event(state, event) do
       {command_id, pending} ->
-        if CommandLifecycle.target_matches?(state, target, pending.targets) do
+        if CommandTargetCorrelation.matches?(state, target, pending.targets) do
           reject_targets(
             state,
             [target],
@@ -135,7 +135,7 @@ defmodule Ircpipe.Irc.Session.JoinReconciliation do
           payload
           |> Map.get(:context)
           |> List.wrap()
-          |> Enum.filter(&CommandLifecycle.target_matches?(state, &1, pending.targets))
+          |> Enum.filter(&CommandTargetCorrelation.matches?(state, &1, pending.targets))
 
         all_context_targets =
           payload
