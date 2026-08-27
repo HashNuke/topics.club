@@ -89,15 +89,4 @@ defmodule Ircpipe.Irc.Session.CommandLifecycleTest do
 
     refute CommandLifecycle.suppress_legacy_output?(%{pending_commands: %{}}, event)
   end
-
-  test "presents stable command execution errors" do
-    assert CommandLifecycle.execution_error(:not_connected) == %{
-             code: "not_connected",
-             message: "Connect to the server before running a command.",
-             recoverable: true
-           }
-
-    assert CommandLifecycle.execution_error(:duplicate_command_id).recoverable == false
-    assert CommandLifecycle.execution_error({:transport, :closed}).code == "command_failed"
-  end
 end

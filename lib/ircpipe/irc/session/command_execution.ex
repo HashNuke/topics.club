@@ -11,14 +11,14 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
   }
 
   alias Ircpipe.Irc.{CommandRegistry, ConnectionLock}
-  alias Ircpipe.Irc.Session.{CommandLifecycle, PendingEchoes, Targets}
+  alias Ircpipe.Irc.Session.{CommandExecutionError, CommandLifecycle, PendingEchoes, Targets}
   alias Ircpipe.Repo
 
   def execute(state, intent, command_id, buffer_id) do
     case ConnectionLock.run_serialized(state.connection, fn ->
            do_execute(state, intent, command_id, buffer_id)
          end) do
-      {:error, reason} -> {{:error, CommandLifecycle.execution_error(reason)}, state}
+      {:error, reason} -> {{:error, CommandExecutionError.present(reason)}, state}
       result -> result
     end
   end
@@ -32,7 +32,7 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
       transmit(state, intent, invocation, message, labeled?, command_id, buffer_id, client)
     else
       {:error, %{code: _code} = error} -> {{:error, error}, state}
-      {:error, reason} -> {{:error, CommandLifecycle.execution_error(reason)}, state}
+      {:error, reason} -> {{:error, CommandExecutionError.present(reason)}, state}
     end
   end
 
@@ -223,7 +223,7 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
           error: inspect(reason)
         })
 
-        {{:error, CommandLifecycle.execution_error(reason)}, state}
+        {{:error, CommandExecutionError.present(reason)}, state}
     end
   end
 

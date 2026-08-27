@@ -167,14 +167,6 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
     :exit, _reason -> {:ok, nil}
   end
 
-  def execution_error(reason) do
-    %{
-      code: error_code(reason),
-      message: execution_message(reason),
-      recoverable: reason not in [:invalid_command_id, :duplicate_command_id]
-    }
-  end
-
   defp correlation_targets(state, %Message{command: command, params: [targets | _rest]})
        when command in ["JOIN", "PART", "PRIVMSG", "NOTICE"] do
     targets
@@ -411,18 +403,4 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
       reason -> %{error: inspect(reason)}
     end
   end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "command_failed"
-
-  defp execution_message(:not_connected),
-    do: "Connect to the server before running a command."
-
-  defp execution_message(:invalid_command_id), do: "The command identifier is invalid."
-  defp execution_message(:duplicate_command_id), do: "This command was already submitted."
-  defp execution_message(:already_joined), do: "You are already in that channel."
-  defp execution_message(:not_joined), do: "Join that channel before sending to it."
-
-  defp execution_message(reason),
-    do: "The IRC command could not be sent: #{inspect(reason)}"
 end
