@@ -11,6 +11,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.JoinLifecycle
+  alias Ircpipe.Irc.Session.JoinRequests
   alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.MembershipEvents
   alias Ircpipe.Irc.Session.OutboundMessages
@@ -19,7 +20,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.ServerEvents
   alias Ircpipe.Irc.Session.StartupAuthorization
   alias Ircpipe.Irc.Session.Targets
-  alias Ircpipe.Chat.{ChannelMembership, CommandMessages, ServerConnection}
+  alias Ircpipe.Chat.{CommandMessages, ServerConnection}
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
   alias Ircxd.Client.{Event, Info}
@@ -34,10 +35,6 @@ defmodule Ircpipe.Irc.Session do
 
   def start_link(%ServerConnection{} = connection) do
     GenServer.start_link(__MODULE__, connection, name: via(connection))
-  end
-
-  def join(%ServerConnection{} = connection, channel) do
-    GenServer.call(via(connection), {:join, channel})
   end
 
   def request_join(%ServerConnection{} = connection, %User{} = user, channel) do
@@ -367,65 +364,9 @@ defmodule Ircpipe.Irc.Session do
   end
 
   @impl true
-  def handle_call({:join, channel}, _from, state) do
-    with :ok <- JoinLifecycle.validate(state, channel) do
-      if MapSet.member?(state.pending_joins, Targets.key(state, channel)) do
-        {:reply, :ok, state}
-      else
-        {reply, state} = JoinLifecycle.transmit(state, channel)
-        reply = if reply in [:sent, :queued], do: :ok, else: reply
-        {:reply, reply, state}
-      end
-    else
-      {:error, error} -> {:reply, {:error, error}, state}
-    end
-  end
-
   def handle_call({:request_join, user, channel}, _from, state) do
-    key = Targets.key(state, channel)
-
-    if MapSet.member?(state.pending_joins, key) do
-      case Chat.get_channel_membership(state.connection, channel, Targets.casemapping(state)) do
-        %ChannelMembership{} = membership ->
-          status =
-            if MapSet.member?(Map.get(state, :sent_joins, MapSet.new()), key),
-              do: :sent,
-              else: :queued
-
-          {:reply, {:ok, membership, status}, state}
-
-        nil ->
-          {:reply, {:error, :already_pending}, state}
-      end
-    else
-      with :ok <- JoinLifecycle.validate(state, channel),
-           {:ok, membership} <-
-             Chat.request_channel_join(
-               user,
-               state.connection,
-               channel,
-               Targets.casemapping(state)
-             ) do
-        {reply, state} = JoinLifecycle.transmit(state, membership.channel)
-
-        case reply do
-          status when status in [:sent, :queued] ->
-            {:reply, {:ok, membership, status}, state}
-
-          error ->
-            Chat.reject_channel_join(
-              state.connection,
-              membership.channel,
-              error,
-              Targets.casemapping(state)
-            )
-
-            {:reply, error, state}
-        end
-      else
-        {:error, error} -> {:reply, {:error, error}, state}
-      end
-    end
+    {reply, state} = JoinRequests.request(state, user, channel)
+    {:reply, reply, state}
   end
 
   def handle_call(:connection_info, _from, %{client: nil} = state) do

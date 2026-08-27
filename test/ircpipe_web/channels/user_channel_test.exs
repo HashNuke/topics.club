@@ -172,7 +172,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
     socket = join_user_channel(user)
-    assert :ok = Session.join(connection, "#elixir")
+    assert {:ok, _membership, _status} = Session.request_join(connection, user, "#elixir")
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
     assert_push "presence:sync", %{buffer_id: "channel:" <> _}
 
@@ -452,7 +452,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
 
-    assert :ok = Session.join(connection, "#elixir")
+    assert {:ok, _membership, _status} = Session.request_join(connection, user, "#elixir")
     refute_receive {:irc_server_line, "JOIN #elixir"}
     assert_push "presence:sync", %{buffer_id: "channel:" <> _}
 
@@ -520,7 +520,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
     first_socket = join_user_channel(user)
     _second_socket = join_user_channel(user)
-    assert :ok = Session.join(connection, "#elixir")
+    assert {:ok, _membership, _status} = Session.request_join(connection, user, "#elixir")
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
     assert_push "presence:sync", %{buffer_id: "channel:" <> _}
 

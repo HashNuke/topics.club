@@ -31,7 +31,7 @@ defmodule Ircpipe.Irc.SessionTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     {:ok, _pid} = SessionSupervisor.start_session(connection)
-    assert :ok = Session.join(connection, "#pipe")
+    assert {:ok, _membership, _status} = Session.request_join(connection, user, "#pipe")
 
     assert_receive {:buffer_system, %{kind: "system", body: "Connecting to localhost:" <> _}},
                    1_000
@@ -1815,7 +1815,9 @@ defmodule Ircpipe.Irc.SessionTest do
     state = :sys.get_state(Session.via(connection))
     assert MapSet.member?(state.joined_channels, "#persisted")
 
-    assert :ok = Session.join(connection, "#persisted")
+    assert {:ok, _membership, _status} =
+             Session.request_join(connection, user, "#persisted")
+
     refute_receive {:irc_server_line, "JOIN #persisted"}
 
     {:ok, client_info} = Session.connection_info(connection)

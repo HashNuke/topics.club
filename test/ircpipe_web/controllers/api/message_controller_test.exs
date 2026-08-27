@@ -30,7 +30,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
-    assert :ok = Session.join(connection, "#elixir")
+    assert {:ok, _membership, _status} = Session.request_join(connection, user, "#elixir")
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
     _ = :sys.get_state(Session.via(connection))
 
