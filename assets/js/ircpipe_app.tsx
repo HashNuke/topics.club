@@ -1189,6 +1189,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onLeaveChannel={leaveChannel}
       onCloseDirectMessage={closeDirectMessage}
       onMarkChannelRead={markChannelRead}
+      onMentionNick={mentionNick}
       onToggleChannelNotifications={toggleChannelNotifications}
       onSetDirectMessageBlocked={setDirectMessageBlocked}
       onToggleServerNotifications={toggleServerNotifications}
@@ -1233,6 +1234,12 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   async function markChannelRead(channel: Channel): Promise<void> {
     return markBufferRead(channel?.id)
+  }
+
+  function mentionNick(nick: string): void {
+    setDraft((current) => appendMention(current, nick))
+    setComposerError(null)
+    requestAnimationFrame(() => document.getElementById("chat-message-input")?.focus())
   }
 
   function openDirectMessage(
@@ -1320,4 +1327,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }
   }
 
+}
+
+export function appendMention(draft: string, nick: string): string {
+  const current = draft.trimEnd()
+  return `${current}${current ? " " : ""}${nick} `
 }

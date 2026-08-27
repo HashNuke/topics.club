@@ -20,6 +20,7 @@ export default {
       kind: "message",
       occurredAt,
     },
+    onMentionNick: () => {},
     onRetryMessage: () => {},
   },
 }

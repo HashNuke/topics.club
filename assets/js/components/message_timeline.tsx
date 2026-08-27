@@ -5,6 +5,7 @@ import type {TimelineMessage} from "../types.ts"
 export interface MessageTimelineProps {
   loading?: boolean
   messages: TimelineMessage[]
+  onMentionNick?: (nick: string) => void
   onRetryMessage?: (message: TimelineMessage) => void
 }
 
@@ -13,7 +14,7 @@ interface TimelineEntry {
   messages: TimelineMessage[]
 }
 
-export default function MessageTimeline({loading = false, messages, onRetryMessage}: MessageTimelineProps) {
+export default function MessageTimeline({loading = false, messages, onMentionNick, onRetryMessage}: MessageTimelineProps) {
   if (loading) return <MessageTimelineSkeleton />
   if (messages.length === 0) return <EmptyMessageTimeline />
 
@@ -31,7 +32,7 @@ export default function MessageTimeline({loading = false, messages, onRetryMessa
             {showSeparator && <TimeSeparator value={message.occurredAt} />}
             {entry.kind === "membership-events" && entry.messages.length > 1
               ? <MembershipEventSummary messages={entry.messages} />
-              : <MessageRow message={message} onRetryMessage={onRetryMessage} />}
+              : <MessageRow message={message} onMentionNick={onMentionNick} onRetryMessage={onRetryMessage} />}
           </Fragment>
         )
       })}

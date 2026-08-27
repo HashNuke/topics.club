@@ -1,5 +1,6 @@
 import {render, screen} from "@testing-library/react"
-import {describe, expect, test} from "vitest"
+import userEvent from "@testing-library/user-event"
+import {describe, expect, test, vi} from "vitest"
 import MessageTimeline from "./message_timeline.tsx"
 
 describe("MessageTimeline", () => {
@@ -32,6 +33,44 @@ describe("MessageTimeline", () => {
 
     expect(screen.getByText("restored from history")).toBeInTheDocument()
     expect(screen.queryByText("No messages yet")).not.toBeInTheDocument()
+  })
+
+  test("lets the user click a message nick to mention it", async () => {
+    const user = userEvent.setup()
+    const onMentionNick = vi.fn()
+
+    render(
+      <MessageTimeline
+        messages={[{
+          id: 1,
+          nick: "akash",
+          body: "hello",
+          kind: "message",
+          occurredAt: "2026-08-26T04:00:00Z",
+        }]}
+        onMentionNick={onMentionNick}
+      />
+    )
+
+    await user.click(screen.getByRole("button", {name: "Mention akash"}))
+    expect(onMentionNick).toHaveBeenCalledWith("akash")
+  })
+
+  test("does not render an inert nick button without a mention action", () => {
+    render(
+      <MessageTimeline
+        messages={[{
+          id: 2,
+          nick: "akash",
+          body: "hello",
+          kind: "message",
+          occurredAt: "2026-08-26T04:00:00Z",
+        }]}
+      />
+    )
+
+    expect(screen.getByText("akash")).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Mention akash"})).not.toBeInTheDocument()
   })
 
   test("groups contiguous join and quit events", () => {

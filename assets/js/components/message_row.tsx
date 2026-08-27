@@ -15,7 +15,7 @@ const META_MESSAGE_KINDS = [
   "error",
 ]
 
-export default function MessageRow({message, onRetryMessage}: {message: TimelineMessage; onRetryMessage?: (message: TimelineMessage) => void}) {
+export default function MessageRow({message, onMentionNick, onRetryMessage}: {message: TimelineMessage; onMentionNick?: (nick: string) => void; onRetryMessage?: (message: TimelineMessage) => void}) {
   if (META_MESSAGE_KINDS.includes(message.kind || "")) {
     return (
       <div
@@ -30,9 +30,22 @@ export default function MessageRow({message, onRetryMessage}: {message: Timeline
     )
   }
 
+  const nick = message.nick
+
   return (
     <div className="group relative rounded-md px-2 py-1.5 text-sm leading-6 hover:bg-slate-900/70">
-      <span className="font-semibold text-amber-200">{message.nick}</span>
+      {nick && onMentionNick
+        ? (
+            <button
+              aria-label={`Mention ${nick}`}
+              className="rounded-sm font-semibold text-amber-200 transition hover:text-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+              onClick={() => onMentionNick(nick)}
+              type="button"
+            >
+              {nick}
+            </button>
+          )
+        : <span className="font-semibold text-amber-200">{nick}</span>}
       <span className="text-slate-500">: </span>
       <span className="break-words text-slate-200">{message.body}</span>
       {message.pending && <span className="ml-2 text-xs text-slate-500">sending</span>}

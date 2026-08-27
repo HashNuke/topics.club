@@ -2,7 +2,7 @@ import React from "react"
 import {describe, expect, test, vi} from "vitest"
 import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import IrcpipeApp, {appendTimelineMessage, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.tsx"
+import IrcpipeApp, {appendMention, appendTimelineMessage, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.tsx"
 
 const topicFixtures = [
   {id: 101, name: "#elixir", description: "Phoenix, OTP, releases, and production Elixir help.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#elixir"},
@@ -828,6 +828,32 @@ describe("IrcpipeApp UI prototype", () => {
     expect(appendTimelineMessage(messages, nextMessage, false, 3).map((message) => message.id)).toEqual([2, 3, 4])
     expect(appendTimelineMessage(messages, nextMessage, true, 3).map((message) => message.id)).toEqual([1, 2, 3, 4])
     expect(trimMessagesToLimit([...messages, nextMessage], 3).map((message) => message.id)).toEqual([2, 3, 4])
+  })
+
+  test("appends mentions with one separator and one trailing space", () => {
+    expect(appendMention("", "akash")).toBe("akash ")
+    expect(appendMention("hello", "akash")).toBe("hello akash ")
+    expect(appendMention("hello   ", "akash")).toBe("hello akash ")
+  })
+
+  test("adds a clicked message nick to the current draft and restores composer focus", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    const composer = screen.getByLabelText("Message composer")
+    await user.type(composer, "hello")
+    await user.click(screen.getByRole("button", {name: "Mention akash"}))
+
+    expect(composer).toHaveValue("hello akash ")
+    await waitFor(() => expect(composer).toHaveFocus())
   })
 
   test("loads older channel history when scrolling near the top", async () => {

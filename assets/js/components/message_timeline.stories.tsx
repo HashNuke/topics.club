@@ -29,6 +29,7 @@ export default {
   ],
   args: {
     messages: baseMessages,
+    onMentionNick: () => {},
     onRetryMessage: () => {},
   },
 }

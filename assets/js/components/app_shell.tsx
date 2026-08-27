@@ -58,6 +58,7 @@ export interface AppShellProps {
   onLeaveServer: (server: ServerConnection) => void
   onLoadOlderMessages?: (bufferId?: string) => void
   onMarkChannelRead: (channel: Channel) => void
+  onMentionNick?: (nick: string) => void
   onOpenChannelDirectory: (server: ServerConnection) => void
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
   onReconnectServer: (server: ServerConnection) => void
