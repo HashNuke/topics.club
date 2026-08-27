@@ -2,8 +2,8 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
   use Ircpipe.DataCase, async: true
 
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat
   alias Ircpipe.Chat.ChannelMembership
+  alias Ircpipe.Chat.ConnectionCasemapping
   alias Ircpipe.Chat.ConnectionSnapshot
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
@@ -55,7 +55,7 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
                "nickname" => "mira"
              })
 
-    assert {:ok, connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+    assert {:ok, connection} = ConnectionCasemapping.update(connection, :rfc1459)
 
     for channel <- ["#[ops]", "#" <> "{ops}"] do
       %ChannelMembership{user_id: user.id, server_connection_id: connection.id}

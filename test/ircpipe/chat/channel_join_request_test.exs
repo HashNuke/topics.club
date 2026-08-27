@@ -2,8 +2,7 @@ defmodule Ircpipe.Chat.ChannelJoinRequestTest do
   use Ircpipe.DataCase, async: true
 
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelJoinRequest, Connections}
+  alias Ircpipe.Chat.{ChannelJoinRequest, ConnectionCasemapping, Connections}
 
   test "creates and reuses a trimmed pending membership" do
     user = AccountsFixtures.user_fixture()
@@ -22,7 +21,7 @@ defmodule Ircpipe.Chat.ChannelJoinRequestTest do
     user = AccountsFixtures.user_fixture()
     other_user = AccountsFixtures.user_fixture()
     connection = connection_fixture(user)
-    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, connection} = ConnectionCasemapping.update(connection, :ascii)
 
     assert {:ok, pending} = ChannelJoinRequest.request(user, connection, "#[Ops]")
     assert {:ok, reused} = ChannelJoinRequest.request(user, connection, "#[OPS]")

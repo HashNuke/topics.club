@@ -11,6 +11,7 @@ defmodule Ircpipe.ChatTest do
     ChannelJoinRequest,
     ChannelMembership,
     ChannelUser,
+    ConnectionCasemapping,
     MembershipLookup,
     MembershipReconciler,
     Message,
@@ -257,7 +258,7 @@ defmodule Ircpipe.ChatTest do
     assert [%{channel_memberships: memberships}] = Connections.list(user)
     assert Enum.count(memberships) == 2
 
-    {:ok, ascii_connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, ascii_connection} = ConnectionCasemapping.update(connection, :ascii)
     assert {:ok, []} = MembershipReconciler.reconcile(ascii_connection, :ascii)
     assert [%{channel_memberships: memberships}] = Connections.list(user)
     assert Enum.count(memberships) == 2
@@ -273,7 +274,7 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, connection} = ConnectionCasemapping.update(connection, :ascii)
     {:ok, membership} = Chat.join_channel(user, connection, "#room")
 
     :ok =
@@ -287,7 +288,7 @@ defmodule Ircpipe.ChatTest do
     assert Presence.list_users(membership) |> Enum.map(& &1.nick_key) |> Enum.sort() ==
              ["[mira]", "{mira}"]
 
-    assert {:ok, rfc_connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+    assert {:ok, rfc_connection} = ConnectionCasemapping.update(connection, :rfc1459)
     assert rfc_connection.casemapping == "rfc1459"
 
     assert [%{nick: "{mira}", nick_key: "{mira}", role: "op"}] =
@@ -314,14 +315,14 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    {:ok, connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+    {:ok, connection} = ConnectionCasemapping.update(connection, :rfc1459)
     {:ok, membership} = Chat.join_channel(user, connection, "#room")
     :ok = Presence.sync(connection, "#room", [%{nick: "mi~ra", prefixes: []}], :rfc1459)
 
     assert [%{nick: "mi~ra", nick_key: "mi^ra"}] = Presence.list_users(membership)
 
     assert {:ok, strict_connection} =
-             Chat.update_connection_casemapping(connection, :strict_rfc1459)
+             ConnectionCasemapping.update(connection, :strict_rfc1459)
 
     assert [%{nick: "mi~ra", nick_key: "mi~ra"}] = Presence.list_users(membership)
 
@@ -359,7 +360,7 @@ defmodule Ircpipe.ChatTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:error, :connection_deleting} =
-             Chat.update_connection_casemapping(connection, :rfc1459)
+             ConnectionCasemapping.update(connection, :rfc1459)
 
     assert {:error, :connection_deleting} =
              ChannelJoinRequest.request(user, connection, "#after-mark")
@@ -403,7 +404,7 @@ defmodule Ircpipe.ChatTest do
     assert {:ok, :committed} =
              Repo.transaction(fn ->
                for callback <- [
-                     fn -> Chat.update_connection_casemapping(connection, :rfc1459) end,
+                     fn -> ConnectionCasemapping.update(connection, :rfc1459) end,
                      fn -> ChannelJoinRequest.request(user, connection, "#new") end,
                      fn -> Chat.confirm_channel_join(connection, pending.channel) end,
                      fn -> Chat.reject_channel_join(connection, pending.channel, "too late") end,

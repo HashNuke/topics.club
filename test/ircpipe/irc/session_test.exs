@@ -12,6 +12,7 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat.{
     ChannelJoinRequest,
     CommandMessages,
+    ConnectionCasemapping,
     DirectMessageThread,
     MembershipLookup,
     MessageHistory,
@@ -1536,7 +1537,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "Nick["
       })
 
-    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, connection} = ConnectionCasemapping.update(connection, :ascii)
     {:ok, membership} = ChannelJoinRequest.request(user, connection, "#room", :ascii)
 
     state = %{
@@ -1968,7 +1969,7 @@ defmodule Ircpipe.Irc.SessionTest do
         "nickname" => "ircpipe"
       })
 
-    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, connection} = ConnectionCasemapping.update(connection, :ascii)
     {:ok, _membership} = ChannelJoinRequest.request(user, connection, "#[room", :ascii)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN #[room"}, 1_000

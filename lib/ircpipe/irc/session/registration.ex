@@ -1,7 +1,7 @@
 defmodule Ircpipe.Irc.Session.Registration do
   @moduledoc false
 
-  alias Ircpipe.Chat
+  alias Ircpipe.Chat.ConnectionCasemapping
   alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircxd.Client.Info
 
@@ -58,7 +58,7 @@ defmodule Ircpipe.Irc.Session.Registration do
     if connection.casemapping == mapping do
       connection
     else
-      case Chat.update_connection_casemapping(connection, casemapping) do
+      case ConnectionCasemapping.update(connection, casemapping) do
         {:ok, updated} ->
           updated
 

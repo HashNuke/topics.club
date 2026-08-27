@@ -9,6 +9,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
+  alias Ircpipe.Chat.ConnectionCasemapping
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
@@ -1075,7 +1076,7 @@ defmodule IrcpipeWeb.UserChannelTest do
         "nickname" => "mira"
       })
 
-    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, connection} = ConnectionCasemapping.update(connection, :ascii)
     {:ok, membership} = Chat.join_channel(user, connection, "#room")
 
     :ok =
@@ -1087,7 +1088,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       )
 
     join_user_channel(user)
-    assert {:ok, _connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+    assert {:ok, _connection} = ConnectionCasemapping.update(connection, :rfc1459)
 
     assert_push "presence:sync", %{
       buffer_id: buffer_id,

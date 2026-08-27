@@ -3,7 +3,7 @@ defmodule Ircpipe.Chat.MembershipLookupTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelJoinRequest, Connections, MembershipLookup}
+  alias Ircpipe.Chat.{ChannelJoinRequest, ConnectionCasemapping, Connections, MembershipLookup}
 
   test "loads memberships only for their owner" do
     user = AccountsFixtures.user_fixture()
@@ -28,7 +28,7 @@ defmodule Ircpipe.Chat.MembershipLookupTest do
   test "finds memberships with explicit and stored IRC casemapping" do
     user = AccountsFixtures.user_fixture()
     connection = connection_fixture(user)
-    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, connection} = ConnectionCasemapping.update(connection, :ascii)
     {:ok, membership} = ChannelJoinRequest.request(user, connection, "#[Pipe]", :ascii)
 
     assert MembershipLookup.find_by_channel(connection, "#[PIPE]", :ascii).id == membership.id
