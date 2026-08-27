@@ -5,7 +5,7 @@ defmodule Ircpipe.Irc.SingleNodeGuardTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.ConnectionLock
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Irc.SessionSystemSupervisor
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Irc.SingleNodeGuard
@@ -27,7 +27,7 @@ defmodule Ircpipe.Irc.SingleNodeGuardTest do
              })
 
     assert {:ok, session_pid} = SessionSupervisor.start_session(connection)
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
     session_ref = Process.monitor(session_pid)
     guard_pid = Process.whereis(SingleNodeGuard)
     guard_ref = Process.monitor(guard_pid)
@@ -42,7 +42,7 @@ defmodule Ircpipe.Irc.SingleNodeGuardTest do
 
     refute Process.whereis(SingleNodeGuard) == guard_pid
     assert Process.whereis(SessionSupervisor)
-    assert Session.whereis(connection) == nil
+    assert SessionLocator.whereis(connection) == nil
   end
 
   @tag :capture_log

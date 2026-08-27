@@ -4,7 +4,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Discovery
-  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.IrcTestServer
 
   setup :register_and_log_in_user
@@ -136,7 +136,7 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
     assert_receive {:irc_server_line, "USER " <> _rest}, 1_000
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
     assert_receive {:presence_sync, %{buffer_id: "channel:" <> _}}, 1_000
-    _state = :sys.get_state(Session.via(connection))
+    _state = :sys.get_state(SessionLocator.via(connection))
 
     [server_channel] = Discovery.list_popular_server_channels()
     conn = post(conn, ~p"/api/discovery/server_channels/#{server_channel.id}/join")

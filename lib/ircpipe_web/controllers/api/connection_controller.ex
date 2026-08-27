@@ -2,7 +2,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat.Connections
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
 
@@ -66,7 +66,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: Session.status(connection),
+      status: SessionLocator.status(connection),
       mention_notifications_enabled: connection.mention_notifications_enabled,
       notification_preference_revision: connection.notification_preference_revision,
       channels:

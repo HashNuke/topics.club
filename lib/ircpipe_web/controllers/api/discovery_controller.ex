@@ -3,7 +3,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
 
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Discovery
-  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
 
   def index(conn, _params) do
     server_channels = Discovery.list_popular_server_channels()
@@ -67,7 +67,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: Session.status(connection),
+      status: SessionLocator.status(connection),
       mention_notifications_enabled: connection.mention_notifications_enabled,
       notification_preference_revision: connection.notification_preference_revision
     }
@@ -81,7 +81,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
       channel_membership_id: membership.id,
       title: membership.channel,
       subtitle: topic || "on #{connection.host}",
-      status: Session.status(connection),
+      status: SessionLocator.status(connection),
       unread_count: membership.unread_count,
       mention_count: membership.mention_count,
       mention_notifications_enabled: membership.mention_notifications_enabled,

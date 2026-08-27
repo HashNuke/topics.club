@@ -17,7 +17,7 @@ defmodule Ircpipe.Irc.SessionTest do
     Notification
   }
 
-  alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
+  alias Ircpipe.Irc.{CommandRegistry, Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.IrcTestServer
 
@@ -975,7 +975,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert buffer_id == "server:#{connection.id}"
     assert connection_id == connection.id
-    assert Session.status(connection) == "disconnected"
+    assert SessionLocator.status(connection) == "disconnected"
   end
 
   test "records IRC notices, actions, topics, MOTD, and numerics in the right buffers" do
@@ -1238,7 +1238,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
     assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
     assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
 
     {:ok, client_info} = Session.connection_info(connection)
     {:ok, intent} = CommandRegistry.resolve("WHOIS mira", client_info)
@@ -1278,7 +1278,7 @@ defmodule Ircpipe.Irc.SessionTest do
                     }},
                    1_000
 
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
 
     results =
       user
@@ -1830,7 +1830,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:irc_server_line, "JOIN #persisted"}, 1_000
     assert_receive {:presence_sync, %{buffer_id: "channel:" <> _}}, 1_000
 
-    state = :sys.get_state(Session.via(connection))
+    state = :sys.get_state(SessionLocator.via(connection))
     assert MapSet.member?(state.joined_channels, "#persisted")
 
     assert {:ok, _membership, _status} =
@@ -1896,7 +1896,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
     assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
 
-    state = :sys.get_state(Session.via(connection))
+    state = :sys.get_state(SessionLocator.via(connection))
     refute state.isupport_received?
     assert Connections.get!(user, connection.id).casemapping == nil
     refute MembershipLookup.get!(user, membership.id).status == "error"
@@ -1911,7 +1911,7 @@ defmodule Ircpipe.Irc.SessionTest do
              IrcTestServer.send_line(server, ":ircpipe-test 376 ircpipe :End of /MOTD command")
 
     assert_receive {:buffer_message, %{body: "End of /MOTD command"}}, 1_000
-    assert :sys.get_state(Session.via(connection)).isupport_received?
+    assert :sys.get_state(SessionLocator.via(connection)).isupport_received?
     assert Connections.get!(user, connection.id).casemapping == "ascii"
     assert :ok = Session.quit(connection)
   end
@@ -1941,7 +1941,7 @@ defmodule Ircpipe.Irc.SessionTest do
                ":ircpipe-test 005 ircpipe CHANTYPES=~ CASEMAPPING=ascii :are supported"
              )
 
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
     refute_receive {:irc_server_line, "JOIN ~custom"}, 200
     assert MembershipLookup.get!(user, membership.id).status == "joined"
     assert Connections.get!(user, connection.id).casemapping == "ascii"
@@ -1975,7 +1975,7 @@ defmodule Ircpipe.Irc.SessionTest do
              )
 
     refute_receive {:irc_server_line, "JOIN #[room"}, 200
-    state = :sys.get_state(Session.via(connection))
+    state = :sys.get_state(SessionLocator.via(connection))
     assert MapSet.member?(state.sent_joins, ~S(#{room))
     refute MapSet.member?(state.sent_joins, "#[room")
     assert :ok = Session.quit(connection)
@@ -2087,7 +2087,7 @@ defmodule Ircpipe.Irc.SessionTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
 
     assert :ok =
              IrcTestServer.send_line(
@@ -2329,7 +2329,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:irc_server_line, "JOIN " <> ^channel}, 1_000
     assert Connections.get!(user, connection.id).casemapping == expected_mapping
 
-    state = :sys.get_state(Session.via(connection))
+    state = :sys.get_state(SessionLocator.via(connection))
     assert state.isupport_received? == (lines != [])
 
     assert :ok = Session.quit(connection)

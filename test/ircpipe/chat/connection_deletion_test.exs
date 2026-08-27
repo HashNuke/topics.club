@@ -19,7 +19,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     Notification
   }
 
-  alias Ircpipe.Irc.{CommandRegistry, Session}
+  alias Ircpipe.Irc.{CommandRegistry, Session, SessionLocator}
   alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
@@ -77,7 +77,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert deleted.id == connection.id
     assert_receive {:DOWN, ^session_ref, :process, ^session_pid, :shutdown}, 5_000
 
-    assert Session.whereis(connection) == nil
+    assert SessionLocator.whereis(connection) == nil
     assert Repo.get(Ircpipe.Chat.ServerConnection, connection.id) == nil
   end
 
@@ -95,7 +95,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert deleted.id == connection.id
 
     assert {:error, :connection_not_found} = SessionSupervisor.start_session(connection)
-    assert Session.whereis(connection) == nil
+    assert SessionLocator.whereis(connection) == nil
   end
 
   test "a normal disconnect tears down the IRC client before deletion" do
@@ -164,7 +164,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert_receive {:connection_delete_marked, delete_pid, ^barrier_ref, connection_id}, 5_000
     assert connection_id == connection.id
     assert {:error, :connection_not_found} = SessionSupervisor.start_session(connection)
-    assert Session.whereis(connection) == nil
+    assert SessionLocator.whereis(connection) == nil
 
     send(delete_pid, {:continue_marked_connection_delete, barrier_ref})
     assert {:ok, deleted} = Task.await(delete_task, 5_000)
@@ -211,7 +211,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
       _ = SessionSupervisor.stop_for_deletion(connection)
     end)
 
-    assert Session.whereis(connection) == session_pid
+    assert SessionLocator.whereis(connection) == session_pid
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     initial_jobs = Repo.aggregate(Oban.Job, :count)
@@ -338,7 +338,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert Repo.get!(ChannelMembership, membership.id).status == "joined"
     assert Repo.get!(DirectMessageThread, direct_thread.id).peer_nick == "akash"
     assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).nickname == "ircpipe"
-    assert Session.whereis(connection) == session_pid
+    assert SessionLocator.whereis(connection) == session_pid
     assert Repo.aggregate(Oban.Job, :count) == initial_jobs
     refute_received {:irc_message, _event}
     refute_received {:direct_message_thread, _event}
@@ -617,7 +617,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
              })
 
     assert {:ok, session_pid} = SessionSupervisor.start_session(connection)
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
     session_ref = Process.monitor(session_pid)
 
     previous_pause = Application.get_env(:ircpipe, :pause_session_stop_after_lookup)
@@ -642,7 +642,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert {:ok, deleted} = Task.await(delete_task, 5_000)
     assert deleted.id == connection.id
     _ = :sys.get_state(SessionSupervisor)
-    assert Session.whereis(connection) == nil
+    assert SessionLocator.whereis(connection) == nil
   end
 
   test "a durable event batch closes the post-commit broadcast crash gap" do

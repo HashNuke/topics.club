@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.Session.JoinFlushTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat.Connections
-  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.Irc.Session.JoinFlush
   alias Ircpipe.IrcTestServer
   alias Ircxd.Client.Info
@@ -60,7 +60,7 @@ defmodule Ircpipe.Irc.Session.JoinFlushTest do
 
     state =
       connection
-      |> Session.via()
+      |> SessionLocator.via()
       |> :sys.get_state()
       |> Map.put(:join_validation_ready?, false)
       |> Map.put(:join_flush_timer, {make_ref(), token})

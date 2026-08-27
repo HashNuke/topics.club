@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.ReadState
   alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
@@ -91,7 +92,11 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_info({:sync_server_statuses, user}, socket) do
     Enum.each(Connections.list(user), fn connection ->
-      push(socket, "server:status", Event.server_status(connection, Session.status(connection)))
+      push(
+        socket,
+        "server:status",
+        Event.server_status(connection, SessionLocator.status(connection))
+      )
     end)
 
     {:noreply, socket}
@@ -265,7 +270,7 @@ defmodule IrcpipeWeb.UserChannel do
 
     :ok = SessionSupervisor.stop_session(connection)
 
-    Reply.ok(socket, Event.server_status(connection, Session.status(connection)))
+    Reply.ok(socket, Event.server_status(connection, SessionLocator.status(connection)))
   rescue
     Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end
@@ -275,7 +280,7 @@ defmodule IrcpipeWeb.UserChannel do
     connection = Connections.get!(user, connection_id)
 
     with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
-      Reply.ok(socket, Event.server_status(connection, Session.status(connection)))
+      Reply.ok(socket, Event.server_status(connection, SessionLocator.status(connection)))
     else
       _error -> Reply.error(socket, %{reason: "reconnect_failed"})
     end

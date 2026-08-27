@@ -5,7 +5,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
   alias Ircpipe.Chat.{CommandMessages, Connections}
   alias Ircpipe.Chat.Message
   alias Ircpipe.Chat.MessageIngestion
-  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
 
@@ -32,7 +32,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
     assert {:ok, _membership, _status} = Session.request_join(connection, user, "#elixir")
     assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
 
     dcc_body = <<1, "DCC SEND secret.txt 127001 1234 99", 1>>
     conn = post(conn, ~p"/api/channels/#{membership.id}/messages", %{body: dcc_body})

@@ -1,7 +1,7 @@
 defmodule Ircpipe.ClosedIrcSession do
   use GenServer
 
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
 
   def child_spec(connection) do
     %{
@@ -12,7 +12,7 @@ defmodule Ircpipe.ClosedIrcSession do
   end
 
   def start_link(connection) do
-    GenServer.start_link(__MODULE__, connection, name: Session.via(connection))
+    GenServer.start_link(__MODULE__, connection, name: SessionLocator.via(connection))
   end
 
   @impl true

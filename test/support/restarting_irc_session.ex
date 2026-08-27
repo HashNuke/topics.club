@@ -1,7 +1,7 @@
 defmodule Ircpipe.RestartingIrcSession do
   use GenServer
 
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
 
   def child_spec({connection, test_pid, start_counter}) do
     %{
@@ -28,7 +28,7 @@ defmodule Ircpipe.RestartingIrcSession do
       end
     end
 
-    GenServer.start_link(__MODULE__, {connection, test_pid}, name: Session.via(connection))
+    GenServer.start_link(__MODULE__, {connection, test_pid}, name: SessionLocator.via(connection))
   end
 
   @impl true

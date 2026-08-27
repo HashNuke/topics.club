@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.IrcTestServer
 
   setup :register_and_log_in_user
@@ -130,7 +131,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
              json_response(conn, 200)
 
     assert connection_id == connection.id
-    assert Session.status(connection) == "disconnected"
+    assert SessionLocator.status(connection) == "disconnected"
   end
 
   test "updates an owned server connection", %{conn: conn, user: user} do

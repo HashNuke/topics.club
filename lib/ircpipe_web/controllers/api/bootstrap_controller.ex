@@ -6,7 +6,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Chat.Topics
   alias Ircpipe.Irc.Commands
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Notifications.PushRegistrations
   alias Ircpipe.Realtime.Event
@@ -81,7 +81,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: Session.status(connection),
+      status: SessionLocator.status(connection),
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
       mention_notifications_enabled: connection.mention_notifications_enabled,

@@ -20,10 +20,11 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.ServerEvents
   alias Ircpipe.Irc.Session.UnhandledEvents
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
-  alias Ircxd.Client.{Event, Info}
+  alias Ircxd.Client.Event
 
   def child_spec(%ServerConnection{} = connection) do
     %{
@@ -34,65 +35,51 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def start_link(%ServerConnection{} = connection) do
-    GenServer.start_link(__MODULE__, connection, name: via(connection))
+    GenServer.start_link(__MODULE__, connection, name: SessionLocator.via(connection))
   end
 
   def request_join(%ServerConnection{} = connection, %User{} = user, channel) do
-    GenServer.call(via(connection), {:request_join, user, channel})
+    GenServer.call(SessionLocator.via(connection), {:request_join, user, channel})
   end
 
   def list_channels(%ServerConnection{} = connection) do
-    GenServer.call(via(connection), :list_channels, ChannelListRequest.timeout_ms() + 1_000)
+    GenServer.call(
+      SessionLocator.via(connection),
+      :list_channels,
+      ChannelListRequest.timeout_ms() + 1_000
+    )
   end
 
   def say(%ServerConnection{} = connection, channel, body) do
-    GenServer.call(via(connection), {:say, channel, body})
+    GenServer.call(SessionLocator.via(connection), {:say, channel, body})
   end
 
   def action(%ServerConnection{} = connection, channel, body) do
-    GenServer.call(via(connection), {:action, channel, body})
+    GenServer.call(SessionLocator.via(connection), {:action, channel, body})
   end
 
   def privmsg_thread(%ServerConnection{} = connection, thread_id, body) do
-    GenServer.call(via(connection), {:privmsg_thread, thread_id, body})
+    GenServer.call(SessionLocator.via(connection), {:privmsg_thread, thread_id, body})
   end
 
   def part(%ServerConnection{} = connection, channel, reason \\ "") do
-    GenServer.call(via(connection), {:part, channel, reason})
+    GenServer.call(SessionLocator.via(connection), {:part, channel, reason})
   end
 
   def quit(%ServerConnection{} = connection, reason \\ "leaving") do
-    GenServer.call(via(connection), {:quit, reason})
+    GenServer.call(SessionLocator.via(connection), {:quit, reason})
   end
 
   def connection_info(%ServerConnection{} = connection) do
-    GenServer.call(via(connection), :connection_info)
-  end
-
-  def status(%ServerConnection{} = connection) do
-    case whereis(connection) do
-      nil ->
-        "disconnected"
-
-      _pid ->
-        case connection_info(connection) do
-          {:ok, %Info{registered?: true}} -> "connected"
-          _other -> "connecting"
-        end
-    end
-  catch
-    :exit, _reason -> "disconnected"
+    GenServer.call(SessionLocator.via(connection), :connection_info)
   end
 
   def execute(%ServerConnection{} = connection, intent, command_id, buffer_id) do
-    GenServer.call(via(connection), {:execute, intent, command_id, buffer_id})
+    GenServer.call(
+      SessionLocator.via(connection),
+      {:execute, intent, command_id, buffer_id}
+    )
   end
-
-  def via(%ServerConnection{user_id: user_id, id: id}) do
-    {:via, Registry, {Ircpipe.Irc.SessionRegistry, {user_id, id}}}
-  end
-
-  def whereis(%ServerConnection{} = connection), do: GenServer.whereis(via(connection))
 
   @impl true
   def init(%ServerConnection{} = requested_connection) do

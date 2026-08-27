@@ -4,6 +4,7 @@ defmodule Ircpipe.Irc.SessionSupervisor do
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.Session.ClientLifecycle
+  alias Ircpipe.Irc.SessionLocator
 
   @stop_attempts 3
   @stop_timeout 5_000
@@ -64,7 +65,7 @@ defmodule Ircpipe.Irc.SessionSupervisor do
   defp do_stop_session(_connection, _reason, 0), do: {:error, :session_stop_race}
 
   defp do_stop_session(connection, reason, attempts_left) do
-    case Session.whereis(connection) do
+    case SessionLocator.whereis(connection) do
       pid when is_pid(pid) ->
         maybe_pause_stop_after_lookup(pid)
         monitor_ref = Process.monitor(pid)

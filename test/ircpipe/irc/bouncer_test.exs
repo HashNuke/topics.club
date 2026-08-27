@@ -9,6 +9,7 @@ defmodule Ircpipe.Irc.BouncerTest do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Irc.Bouncer
   alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
@@ -62,7 +63,7 @@ defmodule Ircpipe.Irc.BouncerTest do
     _ = :sys.get_state(pid)
 
     assert_receive {:irc_server_line, "QUIT :idle timeout"}, 1_000
-    assert Session.status(connection) == "disconnected"
+    assert SessionLocator.status(connection) == "disconnected"
   end
 
   test "stays disabled when configured off" do

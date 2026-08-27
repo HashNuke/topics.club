@@ -2,7 +2,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
   use ExUnit.Case, async: false
 
   alias Ircpipe.Chat.ServerConnection
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Irc.SessionSupervisor
 
   setup do
@@ -26,7 +26,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
     pid = start_supervised!({Ircpipe.ClosedIrcSession, connection})
 
     assert {:via, Registry, {Ircpipe.Irc.SessionRegistry, registry_key}} =
-             Session.via(connection)
+             SessionLocator.via(connection)
 
     assert Registry.lookup(Ircpipe.Irc.SessionRegistry, registry_key) == [{pid, nil}]
     ref = Process.monitor(pid)
@@ -91,7 +91,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
     assert :ok = Task.await(stop_task)
     assert_receive {:restarting_irc_session_stopped, ^replacement_pid}
 
-    assert Session.whereis(connection) == nil
+    assert SessionLocator.whereis(connection) == nil
   end
 
   @tag :capture_log
@@ -127,7 +127,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
   defp stop_named_test_session(_connection, 0), do: :ok
 
   defp stop_named_test_session(connection, attempts_left) do
-    case Session.whereis(connection) do
+    case SessionLocator.whereis(connection) do
       pid when is_pid(pid) ->
         _ = DynamicSupervisor.terminate_child(SessionSupervisor, pid)
         stop_named_test_session(connection, attempts_left - 1)

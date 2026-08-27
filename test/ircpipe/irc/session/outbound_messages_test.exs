@@ -11,7 +11,7 @@ defmodule Ircpipe.Irc.Session.OutboundMessagesTest do
     ServerConnection
   }
 
-  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.Irc.Session.{OutboundMessages, PendingEchoes}
   alias Ircpipe.IrcTestServer
 
@@ -204,7 +204,7 @@ defmodule Ircpipe.Irc.Session.OutboundMessagesTest do
       assert_receive {:presence_sync, %{buffer_id: "channel:" <> _membership_id}}
     end
 
-    state = :sys.get_state(Session.via(connection))
+    state = :sys.get_state(SessionLocator.via(connection))
     {server, user, connection, membership, state}
   end
 end

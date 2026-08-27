@@ -17,6 +17,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.MembershipLookup
   alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
   alias IrcpipeWeb.UserChannel
@@ -1179,7 +1180,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       }
     }
 
-    _ = :sys.get_state(Session.via(connection))
+    _ = :sys.get_state(SessionLocator.via(connection))
 
     messages = MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
 
@@ -1260,7 +1261,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       status: "disconnected"
     }
 
-    assert Session.status(connection) == "disconnected"
+    assert SessionLocator.status(connection) == "disconnected"
   end
 
   defp join_user_channel(user) do

@@ -1,7 +1,7 @@
 defmodule IrcpipeWeb.Api.BootstrapBuffers do
   @moduledoc false
 
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.SessionLocator
 
   def for_connection(connection) do
     [
@@ -12,7 +12,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
         channel_membership_id: nil,
         title: connection.host,
         subtitle: connection.name,
-        status: Session.status(connection),
+        status: SessionLocator.status(connection),
         unread_count: connection.unread_count,
         mention_count: connection.mention_count,
         mention_notifications_enabled: connection.mention_notifications_enabled,
@@ -50,7 +50,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
       direct_message_revision: thread.mutation_revision,
       title: thread.peer_nick,
       subtitle: "on #{connection.host}",
-      status: Session.status(connection),
+      status: SessionLocator.status(connection),
       unread_count: thread.unread_count,
       mention_count: 0,
       peer_nick: thread.peer_nick,
@@ -69,7 +69,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
       channel_membership_id: membership.id,
       title: membership.channel,
       subtitle: "on #{connection.host}",
-      status: Session.status(connection),
+      status: SessionLocator.status(connection),
       membership_status: membership.status,
       unread_count: membership.unread_count,
       mention_count: membership.mention_count,
