@@ -1,22 +1,18 @@
 defmodule Ircpipe.Irc.Session do
   use GenServer
 
-  alias Ircpipe.Irc.Session.CommandLifecycle
-  alias Ircpipe.Irc.Session.CommandExecution
-  alias Ircpipe.Irc.Session.ChannelListCommands
+  alias Ircpipe.Irc.Session.CallRouting
   alias Ircpipe.Irc.Session.ChannelListEvents
   alias Ircpipe.Irc.Session.ChannelListRequest
   alias Ircpipe.Irc.Session.ClientLifecycle
+  alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.ConnectionEvents
-  alias Ircpipe.Irc.Session.DepartureCommands
   alias Ircpipe.Irc.Session.EventPipeline
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.Initialization
   alias Ircpipe.Irc.Session.JoinFlush
   alias Ircpipe.Irc.Session.JoinFailureEvents
-  alias Ircpipe.Irc.Session.JoinRequests
   alias Ircpipe.Irc.Session.MembershipEvents
-  alias Ircpipe.Irc.Session.OutboundMessages
   alias Ircpipe.Irc.Session.ServerEvents
   alias Ircpipe.Irc.Session.UnhandledEvents
   alias Ircpipe.Irc.SessionLocator
@@ -237,51 +233,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   @impl true
-  def handle_call({:request_join, user, channel}, _from, state) do
-    {reply, state} = JoinRequests.request(state, user, channel)
-    {:reply, reply, state}
-  end
-
-  def handle_call(:connection_info, _from, %{client: nil} = state) do
-    {:reply, {:error, :not_connected}, state}
-  end
-
-  def handle_call(:connection_info, _from, state) do
-    info = Ircxd.Client.connection_info(state.client)
-    {:reply, {:ok, info}, %{state | client_info: info}}
-  end
-
-  def handle_call({:execute, intent, command_id, buffer_id}, _from, state) do
-    {reply, state} = CommandExecution.execute(state, intent, command_id, buffer_id)
-    {:reply, reply, state}
-  end
-
-  def handle_call(:list_channels, from, state), do: ChannelListCommands.request(state, from)
-
-  def handle_call({:say, channel, body}, _from, state) do
-    {reply, state} = OutboundMessages.say(state, channel, body)
-    {:reply, reply, state}
-  end
-
-  def handle_call({:action, channel, body}, _from, state) do
-    {reply, state} = OutboundMessages.action(state, channel, body)
-    {:reply, reply, state}
-  end
-
-  def handle_call({:privmsg_thread, thread_id, body}, _from, state) do
-    {reply, state} = OutboundMessages.direct(state, thread_id, body)
-    {:reply, reply, state}
-  end
-
-  def handle_call({:part, channel, reason}, _from, state) do
-    {reply, state} = DepartureCommands.part(state, channel, reason)
-    {:reply, reply, state}
-  end
-
-  def handle_call({:quit, reason}, _from, state) do
-    {reply, state} = DepartureCommands.quit(state, reason)
-    {:stop, :normal, reply, state}
-  end
+  def handle_call(request, from, state), do: CallRouting.handle(request, from, state)
 
   @impl true
   def terminate(_reason, state) do
