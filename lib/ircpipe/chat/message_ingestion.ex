@@ -11,12 +11,12 @@ defmodule Ircpipe.Chat.MessageIngestion do
     MentionDetection,
     Message,
     Notification,
+    PresenceMembershipLookup,
     Retention,
     ServerConnection,
     ServerConnectionLock
   }
 
-  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Notifications.Delivery
   alias Ircpipe.Repo
 
@@ -36,7 +36,7 @@ defmodule Ircpipe.Chat.MessageIngestion do
       active_connection = ServerConnectionLock.lock_active!(connection.id)
 
       membership =
-        channel_membership(active_connection, channel, casemapping, "joined") ||
+        PresenceMembershipLookup.find(active_connection, channel, casemapping, "joined") ||
           Repo.rollback(:channel_membership_not_found)
 
       user = Repo.get!(User, active_connection.user_id)
@@ -158,20 +158,6 @@ defmodule Ircpipe.Chat.MessageIngestion do
       error ->
         error
     end
-  end
-
-  defp channel_membership(connection, channel, casemapping, status) do
-    query =
-      from(m in ChannelMembership,
-        where: m.server_connection_id == ^connection.id
-      )
-
-    query = if status, do: where(query, [m], m.status == ^status), else: query
-    key = Identifier.key(channel, casemapping)
-
-    query
-    |> Repo.all()
-    |> Enum.find(&(Identifier.key(&1.channel, casemapping) == key))
   end
 
   defp metadata_value(metadata, key) do

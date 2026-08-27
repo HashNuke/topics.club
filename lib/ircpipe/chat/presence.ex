@@ -7,6 +7,7 @@ defmodule Ircpipe.Chat.Presence do
     ChannelMembership,
     ChannelUser,
     PresenceDiff,
+    PresenceMembershipLookup,
     ServerConnection,
     ServerConnectionLock
   }
@@ -29,7 +30,7 @@ defmodule Ircpipe.Chat.Presence do
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-      case channel_membership(active_connection, channel, casemapping) do
+      case PresenceMembershipLookup.find(active_connection, channel, casemapping) do
         %ChannelMembership{} = membership ->
           users =
             names
@@ -84,7 +85,7 @@ defmodule Ircpipe.Chat.Presence do
 
       events =
         active_connection
-        |> memberships(channel, casemapping)
+        |> PresenceMembershipLookup.list(channel, casemapping)
         |> Enum.map(fn membership ->
           apply_diff(membership, canonical_diff)
 
@@ -116,39 +117,6 @@ defmodule Ircpipe.Chat.Presence do
       error ->
         error
     end
-  end
-
-  def memberships(connection, channel, casemapping)
-
-  def memberships(%ServerConnection{} = connection, nil, _casemapping) do
-    ChannelMembership
-    |> where(
-      [membership],
-      membership.server_connection_id == ^connection.id and membership.status == "joined"
-    )
-    |> Repo.all()
-  end
-
-  def memberships(%ServerConnection{} = connection, channel, casemapping) do
-    case channel_membership(connection, channel, casemapping, "joined") do
-      %ChannelMembership{} = membership -> [membership]
-      nil -> []
-    end
-  end
-
-  def memberships_with_nick(%ServerConnection{} = connection, nick, casemapping) do
-    nick_key = Identifier.key(nick, casemapping)
-
-    ChannelMembership
-    |> join(:inner, [membership], user in ChannelUser,
-      on: user.channel_membership_id == membership.id
-    )
-    |> where(
-      [membership, user],
-      membership.server_connection_id == ^connection.id and membership.status == "joined" and
-        user.nick_key == ^nick_key
-    )
-    |> Repo.all()
   end
 
   def merge_users(%ChannelMembership{} = source, %ChannelMembership{} = destination) do
@@ -341,20 +309,6 @@ defmodule Ircpipe.Chat.Presence do
 
   defp value(metadata, key) do
     Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
-  end
-
-  defp channel_membership(connection, channel, casemapping, status \\ nil) do
-    query =
-      from(membership in ChannelMembership,
-        where: membership.server_connection_id == ^connection.id
-      )
-
-    query = if status, do: where(query, [membership], membership.status == ^status), else: query
-    key = Identifier.key(channel, casemapping)
-
-    query
-    |> Repo.all()
-    |> Enum.find(&(Identifier.key(&1.channel, casemapping) == key))
   end
 
   defp role_for_prefixes(prefixes) do

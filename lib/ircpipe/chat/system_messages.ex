@@ -1,21 +1,18 @@
 defmodule Ircpipe.Chat.SystemMessages do
   @moduledoc false
 
-  import Ecto.Query
-
   alias Ircpipe.Accounts.User
 
   alias Ircpipe.Chat.{
     BufferEvents,
     ChannelMembership,
     Message,
-    Presence,
+    PresenceMembershipLookup,
     Retention,
     ServerConnection,
     ServerConnectionLock
   }
 
-  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
 
   def record(
@@ -30,7 +27,7 @@ defmodule Ircpipe.Chat.SystemMessages do
     assert_no_outer_transaction!()
 
     membership =
-      channel_membership(connection, channel, casemapping) ||
+      PresenceMembershipLookup.find(connection, channel, casemapping) ||
         raise(Ecto.NoResultsError, queryable: ChannelMembership)
 
     user = Repo.get!(User, connection.user_id)
@@ -88,7 +85,7 @@ defmodule Ircpipe.Chat.SystemMessages do
     assert_no_outer_transaction!()
 
     connection
-    |> Presence.memberships_with_nick(present_nick, casemapping)
+    |> PresenceMembershipLookup.with_nick(present_nick, casemapping)
     |> Enum.each(fn membership ->
       record(
         connection,
@@ -112,14 +109,5 @@ defmodule Ircpipe.Chat.SystemMessages do
     if Repo.in_transaction?() do
       raise ArgumentError, "cannot persist system messages inside an existing transaction"
     end
-  end
-
-  defp channel_membership(connection, channel, casemapping) do
-    key = Identifier.key(channel, casemapping)
-
-    ChannelMembership
-    |> where([membership], membership.server_connection_id == ^connection.id)
-    |> Repo.all()
-    |> Enum.find(&(Identifier.key(&1.channel, casemapping) == key))
   end
 end
