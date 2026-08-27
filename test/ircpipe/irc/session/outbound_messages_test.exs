@@ -47,7 +47,9 @@ defmodule Ircpipe.Irc.Session.OutboundMessagesTest do
   test "sends and persists channel messages and actions with normalized pending echoes" do
     {_server, user, connection, membership, state} = connected_state("#Elixir")
 
-    assert {:ok, state} = OutboundMessages.say(state, "#Elixir", "hello")
+    assert {{:ok, sent_message}, state} = OutboundMessages.say(state, "#Elixir", "hello")
+    assert sent_message.body == "hello"
+    assert sent_message.kind == "message"
     assert_receive {:irc_server_line, "PRIVMSG #Elixir hello"}
 
     assert {:matched, pending_echoes} =
@@ -55,7 +57,9 @@ defmodule Ircpipe.Irc.Session.OutboundMessagesTest do
 
     state = %{state | pending_echoes: pending_echoes}
 
-    assert {:ok, state} = OutboundMessages.action(state, "#Elixir", "waves")
+    assert {{:ok, sent_action}, state} = OutboundMessages.action(state, "#Elixir", "waves")
+    assert sent_action.body == "waves"
+    assert sent_action.kind == "action"
     assert_receive {:irc_server_line, "PRIVMSG #Elixir :\x01ACTION waves\x01"}
 
     assert {:matched, pending_echoes} =
@@ -73,6 +77,8 @@ defmodule Ircpipe.Irc.Session.OutboundMessagesTest do
       user
       |> MessageHistory.list_messages(membership.id)
       |> Enum.filter(&(&1.kind in ["message", "action"]))
+
+    assert Enum.map(persisted_outbound, & &1.id) == [sent_message.id, sent_action.id]
 
     assert Enum.map(persisted_outbound, fn message ->
              {message.kind, message.body, message.metadata}

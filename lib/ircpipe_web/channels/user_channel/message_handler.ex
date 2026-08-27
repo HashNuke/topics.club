@@ -1,7 +1,7 @@
 defmodule IrcpipeWeb.UserChannel.MessageHandler do
   @moduledoc false
 
-  alias Ircpipe.Chat.{MessageHistory, SystemMessages}
+  alias Ircpipe.Chat.SystemMessages
   alias Ircpipe.Irc.Session
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
@@ -18,9 +18,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
     with true <- String.trim(body) != "",
          {:ok, membership} <- BufferResolver.membership(user, membership_id) do
       case say(membership, body) do
-        :ok ->
-          message = latest_message(user, membership)
-
+        {:ok, message} ->
           Reply.ok(socket, %{
             client_message_id: client_message_id,
             message: Event.message(message, "channel:#{membership.id}")
@@ -102,11 +100,5 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
     end
   catch
     :exit, _reason -> {:error, :not_connected}
-  end
-
-  defp latest_message(user, membership) do
-    user
-    |> MessageHistory.list_messages(membership.id, 1)
-    |> List.first()
   end
 end

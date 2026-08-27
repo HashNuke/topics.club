@@ -61,7 +61,8 @@ defmodule Ircpipe.Irc.SessionTest do
                     }},
                    1_000
 
-    assert :ok = Session.say(connection, "#pipe", "hello from app")
+    assert {:ok, sent_message} = Session.say(connection, "#pipe", "hello from app")
+    assert sent_message.body == "hello from app"
     assert_receive {:irc_server_line, "PRIVMSG #pipe :hello from app"}, 1_000
 
     assert :ok = IrcTestServer.broadcast(server, "#pipe", "akash", "hello ircpipe")
@@ -2054,10 +2055,13 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
     assert_receive {:presence_sync, %{users: _users}}, 1_000
 
-    assert :ok = Session.say(connection, "~custom", "hello")
+    assert {:ok, sent_message} = Session.say(connection, "~custom", "hello")
+    assert sent_message.body == "hello"
     assert_receive {:irc_server_line, "PRIVMSG ~custom hello"}, 1_000
 
-    assert :ok = Session.action(connection, "~custom", "waves")
+    assert {:ok, sent_action} = Session.action(connection, "~custom", "waves")
+    assert sent_action.body == "waves"
+    assert sent_action.kind == "action"
     action = <<1, "ACTION waves", 1>>
     assert_receive {:irc_server_line, "PRIVMSG ~custom :" <> ^action}, 1_000
     assert :ok = Session.quit(connection)

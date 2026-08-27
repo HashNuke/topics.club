@@ -1,7 +1,6 @@
 defmodule IrcpipeWeb.UserChannel.CommandHandler do
   @moduledoc false
 
-  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Identifier
@@ -122,7 +121,7 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
              "channel:#{membership.id}",
              socket
            ),
-         message <- user |> MessageHistory.list_messages(membership.id, 1) |> List.first() do
+         [message] <- result.channel_messages do
       Reply.ok(socket, %{
         command: command,
         command_id: result.command_id,
@@ -135,6 +134,9 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+
+      [] ->
+        Reply.error(socket, %{reason: "send_failed", command: command})
     end
   end
 
@@ -245,7 +247,12 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
          {:ok, intent} <- CommandRegistry.resolve(line, client_info),
          {:ok, result} <-
            Session.execute(connection, intent, socket.assigns.command_id, buffer_id) do
-      Reply.ok(socket, Map.put(result, :command, command))
+      reply =
+        result
+        |> Map.drop([:channel_messages, :direct_messages])
+        |> Map.put(:command, command)
+
+      Reply.ok(socket, reply)
     else
       {:error, %{code: code} = error} ->
         Reply.error(socket, %{reason: code, error: error, command: command})

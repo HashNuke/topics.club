@@ -40,7 +40,7 @@ defmodule IrcpipeWeb.Api.MessageController do
     membership = MembershipLookup.get!(user, channel_id)
 
     case Session.say(membership.server_connection, membership.channel, body) do
-      :ok ->
+      {:ok, _message} ->
         json(conn, %{ok: true})
 
       {:error, %{code: code, message: message}} ->

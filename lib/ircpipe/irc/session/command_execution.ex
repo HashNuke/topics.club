@@ -144,49 +144,37 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
       when command in ["PRIVMSG", "NOTICE"] do
     {kind, body} = outgoing_kind_and_body(command, body)
 
-    {next_state, direct_messages} =
+    {next_state, channel_messages, direct_messages} =
       Enum.reduce(
         String.split(targets, ",", trim: true),
-        {state, []},
-        fn target, {current_state, direct_messages} ->
+        {state, [], []},
+        fn target, {current_state, channel_messages, direct_messages} ->
           metadata = %{direction: "outgoing", peer_nick: target, target: target}
 
-          direct_messages =
-            if channel = Targets.channel(current_state, target) do
-              MessageIngestion.record_channel(
-                current_state.connection,
-                channel,
-                current_state.connection.nickname,
-                body,
-                kind,
-                metadata,
-                Targets.casemapping(current_state)
-              )
-
+          {channel_messages, direct_messages} =
+            persist_managed_message(
+              current_state,
+              target,
+              body,
+              kind,
+              metadata,
+              channel_messages,
               direct_messages
-            else
-              case DirectMessageIngestion.record(
-                     current_state.connection,
-                     target,
-                     current_state.connection.nickname,
-                     body,
-                     kind,
-                     metadata,
-                     Targets.casemapping(current_state)
-                   ) do
-                {:ok, %{thread: thread, message: message}} ->
-                  [%{thread: thread, message: message} | direct_messages]
+            )
 
-                _error ->
-                  direct_messages
-              end
-            end
-
-          {remember_pending_echo(current_state, target, body, kind), direct_messages}
+          {
+            remember_pending_echo(current_state, target, body, kind),
+            channel_messages,
+            direct_messages
+          }
         end
       )
 
-    {next_state, %{direct_messages: Enum.reverse(direct_messages)}}
+    {next_state,
+     %{
+       channel_messages: Enum.reverse(channel_messages),
+       direct_messages: Enum.reverse(direct_messages)
+     }}
   end
 
   def persist_outcome(state, _intent), do: {state, %{}}
@@ -279,6 +267,47 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
 
   defp outgoing_kind_and_body("PRIVMSG", body), do: {"message", body}
   defp outgoing_kind_and_body("NOTICE", body), do: {"notice", body}
+
+  defp persist_managed_message(
+         state,
+         target,
+         body,
+         kind,
+         metadata,
+         channel_messages,
+         direct_messages
+       ) do
+    if channel = Targets.channel(state, target) do
+      case MessageIngestion.record_channel(
+             state.connection,
+             channel,
+             state.connection.nickname,
+             body,
+             kind,
+             metadata,
+             Targets.casemapping(state)
+           ) do
+        {:ok, message} -> {[message | channel_messages], direct_messages}
+        _error -> {channel_messages, direct_messages}
+      end
+    else
+      case DirectMessageIngestion.record(
+             state.connection,
+             target,
+             state.connection.nickname,
+             body,
+             kind,
+             metadata,
+             Targets.casemapping(state)
+           ) do
+        {:ok, %{thread: thread, message: message}} ->
+          {channel_messages, [%{thread: thread, message: message} | direct_messages]}
+
+        _error ->
+          {channel_messages, direct_messages}
+      end
+    end
+  end
 
   defp remember_pending_echo(state, target, body, kind) do
     pending_echoes =

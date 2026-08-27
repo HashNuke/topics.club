@@ -186,15 +186,15 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     assert_reply ref, :ok, %{
       command: %{name: "me", args: ["waves"]},
-      message: %{kind: "action", body: "waves", buffer_id: "channel:" <> _}
+      message: %{id: action_id, kind: "action", body: "waves", buffer_id: "channel:" <> _}
     }
 
     assert_receive {:irc_server_line, "PRIVMSG #elixir :\x01ACTION waves\x01"}, 1_000
 
-    assert Enum.any?(
-             MessageHistory.list_messages(user, membership.id),
-             &(&1.kind == "action" and &1.body == "waves" and &1.nick == "mira")
-           )
+    assert Enum.any?(MessageHistory.list_messages(user, membership.id), fn message ->
+             message.id == action_id and message.kind == "action" and message.body == "waves" and
+               message.nick == "mira"
+           end)
 
     assert :ok = Session.quit(connection)
   end
@@ -495,6 +495,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert_reply ref, :ok, %{
       client_message_id: "client-1",
       message: %{
+        id: sent_message_id,
         buffer_id: "channel:" <> _,
         channel_membership_id: membership_id,
         body: "hello from channel",
@@ -505,10 +506,10 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert membership_id == membership.id
     assert_receive {:irc_server_line, "PRIVMSG #elixir :hello from channel"}, 1_000
 
-    assert Enum.any?(
-             MessageHistory.list_messages(user, membership.id),
-             &(&1.body == "hello from channel" and &1.nick == "mira")
-           )
+    assert Enum.any?(MessageHistory.list_messages(user, membership.id), fn message ->
+             message.id == sent_message_id and message.body == "hello from channel" and
+               message.nick == "mira"
+           end)
 
     dcc_body = <<1, "DCC SEND secret.txt 127001 1234 99", 1>>
 
@@ -1216,6 +1217,86 @@ defmodule IrcpipeWeb.UserChannelTest do
                message.metadata["command_status"] == "completed"
            end)
 
+    assert :ok = Session.quit(connection)
+  end
+
+  test "serializes quote message replies while persisting channel, DM, and mixed targets in order" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "quote messages",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    socket = join_user_channel(user)
+    assert {:ok, _membership, _status} = Session.request_join(connection, user, "#elixir")
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+    assert_push "presence:sync", %{buffer_id: "channel:" <> _}
+
+    channel_ref =
+      push(socket, "command:run", %{
+        "command_id" => "quote-channel-message",
+        "input" => "/quote PRIVMSG #elixir :channel quote",
+        "buffer_id" => "channel:#{membership.id}"
+      })
+
+    assert_reply channel_ref, :ok, channel_reply
+    assert {:ok, _json} = Jason.encode(channel_reply)
+    refute Map.has_key?(channel_reply, :channel_messages)
+    refute Map.has_key?(channel_reply, :direct_messages)
+    assert_receive {:irc_server_line, "PRIVMSG #elixir :channel quote"}, 1_000
+
+    direct_ref =
+      push(socket, "command:run", %{
+        "command_id" => "quote-direct-message",
+        "input" => "/quote PRIVMSG akash :direct quote",
+        "buffer_id" => "server:#{connection.id}"
+      })
+
+    assert_reply direct_ref, :ok, direct_reply
+    assert {:ok, _json} = Jason.encode(direct_reply)
+    refute Map.has_key?(direct_reply, :channel_messages)
+    refute Map.has_key?(direct_reply, :direct_messages)
+    assert_receive {:irc_server_line, "PRIVMSG akash :direct quote"}, 1_000
+
+    mixed_ref =
+      push(socket, "command:run", %{
+        "command_id" => "quote-mixed-message",
+        "input" => "/quote PRIVMSG zed,#elixir :mixed quote",
+        "buffer_id" => "server:#{connection.id}"
+      })
+
+    assert_reply mixed_ref, :ok, mixed_reply
+    assert {:ok, _json} = Jason.encode(mixed_reply)
+    refute Map.has_key?(mixed_reply, :channel_messages)
+    refute Map.has_key?(mixed_reply, :direct_messages)
+    assert_receive {:irc_server_line, "PRIVMSG zed,#elixir :mixed quote"}, 1_000
+
+    channel_messages = MessageHistory.list_messages(user, membership.id)
+    assert Enum.any?(channel_messages, &(&1.body == "channel quote"))
+    mixed_channel_message = Enum.find(channel_messages, &(&1.body == "mixed quote"))
+
+    assert [akash_thread, zed_thread] = DirectMessageLifecycle.list(user, connection)
+
+    assert [direct_message] =
+             MessageHistory.list_buffer_messages(user, "direct:#{akash_thread.id}")
+
+    assert direct_message.body == "direct quote"
+
+    assert [mixed_direct_message] =
+             MessageHistory.list_buffer_messages(user, "direct:#{zed_thread.id}")
+
+    assert mixed_direct_message.body == "mixed quote"
+    assert mixed_direct_message.id < mixed_channel_message.id
     assert :ok = Session.quit(connection)
   end
 

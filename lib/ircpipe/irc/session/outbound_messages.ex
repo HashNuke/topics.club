@@ -29,8 +29,11 @@ defmodule Ircpipe.Irc.Session.OutboundMessages do
              %{direction: "outgoing"},
              Targets.casemapping(state)
            ) do
-        {:ok, _message} -> {:ok, remember_pending_echo(state, channel, body, "message")}
-        {:error, reason} -> {{:error, reason}, state}
+        {:ok, message} ->
+          {{:ok, message}, remember_pending_echo(state, channel, body, "message")}
+
+        {:error, reason} ->
+          {{:error, reason}, state}
       end
     else
       error -> {error, state}
@@ -55,8 +58,11 @@ defmodule Ircpipe.Irc.Session.OutboundMessages do
              %{direction: "outgoing"},
              Targets.casemapping(state)
            ) do
-        {:ok, _message} -> {:ok, remember_pending_echo(state, channel, body, "action")}
-        {:error, reason} -> {{:error, reason}, state}
+        {:ok, message} ->
+          {{:ok, message}, remember_pending_echo(state, channel, body, "action")}
+
+        {:error, reason} ->
+          {{:error, reason}, state}
       end
     else
       error -> {error, state}
