@@ -239,6 +239,7 @@ function mockBootstrapFetch({
   channelMentionCount = 0,
   channelUnreadCount = 0,
   connectionStatus = "connected",
+  connectionNickname = "mira",
   deleteResponse = {
     type: "server:deleted",
     version: 1,
@@ -458,7 +459,7 @@ function mockBootstrapFetch({
               host: "127.0.0.1",
               port: 6669,
               use_tls: false,
-              nickname: "mira",
+              nickname: connectionNickname,
               status: connectionStatus,
               mention_notifications_enabled: serverNotificationsEnabled,
               notification_preference_revision: notificationPreferenceRevision,
@@ -2283,6 +2284,91 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByText("sending")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", {name: "Retry"})).not.toBeInTheDocument()
     expect(screen.getByText("sent through socket").closest("div")?.querySelector("time")).toHaveAttribute("datetime", "2026-05-13T10:01:00Z")
+  })
+
+  test("uses the IRC nickname for the optimistic outgoing message", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({connectionNickname: "dev2dev"})
+    let resolveSend
+    const sendReply = new Promise((resolve) => {
+      resolveSend = resolve
+    })
+    const client = fakeRealtimeClient(vi.fn(() => sendReply))
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "dev@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onJoinOk()
+    await user.type(screen.getByLabelText("Message composer"), "nickname should not flicker")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(screen.getByRole("button", {name: "Mention dev2dev"})).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Mention dev"})).not.toBeInTheDocument()
+
+    await act(async () => resolveSend({
+      message: canonicalMessage({
+        id: 303,
+        buffer_id: "channel:7",
+        nick: "dev2dev",
+        body: "nickname should not flicker",
+        occurred_at: "2026-08-26T10:00:00Z",
+      }),
+    }))
+  })
+
+  test("uses the current IRC nickname when retrying a failed optimistic message", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({connectionNickname: "dev2dev"})
+    let resolveRetry
+    const retryReply = new Promise((resolve) => {
+      resolveRetry = resolve
+    })
+    const push = vi.fn().mockRejectedValueOnce({reason: "not_connected"}).mockReturnValueOnce(retryReply)
+    const client = fakeRealtimeClient(push)
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "dev@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    realtimeHandlers.onJoinOk()
+    await user.type(screen.getByLabelText("Message composer"), "retry after nick change")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+    expect(await screen.findByRole("button", {name: "Retry"})).toBeInTheDocument()
+
+    act(() => realtimeHandlers.onServerStatus(canonicalServerStatus("connected", {nickname: "dev3dev"})))
+    await user.click(screen.getByRole("button", {name: "Retry"}))
+
+    expect(screen.getByRole("button", {name: "Mention dev3dev"})).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Mention dev2dev"})).not.toBeInTheDocument()
+
+    await act(async () => resolveRetry({
+      message: canonicalMessage({
+        id: 304,
+        buffer_id: "channel:7",
+        nick: "dev3dev",
+        body: "retry after nick change",
+        occurred_at: "2026-08-26T10:01:00Z",
+      }),
+    }))
   })
 
   test("rejects a sent-message reply from a different server connection", async () => {

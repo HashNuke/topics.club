@@ -595,7 +595,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const nextMessage: TimelineMessage = {
       id: `${view}-${Date.now()}`,
       occurredAt: new Date().toISOString(),
-      nick: currentUser?.email?.split("@")[0] || "you",
+      nick: activeIrcNickname(activeChannel, activeServer),
       body,
     }
 
@@ -646,6 +646,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       id: clientMessageId,
       clientMessageId,
       occurredAt: new Date().toISOString(),
+      nick: activeIrcNickname(activeChannel, activeServer),
       pending: true,
       failed: false,
     }
@@ -1332,4 +1333,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 export function appendMention(draft: string, nick: string): string {
   const current = draft.trimEnd()
   return `${current}${current ? " " : ""}${nick} `
+}
+
+function activeIrcNickname(channel: Channel | null | undefined, server: ServerConnection | null | undefined): string {
+  return channel?.connection?.nickname || server?.nickname || "you"
 }
