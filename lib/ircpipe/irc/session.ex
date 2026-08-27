@@ -12,15 +12,14 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.DepartureCommands
   alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.InboundMessageRouting
+  alias Ircpipe.Irc.Session.Initialization
   alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircpipe.Irc.Session.JoinRequests
   alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.MembershipEvents
   alias Ircpipe.Irc.Session.OutboundMessages
-  alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.ServerEvents
-  alias Ircpipe.Irc.Session.StartupAuthorization
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
@@ -97,38 +96,7 @@ defmodule Ircpipe.Irc.Session do
 
   @impl true
   def init(%ServerConnection{} = requested_connection) do
-    case StartupAuthorization.load(requested_connection) do
-      {%ServerConnection{} = connection, pending_channels} ->
-        send(self(), :connect)
-
-        {:ok,
-         %{
-           connection: connection,
-           client: nil,
-           registered?: false,
-           pending_joins: pending_channels,
-           joined_channels: MapSet.new(),
-           names_buffers: %{},
-           pending_echoes: PendingEchoes.new(),
-           pending_commands: %{},
-           ignored_event_logs: %{},
-           client_info: nil,
-           isupport_received?: false,
-           isupport_seen?: false,
-           registration_boundary_reached?: false,
-           join_validation_ready?: false,
-           joins_flushed?: false,
-           join_flush_timer: nil,
-           sent_joins: MapSet.new(),
-           channel_list_request: nil
-         }}
-
-      nil ->
-        :ignore
-
-      {:error, reason} ->
-        {:stop, reason}
-    end
+    Initialization.initialize(requested_connection)
   end
 
   @impl true
