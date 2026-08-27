@@ -17,6 +17,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.OutboundMessages
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Registration
+  alias Ircpipe.Irc.Session.ServerEvents
   alias Ircpipe.Irc.Session.StartupAuthorization
   alias Ircpipe.Irc.Session.Targets
   alias Ircpipe.Chat.{ChannelMembership, CommandMessages, ServerConnection}
@@ -280,49 +281,20 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, InboundMessageRouting.notice(state, payload)}
   end
 
-  def handle_info({:ircxd, {:welcome, %{text: text}}}, state) do
-    EventRecorder.server_line(state.connection, text)
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:your_host, %{text: text}}}, state) do
-    EventRecorder.server_line(state.connection, text)
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:server_created, %{text: text}}}, state) do
-    EventRecorder.server_line(state.connection, text)
-    {:noreply, state}
-  end
+  def handle_info({:ircxd, {event, %{text: _text} = payload}}, state)
+      when event in [
+             :welcome,
+             :your_host,
+             :server_created,
+             :motd_start,
+             :motd,
+             :motd_end,
+             :motd_missing
+           ],
+      do: {:noreply, ServerEvents.handle(event, state, payload)}
 
   def handle_info({:ircxd, {:server_info, payload}}, state) do
-    EventRecorder.server_line(
-      state.connection,
-      "#{payload.server} #{payload.version} user modes #{payload.user_modes} channel modes #{payload.channel_modes}",
-      "notice"
-    )
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:motd_start, %{text: text}}}, state) do
-    EventRecorder.server_line(state.connection, text, "notice")
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:motd, %{text: text}}}, state) do
-    EventRecorder.server_line(state.connection, text, "notice")
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:motd_end, %{text: text}}}, state) do
-    EventRecorder.server_line(state.connection, text, "notice")
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:motd_missing, %{text: text}}}, state) do
-    EventRecorder.server_line(state.connection, text, "notice")
-    {:noreply, state}
+    {:noreply, ServerEvents.handle(:server_info, state, payload)}
   end
 
   def handle_info({:ircxd, {:names, %{channel: _channel, names: _names} = payload}}, state),
@@ -389,9 +361,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:nick_in_use, payload}}, state) do
-    reason = Map.get(payload, :reason) || "That nickname is already in use."
-    EventRecorder.server_line(state.connection, reason, "error")
-    {:noreply, state}
+    {:noreply, ServerEvents.handle(:nick_in_use, state, payload)}
   end
 
   def handle_info({:ircxd, {:list_start, _payload}}, %{channel_list_request: request} = state)
@@ -430,22 +400,11 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info(
-        {:ircxd, {:raw, %Message{command: command, params: params}}},
+        {:ircxd, {:raw, %Message{command: command} = message}},
         state
       )
       when byte_size(command) == 3 do
-    if String.match?(command, ~r/^\d{3}$/) do
-      description = List.last(params) || "No description provided."
-
-      EventRecorder.server_line(
-        state.connection,
-        "IRC reply #{command}: #{description}",
-        "notice",
-        %{irc_event: "raw", numeric: command}
-      )
-    end
-
-    {:noreply, state}
+    {:noreply, ServerEvents.handle(:raw, state, message)}
   end
 
   def handle_info({:ircxd, event}, state) do
