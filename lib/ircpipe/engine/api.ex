@@ -10,6 +10,7 @@ defmodule Ircpipe.Engine.API do
   alias Ircpipe.Chat.ChannelMembership
   alias Ircpipe.Chat.DirectMessageThread
   alias Ircpipe.Chat.ServerConnection
+  alias Ircpipe.Engine.OperationLock
   alias Ircpipe.Engine.Serialization
   alias Ircpipe.EngineClient.Contract
   alias Ircpipe.EngineClient.Reply
@@ -56,6 +57,12 @@ defmodule Ircpipe.Engine.API do
   end
 
   defp dispatch_valid(%{operation: operation} = request) do
+    OperationLock.run(request.user_id, request.connection_id, fn ->
+      dispatch_connection_operation(operation, request)
+    end)
+  end
+
+  defp dispatch_connection_operation(operation, request) do
     with {:ok, user, connection} <- load_user_connection(request.user_id, request.connection_id),
          :ok <- ensure_available(connection, operation),
          result <- execute(operation, request, user, connection) do

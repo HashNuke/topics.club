@@ -3,7 +3,8 @@
   ownership: [
     %{
       component: :shared,
-      description: "Pure IRC protocol policy and identifiers shared by web, core, and engine",
+      description:
+        "Pure IRC protocol policy, identifiers, and versioned engine contracts shared by web, core, and engine",
       paths: [
         "lib/ircpipe/engine_client.ex",
         "lib/ircpipe/engine_client/adapter.ex",

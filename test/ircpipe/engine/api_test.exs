@@ -8,6 +8,8 @@ defmodule Ircpipe.Engine.APITest do
   alias Ircpipe.Engine.LocalAdapter
   alias Ircpipe.EngineClient
   alias Ircpipe.EngineClient.Contract
+  alias Ircpipe.Irc.SessionLocator
+  alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
 
   setup do
@@ -137,6 +139,85 @@ defmodule Ircpipe.Engine.APITest do
 
     assert {:error, %{code: :invalid_state, details: %{reason: "connection_paused"}}} =
              EngineClient.ensure_connection(user.id, connection.id, intent: "restore")
+  end
+
+  test "opposing connection intents serialize through their process effects", %{
+    user: user,
+    connection: connection
+  } do
+    server = start_supervised!({IrcTestServer, self()})
+
+    {:ok, connection} =
+      connection
+      |> Ecto.Changeset.change(
+        host: "localhost",
+        port: IrcTestServer.port(server),
+        use_tls: false
+      )
+      |> Repo.update()
+
+    assert {:ok, %{status: status}} =
+             EngineClient.ensure_connection(user.id, connection.id, intent: "active")
+
+    assert status in ["connecting", "connected"]
+    session_pid = SessionLocator.whereis(connection)
+    assert is_pid(session_pid)
+
+    replacement_server =
+      start_supervised!(%{
+        id: :replacement_irc_test_server,
+        start: {IrcTestServer, :start_link, [self()]}
+      })
+
+    {:ok, connection} =
+      connection
+      |> Ecto.Changeset.change(port: IrcTestServer.port(replacement_server))
+      |> Repo.update()
+
+    previous_pause = Application.get_env(:ircpipe, :pause_session_stop_after_lookup)
+    Application.put_env(:ircpipe, :pause_session_stop_after_lookup, self())
+
+    on_exit(fn ->
+      Application.delete_env(:ircpipe, :pause_session_stop_after_lookup)
+      _ = SessionSupervisor.stop_session(connection)
+
+      if previous_pause do
+        Application.put_env(:ircpipe, :pause_session_stop_after_lookup, previous_pause)
+      else
+        Application.delete_env(:ircpipe, :pause_session_stop_after_lookup)
+      end
+    end)
+
+    task_supervisor = start_supervised!(Task.Supervisor)
+
+    disconnect_task =
+      Task.Supervisor.async_nolink(task_supervisor, fn ->
+        EngineClient.disconnect_connection(user.id, connection.id)
+      end)
+
+    assert_receive {:session_stop_paused, stop_pid, ^session_pid}
+
+    ensure_task =
+      Task.Supervisor.async_nolink(task_supervisor, fn ->
+        EngineClient.ensure_connection(user.id, connection.id, intent: "active")
+      end)
+
+    refute Task.yield(ensure_task, 100)
+    Application.delete_env(:ircpipe, :pause_session_stop_after_lookup)
+    send(stop_pid, {:continue_session_stop, session_pid})
+
+    assert {:ok, %{connection: %{desired_state: "paused"}, status: "disconnected"}} =
+             Task.await(disconnect_task)
+
+    assert {:ok, %{connection: %{desired_state: "connected"}, status: restored_status}} =
+             Task.await(ensure_task)
+
+    assert restored_status in ["connecting", "connected"]
+    assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).desired_state == "connected"
+    assert is_pid(SessionLocator.whereis(connection))
+
+    assert {:ok, %{status: "disconnected"}} =
+             EngineClient.disconnect_connection(user.id, connection.id)
   end
 
   test "malformed requests never reach operation dispatch", %{user: user, connection: connection} do

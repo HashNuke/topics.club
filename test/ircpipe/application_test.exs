@@ -29,6 +29,9 @@ defmodule Ircpipe.ApplicationTest do
     assert direct_child_pid(Ircpipe.EngineSupervisor, Ircpipe.Engine.Marker) ==
              elem(Ircpipe.EngineClient.Discovery.whereis(), 1)
 
+    assert direct_child_pid(Ircpipe.EngineSupervisor, Ircpipe.Engine.OperationLock) ==
+             Process.whereis(Ircpipe.Engine.OperationLock)
+
     assert direct_child_pid(Ircpipe.EngineSupervisor, Ircpipe.Engine.RequestTaskSupervisor) ==
              Process.whereis(Ircpipe.Engine.RequestTaskSupervisor)
 
