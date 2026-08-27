@@ -2,16 +2,19 @@ defmodule Ircpipe.Notifications.Preferences do
   import Ecto.Query
 
   alias Ircpipe.Accounts.Scope
-  alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
+  alias Ircpipe.Chat.{ChannelMembership, ServerConnection, ServerConnectionLock}
   alias Ircpipe.Repo
 
   def update_server(%Scope{user: user}, id, enabled) when is_boolean(enabled) do
+    assert_transaction_owner!()
+
     Repo.transaction(fn ->
-      connection =
+      candidate =
         ServerConnection
         |> where([connection], connection.id == ^id and connection.user_id == ^user.id)
-        |> lock("FOR UPDATE")
         |> Repo.one!()
+
+      connection = ServerConnectionLock.lock_active!(candidate.id)
 
       connection
       |> Ecto.Changeset.change(
@@ -20,22 +23,31 @@ defmodule Ircpipe.Notifications.Preferences do
       )
       |> Repo.update!()
     end)
-    |> unwrap_transaction()
-    |> broadcast(user.id, :server)
+    |> publish(:server)
   end
 
   def update_channel(%Scope{user: user}, id, enabled) when is_boolean(enabled) do
+    assert_transaction_owner!()
+
     Repo.transaction(fn ->
       candidate =
         ChannelMembership
         |> where([membership], membership.id == ^id and membership.user_id == ^user.id)
         |> Repo.one!()
 
-      lock_server_connection!(candidate.server_connection_id)
+      connection = ServerConnectionLock.lock_active!(candidate.server_connection_id)
+
+      if connection.user_id != user.id do
+        raise Ecto.NoResultsError, queryable: ChannelMembership
+      end
 
       membership =
         ChannelMembership
-        |> where([record], record.id == ^candidate.id and record.user_id == ^user.id)
+        |> where(
+          [record],
+          record.id == ^candidate.id and record.user_id == ^user.id and
+            record.server_connection_id == ^connection.id
+        )
         |> Repo.one!()
 
       membership
@@ -45,40 +57,46 @@ defmodule Ircpipe.Notifications.Preferences do
       )
       |> Repo.update!()
     end)
-    |> unwrap_transaction()
-    |> broadcast(user.id, :channel)
+    |> publish(:channel)
   end
 
-  defp lock_server_connection!(server_connection_id) do
-    ServerConnection
-    |> where([connection], connection.id == ^server_connection_id)
-    |> lock("FOR UPDATE")
-    |> Repo.one!()
-  end
+  defp publish({:ok, record} = result, scope) do
+    connection_id = connection_id(record, scope)
 
-  defp unwrap_transaction({:ok, value}), do: {:ok, value}
-  defp unwrap_transaction({:error, reason}), do: {:error, reason}
+    _effects =
+      ServerConnectionLock.serialize_effects(connection_id, fn connection ->
+        payload = %{
+          scope: Atom.to_string(scope),
+          id: record.id,
+          mention_notifications_enabled: record.mention_notifications_enabled,
+          revision: record.notification_preference_revision
+        }
 
-  defp broadcast({:ok, record} = result, user_id, scope) do
-    payload = %{
-      scope: Atom.to_string(scope),
-      id: record.id,
-      mention_notifications_enabled: record.mention_notifications_enabled,
-      revision: record.notification_preference_revision
-    }
+        maybe_pause_broadcast(record)
 
-    maybe_pause_broadcast(record)
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{user_id}",
-      {:notification_preference, payload}
-    )
+        Phoenix.PubSub.broadcast(
+          Ircpipe.PubSub,
+          "user:#{connection.user_id}",
+          {:notification_preference, payload}
+        )
+      end)
 
     result
   end
 
-  defp broadcast(result, _user_id, _scope), do: result
+  defp publish({:error, _reason} = result, _scope), do: result
+
+  defp connection_id(%ServerConnection{id: id}, :server), do: id
+
+  defp connection_id(%ChannelMembership{server_connection_id: connection_id}, :channel),
+    do: connection_id
+
+  defp assert_transaction_owner! do
+    if Repo.in_transaction?() do
+      raise ArgumentError,
+            "cannot update notification preferences inside an existing transaction"
+    end
+  end
 
   defp maybe_pause_broadcast(record) do
     case Application.get_env(:ircpipe, :pause_notification_preference_broadcast) do
