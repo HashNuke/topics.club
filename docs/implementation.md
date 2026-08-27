@@ -6,7 +6,7 @@
 - Phoenix clients can join multiple channels over one socket connection. Use one frontend socket per browser session and multiplex app topics over it, rather than opening a WebSocket per IRC channel.
 - Phoenix's JavaScript client exposes socket lifecycle callbacks such as open, close, and error; use those to drive connection health UI in React.
 - Channel pushes support `ok`, `error`, and `timeout` replies; use those replies for send/join/leave feedback instead of making the UI infer success.
-- Browser notification permission must be requested from a user gesture. Client-side notifications are enough for in-browser mention notifications while the app is open; backend web push is only needed later for notifications when the app is closed.
+- Browser notification permission must be requested from a user gesture. Web Push and the service worker are the only browser-notification delivery path, including when the PWA or browser is closed.
 
 References:
 
@@ -24,7 +24,7 @@ References:
 - [x] Use REST `/api/*` for initial loads, history pagination, and durable mutations.
 - [x] Use Phoenix Channel pushes and socket lifecycle callbacks for realtime events, command submissions, send-message acknowledgements, and connection health.
 
-Rationale: the UI needs many IRC buffers, but the browser should not create a WebSocket per IRC channel. Phoenix already multiplexes channel topics over one socket, and this app can go further by using one authenticated user channel as the event bus for all of the user's server buffers, channel buffers, user lists, notices, and notifications.
+Rationale: the UI needs many IRC buffers, but the browser should not create a WebSocket per IRC channel. Phoenix already multiplexes channel topics over one socket, and this app can go further by using one authenticated user channel as the event bus for all in-app server buffers, channel buffers, user lists, notices, and preference updates. Browser notification delivery remains a separate Web Push path.
 
 ## Data model checklist
 
@@ -90,8 +90,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Push `buffer:error` for join failures, send failures, bans, invite-only failures, nickname errors, TLS failures, and backend IRC errors.
 - [x] Push `presence:sync` for full user list refreshes.
 - [x] Push `presence:diff` for joins, parts, quits, nick changes, role changes, and away state changes.
-- [x] Push `server:status` for `connecting`, `connected`, `reconnecting`, `errored`, and `disconnected`.
-- [x] Push `notification:mention` for client-side browser notification decisions.
+- [x] Push `server:status` for `connecting`, `connected`, `errored`, and `disconnected`.
+- [x] Push `notification:preference` after authoritative server or channel preference changes.
 
 ## Sending messages
 
@@ -222,33 +222,27 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] show `N new messages`
   - [x] defer trimming until the user returns to the bottom
 - [x] Use cursor pagination:
-  - [x] `GET /api/buffers/:id/messages?limit=150`
-  - [x] `GET /api/buffers/:id/messages?before=<message_cursor>&limit=50`
+  - [x] `GET /api/buffer_messages?buffer_id=<buffer_id>&limit=150`
+  - [x] `GET /api/buffer_messages?buffer_id=<buffer_id>&before=<message_cursor>&limit=50`
   - [x] server buffers use the same message history API
 - [x] Preserve scroll offset when prepending older messages.
 
 ## Notifications
 
-- [x] Keep the current spec behavior for the first implementation: client-side browser notifications for mentions while the document is hidden.
-- [x] Backend persists mention notifications for unread state and notification history.
-- [x] Backend pushes `notification:mention` over `user:{user_id}`.
-- [x] React checks:
-  - [x] document visibility
-  - [x] user notification preference
-  - [x] browser notification permission
-  - [x] whether the message came from the current user
-- [x] React shows a browser notification only when appropriate.
-- [x] Request browser permission only after clicking the bell.
-- [x] Do not implement backend Web Push in the first pass.
-- [x] Add backend Web Push later only if we need notifications while the web app is closed or no socket is connected.
+- [x] Persist unread mention state and per-server/per-channel notification preferences.
+- [x] Register each browser installation with an encrypted Push API subscription.
+- [x] Queue eligible mention deliveries in Oban and send them with VAPID-authenticated Web Push.
+- [x] Display push notifications in the service worker only when no visible Ircpipe window is open.
+- [x] Request browser permission only after the user clicks a server or channel notification bell.
+- [x] Represent enabled, muted, available-but-disabled, and unavailable notification control states.
+- [x] Push authoritative `notification:preference` events to keep open clients synchronized.
 
 ## API checklist
 
 - [x] `GET /api/bootstrap`
 - [x] `GET /api/topics`
 - [x] `POST /api/topics/:id/join`
-- [x] `GET /api/buffers/:id/messages`
-- [x] `POST /api/channels/:id/read`
+- [x] `GET /api/buffer_messages?buffer_id=<buffer_id>`
 - [x] `POST /api/connections`
 - [x] `PUT /api/connections/:id`
 - [x] `POST /api/connections/:id/connect`
@@ -319,7 +313,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 - [x] Create an API client module for bootstrap/history/mutations.
 - [x] Create a Phoenix socket client module.
-- [x] Create a reducer/store for:
+- [x] Create focused React hooks and stores for:
   - [x] connections
   - [x] buffers
   - [x] active buffer
@@ -330,7 +324,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] notification state
 - [x] Keep React components UI-focused.
 - [x] Keep transport/event normalization out of components.
-- [x] Add tests for reducers and event application.
+- [x] Add tests for hook/store state transitions and validated protocol-event application.
 - [x] Add React component tests for:
   - [x] leaving channel/server menus
     - [x] channel menu
@@ -362,10 +356,10 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Integration tests using local InspIRCd and irssi where useful.
   - [x] Opt-in local check: `IRCPIPE_LOCAL_IRC_INTEGRATION=1 mix test test/ircpipe/irc/local_integration_test.exs`
   - [x] Verifies `irssi` is installed and local InspIRCd relays messages between IRC clients on `127.0.0.1:6669`.
-- [x] Frontend reducer tests for realtime event application.
+- [x] Frontend hook/store tests for realtime event application.
 - [x] Frontend component tests for the chat shell.
 - [x] Frontend tests for slash command completion.
-- [x] Frontend tests for notification permission states.
+- [x] Frontend tests for notification permission, preference, Web Push, and visible-window suppression states.
 - [x] Frontend tests for socket/backend failure states.
 - [x] Headless Chromium tests for local-only landing topics and auth-protected chat route.
 - [x] Run `npm test --prefix assets` for React changes.
@@ -378,7 +372,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] Add leave buttons and popover menus.
   - [x] Add slash command popover UI.
   - [x] Add connection health indicator UI.
-  - [x] Add reducer-level state model.
+  - [x] Add focused hook/store state models.
 - [x] Phase 2: Build backend buffer model.
   - [x] Add buffer serialization.
   - [x] Add bootstrap endpoint.

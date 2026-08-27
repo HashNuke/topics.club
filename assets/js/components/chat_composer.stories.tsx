@@ -1,28 +1,35 @@
 import {useState} from "react"
 import ChatComposer from "./chat_composer.tsx"
 import type {ComponentProps} from "react"
+import type {CommandCatalogEntry} from "../types.ts"
 
-const commandCatalog = [
+const commandCatalog: CommandCatalogEntry[] = [
   {
     name: "/join",
     usage: "/join #channel",
     description: "Join a channel",
+    required_permission: "user",
     contexts: ["server", "channel"],
     availability: "enabled",
+    examples: ["/join #elixir"],
   },
   {
     name: "/list",
     usage: "/list",
     description: "Browse channels",
+    required_permission: "user",
     contexts: ["server", "channel"],
     availability: "enabled",
+    examples: ["/list"],
   },
   {
     name: "/me",
     usage: "/me action",
     description: "Send an action",
+    required_permission: "user",
     contexts: ["channel"],
     availability: "enabled",
+    examples: ["/me waves"],
   },
 ]
 

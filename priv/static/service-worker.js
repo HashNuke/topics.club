@@ -1,4 +1,5 @@
 const NOTIFICATION_ICON = "/images/pwa-192.png"
+const POSTGRES_BIGINT_MAX = "9223372036854775807"
 const NOTIFICATION_ACCOUNT_CACHE = "ircpipe-notification-account-v1"
 const NOTIFICATION_ACCOUNT_KEY = "/__ircpipe-notification-account__"
 let notificationAccountRefresh = Promise.resolve()
@@ -35,7 +36,7 @@ self.addEventListener("push", (event) => {
     const visibleChat = windows.some((client) => {
       const pathname = new URL(client.url).pathname
       return client.visibilityState === "visible" &&
-        (pathname === "/app" || pathname === "/chat") &&
+        pathname === "/chat" &&
         healthyNotificationClient(client, payload.session_generation)
     })
     if (visibleChat) return
@@ -208,7 +209,7 @@ self.addEventListener("notificationclick", (event) => {
     const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
     const existing = windows.find((client) => {
       const pathname = new URL(client.url).pathname
-      return (pathname === "/app" || pathname === "/chat") &&
+      return pathname === "/chat" &&
         healthyNotificationClient(client, data.sessionGeneration)
     })
 
@@ -279,7 +280,7 @@ function notificationData(value) {
   if (
     !value ||
     typeof value !== "object" ||
-    !/^(channel|direct):[1-9][0-9]{0,18}$/.test(value.bufferId) ||
+    !validNotificationBufferId(value.bufferId) ||
     !validPositiveId(value.notificationId) ||
     !nonemptyString(value.sessionGeneration) ||
     !validPositiveId(value.userId)
@@ -290,7 +291,7 @@ function notificationData(value) {
 }
 
 function notificationUrl(value, bufferId) {
-  if (!nonemptyString(value) || !/^(channel|direct):[1-9][0-9]{0,18}$/.test(bufferId)) {
+  if (!nonemptyString(value) || !validNotificationBufferId(bufferId)) {
     return null
   }
 
@@ -299,14 +300,14 @@ function notificationUrl(value, bufferId) {
     const entries = [...url.searchParams.entries()]
     if (
       url.origin !== self.location.origin ||
-      url.pathname !== "/app" ||
+      url.pathname !== "/chat" ||
       url.hash !== "" ||
       entries.length !== 1 ||
       entries[0][0] !== "buffer" ||
       entries[0][1] !== bufferId
     ) return null
 
-    return new URL(`/app?buffer=${encodeURIComponent(bufferId)}`, self.location.origin).href
+    return new URL(`/chat?buffer=${encodeURIComponent(bufferId)}`, self.location.origin).href
   } catch (_error) {
     return null
   }
@@ -314,7 +315,19 @@ function notificationUrl(value, bufferId) {
 
 function validPositiveId(value) {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
-  return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
+  return typeof value === "string" && validPostgresBigint(value)
+}
+
+function validNotificationBufferId(value) {
+  if (typeof value !== "string") return false
+  const match = /^(channel|direct):([1-9][0-9]{0,18})$/.exec(value)
+  return Boolean(match && validPostgresBigint(match[2]))
+}
+
+function validPostgresBigint(value) {
+  if (!/^[1-9][0-9]{0,18}$/.test(value)) return false
+  return value.length < POSTGRES_BIGINT_MAX.length ||
+    (value.length === POSTGRES_BIGINT_MAX.length && value <= POSTGRES_BIGINT_MAX)
 }
 
 function nonemptyString(value) {

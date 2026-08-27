@@ -1,6 +1,7 @@
 export type EntityId = string | number
 export type AppView = "chat" | "server" | "discover" | "directory"
 export type ConnectionHealth = "connected" | "disconnected" | "reconnecting" | "degraded"
+export type ServerStatus = "disconnected" | "connecting" | "connected" | "errored"
 
 export interface CurrentUser {
   id: EntityId
@@ -14,22 +15,36 @@ export interface CommandMetadata {
   [key: string]: unknown
 }
 
+export type MessageEventType = "buffer:message" | "buffer:error" | "buffer:system"
+
 export interface ChatMessage {
-  id?: EntityId
-  event_id?: string
-  buffer_id?: string
-  server_connection_id?: EntityId
-  channel_membership_id?: EntityId
-  direct_message_thread_id?: EntityId
+  type: MessageEventType
+  version: 1
+  id: EntityId
+  event_id: string
+  buffer_id: string
+  server_connection_id: EntityId
+  channel_membership_id: EntityId | null
+  direct_message_thread_id: EntityId | null
   peer_nick?: string
-  occurredAt?: string
-  occurred_at?: string
-  nick: string
+  occurred_at: string
+  nick: string | null
+  hostmask: string | null
+  sender_role: string | null
+  service: string | null
   body: string
   channel?: string
-  kind?: string
-  mentioned?: boolean
-  metadata?: CommandMetadata
+  kind: string
+  mentioned: boolean
+  metadata: CommandMetadata
+  blocked?: boolean
+  [key: string]: unknown
+}
+
+export interface TimelineMessage extends Partial<ChatMessage> {
+  nick: string | null
+  body: string
+  occurredAt?: string
   clientMessageId?: string
   pending?: boolean
   failed?: boolean
@@ -57,24 +72,21 @@ export type PresenceDiff =
   | {action: "away"; nick: string; nick_key: string; status: string}
   | {action: "role"; nick: string; nick_key: string; role: string}
 
-export interface Topic {
+export interface TopicInput {
   id: EntityId
   channel: string
   name: string
   server_host: string
-  server_port?: number
+  server_port: number
   description: string
-  members?: number
-  member_count?: number
-  vibe: string
-  [key: string]: unknown
+  use_tls: boolean
 }
 
-export interface TopicInput extends Partial<Topic> {
-  id?: EntityId
-  channel?: string
-  name?: string
-  server_host: string
+export interface Topic extends TopicInput {
+  members?: number
+  member_count?: number
+  vibe?: string
+  [key: string]: unknown
 }
 
 interface ConversationBase {
@@ -119,7 +131,7 @@ export interface ServerConnection {
   port?: number
   use_tls?: boolean
   nickname?: string
-  status?: string
+  status?: ServerStatus
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled: boolean
@@ -135,7 +147,7 @@ export interface BackendConnection {
   port?: number
   use_tls?: boolean
   nickname?: string
-  status?: string
+  status?: ServerStatus
   unread_count?: number
   mention_count?: number
   mention_notifications_enabled: boolean
@@ -150,7 +162,7 @@ interface BufferRecordBase {
   subtitle?: string
   unread_count?: number
   mention_count?: number
-  status?: string
+  status?: ServerStatus
   [key: string]: unknown
 }
 
@@ -202,15 +214,33 @@ export interface ChannelMembership {
 }
 
 export interface BufferReadPayload {
+  type: "buffer:read"
+  version: 1
+  event_id: string
+  occurred_at: string
   buffer_id: string
-  unread_count?: number
-  mention_count?: number
+  server_connection_id: EntityId
+  channel_membership_id: EntityId | null
+  unread_count: 0
+  mention_count: 0
 }
 
 export interface ServerStatusPayload {
+  type: "server:status"
+  version: 1
+  event_id: string
+  occurred_at: string
   server_connection_id: EntityId
-  status: string
-  nickname?: string
+  status: ServerStatus
+  nickname: string | null
+}
+
+export interface ServerDeletedPayload {
+  type: "server:deleted"
+  version: 1
+  event_id: string
+  occurred_at: string
+  server_connection_id: EntityId
 }
 
 export interface JoinedTopicPayload {
@@ -220,8 +250,20 @@ export interface JoinedTopicPayload {
 }
 
 export interface BufferLeftPayload {
-  buffer_id?: string
+  type: "buffer:left"
+  version: 1
+  event_id: string
+  occurred_at: string
+  buffer_id: string
   server_connection_id: EntityId
+  channel_membership_id: EntityId | null
+}
+
+export interface BufferJoinedPayload extends JoinedTopicPayload {
+  type: "buffer:joined"
+  version: 1
+  event_id: string
+  occurred_at: string
 }
 
 export interface DirectMessageThreadPayload {
@@ -289,15 +331,24 @@ export interface NotificationPreferencePayload {
   revision: number
 }
 
-export type MessagesByBuffer = Record<string, ChatMessage[]>
+export interface NotificationPreferenceEventPayload extends NotificationPreferencePayload {
+  type: "notification:preference"
+  version: 1
+  event_id: string
+  occurred_at: string
+}
+
+export type MessagesByBuffer = Record<string, TimelineMessage[]>
 export type UsersByBuffer = Record<string, ChatUser[]>
 
 export interface CommandCatalogEntry {
   name: string
-  usage?: string
-  description?: string
-  contexts?: string[]
-  availability?: string
+  usage: string
+  description: string
+  required_permission: "user" | "channel_operator"
+  contexts: Array<"server" | "channel">
+  availability: "enabled" | "managed_only"
+  examples: string[]
   [key: string]: unknown
 }
 

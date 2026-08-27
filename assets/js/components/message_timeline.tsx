@@ -1,16 +1,16 @@
 import React, {Fragment} from "react"
 import MessageRow from "./message_row.tsx"
-import type {ChatMessage} from "../types.ts"
+import type {TimelineMessage} from "../types.ts"
 
 export interface MessageTimelineProps {
   loading?: boolean
-  messages: ChatMessage[]
-  onRetryMessage?: (message: ChatMessage) => void
+  messages: TimelineMessage[]
+  onRetryMessage?: (message: TimelineMessage) => void
 }
 
 interface TimelineEntry {
   kind: "message" | "membership-events"
-  messages: ChatMessage[]
+  messages: TimelineMessage[]
 }
 
 export default function MessageTimeline({loading = false, messages, onRetryMessage}: MessageTimelineProps) {
@@ -39,7 +39,7 @@ export default function MessageTimeline({loading = false, messages, onRetryMessa
   )
 }
 
-export function groupContiguousMembershipEvents(messages: ChatMessage[]): TimelineEntry[] {
+export function groupContiguousMembershipEvents(messages: TimelineMessage[]): TimelineEntry[] {
   return messages.reduce<TimelineEntry[]>((entries, message) => {
     const membershipEvent = message.kind === "join" || message.kind === "quit"
     const previous = entries.at(-1)
@@ -54,7 +54,7 @@ export function groupContiguousMembershipEvents(messages: ChatMessage[]): Timeli
   }, [])
 }
 
-export function MembershipEventSummary({messages}: {messages: ChatMessage[]}) {
+export function MembershipEventSummary({messages}: {messages: TimelineMessage[]}) {
   const joined = messages.filter((message) => message.kind === "join").length
   const quit = messages.filter((message) => message.kind === "quit").length
   const summary = [joined > 0 && `${joined} joined`, quit > 0 && `${quit} quit`].filter(Boolean).join(" · ")

@@ -50,11 +50,6 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   @impl true
-  def handle_info({:irc_message, message}, socket) do
-    push(socket, "message", message)
-    {:noreply, socket}
-  end
-
   def handle_info({:buffer_message, message}, socket) do
     push(socket, "buffer:message", message)
     {:noreply, socket}

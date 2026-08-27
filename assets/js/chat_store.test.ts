@@ -2,9 +2,6 @@ import {describe, expect, test} from "vitest"
 import {
   applyUserDiff,
   appendTimelineMessage,
-  chatReducer,
-  emptyChatState,
-  hydrateBootstrap,
   latestBackendMessageId,
   mergeNewerMessages,
   mergeOlderMessages,
@@ -13,123 +10,7 @@ import {
   normalizeTopic,
 } from "./chat_store.ts"
 
-const bootstrap = {
-  connections: [{id: 1, name: "local", status: "connected"}],
-  buffers: [
-    {
-      buffer_id: "server:1",
-      buffer_type: "server",
-      server_connection_id: 1,
-      title: "127.0.0.1",
-      status: "connected",
-      unread_count: 0,
-      mention_count: 0,
-    },
-    {
-      buffer_id: "channel:2",
-      buffer_type: "channel",
-      server_connection_id: 1,
-      title: "#elixir",
-      status: "connected",
-      unread_count: 2,
-      mention_count: 1,
-    },
-  ],
-  active_buffer_id: "channel:2",
-  messages_by_buffer: {"channel:2": [{id: 10, body: "hello", buffer_id: "channel:2"}]},
-  users_by_buffer: {"channel:2": [{nick: "mira", nick_key: "mira", role: "op"}]},
-}
-
 describe("chat store", () => {
-  test("hydrates bootstrap data into the shared state shape", () => {
-    expect(hydrateBootstrap(bootstrap)).toMatchObject({
-      connections: bootstrap.connections,
-      buffers: bootstrap.buffers,
-      activeBufferId: "channel:2",
-      messagesByBuffer: bootstrap.messages_by_buffer,
-      usersByBuffer: bootstrap.users_by_buffer,
-      unreadByBuffer: {
-        "server:1": {unread_count: 0, mention_count: 0},
-        "channel:2": {unread_count: 2, mention_count: 1},
-      },
-      connectionHealth: "connected",
-    })
-  })
-
-  test("appends inactive buffer messages and increments unread counters", () => {
-    const state = {...hydrateBootstrap(bootstrap), activeBufferId: "server:1"}
-
-    const next = chatReducer(state, {
-      type: "buffer:message",
-      message: {id: 11, body: "mira: ping", buffer_id: "channel:2", mentioned: true},
-    })
-
-    expect(next.messagesByBuffer["channel:2"].map((message) => message.id)).toEqual([10, 11])
-    expect(next.unreadByBuffer["channel:2"]).toEqual({unread_count: 3, mention_count: 2})
-  })
-
-  test("keeps active buffer unread counters unchanged when messages arrive", () => {
-    const state = hydrateBootstrap(bootstrap)
-
-    const next = chatReducer(state, {
-      type: "buffer:message",
-      message: {id: 11, body: "active", buffer_id: "channel:2", mentioned: true},
-    })
-
-    expect(next.unreadByBuffer["channel:2"]).toEqual({unread_count: 2, mention_count: 1})
-  })
-
-  test("resets read counters and applies presence sync", () => {
-    const read = chatReducer(hydrateBootstrap(bootstrap), {type: "buffer:read", buffer_id: "channel:2"})
-    const synced = chatReducer(read, {
-      type: "presence:sync",
-      buffer_id: "channel:2",
-      users: [{nick: "akash", nick_key: "akash", role: "user"}],
-    })
-
-    expect(synced.unreadByBuffer["channel:2"]).toEqual({unread_count: 0, mention_count: 0})
-    expect(synced.buffers.find((buffer) => buffer.buffer_id === "channel:2")).toMatchObject({
-      unread_count: 0,
-      mention_count: 0,
-    })
-    expect(synced.usersByBuffer["channel:2"]).toEqual([
-      {nick: "akash", nick_key: "akash", role: "user"},
-    ])
-  })
-
-  test("applies presence diffs through the reducer", () => {
-    const joined = chatReducer(hydrateBootstrap(bootstrap), {
-      type: "presence:diff",
-      buffer_id: "channel:2",
-      diff: {action: "join", user: {nick: "akash", nick_key: "akash", role: "user"}},
-    })
-    const renamed = chatReducer(joined, {
-      type: "presence:diff",
-      buffer_id: "channel:2",
-      diff: {
-        action: "nick",
-        old_nick: "mira",
-        old_nick_key: "mira",
-        new_nick: "mira_",
-        new_nick_key: "mira_",
-      },
-    })
-    const promoted = chatReducer(renamed, {
-      type: "presence:diff",
-      buffer_id: "channel:2",
-      diff: {action: "role", nick: "akash", nick_key: "akash", role: "voice"},
-    })
-    const parted = chatReducer(promoted, {
-      type: "presence:diff",
-      buffer_id: "channel:2",
-      diff: {action: "part", nick: "mira_", nick_key: "mira_"},
-    })
-
-    expect(parted.usersByBuffer["channel:2"]).toEqual([
-      {nick: "akash", nick_key: "akash", role: "voice"},
-    ])
-  })
-
   test("applies presence diffs by canonical IRC nick key", () => {
     const users = [
       {nick: "{mira}", nick_key: "{mira}", role: "user"},
@@ -173,20 +54,6 @@ describe("chat store", () => {
     expect(parted.map((user) => user.nick_key)).toEqual(["mi^ra", "mi~ra"])
   })
 
-  test("tracks connection health and server status", () => {
-    const state = chatReducer(emptyChatState, {type: "bootstrap:loaded", bootstrap})
-    const reconnecting = chatReducer(state, {type: "connection:health", status: "reconnecting"})
-    const errored = chatReducer(reconnecting, {
-      type: "server:status",
-      server_connection_id: 1,
-      status: "errored",
-    })
-
-    expect(errored.connectionHealth).toBe("reconnecting")
-    expect(errored.connections[0].status).toBe("errored")
-    expect(errored.buffers.map((buffer) => buffer.status)).toEqual(["errored", "errored"])
-  })
-
   test("preserves IRC channel type prefixes", () => {
     expect(normalizeChannel("elixir")).toBe("#elixir")
     expect(normalizeChannel("#elixir")).toBe("#elixir")
@@ -196,13 +63,57 @@ describe("chat store", () => {
   })
 
   test("normalizes topic and message payloads outside UI components", () => {
-    expect(normalizeTopic({server_host: "127.0.0.1", channel: "elixir"})).toMatchObject({
-      id: "127.0.0.1-elixir",
+    const topic = normalizeTopic({
+      id: 3,
+      channel: "elixir",
+      name: "elixir",
+      description: "Elixir discussion",
+      server_host: "127.0.0.1",
+      server_port: 6697,
+      use_tls: true,
+    })
+
+    expect(topic).toMatchObject({
+      id: 3,
       channel: "#elixir",
       name: "#elixir",
     })
+    expect(topic).not.toHaveProperty("vibe")
 
-    expect(normalizeMessage({id: 1, occurred_at: "2026-05-13T10:00:00Z"})).toMatchObject({
+    const topicWithExtras = {
+      id: 4,
+      channel: "#phoenix",
+      name: "#phoenix",
+      description: "Phoenix discussion",
+      server_host: "127.0.0.1",
+      server_port: 6697,
+      use_tls: true,
+      members: {},
+      vibe: {},
+    }
+    const topicWithWireExtras = normalizeTopic(topicWithExtras)
+    expect(topicWithWireExtras).not.toHaveProperty("members")
+    expect(topicWithWireExtras).not.toHaveProperty("vibe")
+
+    expect(normalizeMessage({
+      type: "buffer:message",
+      version: 1,
+      id: 1,
+      event_id: "message:1",
+      buffer_id: "channel:7",
+      server_connection_id: 42,
+      channel_membership_id: 7,
+      direct_message_thread_id: null,
+      occurred_at: "2026-05-13T10:00:00Z",
+      nick: "mira",
+      hostmask: null,
+      sender_role: null,
+      service: null,
+      body: "hello",
+      kind: "message",
+      mentioned: false,
+      metadata: {},
+    })).toMatchObject({
       id: 1,
       occurredAt: "2026-05-13T10:00:00Z",
     })

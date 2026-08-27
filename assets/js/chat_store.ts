@@ -1,163 +1,14 @@
 import type {
-  BackendConnection,
-  BufferRecord,
   ChatMessage,
   ChatUser,
-  ConnectionHealth,
-  MessagesByBuffer,
   PresenceDiff,
   Topic,
   TopicInput,
-  UsersByBuffer,
+  TimelineMessage,
 } from "./types.ts"
-
-interface UnreadCounts {
-  unread_count: number
-  mention_count: number
-}
-
-export interface ChatState {
-  connections: BackendConnection[]
-  buffers: BufferRecord[]
-  activeBufferId: string | null
-  messagesByBuffer: MessagesByBuffer
-  usersByBuffer: UsersByBuffer
-  unreadByBuffer: Record<string, UnreadCounts>
-  connectionHealth: ConnectionHealth
-}
-
-interface BootstrapPayload {
-  connections?: BackendConnection[]
-  buffers?: BufferRecord[]
-  active_buffer_id?: string | null
-  messages_by_buffer?: MessagesByBuffer
-  users_by_buffer?: UsersByBuffer
-}
-
-type ChatAction =
-  | {type: "bootstrap:loaded"; bootstrap: BootstrapPayload}
-  | {type: "buffer:message"; message: ChatMessage}
-  | {type: "buffer:read"; buffer_id: string}
-  | {type: "presence:sync"; buffer_id: string; users: ChatUser[]}
-  | {type: "presence:diff"; buffer_id: string; diff: PresenceDiff}
-  | {type: "server:status"; server_connection_id: string | number; status: string}
-  | {type: "connection:health"; status: ConnectionHealth}
-
-export const emptyChatState: ChatState = {
-  connections: [],
-  buffers: [],
-  activeBufferId: null,
-  messagesByBuffer: {},
-  usersByBuffer: {},
-  unreadByBuffer: {},
-  connectionHealth: "disconnected",
-}
+import {canonicalChatMessage} from "./protocol_payload.ts"
 
 export const MESSAGE_RENDER_LIMIT = 400
-
-export function chatReducer(state: ChatState = emptyChatState, action: ChatAction): ChatState {
-  switch (action.type) {
-    case "bootstrap:loaded":
-      return hydrateBootstrap(action.bootstrap)
-    case "buffer:message":
-      return appendBufferMessage(state, action.message)
-    case "buffer:read":
-      return markBufferRead(state, action.buffer_id)
-    case "presence:sync":
-      return {
-        ...state,
-        usersByBuffer: {...state.usersByBuffer, [action.buffer_id]: action.users},
-      }
-    case "presence:diff":
-      return {
-        ...state,
-        usersByBuffer: {
-          ...state.usersByBuffer,
-          [action.buffer_id]: applyUserDiff(state.usersByBuffer[action.buffer_id] || [], action.diff),
-        },
-      }
-    case "server:status":
-      return applyServerStatus(state, action)
-    case "connection:health":
-      return {...state, connectionHealth: action.status}
-    default:
-      return state
-  }
-}
-
-export function hydrateBootstrap(bootstrap: BootstrapPayload): ChatState {
-  const buffers = bootstrap.buffers || []
-
-  return {
-    connections: bootstrap.connections || [],
-    buffers,
-    activeBufferId: bootstrap.active_buffer_id || buffers[0]?.buffer_id || null,
-    messagesByBuffer: bootstrap.messages_by_buffer || {},
-    usersByBuffer: bootstrap.users_by_buffer || {},
-    unreadByBuffer: Object.fromEntries(
-      buffers.map((buffer) => [
-        buffer.buffer_id,
-        {unread_count: buffer.unread_count || 0, mention_count: buffer.mention_count || 0},
-      ])
-    ),
-    connectionHealth: "connected",
-  }
-}
-
-function appendBufferMessage(state: ChatState, message: ChatMessage): ChatState {
-  const bufferId = message.buffer_id
-  if (!bufferId) return state
-
-  const currentMessages = state.messagesByBuffer[bufferId] || []
-  const currentCounts = state.unreadByBuffer[bufferId] || {unread_count: 0, mention_count: 0}
-  const isActive = state.activeBufferId === bufferId
-  const nextCounts = isActive
-    ? currentCounts
-    : {
-        unread_count: currentCounts.unread_count + 1,
-        mention_count: currentCounts.mention_count + (message.mentioned ? 1 : 0),
-      }
-
-  return {
-    ...state,
-    messagesByBuffer: {
-      ...state.messagesByBuffer,
-      [bufferId]: [...currentMessages, message],
-    },
-    unreadByBuffer: {
-      ...state.unreadByBuffer,
-      [bufferId]: nextCounts,
-    },
-  }
-}
-
-function markBufferRead(state: ChatState, bufferId: string): ChatState {
-  return {
-    ...state,
-    unreadByBuffer: {
-      ...state.unreadByBuffer,
-      [bufferId]: {unread_count: 0, mention_count: 0},
-    },
-    buffers: state.buffers.map((buffer) =>
-      buffer.buffer_id === bufferId ? {...buffer, unread_count: 0, mention_count: 0} : buffer
-    ),
-  }
-}
-
-function applyServerStatus(
-  state: ChatState,
-  action: {server_connection_id: string | number; status: string}
-): ChatState {
-  return {
-    ...state,
-    connections: state.connections.map((connection) =>
-      connection.id === action.server_connection_id ? {...connection, status: action.status} : connection
-    ),
-    buffers: state.buffers.map((buffer) =>
-      buffer.server_connection_id === action.server_connection_id ? {...buffer, status: action.status} : buffer
-    ),
-  }
-}
 
 export function applyUserDiff(users: ChatUser[], diff: PresenceDiff): ChatUser[] {
   switch (diff.action) {
@@ -195,36 +46,38 @@ export function applyUserDiff(users: ChatUser[], diff: PresenceDiff): ChatUser[]
 }
 
 export function normalizeTopic(topic: TopicInput): Topic {
-  const channel = normalizeChannel(topic.channel || topic.name)
   return {
-    ...topic,
-    id: topic.id || `${topic.server_host}-${topic.channel || topic.name}`,
-    channel,
-    name: channel,
-    description: topic.description || "A live topic you can join.",
-    members: topic.members || topic.member_count,
-    vibe: topic.vibe || "topic",
+    id: topic.id,
+    channel: normalizeChannel(topic.channel),
+    name: normalizeChannel(topic.name),
+    description: topic.description,
+    server_host: topic.server_host,
+    server_port: topic.server_port,
+    use_tls: topic.use_tls,
   }
 }
 
-export function normalizeMessage(message: ChatMessage): ChatMessage {
+export function normalizeMessage(message: ChatMessage): TimelineMessage {
+  const canonical = canonicalChatMessage(message)
+  if (!canonical) throw new Error("invalid canonical message")
+
   return {
-    ...message,
-    occurredAt: message.occurredAt || message.occurred_at,
+    ...canonical,
+    occurredAt: canonical.occurred_at,
   }
 }
 
-export function trimMessagesToLimit(messages: ChatMessage[], limit = MESSAGE_RENDER_LIMIT): ChatMessage[] {
+export function trimMessagesToLimit(messages: TimelineMessage[], limit = MESSAGE_RENDER_LIMIT): TimelineMessage[] {
   if (messages.length <= limit) return messages
   return messages.slice(-limit)
 }
 
 export function appendTimelineMessage(
-  messages: ChatMessage[],
-  message: ChatMessage,
+  messages: TimelineMessage[],
+  message: TimelineMessage,
   readingOlder: boolean,
   limit = MESSAGE_RENDER_LIMIT
-): ChatMessage[] {
+): TimelineMessage[] {
   if (message.id && messages.some((current) => current.id === message.id)) {
     return messages.map((current) => (current.id === message.id ? {...current, ...message} : current))
   }
@@ -233,7 +86,7 @@ export function appendTimelineMessage(
   return readingOlder ? nextMessages : trimMessagesToLimit(nextMessages, limit)
 }
 
-export function mergeOlderMessages(olderMessages: ChatMessage[], currentMessages: ChatMessage[]): ChatMessage[] {
+export function mergeOlderMessages(olderMessages: TimelineMessage[], currentMessages: TimelineMessage[]): TimelineMessage[] {
   const olderById = new Map(
     olderMessages.filter((message) => message.id != null).map((message) => [message.id, message])
   )
@@ -247,7 +100,7 @@ export function mergeOlderMessages(olderMessages: ChatMessage[], currentMessages
   return sortTimelineMessages([...prepended, ...updatedCurrent])
 }
 
-export function mergeNewerMessages(currentMessages: ChatMessage[], newerMessages: ChatMessage[]): ChatMessage[] {
+export function mergeNewerMessages(currentMessages: TimelineMessage[], newerMessages: TimelineMessage[]): TimelineMessage[] {
   const updatesById = new Map(
     newerMessages
       .filter((message) => message.id != null)
@@ -265,7 +118,7 @@ export function mergeNewerMessages(currentMessages: ChatMessage[], newerMessages
   return trimMessagesToLimit(sortTimelineMessages([...updatedCurrent, ...appended]))
 }
 
-function commandStatusRank(message?: ChatMessage): number {
+function commandStatusRank(message?: TimelineMessage): number {
   if (message?.kind !== "command") return 0
 
   const ranks: Record<string, number> = {
@@ -279,7 +132,7 @@ function commandStatusRank(message?: ChatMessage): number {
   return (status && ranks[status]) || 0
 }
 
-export function latestBackendMessageId(messages: ChatMessage[]): number {
+export function latestBackendMessageId(messages: TimelineMessage[]): number {
   return messages.reduce((latest, message) => {
     const id = Number(message.id)
     if (!Number.isInteger(id)) return latest
@@ -287,7 +140,7 @@ export function latestBackendMessageId(messages: ChatMessage[]): number {
   }, 0)
 }
 
-function sortTimelineMessages(messages: ChatMessage[]): ChatMessage[] {
+function sortTimelineMessages(messages: TimelineMessage[]): TimelineMessage[] {
   return [...messages].sort((left, right) => {
     const timeDiff = Date.parse(left.occurredAt || left.occurred_at || "") - Date.parse(right.occurredAt || right.occurred_at || "")
     if (timeDiff !== 0 && Number.isFinite(timeDiff)) return timeDiff

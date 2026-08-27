@@ -36,7 +36,6 @@ export default function useRealtimeConnection({handlers, onConnected, realtimeCl
     }
     const realtimeClient = realtimeClientFactory({
       handlers: {
-        onMessage: (payload) => handlersRef.current.onMessage?.(payload),
         onBufferMessage: (payload) => handlersRef.current.onBufferMessage?.(payload),
         onBufferJoined: (payload) => handlersRef.current.onBufferJoined?.(payload),
         onDirectMessageThread: (payload) => handlersRef.current.onDirectMessageThread?.(payload),

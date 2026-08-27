@@ -76,9 +76,9 @@ defmodule Ircpipe.Chat.BufferEventsTest do
     channel_message = message_fixture(user.id, connection.id, membership.id, "message")
     assert :ok = BufferEvents.message(channel_message, membership, connection)
 
-    assert_receive {:irc_message, %{id: 101, buffer_id: channel_buffer_id}}
+    assert_receive {:buffer_message, %{id: 101, buffer_id: channel_buffer_id}}
     assert channel_buffer_id == "channel:#{membership.id}"
-    assert_receive {:buffer_message, %{id: 101, buffer_id: ^channel_buffer_id}}
+    refute_received {:irc_message, _event}
 
     server_message = message_fixture(user.id, connection.id, nil, "system")
     assert :ok = BufferEvents.server_message(server_message, connection)
@@ -153,7 +153,6 @@ defmodule Ircpipe.Chat.BufferEventsTest do
       end)
     end
 
-    refute_receive {:irc_message, _event}
     refute_receive {:buffer_message, _event}
   end
 

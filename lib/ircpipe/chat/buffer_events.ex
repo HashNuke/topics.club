@@ -45,12 +45,6 @@ defmodule Ircpipe.Chat.BufferEvents do
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
       "user:#{connection.user_id}",
-      {:irc_message, payload}
-    )
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{connection.user_id}",
       {pubsub_event(payload), payload}
     )
   end

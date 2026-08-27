@@ -13,7 +13,6 @@ import type {EditServerForm, ManualServerForm} from "../hooks/use_server_connect
 import type {
   AppView,
   Channel,
-  ChatMessage,
   ChatUser,
   CommandCatalogEntry,
   ConnectionHealth,
@@ -21,7 +20,7 @@ import type {
   ServerChannel,
   ServerConnection,
   Topic,
-  TopicInput,
+  TimelineMessage,
 } from "../types.ts"
 
 export interface AppShellProps {
@@ -40,12 +39,12 @@ export interface AppShellProps {
   joiningDiscoveryServerChannelId?: string | number | null
   initialMobileMenuOpen?: boolean
   initialMobileUsersOpen?: boolean
-  messages: ChatMessage[]
+  messages: TimelineMessage[]
   messagesLoading: boolean
   notificationDeviceState: NotificationDeviceState
   notificationSavingIds: Set<string>
-  serverMessages: ChatMessage[]
-  topics: TopicInput[]
+  serverMessages: TimelineMessage[]
+  topics: Topic[]
   users: ChatUser[]
   view: AppView
   onDiscover: () => void
@@ -64,7 +63,7 @@ export interface AppShellProps {
   onReconnectServer: (server: ServerConnection) => void
   onToggleChannelNotifications: (channel: Channel) => void
   onToggleServerNotifications: (server: ServerConnection) => void
-  onRetryMessage: (message: ChatMessage) => void
+  onRetryMessage: (message: TimelineMessage) => void
   onRetryRealtime: () => void
   onSetDirectMessageBlocked: (channel: Channel, blocked: boolean) => void
   onSelectChannel: (channel: Channel) => void

@@ -1,6 +1,7 @@
 import {useState} from "react"
 import ServerBufferPane from "./server_buffer_pane.tsx"
 import type {ComponentProps} from "react"
+import type {CommandCatalogEntry} from "../types.ts"
 
 const server = {
   id: "server:42",
@@ -14,10 +15,10 @@ const messages = [
   {id: "server-3", body: "Joined #elixir.", kind: "system", occurredAt: "2026-08-25T15:00:00Z"},
 ]
 
-const commandCatalog = [
-  {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["server"], availability: "enabled"},
-  {name: "/list", usage: "/list", description: "Browse channels", contexts: ["server"], availability: "enabled"},
-  {name: "/quote", usage: "/quote command", description: "Send a raw IRC command", contexts: ["server"], availability: "enabled"},
+const commandCatalog: CommandCatalogEntry[] = [
+  {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server"], availability: "enabled", examples: ["/join #elixir"]},
+  {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server"], availability: "enabled", examples: ["/list"]},
+  {name: "/quote", usage: "/quote command", description: "Send a raw IRC command", required_permission: "user", contexts: ["server"], availability: "managed_only", examples: ["/quote WHO #elixir"]},
 ]
 
 type ServerBufferArgs = ComponentProps<typeof ServerBufferPane>
@@ -68,7 +69,7 @@ export const Empty = {
 export const Reconnecting = {
   args: {
     connectionHealth: "reconnecting",
-    server: {...server, status: "reconnecting"},
+    server: {...server, status: "connecting"},
   },
 }
 

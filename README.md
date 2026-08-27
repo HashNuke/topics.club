@@ -11,7 +11,7 @@ Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 
 Ircpipe is a web-based IRC client. Users register or sign in, connect to arbitrary IRC networks, join channels, and chat from a React client backed by Phoenix JSON APIs and Phoenix Channels.
 
-The backend persists channel messages for a short configurable window. Each user can choose 1, 2, or 3 days of scrollback. Mention notifications are delivered in real time over the authenticated user socket and in the background through Web Push. Users can mute mentions per server and per channel.
+The backend persists channel messages for a short configurable window. Each user can choose 1, 2, or 3 days of scrollback. The authenticated user socket carries in-app updates; mention browser notifications are delivered only through Web Push. Users can mute mentions per server and per channel.
 
 IRC connections are modeled as one supervised process per user/server connection under `Ircpipe.Irc.SessionSupervisor`.
 

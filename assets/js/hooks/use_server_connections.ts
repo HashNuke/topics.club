@@ -11,6 +11,7 @@ import type {ApiClient} from "../api_client.ts"
 import {isStaleDirectMessageError} from "../app_feedback.ts"
 import {normalizeChannel, normalizeTopic} from "../chat_store.ts"
 import {
+  bufferServerConnectionId,
   channelFromBuffer,
   channelFromMembership,
   directMessageFromBuffer,
@@ -23,10 +24,25 @@ import {
   upsertJoinedChannel,
 } from "../connection_store.ts"
 import {backendTopicFor, numericId} from "../topic_navigation.ts"
+import {
+  validBackendConnection,
+  validBufferJoinedPayload,
+  validBufferLeftPayload,
+  validBufferReadPayload,
+  validChannelMembership,
+  validDirectMessageClosedPayload,
+  validDirectMessageThreadPayload,
+  validDirectMessageTombstone,
+  validJoinedTopicPayload,
+  validRevision,
+  validServerDeletedPayload,
+  validServerStatusPayload,
+} from "../protocol_payload.ts"
 import type {RealtimeClient} from "../realtime_client.ts"
 import type {
   AppView,
   BackendConnection,
+  BufferJoinedPayload,
   BufferReadPayload,
   BufferLeftPayload,
   Channel,
@@ -133,8 +149,13 @@ export default function useServerConnections({
     }
   }
 
-  function applyAuthoritativeJoinedTopic(payload: JoinedTopicPayload): void {
+  function applyAuthoritativeJoinedTopic(payload: BufferJoinedPayload): void {
+    if (!validBufferJoinedPayload(payload)) return
     applyJoinedTopic(payload, true)
+  }
+
+  function applyJoinedTopicResponse(payload: JoinedTopicPayload): void {
+    applyJoinedTopic(payload)
   }
 
   function applyJoinedTopic(
@@ -144,6 +165,8 @@ export default function useServerConnections({
   ): boolean | undefined {
     if (!validJoinedTopicPayload(payload)) return
     const {connection, buffer, topic} = payload
+    const knownOwnerId = bufferServerConnectionId(connectionsRef.current, buffer.buffer_id)
+    if (knownOwnerId !== null && String(knownOwnerId) !== String(connection.id)) return false
 
     if (authoritative) {
       rejectedBufferIdsRef.current.delete(buffer.buffer_id)
@@ -203,6 +226,8 @@ export default function useServerConnections({
 
     const connectionId = `server:${connection.id}`
     const bufferId = `channel:${membership.id}`
+    const knownOwnerId = bufferServerConnectionId(connectionsRef.current, bufferId)
+    if (knownOwnerId !== null && String(knownOwnerId) !== String(connection.id)) return false
 
     if (rejectedBufferIdsRef.current.has(bufferId)) {
       const previousVersion = rejectionVersions.get(bufferId) || 0
@@ -224,14 +249,21 @@ export default function useServerConnections({
   }
 
   function applyServerStatus(payload: ServerStatusPayload): void {
+    if (!validServerStatusPayload(payload)) return
     setConnections((current) => updateServerStatus(current, payload))
     if (payload.status === "connected") defer(() => reconcileServerBuffers(payload.server_connection_id))
   }
 
   function applyBufferLeft(payload: BufferLeftPayload): void {
+    if (!validBufferLeftPayload(payload)) return
     const bufferId = payload.buffer_id
+    const knownOwnerId = bufferServerConnectionId(connectionsRef.current, bufferId)
+    if (
+      knownOwnerId !== null &&
+      String(knownOwnerId) !== String(payload.server_connection_id)
+    ) return
     if (bufferId?.startsWith("server:")) {
-      applyServerDeleted({server_connection_id: payload.server_connection_id})
+      removeServer(payload.server_connection_id)
       return
     }
 
@@ -255,13 +287,23 @@ export default function useServerConnections({
   }
 
   function applyBufferRead(payload: BufferReadPayload): void {
-    if (!payload?.buffer_id) return
+    if (!validBufferReadPayload(payload)) return
+    const ownerId = bufferServerConnectionId(connectionsRef.current, payload.buffer_id)
+    if (ownerId === null || String(ownerId) !== String(payload.server_connection_id)) return
     setConnections((current) => updateBufferRead(current, payload))
   }
 
   function applyDirectMessageThread(payload: DirectMessageThreadPayload): boolean {
     if (!validDirectMessageThreadPayload(payload)) return false
     if (payload.buffer.direct_message_revision !== payload.revision) return false
+    const knownOwnerId = bufferServerConnectionId(
+      connectionsRef.current,
+      payload.buffer.buffer_id
+    )
+    if (
+      knownOwnerId !== null &&
+      String(knownOwnerId) !== String(payload.buffer.server_connection_id)
+    ) return false
 
     if (payload.buffer.closed_at) {
       return applyDirectMessageTombstone({
@@ -284,6 +326,11 @@ export default function useServerConnections({
 
   function applyDirectMessageClosed(payload: DirectMessageClosedPayload): void {
     if (!validDirectMessageClosedPayload(payload)) return
+    const knownOwnerId = bufferServerConnectionId(connectionsRef.current, payload.buffer_id)
+    if (
+      knownOwnerId !== null &&
+      String(knownOwnerId) !== String(payload.server_connection_id)
+    ) return
     applyDirectMessageTombstone(payload)
   }
 
@@ -387,7 +434,11 @@ export default function useServerConnections({
 
     try {
       const {deleted} = await apiClient.deleteConnection(server.server_connection_id)
-      applyServerDeleted(deleted || {server_connection_id: server.server_connection_id})
+      if (
+        !validServerDeletedPayload(deleted) ||
+        String(deleted.server_connection_id) !== String(server.server_connection_id)
+      ) return
+      removeServer(deleted.server_connection_id)
     } catch (_error) {
       // Keep the server visible if deletion fails.
     }
@@ -414,8 +465,8 @@ export default function useServerConnections({
     }
   }
 
-  function applyServerDeleted(payload: {server_connection_id: EntityId}): void {
-    const removal = planServerRemoval(connectionsRef.current, payload.server_connection_id)
+  function removeServer(serverConnectionId: EntityId): void {
+    const removal = planServerRemoval(connectionsRef.current, serverConnectionId)
     if (!removal) return
 
     const {deletedChannelIds, deletedServer, nextChannel, nextConnections, nextServer} = removal
@@ -479,131 +530,6 @@ export default function useServerConnections({
     }
   }
 
-  function validDirectMessageThreadPayload(payload: DirectMessageThreadPayload): boolean {
-    if (!payload?.connection || !payload?.buffer) return false
-    const {buffer, connection, revision} = payload
-    if (
-      buffer.buffer_type !== "direct_message" ||
-      !validEntityId(buffer.direct_message_thread_id) ||
-      !validEntityId(buffer.server_connection_id) ||
-      !validEntityId(connection.id)
-    ) return false
-
-    const eventIdParts = typeof payload.event_id === "string"
-      ? payload.event_id.split(":")
-      : []
-    const validClosedAt = buffer.closed_at === null || validIsoTimestamp(buffer.closed_at)
-
-    return (
-      payload.type === "direct_message:thread" &&
-      payload.version === 1 &&
-      eventIdParts.length === 3 &&
-      eventIdParts[0] === "direct_message_thread" &&
-      eventIdParts[1] === String(buffer.direct_message_thread_id) &&
-      /^[1-9][0-9]{0,18}$/.test(eventIdParts[2]) &&
-      validIsoTimestamp(payload.occurred_at) &&
-      buffer.buffer_id === `direct:${buffer.direct_message_thread_id}` &&
-      String(buffer.server_connection_id) === String(connection.id) &&
-      typeof buffer.title === "string" &&
-      buffer.title.trim().length > 0 &&
-      typeof buffer.peer_nick === "string" &&
-      buffer.peer_nick === buffer.title &&
-      typeof buffer.subtitle === "string" &&
-      buffer.subtitle.trim().length > 0 &&
-      (buffer.account === null || typeof buffer.account === "string") &&
-      (buffer.hostmask === null || typeof buffer.hostmask === "string") &&
-      validClosedAt &&
-      typeof buffer.unread_count === "number" &&
-      Number.isSafeInteger(buffer.unread_count) &&
-      buffer.unread_count >= 0 &&
-      buffer.mention_count === 0 &&
-      validRevision(buffer.direct_message_revision) &&
-      typeof buffer.blocked === "boolean" &&
-      validRevision(revision) &&
-      revision === buffer.direct_message_revision &&
-      validBackendConnection(connection)
-    )
-  }
-
-  function validJoinedTopicPayload(payload: JoinedTopicPayload): boolean {
-    if (!payload?.connection || !payload?.buffer) return false
-    const {buffer, connection} = payload
-
-    return (
-      validBackendConnection(connection) &&
-      buffer.buffer_type === "channel" &&
-      validEntityId(buffer.channel_membership_id) &&
-      validEntityId(buffer.server_connection_id) &&
-      buffer.buffer_id === `channel:${buffer.channel_membership_id}` &&
-      String(buffer.server_connection_id) === String(connection.id) &&
-      typeof buffer.mention_notifications_enabled === "boolean" &&
-      validRevision(buffer.notification_preference_revision)
-    )
-  }
-
-  function validBackendConnection(connection: BackendConnection): boolean {
-    return Boolean(
-      connection &&
-      validEntityId(connection.id) &&
-      typeof connection.host === "string" &&
-      connection.host.length > 0 &&
-      typeof connection.mention_notifications_enabled === "boolean" &&
-      validRevision(connection.notification_preference_revision)
-    )
-  }
-
-  function validIsoTimestamp(value: unknown): value is string {
-    return typeof value === "string" &&
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value) &&
-      Number.isFinite(Date.parse(value))
-  }
-
-  function validChannelMembership(membership: ChannelMembership): boolean {
-    return Boolean(
-      membership &&
-      validEntityId(membership.id) &&
-      typeof membership.channel === "string" &&
-      membership.channel.length > 0 &&
-      typeof membership.mention_notifications_enabled === "boolean" &&
-      validRevision(membership.notification_preference_revision)
-    )
-  }
-
-  function validDirectMessageClosedPayload(payload: DirectMessageClosedPayload): boolean {
-    if (!validDirectMessageTombstone(payload)) return false
-
-    const eventIdParts = typeof payload.event_id === "string"
-      ? payload.event_id.split(":")
-      : []
-
-    return payload.type === "direct_message:closed" &&
-      payload.version === 1 &&
-      eventIdParts.length === 3 &&
-      eventIdParts[0] === "direct_message_closed" &&
-      eventIdParts[1] === String(payload.direct_message_thread_id) &&
-      /^[1-9][0-9]{0,18}$/.test(eventIdParts[2]) &&
-      validIsoTimestamp(payload.occurred_at)
-  }
-
-  function validDirectMessageTombstone(payload: DirectMessageTombstone): boolean {
-    return Boolean(
-      payload &&
-      validEntityId(payload.server_connection_id) &&
-      validEntityId(payload.direct_message_thread_id) &&
-      payload.buffer_id === `direct:${payload.direct_message_thread_id}` &&
-      validRevision(payload.revision)
-    )
-  }
-
-  function validRevision(value: unknown): value is number {
-    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-  }
-
-  function validEntityId(value: unknown): value is EntityId {
-    if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
-    return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
-  }
-
   return {
     applyAuthoritativeJoinedTopic,
     applyBufferLeft,
@@ -611,6 +537,7 @@ export default function useServerConnections({
     applyDirectMessageClosed,
     applyDirectMessageThread,
     applyJoinedChannel,
+    applyJoinedTopicResponse,
     applyServerStatus,
     connections,
     closeDirectMessage,

@@ -6,11 +6,26 @@ import type {
   ChannelMembership,
   DirectMessageBufferRecord,
   DirectMessageChannel,
+  EntityId,
   JoinedChannel,
   ServerConnection,
   ServerStatusPayload,
   Topic,
 } from "./types.ts"
+
+export function bufferServerConnectionId(
+  connections: ServerConnection[],
+  bufferId: string
+): EntityId | null {
+  for (const connection of connections) {
+    if (connection.id === bufferId) return connection.server_connection_id
+    if (connection.channels.some((channel) => channel.id === bufferId)) {
+      return connection.server_connection_id
+    }
+  }
+
+  return null
+}
 
 export function channelFromBuffer(
   buffer: ChannelBufferRecord,

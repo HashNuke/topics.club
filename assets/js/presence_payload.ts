@@ -1,4 +1,12 @@
 import type {ChatUser, PresenceDiff, PresenceDiffPayload, PresenceSyncPayload} from "./types.ts"
+import {
+  nonemptyString,
+  record,
+  validBufferId,
+  validEntityId,
+  validIsoTimestamp,
+  validTimestampedEventId,
+} from "./protocol_payload.ts"
 
 const roles = new Set(["owner", "admin", "op", "halfop", "voice", "user"])
 const statuses = new Set(["online", "away", "unknown"])
@@ -83,7 +91,10 @@ function validPresenceEnvelope(
     record(value) &&
       value.type === type &&
       value.version === 1 &&
-      nonemptyString(value.event_id) &&
+      validTimestampedEventId(
+        value.event_id,
+        `${type === "presence:sync" ? "presence_sync" : "presence_diff"}:${value.buffer_id}`
+      ) &&
       validIsoTimestamp(value.occurred_at) &&
       validEntityId(value.server_connection_id) &&
       validEntityId(value.channel_membership_id) &&
@@ -97,26 +108,5 @@ function validUserList(users: unknown[]): users is ChatUser[] {
 }
 
 function validPresenceBufferId(value: unknown): value is string {
-  return typeof value === "string" && /^channel:[1-9][0-9]{0,18}$/.test(value)
-}
-
-function nonemptyString(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0
-}
-
-function validIsoTimestamp(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value) &&
-    Number.isFinite(Date.parse(value))
-  )
-}
-
-function validEntityId(value: unknown): value is string | number {
-  if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
-  return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+  return validBufferId(value) && value.startsWith("channel:")
 }

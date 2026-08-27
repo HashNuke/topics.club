@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from "react"
 import ChatComposer from "./chat_composer.tsx"
 import MessageTimeline from "./message_timeline.tsx"
-import type {Channel, ChatMessage, CommandCatalogEntry, ConnectionHealth, EntityId} from "../types.ts"
+import type {Channel, CommandCatalogEntry, ConnectionHealth, EntityId, TimelineMessage} from "../types.ts"
 
 export const MESSAGE_RENDER_LIMIT = 400
 
@@ -11,11 +11,11 @@ export interface ChatPaneProps {
   composerError?: string | null
   connectionHealth: ConnectionHealth
   draft: string
-  messages: ChatMessage[]
+  messages: TimelineMessage[]
   messagesLoading?: boolean
   onLoadOlderMessages?: (bufferId?: string) => void
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
-  onRetryMessage?: (message: ChatMessage) => void
+  onRetryMessage?: (message: TimelineMessage) => void
   onSendMessage: React.FormEventHandler<HTMLFormElement>
   onUpdateDraft: (value: string) => void
 }
@@ -83,7 +83,7 @@ export function composerStatusLabel(serverStatus: string | undefined, connection
   return null
 }
 
-export function visibleTimelineMessages(messages: ChatMessage[], readingOlder: boolean, limit = MESSAGE_RENDER_LIMIT): ChatMessage[] {
+export function visibleTimelineMessages(messages: TimelineMessage[], readingOlder: boolean, limit = MESSAGE_RENDER_LIMIT): TimelineMessage[] {
   if (readingOlder || messages.length <= limit) return messages
   return messages.slice(-limit)
 }
@@ -93,7 +93,7 @@ interface ChatScrollOptions {
   onReadingStateChange?: (readingOlder: boolean) => void
 }
 
-export function useChatScroll(messages: ChatMessage[], {onNearTop, onReadingStateChange}: ChatScrollOptions = {}) {
+export function useChatScroll(messages: TimelineMessage[], {onNearTop, onReadingStateChange}: ChatScrollOptions = {}) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const previousScrollHeightRef = useRef(0)
   const previousLastMessageIdRef = useRef<EntityId | null>(null)

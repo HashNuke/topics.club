@@ -107,7 +107,7 @@ function presenceEnvelope(type, payload = {}) {
   return {
     type,
     version: 1,
-    event_id: `${type}:channel:7:1`,
+    event_id: `${type === "presence:sync" ? "presence_sync" : "presence_diff"}:channel:7:1`,
     occurred_at: "2026-08-27T00:00:00Z",
     buffer_id: "channel:7",
     server_connection_id: 42,
@@ -116,29 +116,118 @@ function presenceEnvelope(type, payload = {}) {
   }
 }
 
+const occurredAt = "2026-08-27T00:00:00Z"
+
+function connection(overrides = {}) {
+  return {
+    id: 42,
+    host: "irc.example.test",
+    mention_notifications_enabled: true,
+    notification_preference_revision: 0,
+    ...overrides,
+  }
+}
+
+function channelBuffer(overrides = {}) {
+  return {
+    buffer_id: "channel:7",
+    buffer_type: "channel",
+    server_connection_id: 42,
+    channel_membership_id: 7,
+    title: "#elixir",
+    mention_notifications_enabled: true,
+    notification_preference_revision: 0,
+    ...overrides,
+  }
+}
+
+function messageEnvelope(overrides = {}) {
+  return {
+    type: "buffer:message",
+    version: 1,
+    event_id: "message:11",
+    id: 11,
+    buffer_id: "channel:7",
+    server_connection_id: 42,
+    channel_membership_id: 7,
+    direct_message_thread_id: null,
+    nick: "mira",
+    hostmask: null,
+    sender_role: null,
+    service: null,
+    metadata: {},
+    body: "hello",
+    kind: "message",
+    mentioned: false,
+    occurred_at: occurredAt,
+    ...overrides,
+  }
+}
+
+function directMessageThread(overrides = {}) {
+  return {
+    type: "direct_message:thread",
+    version: 1,
+    event_id: "direct_message_thread:8:1",
+    occurred_at: occurredAt,
+    revision: 1,
+    connection: connection(),
+    buffer: {
+      buffer_id: "direct:8",
+      buffer_type: "direct_message",
+      server_connection_id: 42,
+      direct_message_thread_id: 8,
+      direct_message_revision: 1,
+      title: "akash",
+      subtitle: "on irc.example.test",
+      peer_nick: "akash",
+      account: null,
+      hostmask: null,
+      blocked: false,
+      closed_at: null,
+      unread_count: 1,
+      mention_count: 0,
+    },
+    ...overrides,
+  }
+}
+
 describe("realtime client", () => {
   test("connects one socket to the authenticated user channel", () => {
-    const onMessage = vi.fn()
+    const onBufferMessage = vi.fn()
     const client = createRealtimeClient({
       SocketClass: FakeSocket,
       csrfToken: "csrf",
       userId: 7,
-      handlers: {onMessage},
+      handlers: {onBufferMessage},
     })
 
     client.connect()
-    client.channel.handlers.message({body: "hello"})
-    client.channel.handlers["buffer:left"]({buffer_id: "channel:7"})
+    const message = messageEnvelope({
+      occurredAt: "invalid",
+      clientMessageId: "wire-client-id",
+      pending: true,
+      failed: true,
+    })
+    client.channel.handlers["buffer:message"](message)
 
     expect(client.socket.path).toBe("/socket")
     expect(client.socket.options.params).toEqual({_csrf_token: "csrf"})
     expect(client.socket.options.longPollFallbackMs).toBe(2500)
     expect(client.socket.topic).toBe("user:7")
     expect(client.connectionState()).toBe("open")
-    expect(onMessage).toHaveBeenCalledWith({body: "hello"})
+    expect(onBufferMessage).toHaveBeenCalledWith(expect.objectContaining({
+      id: message.id,
+      occurred_at: message.occurred_at,
+    }))
+    expect(onBufferMessage.mock.calls[0][0]).not.toHaveProperty("occurredAt")
+    expect(onBufferMessage.mock.calls[0][0]).not.toHaveProperty("clientMessageId")
+    expect(onBufferMessage.mock.calls[0][0]).not.toHaveProperty("pending")
+    expect(onBufferMessage.mock.calls[0][0]).not.toHaveProperty("failed")
+    expect(client.channel.handlers.message).toBeUndefined()
   })
 
-  test("forwards buffer left events", () => {
+  test("forwards only canonical buffer left events", () => {
     const onBufferLeft = vi.fn()
     const client = createRealtimeClient({
       SocketClass: FakeSocket,
@@ -146,12 +235,24 @@ describe("realtime client", () => {
       handlers: {onBufferLeft},
     })
 
+    const left = {
+      type: "buffer:left",
+      version: 1,
+      event_id: "buffer_left:channel:7:1",
+      occurred_at: occurredAt,
+      buffer_id: "channel:7",
+      server_connection_id: 42,
+      channel_membership_id: 7,
+    }
+    client.channel.handlers["buffer:left"](left)
+    client.channel.handlers["buffer:left"]({...left, buffer_id: "channel:8"})
     client.channel.handlers["buffer:left"]({buffer_id: "channel:7"})
 
-    expect(onBufferLeft).toHaveBeenCalledWith({buffer_id: "channel:7"})
+    expect(onBufferLeft).toHaveBeenCalledOnce()
+    expect(onBufferLeft).toHaveBeenCalledWith(left)
   })
 
-  test("forwards buffer joined events", () => {
+  test("forwards only canonical buffer joined events", () => {
     const onBufferJoined = vi.fn()
     const client = createRealtimeClient({
       SocketClass: FakeSocket,
@@ -159,9 +260,23 @@ describe("realtime client", () => {
       handlers: {onBufferJoined},
     })
 
-    client.channel.handlers["buffer:joined"]({buffer: {buffer_id: "channel:8"}})
+    const joined = {
+      type: "buffer:joined",
+      version: 1,
+      event_id: "buffer_joined:channel:7:1",
+      occurred_at: occurredAt,
+      connection: connection(),
+      buffer: channelBuffer(),
+    }
+    client.channel.handlers["buffer:joined"](joined)
+    client.channel.handlers["buffer:joined"]({
+      ...joined,
+      buffer: channelBuffer({server_connection_id: 99}),
+    })
+    client.channel.handlers["buffer:joined"]({buffer: {buffer_id: "channel:7"}})
 
-    expect(onBufferJoined).toHaveBeenCalledWith({buffer: {buffer_id: "channel:8"}})
+    expect(onBufferJoined).toHaveBeenCalledOnce()
+    expect(onBufferJoined).toHaveBeenCalledWith(joined)
   })
 
   test("forwards only canonical presence payloads", () => {
@@ -209,31 +324,39 @@ describe("realtime client", () => {
     expect(handlers.onPresenceDiff).toHaveBeenCalledWith(diff)
   })
 
-  test("forwards direct-message lifecycle events", () => {
+  test("forwards only canonical direct-message lifecycle events", () => {
     const handlers = {
       onDirectMessageThread: vi.fn(),
       onDirectMessageClosed: vi.fn(),
     }
     const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers})
 
-    client.channel.handlers["direct_message:thread"]({buffer: {buffer_id: "direct:8"}})
+    const thread = directMessageThread()
+    client.channel.handlers["direct_message:thread"](thread)
+    client.channel.handlers["direct_message:thread"]({
+      ...thread,
+      buffer: {...thread.buffer, buffer_id: "direct:9"},
+    })
     const closed = {
       type: "direct_message:closed",
       version: 1,
       event_id: "direct_message_closed:8:1",
       occurred_at: "2026-08-26T00:00:00Z",
       buffer_id: "direct:8",
-      server_connection_id: 1,
+      server_connection_id: 42,
       direct_message_thread_id: 8,
       revision: 1,
     }
     client.channel.handlers["direct_message:closed"](closed)
+    client.channel.handlers["direct_message:closed"]({...closed, buffer_id: "direct:9"})
 
-    expect(handlers.onDirectMessageThread).toHaveBeenCalledWith({buffer: {buffer_id: "direct:8"}})
+    expect(handlers.onDirectMessageThread).toHaveBeenCalledOnce()
+    expect(handlers.onDirectMessageThread).toHaveBeenCalledWith(thread)
+    expect(handlers.onDirectMessageClosed).toHaveBeenCalledOnce()
     expect(handlers.onDirectMessageClosed).toHaveBeenCalledWith(closed)
   })
 
-  test("forwards buffer error events through the timeline message handler", () => {
+  test("forwards only canonical buffer error events through the timeline message handler", () => {
     const onBufferMessage = vi.fn()
     const client = createRealtimeClient({
       SocketClass: FakeSocket,
@@ -241,12 +364,19 @@ describe("realtime client", () => {
       handlers: {onBufferMessage},
     })
 
-    client.channel.handlers["buffer:error"]({type: "buffer:error", body: "connection failed"})
+    const message = messageEnvelope({
+      type: "buffer:error",
+      body: "connection failed",
+      kind: "error",
+    })
+    client.channel.handlers["buffer:error"](message)
+    client.channel.handlers["buffer:error"]({...message, event_id: "message:12"})
 
-    expect(onBufferMessage).toHaveBeenCalledWith({type: "buffer:error", body: "connection failed"})
+    expect(onBufferMessage).toHaveBeenCalledOnce()
+    expect(onBufferMessage).toHaveBeenCalledWith(message)
   })
 
-  test("forwards buffer system events through the timeline message handler", () => {
+  test("forwards only canonical buffer system events through the timeline message handler", () => {
     const onBufferMessage = vi.fn()
     const client = createRealtimeClient({
       SocketClass: FakeSocket,
@@ -254,9 +384,75 @@ describe("realtime client", () => {
       handlers: {onBufferMessage},
     })
 
-    client.channel.handlers["buffer:system"]({type: "buffer:system", body: "akash joined #elixir"})
+    const message = messageEnvelope({
+      type: "buffer:system",
+      body: "akash joined #elixir",
+      kind: "join",
+    })
+    client.channel.handlers["buffer:system"](message)
+    client.channel.handlers["buffer:system"]({...message, channel_membership_id: 8})
 
-    expect(onBufferMessage).toHaveBeenCalledWith({type: "buffer:system", body: "akash joined #elixir"})
+    expect(onBufferMessage).toHaveBeenCalledOnce()
+    expect(onBufferMessage).toHaveBeenCalledWith(message)
+  })
+
+  test("forwards only canonical read, status, and notification preference payloads", () => {
+    const handlers = {
+      onBufferRead: vi.fn(),
+      onServerStatus: vi.fn(),
+      onNotificationPreference: vi.fn(),
+    }
+    const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers})
+    const read = {
+      type: "buffer:read",
+      version: 1,
+      event_id: "buffer_read:channel:7:1",
+      occurred_at: occurredAt,
+      buffer_id: "channel:7",
+      server_connection_id: 42,
+      channel_membership_id: 7,
+      unread_count: 0,
+      mention_count: 0,
+    }
+    const status = {
+      type: "server:status",
+      version: 1,
+      event_id: "server_status:42:1",
+      occurred_at: occurredAt,
+      server_connection_id: 42,
+      nickname: "mira",
+      status: "connected",
+    }
+    const preference = {
+      type: "notification:preference",
+      version: 1,
+      event_id: "notification_preference:channel:7:1",
+      occurred_at: occurredAt,
+      scope: "channel",
+      id: 7,
+      mention_notifications_enabled: false,
+      revision: 1,
+    }
+
+    client.channel.handlers["buffer:read"](read)
+    client.channel.handlers["buffer:read"]({...read, channel_membership_id: 8})
+    client.channel.handlers["server:status"](status)
+    client.channel.handlers["server:status"]({...status, event_id: "server_status:99:1"})
+    client.channel.handlers["notification:preference"](preference)
+    client.channel.handlers["notification:preference"]({
+      scope: "channel",
+      id: 7,
+      mention_notifications_enabled: false,
+      revision: 1,
+    })
+    client.channel.handlers["notification:preference"]({...preference, revision: -1})
+
+    expect(handlers.onBufferRead).toHaveBeenCalledOnce()
+    expect(handlers.onBufferRead).toHaveBeenCalledWith(read)
+    expect(handlers.onServerStatus).toHaveBeenCalledOnce()
+    expect(handlers.onServerStatus).toHaveBeenCalledWith(status)
+    expect(handlers.onNotificationPreference).toHaveBeenCalledOnce()
+    expect(handlers.onNotificationPreference).toHaveBeenCalledWith(preference)
   })
 
   test("wraps channel pushes in ok/error/timeout promises", async () => {

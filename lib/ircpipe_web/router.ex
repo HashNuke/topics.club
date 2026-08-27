@@ -45,7 +45,6 @@ defmodule IrcpipeWeb.Router do
     pipe_through [:browser, :require_authenticated_user]
 
     get "/chat", AppController, :index
-    get "/app", AppController, :index
   end
 
   scope "/api", IrcpipeWeb.Api do
@@ -76,12 +75,9 @@ defmodule IrcpipeWeb.Router do
     delete "/connections/:id", ConnectionController, :delete
 
     post "/connections/:connection_id/channels", ChannelController, :create
-    post "/channels/:id/read", ChannelController, :mark_read
     post "/channel_memberships/:id/leave", ChannelController, :leave
 
     get "/buffer_messages", MessageController, :buffer_index
-    get "/channels/:channel_id/messages", MessageController, :index
-    post "/channels/:channel_id/messages", MessageController, :create
 
     put "/settings", SettingsController, :update
     post "/push_subscriptions", PushSubscriptionController, :create

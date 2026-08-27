@@ -72,8 +72,6 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   end
 
   defp connection_json(connection) do
-    memberships = BootstrapBuffers.visible_memberships(connection)
-
     %{
       id: connection.id,
       name: connection.name,
@@ -85,9 +83,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
       mention_notifications_enabled: connection.mention_notifications_enabled,
-      notification_preference_revision: connection.notification_preference_revision,
-      channels: Enum.map(memberships, & &1.id),
-      direct_messages: Enum.map(connection.direct_message_threads, & &1.id)
+      notification_preference_revision: connection.notification_preference_revision
     }
   end
 

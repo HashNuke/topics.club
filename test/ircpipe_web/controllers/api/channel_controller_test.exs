@@ -33,54 +33,6 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     refute_receive {:irc_server_line, "JOIN #a,#b"}
   end
 
-  test "marks a channel membership read through the API", %{conn: conn, user: user} do
-    {:ok, connection} =
-      Connections.create(user, %{
-        "name" => "local",
-        "host" => "127.0.0.1",
-        "port" => 6667,
-        "use_tls" => false,
-        "nickname" => "mira"
-      })
-
-    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
-
-    membership =
-      membership |> Ecto.Changeset.change(unread_count: 3, mention_count: 1) |> Repo.update!()
-
-    conn = post(conn, ~p"/api/channels/#{membership.id}/read")
-
-    assert json_response(conn, 200) == %{"ok" => true}
-
-    reloaded = MembershipLookup.get!(user, membership.id)
-    assert reloaded.unread_count == 0
-    assert reloaded.mention_count == 0
-  end
-
-  test "returns a conflict when marking a channel read during connection deletion", %{
-    conn: conn,
-    user: user
-  } do
-    {:ok, connection} =
-      Connections.create(user, %{
-        "name" => "deleting",
-        "host" => "127.0.0.1",
-        "port" => 6667,
-        "use_tls" => false,
-        "nickname" => "mira"
-      })
-
-    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
-
-    connection
-    |> Ecto.Changeset.change(deleting: true)
-    |> Repo.update!()
-
-    conn = post(conn, ~p"/api/channels/#{membership.id}/read")
-
-    assert json_response(conn, 409) == %{"error" => "connection_deleting"}
-  end
-
   test "leaves a channel membership through the API", %{conn: conn, user: user} do
     server = start_supervised!({IrcTestServer, self()})
 

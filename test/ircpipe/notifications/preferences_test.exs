@@ -44,6 +44,10 @@ defmodule Ircpipe.Notifications.PreferencesTest do
 
     assert_receive {:notification_preference,
                     %{
+                      type: "notification:preference",
+                      version: 1,
+                      event_id: "notification_preference:server:" <> _,
+                      occurred_at: %DateTime{},
                       scope: "server",
                       id: server_id,
                       mention_notifications_enabled: false,
@@ -58,6 +62,10 @@ defmodule Ircpipe.Notifications.PreferencesTest do
 
     assert_receive {:notification_preference,
                     %{
+                      type: "notification:preference",
+                      version: 1,
+                      event_id: "notification_preference:channel:" <> _,
+                      occurred_at: %DateTime{},
                       scope: "channel",
                       id: channel_id,
                       mention_notifications_enabled: false,

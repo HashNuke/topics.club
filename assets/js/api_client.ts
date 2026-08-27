@@ -68,7 +68,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch}: ApiCl
       request<{channel: ChannelMembership}>(`/api/connections/${connectionId}/channels`, {method: "POST", body: JSON.stringify({channel})}),
     updateConnection: (connectionId: EntityId, connection: ConnectionForm) =>
       request<{connection: BackendConnection}>(`/api/connections/${connectionId}`, {method: "PUT", body: JSON.stringify({connection})}),
-    deleteConnection: (connectionId: EntityId) => request<{deleted?: {server_connection_id: EntityId}}>(`/api/connections/${connectionId}`, {method: "DELETE", body: JSON.stringify({})}),
+    deleteConnection: (connectionId: EntityId) => request<{deleted: unknown}>(`/api/connections/${connectionId}`, {method: "DELETE", body: JSON.stringify({})}),
     bufferMessages: (bufferId: string, params: BufferMessageParams = {}) => {
       const search = new URLSearchParams()
       if (params.limit) search.set("limit", String(params.limit))

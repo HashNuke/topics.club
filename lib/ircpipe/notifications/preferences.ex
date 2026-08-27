@@ -3,6 +3,7 @@ defmodule Ircpipe.Notifications.Preferences do
 
   alias Ircpipe.Accounts.Scope
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection, ServerConnectionLock}
+  alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
   def update_server(%Scope{user: user}, id, enabled) when is_boolean(enabled) do
@@ -65,12 +66,7 @@ defmodule Ircpipe.Notifications.Preferences do
 
     _effects =
       ServerConnectionLock.serialize_effects(connection_id, fn connection ->
-        payload = %{
-          scope: Atom.to_string(scope),
-          id: record.id,
-          mention_notifications_enabled: record.mention_notifications_enabled,
-          revision: record.notification_preference_revision
-        }
+        payload = Event.notification_preference(scope, record)
 
         maybe_pause_broadcast(record)
 

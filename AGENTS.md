@@ -491,11 +491,11 @@ And **never** do this:
 
 ## Ircpipe app notes
 
-- Ircpipe is a Phoenix app with server-rendered auth and a React IRC client mounted at `/` and `/app` via `assets/js/ircpipe_app.tsx`.
+- Ircpipe is a Phoenix app with server-rendered auth and a React IRC client mounted at `/chat` via `assets/js/ircpipe_app.tsx`.
 - The backend keeps IRC domain data in `Ircpipe.Chat`: suggested topics, user server connections, joined channels, messages, notifications, and per-user message retention.
-- Message retention is user configurable from 1 to 3 days. `Ircpipe.Chat.prune_old_messages/1` enforces it after inbound message persistence.
+- Message retention is user configurable from 1 to 3 days. `Ircpipe.Chat.Retention.prune/1` enforces it after inbound message persistence.
 - IRC runtime processes are supervised by `Ircpipe.Irc.SessionSupervisor` and registered in `Ircpipe.Irc.SessionRegistry` by `{user_id, server_connection_id}`. Keep the one-process-per-user-server invariant when adding features.
 - Deploy exactly one BEAM application node/replica. IRC session ownership is deliberately single-node; `Ircpipe.Irc.SingleNodeGuard` stops the complete IRC session subsystem if another visible node connects. Do not add DNS clustering or scale the application horizontally without first implementing database-backed ownership leases and fencing.
-- Realtime browser updates flow through `IrcpipeWeb.UserSocket` and `IrcpipeWeb.UserChannel`; browser notifications are only triggered client-side for mention events when the document is not visible.
+- Realtime UI updates flow through `IrcpipeWeb.UserSocket` and `IrcpipeWeb.UserChannel`. Mention browser notifications are delivered only through Web Push and displayed by the service worker when no visible Ircpipe window is open.
 - The React client talks to same-origin JSON endpoints under `/api/*` using the session cookie and CSRF token from the root layout.
 - OAuth sign in uses Ueberauth. Google is configured with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; dev/test also include a local `/auth/developer` provider implemented in `IrcpipeWeb.Auth.DevStrategy`.

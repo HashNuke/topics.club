@@ -1,19 +1,11 @@
 defmodule IrcpipeWeb.Api.MessageController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat.{MembershipLookup, MessageHistory}
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Realtime.Event
 
-  def index(conn, %{"channel_id" => channel_id}) do
+  def buffer_index(conn, %{"buffer_id" => buffer_id} = params) do
     user = conn.assigns.current_scope.user
-    messages = MessageHistory.list_messages(user, channel_id)
-    json(conn, %{messages: Enum.map(messages, &message_json/1)})
-  end
-
-  def buffer_index(conn, params) do
-    user = conn.assigns.current_scope.user
-    buffer_id = Map.get(params, "buffer_id") || Map.fetch!(params, "id")
 
     messages =
       case Map.get(params, "command_ids") do
@@ -35,27 +27,7 @@ defmodule IrcpipeWeb.Api.MessageController do
     json(conn, %{messages: Enum.map(messages, &message_json(&1, buffer_id))})
   end
 
-  def create(conn, %{"channel_id" => channel_id, "body" => body}) do
-    user = conn.assigns.current_scope.user
-    membership = MembershipLookup.get!(user, channel_id)
-
-    case Session.say(membership.server_connection, membership.channel, body) do
-      {:ok, _message} ->
-        json(conn, %{ok: true})
-
-      {:error, %{code: code, message: message}} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: code, message: message})
-
-      {:error, reason} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: to_string(reason)})
-    end
-  end
-
-  defp message_json(message, buffer_id \\ nil) do
+  defp message_json(message, buffer_id) do
     Event.message(message, buffer_id)
   end
 end

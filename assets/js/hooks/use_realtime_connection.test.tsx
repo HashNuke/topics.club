@@ -13,12 +13,12 @@ describe("useRealtimeConnection", () => {
       realtimeHandlers = handlers
       return {connect: () => connectedClient, disconnect}
     })
-    const onMessage = vi.fn()
+    const onBufferMessage = vi.fn()
     const onConnected = vi.fn()
     const {result, unmount} = renderHook(() => {
       const realtimeClientRef = useRef(null)
       return useRealtimeConnection({
-        handlers: {onMessage},
+        handlers: {onBufferMessage},
         onConnected,
         realtimeClientFactory,
         realtimeClientRef,
@@ -27,8 +27,8 @@ describe("useRealtimeConnection", () => {
     })
 
     expect(result.current.realtimeClientRef.current).toBe(connectedClient)
-    act(() => realtimeHandlers.onMessage({body: "hello"}))
-    expect(onMessage).toHaveBeenCalledWith({body: "hello"})
+    act(() => realtimeHandlers.onBufferMessage({body: "hello"}))
+    expect(onBufferMessage).toHaveBeenCalledWith({body: "hello"})
 
     await act(async () => realtimeHandlers.onOpen())
     expect(result.current.connectionHealth).toBe("reconnecting")

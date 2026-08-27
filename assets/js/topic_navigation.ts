@@ -14,7 +14,7 @@ export function backendTopicFor(topic: Topic, topics: TopicInput[]): TopicInput 
       numericId(normalized.id) &&
       normalized.channel === topic.channel &&
       normalized.server_host === topic.server_host &&
-      Number(normalized.server_port || 6669) === Number(topic.server_port || 6669)
+      normalized.server_port === topic.server_port
     )
   })
 }

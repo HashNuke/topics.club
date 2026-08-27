@@ -104,8 +104,8 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert user_id == user.id
     assert is_binary(session_generation)
     assert connection_json["id"] == connection.id
-    assert connection_json["channels"] == [membership.id]
-    assert connection_json["direct_messages"] == [direct_message_thread.id]
+    refute Map.has_key?(connection_json, "channels")
+    refute Map.has_key?(connection_json, "direct_messages")
     assert connection_json["mention_notifications_enabled"]
     assert Enum.any?(command_catalog, &(&1["name"] == "/quote"))
 

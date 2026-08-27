@@ -14,7 +14,7 @@ function directPush(overrides: Record<string, unknown> = {}) {
     direct_message_thread_id: 3,
     peer_nick: "akash",
     buffer_id: "direct:3",
-    url: "/app?buffer=direct:3",
+    url: "/chat?buffer=direct:3",
     ...overrides,
   }
 }
@@ -122,7 +122,7 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   notificationEligible = true
   const visibleClient = {
     id: "visible-chat",
-    url: "https://topics.example.test/app",
+    url: "https://topics.example.test/chat",
     visibilityState: "visible",
   }
   worker.clients.matchAll.mockResolvedValue([visibleClient])
@@ -188,7 +188,7 @@ test("ignores a stale tab account during replacement and trusts the server sessi
 
   worker.clients.matchAll.mockResolvedValue([{
     id: "vanished-0",
-    url: "https://topics.example.test/app",
+    url: "https://topics.example.test/chat",
     visibilityState: "visible",
   }])
   await dispatchExtendableEvent(handlers.get("push"), {
@@ -200,21 +200,43 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   expect(showNotification).toHaveBeenCalledTimes(4)
 
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => directPush({url: "https://attacker.example/app"})},
+    data: {json: () => directPush({url: "https://attacker.example/chat"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
     data: {json: () => directPush({tag: "arbitrary-tag"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => directPush({url: "/app?buffer=direct:4"})},
+    data: {json: () => directPush({url: "/chat?buffer=direct:4"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => directPush({url: "/app?buffer=direct:3&extra=true"})},
+    data: {json: () => directPush({url: "/chat?buffer=direct:3&extra=true"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
     data: {json: () => ({...directPush(), type: undefined})},
   })
   expect(showNotification).toHaveBeenCalledTimes(4)
+
+  const postgresBigintMax = "9223372036854775807"
+  const oversizedPostgresBigint = "9223372036854775808"
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => directPush({
+      notification_id: 27,
+      direct_message_thread_id: postgresBigintMax,
+      buffer_id: `direct:${postgresBigintMax}`,
+      url: `/chat?buffer=direct:${postgresBigintMax}`,
+    })},
+  })
+  expect(showNotification).toHaveBeenCalledTimes(5)
+
+  await dispatchExtendableEvent(handlers.get("push"), {
+    data: {json: () => directPush({
+      notification_id: 28,
+      direct_message_thread_id: oversizedPostgresBigint,
+      buffer_id: `direct:${oversizedPostgresBigint}`,
+      url: `/chat?buffer=direct:${oversizedPostgresBigint}`,
+    })},
+  })
+  expect(showNotification).toHaveBeenCalledTimes(5)
 
   const malformedClickNotification = {
     close: vi.fn(),
@@ -234,7 +256,7 @@ test("ignores a stale tab account during replacement and trusts the server sessi
 
   const clickedClient = {
     id: "clicked-chat",
-    url: "https://topics.example.test/app",
+    url: "https://topics.example.test/chat",
     visibilityState: "visible",
     postMessage: vi.fn(),
     focus: vi.fn().mockResolvedValue(undefined),
@@ -255,7 +277,7 @@ test("ignores a stale tab account during replacement and trusts the server sessi
       notificationId: 20,
       sessionGeneration: "session-b",
       userId: "2",
-      url: "/app?buffer=direct:3",
+      url: "/chat?buffer=direct:3",
     },
   }
   await dispatchExtendableEvent(handlers.get("notificationclick"), {
@@ -268,6 +290,34 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     userId: "2",
   })
   expect(clickedClient.focus).toHaveBeenCalledOnce()
+
+  await dispatchExtendableEvent(handlers.get("notificationclick"), {
+    notification: {
+      close: vi.fn(),
+      data: {
+        bufferId: `direct:${postgresBigintMax}`,
+        notificationId: 20,
+        sessionGeneration: "session-b",
+        userId: "2",
+        url: `/chat?buffer=direct:${postgresBigintMax}`,
+      },
+    },
+  })
+  expect(clickedClient.postMessage).toHaveBeenCalledTimes(2)
+
+  await dispatchExtendableEvent(handlers.get("notificationclick"), {
+    notification: {
+      close: vi.fn(),
+      data: {
+        bufferId: `direct:${oversizedPostgresBigint}`,
+        notificationId: 20,
+        sessionGeneration: "session-b",
+        userId: "2",
+        url: `/chat?buffer=direct:${oversizedPostgresBigint}`,
+      },
+    },
+  })
+  expect(clickedClient.postMessage).toHaveBeenCalledTimes(2)
 
   currentAccount = {user_id: null, session_generation: null}
   await dispatchExtendableEvent(handlers.get("message"), {

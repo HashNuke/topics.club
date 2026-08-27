@@ -4,7 +4,7 @@ import type {CommandCatalogEntry} from "../types.ts"
 
 export interface ChatComposerProps {
   commandCatalog?: CommandCatalogEntry[]
-  context?: string
+  context?: "server" | "channel"
   disabled?: boolean
   draft: string
   error?: string | null
@@ -113,15 +113,14 @@ function ComposerStatus({label}: {label: string}) {
   )
 }
 
-function commandSuggestionsFor(value: string, commandCatalog: CommandCatalogEntry[], context?: string): CommandCatalogEntry[] {
+function commandSuggestionsFor(value: string, commandCatalog: CommandCatalogEntry[], context?: "server" | "channel"): CommandCatalogEntry[] {
   const trimmedStart = value.trimStart()
   if (!trimmedStart.startsWith("/") || trimmedStart.includes(" ")) return []
 
   const prefix = trimmedStart.slice(1).toLowerCase()
   return commandCatalog.filter(
     (command) =>
-      command.availability !== "disabled" &&
-      (!context || command.contexts?.includes(context)) &&
+      (!context || command.contexts.includes(context)) &&
       command.name.slice(1).startsWith(prefix)
   )
 }

@@ -7,14 +7,14 @@ import {
 } from "./chat_pane.tsx"
 import ChatComposer from "./chat_composer.tsx"
 import MessageTimeline from "./message_timeline.tsx"
-import type {ChatMessage, CommandCatalogEntry, ConnectionHealth, ServerConnection} from "../types.ts"
+import type {CommandCatalogEntry, ConnectionHealth, ServerConnection, TimelineMessage} from "../types.ts"
 
 export interface ServerBufferPaneProps {
   commandCatalog: CommandCatalogEntry[]
   composerError?: string | null
   connectionHealth: ConnectionHealth
   draft: string
-  messages: ChatMessage[]
+  messages: TimelineMessage[]
   onLoadOlderMessages?: (bufferId?: string) => void
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
   onReconnectServer?: (server: ServerConnection) => void
@@ -68,7 +68,7 @@ export function ServerStatusBanner({onReconnectServer, server}: {onReconnectServ
   if (!server || server.status === "connected") return null
 
   const label = server.status === "errored" ? "Server error" : `Server ${server.status || "offline"}`
-  const canReconnect = server.status !== "connecting" && server.status !== "reconnecting"
+  const canReconnect = server.status !== "connecting"
 
   return (
     <div

@@ -10,12 +10,12 @@ describe("topic navigation", () => {
   })
 
   test("matches a normalized topic to its backend record", () => {
-    const topics = [{id: 42, channel: "#elixir", server_host: "irc.example.net", server_port: 6697}]
-    expect(backendTopicFor({channel: "#elixir", server_host: "irc.example.net", server_port: 6697}, topics)).toEqual(topics[0])
+    const topics = [{id: 42, channel: "#elixir", name: "#elixir", description: "Elixir discussion", server_host: "irc.example.net", server_port: 6697, use_tls: true}]
+    expect(backendTopicFor(topics[0], topics)).toEqual(topics[0])
   })
 
   test("finds requested topics by equivalent string ids", () => {
-    const topic = {id: 42, channel: "#elixir"}
+    const topic = {id: 42, channel: "#elixir", name: "#elixir", description: "Elixir discussion", server_host: "irc.example.net", server_port: 6697, use_tls: true}
     expect(topicForRequestedId("42", [topic])).toBe(topic)
     expect(topicForRequestedId("7", [topic])).toBeNull()
   })

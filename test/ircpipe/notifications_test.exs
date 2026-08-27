@@ -387,7 +387,7 @@ defmodule Ircpipe.NotificationsTest do
     assert payload.tag == "notification_mention:message:#{message.id}"
     assert payload.user_id == scope.user.id
     assert is_binary(payload.session_generation)
-    assert payload.url == "/app?buffer=channel:#{membership.id}"
+    assert payload.url == "/chat?buffer=channel:#{membership.id}"
   end
 
   test "delivers direct-message payloads and suppresses blocked peers", %{
@@ -429,7 +429,7 @@ defmodule Ircpipe.NotificationsTest do
     assert payload.tag == "notification_direct_message:message:#{message.id}"
     assert payload.user_id == scope.user.id
     assert is_binary(payload.session_generation)
-    assert payload.url == "/app?buffer=direct:#{thread.id}"
+    assert payload.url == "/chat?buffer=direct:#{thread.id}"
 
     assert {:ok, _blocked} =
              DirectMessageLifecycle.set_blocked(

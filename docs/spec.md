@@ -28,12 +28,13 @@ Users should think in terms of joining interesting topics. Internally, each topi
 
 ## Chat interface
 
-The public landing page is mounted at `/`. The main React IRC client is mounted at `/chat`, with `/app` retained as a compatibility route during development.
+The public landing page is mounted at `/`. The main React IRC client is mounted at `/chat`.
 
 Required layout:
 
-- Top bar: app name `topics.club` and a bell icon for browser notification opt-in.
+- Top bar: active-buffer context and a channel notification bell when a channel is selected.
 - Left sidebar: joined chat servers and channels.
+- Server rows in the left sidebar include their own notification bell.
 - Left sidebar discover entry: opens a topic discovery view using the same topic data and visual language as the landing page.
 - Center pane: active chat messages and message composer.
 - Right sidebar: users currently present in the active channel.
@@ -111,17 +112,19 @@ Messages are persisted per user and channel for short-term continuity.
 
 - User-configurable retention is from 1 to 3 days.
 - The maximum retention is 3 days.
-- `Ircpipe.Chat.prune_old_messages/1` enforces retention after inbound message persistence.
+- `Ircpipe.Chat.Retention.prune/1` enforces retention after inbound message persistence.
 - Message history older than the user's configured retention should be deleted.
 
 ## Notifications
 
-The app supports browser-based notifications.
+The PWA and desktop browser experience supports mention-only notifications.
 
-- The notification control is a bell icon in the top bar next to `topics.club`.
-- The user enables notifications explicitly by clicking the bell.
-- Browser notifications are triggered client-side for mention events when the document is not visible.
-- Notification permission state should be reflected in the UI.
+- Server notification controls live in server rows; channel controls live in the active channel's top bar.
+- Each control shows one of four states: enabled, muted, available but not enabled on this device, or unavailable in the current browser context.
+- The user requests browser permission explicitly by clicking a notification control.
+- Per-server and per-channel preferences are persisted independently; a muted server suppresses its channel notifications.
+- The backend queues eligible mentions for Web Push. The service worker displays them only when no visible Ircpipe window is open.
+- Realtime socket events update in-app state and notification preferences, but never create browser notifications.
 
 ## Backend API
 
@@ -188,6 +191,6 @@ Frontend tests should cover:
 - Left sidebar server/channel navigation.
 - Right sidebar channel user list rendering.
 - Notification bell permission states.
-- Mention notification behavior when the document is hidden.
+- Web Push notification suppression while an Ircpipe window is visible.
 
 Integration testing can use the local InspIRCd server and irssi as a second IRC client to verify realistic IRC behavior.

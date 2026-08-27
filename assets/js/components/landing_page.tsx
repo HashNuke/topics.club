@@ -2,11 +2,11 @@ import React from "react"
 import AppMark from "./app_mark.tsx"
 import AuthPrompt from "./auth_prompt.tsx"
 import TopicGrid from "./topic_grid.tsx"
-import type {CurrentUser, Topic, TopicInput} from "../types.ts"
+import type {CurrentUser, Topic} from "../types.ts"
 
 interface LandingPageProps {
   currentUser?: CurrentUser | null
-  topics: TopicInput[]
+  topics: Topic[]
   developerOauth: boolean
   selectedTopic?: Topic | null
   onSelectTopic: (topic: Topic) => void

@@ -12,12 +12,15 @@ import {
   normalizeMessage,
   trimMessagesToLimit,
 } from "../chat_store.ts"
+import {bufferServerConnectionId} from "../connection_store.ts"
+import {validBufferId, validChatMessage} from "../protocol_payload.ts"
 import type {
   AppView,
   ChatMessage,
   EntityId,
   MessagesByBuffer,
   ServerConnection,
+  TimelineMessage,
 } from "../types.ts"
 
 interface BufferMessagesOptions {
@@ -54,7 +57,7 @@ export default function useBufferMessages({
   }, [messagesByServer])
 
   function appendSystemMessage(body: string): void {
-    const message: ChatMessage = {
+    const message: TimelineMessage = {
       id: `system-${Date.now()}`,
       occurredAt: new Date().toISOString(),
       nick: "topics.club",
@@ -100,7 +103,9 @@ export default function useBufferMessages({
     loadingOlderRef.current.add(bufferId)
 
     try {
-      const {messages = []} = await apiClient.bufferMessages(bufferId, {before: oldest.id, limit: 50})
+      const response = await apiClient.bufferMessages(bufferId, {before: oldest.id, limit: 50})
+      const messages = canonicalMessages(response.messages, bufferId)
+      if (!messages) return
       const normalized = messages.map(normalizeMessage)
       if (normalized.length === 0) return
 
@@ -123,11 +128,11 @@ export default function useBufferMessages({
   }
 
   function applyRealtimeMessage(message: ChatMessage): void {
+    if (!validChatMessage(message)) return
+    const bufferId = message.buffer_id
+    const ownerId = bufferServerConnectionId(connectionsRef.current, bufferId)
+    if (ownerId === null || String(ownerId) !== String(message.server_connection_id)) return
     const normalized = normalizeMessage(message)
-    const bufferId = normalized.buffer_id || (
-      normalized.channel_membership_id ? `channel:${normalized.channel_membership_id}` : null
-    )
-    if (!bufferId) return
 
     if (bufferId.startsWith("server:")) {
       setMessagesByServer((current) => ({
@@ -184,7 +189,7 @@ export default function useBufferMessages({
     }))
   }
 
-  function replacePendingMessage(channelId: string, clientMessageId: string, message: ChatMessage): void {
+  function replacePendingMessage(channelId: string, clientMessageId: string, message: TimelineMessage): void {
     setMessagesByChannel((current) => ({
       ...current,
       [channelId]: (current[channelId] || []).map((currentMessage) =>
@@ -254,8 +259,12 @@ export default function useBufferMessages({
       ...commandIdChunks.map((ids) => apiClient.bufferMessages(bufferId, {commandIds: ids})),
     ])
       .then(([tail, ...commandUpdates]) => {
-        const repairedCommands = commandUpdates.flatMap((response) => response.messages || [])
-        const normalized = [...(tail.messages || []), ...repairedCommands].map(normalizeMessage)
+        const batches = [tail, ...commandUpdates].map((response) =>
+          canonicalMessages(response.messages, bufferId)
+        )
+        if (batches.some((messages) => messages === null)) return
+
+        const normalized = batches.flatMap((messages) => messages || []).map(normalizeMessage)
         if (normalized.length === 0) return
 
         if (bufferId.startsWith("server:")) {
@@ -303,11 +312,14 @@ export default function useBufferMessages({
 }
 
 function isBackendBufferId(bufferId?: string | null): bufferId is string {
-  return Boolean(
-    bufferId?.startsWith("channel:") ||
-      bufferId?.startsWith("direct:") ||
-      bufferId?.startsWith("server:")
-  )
+  return validBufferId(bufferId)
+}
+
+function canonicalMessages(messages: unknown, bufferId: string): ChatMessage[] | null {
+  if (!Array.isArray(messages)) return null
+  return messages.every((message) => validChatMessage(message) && message.buffer_id === bufferId)
+    ? messages
+    : null
 }
 
 function defer(callback: () => void): void {

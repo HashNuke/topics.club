@@ -1,6 +1,5 @@
 import React from "react"
-import {normalizeTopic} from "../chat_store.ts"
-import type {Topic, TopicInput} from "../types.ts"
+import type {Topic} from "../types.ts"
 
 interface TopicCardProps {
   onSelectTopic: (topic: Topic) => void
@@ -21,9 +20,8 @@ export function TopicCard({onSelectTopic, topic}: TopicCardProps) {
   )
 }
 
-export default function TopicGrid({topics, onSelectTopic}: {topics: TopicInput[]; onSelectTopic: (topic: Topic) => void}) {
-  return <div className="grid gap-3 sm:grid-cols-2">{topics.map((topic) => {
-    const normalized = normalizeTopic(topic)
-    return <TopicCard key={normalized.id} topic={normalized} onSelectTopic={onSelectTopic} />
-  })}</div>
+export default function TopicGrid({topics, onSelectTopic}: {topics: Topic[]; onSelectTopic: (topic: Topic) => void}) {
+  return <div className="grid gap-3 sm:grid-cols-2">{topics.map((topic) =>
+    <TopicCard key={topic.id} topic={topic} onSelectTopic={onSelectTopic} />
+  )}</div>
 }

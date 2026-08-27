@@ -67,7 +67,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert :ok = IrcTestServer.broadcast(server, "#pipe", "akash", "hello ircpipe")
 
-    assert_receive {:irc_message, %{body: "hello ircpipe", nick: "akash"}}, 1_000
+    assert_receive {:buffer_message, %{body: "hello ircpipe", nick: "akash"}}, 1_000
 
     messages = MessageHistory.list_messages(user, membership.id)
     assert Enum.any?(messages, &(&1.body == "hello ircpipe" and &1.nick == "akash"))
@@ -99,17 +99,17 @@ defmodule Ircpipe.Irc.SessionTest do
     assert {:noreply, ^state} =
              Session.handle_info({:ircxd, {:join, %{channel: "#pipe", nick: "akash"}}}, state)
 
-    assert_receive {:irc_message, %{kind: "join", body: "akash joined #pipe."}}
+    assert_receive {:buffer_system, %{kind: "join", body: "akash joined #pipe."}}
 
     assert {:noreply, ^state} =
              Session.handle_info({:ircxd, {:part, %{channel: "#pipe", nick: "akash"}}}, state)
 
-    assert_receive {:irc_message, %{kind: "part", body: "akash left #pipe."}}
+    assert_receive {:buffer_system, %{kind: "part", body: "akash left #pipe."}}
 
     Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}], :ascii)
 
     assert {:noreply, ^state} = Session.handle_info({:ircxd, {:quit, %{nick: "akash"}}}, state)
-    assert_receive {:irc_message, %{kind: "quit", body: "akash quit."}}
+    assert_receive {:buffer_system, %{kind: "quit", body: "akash quit."}}
 
     Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}], :ascii)
 
@@ -119,7 +119,7 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    assert_receive {:irc_message, %{kind: "nick", body: "akash is now ak."}}
+    assert_receive {:buffer_system, %{kind: "nick", body: "akash is now ak."}}
 
     assert Enum.map(MessageHistory.list_messages(user, membership.id), & &1.kind) == [
              "join",
@@ -419,7 +419,7 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    assert_receive {:irc_message,
+    assert_receive {:buffer_message,
                     %{
                       buffer_id: "channel:" <> _,
                       body: "hello local channel"
@@ -587,7 +587,7 @@ defmodule Ircpipe.Irc.SessionTest do
                       diff: %{action: "role", nick: "mira", role: "voice"}
                     }}
 
-    assert_receive {:irc_message, %{kind: "mode", body: "server set mode +ov akash mira."}}
+    assert_receive {:buffer_system, %{kind: "mode", body: "server set mode +ov akash mira."}}
 
     assert buffer_id == "channel:#{membership.id}"
 
@@ -604,7 +604,7 @@ defmodule Ircpipe.Irc.SessionTest do
                       diff: %{action: "role", nick: "akash", role: "user"}
                     }}
 
-    assert_receive {:irc_message,
+    assert_receive {:buffer_system,
                     %{kind: "mode", body: "server set mode +b-o *!*@example.test akash."}}
 
     assert {:noreply, ^state} =
@@ -697,7 +697,7 @@ defmodule Ircpipe.Irc.SessionTest do
                       diff: %{action: "part", nick: "akash"}
                     }}
 
-    assert_receive {:irc_message, %{kind: "kick", body: "akash was kicked by mira: too loud"}}
+    assert_receive {:buffer_system, %{kind: "kick", body: "akash was kicked by mira: too loud"}}
 
     assert buffer_id == "channel:#{membership.id}"
 
@@ -1041,7 +1041,7 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    assert_receive {:irc_message,
+    assert_receive {:buffer_message,
                     %{
                       kind: "action",
                       body: "waves",
@@ -1055,7 +1055,8 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    assert_receive {:irc_message, %{kind: "topic", body: "mira changed the topic to: new topic"}}
+    assert_receive {:buffer_system,
+                    %{kind: "topic", body: "mira changed the topic to: new topic"}}
 
     channel_messages = MessageHistory.list_messages(user, membership.id)
 
@@ -2102,7 +2103,7 @@ defmodule Ircpipe.Irc.SessionTest do
                ":akash!user@example.test PRIVMSG @#pipe :operators only"
              )
 
-    assert_receive {:irc_message, %{body: "operators only", buffer_id: "channel:" <> _}}, 1_000
+    assert_receive {:buffer_message, %{body: "operators only", buffer_id: "channel:" <> _}}, 1_000
 
     {:ok, info} = Session.connection_info(connection)
     {:ok, intent} = CommandRegistry.resolve("PRIVMSG +#pipe :hello voiced users", info)

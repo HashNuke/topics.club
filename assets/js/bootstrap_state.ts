@@ -1,6 +1,15 @@
 import {normalizeMessage, normalizeTopic} from "./chat_store.ts"
 import {channelFromBuffer, directMessageFromBuffer, sortConversationBuffers} from "./connection_store.ts"
 import {validPresenceUsersByBuffer} from "./presence_payload.ts"
+import {
+  validBackendConnection,
+  validBufferRecord,
+  validCommandCatalog,
+  validDirectMessageTombstone,
+  validEntityId,
+  validMessagesByBuffer,
+  validTopicInput,
+} from "./protocol_payload.ts"
 import type {
   AppView,
   BackendConnection,
@@ -24,13 +33,13 @@ export interface BootstrapPayload {
   user: CurrentUser
   active_buffer_id?: string | null
   buffers?: BufferRecord[]
-  command_catalog?: CommandCatalogEntry[]
+  command_catalog: CommandCatalogEntry[]
   connections?: BackendConnection[]
   direct_message_tombstones?: DirectMessageTombstone[]
-  message_cursors_by_buffer?: Record<string, unknown>
-  messages_by_buffer?: MessagesByBuffer
+  message_cursors_by_buffer: Record<string, EntityId | null>
+  messages_by_buffer: Record<string, ChatMessage[]>
   push: PushConfig
-  topics?: TopicInput[]
+  topics: TopicInput[]
   users_by_buffer: Record<string, ChatUser[]>
 }
 
@@ -40,7 +49,7 @@ export interface BootstrapState {
   commandCatalog: CommandCatalogEntry[]
   connections: ServerConnection[]
   directMessageTombstones: DirectMessageTombstone[]
-  cursorsByBuffer: Record<string, unknown>
+  cursorsByBuffer: Record<string, EntityId | null>
   messagesByChannel: MessagesByBuffer
   messagesByServer: MessagesByBuffer
   push: PushConfig
@@ -55,7 +64,12 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     !bootstrap?.buffers ||
     !bootstrap?.connections ||
     !Array.isArray(bootstrap.direct_message_tombstones) ||
+    !validCommandCatalog(bootstrap.command_catalog) ||
+    !bootstrap.message_cursors_by_buffer ||
+    !bootstrap.messages_by_buffer ||
     !validPushConfig(bootstrap.push) ||
+    !Array.isArray(bootstrap.topics) ||
+    !bootstrap.topics.every(validTopicInput) ||
     !validPresenceUsersByBuffer(bootstrap.users_by_buffer)
   ) return null
 
@@ -63,6 +77,28 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     !bootstrap.connections.every(validBackendConnection) ||
     !bootstrap.buffers.every(validBufferRecord) ||
     !bootstrap.direct_message_tombstones.every(validDirectMessageTombstone)
+  ) return null
+
+  const connectionIds = bootstrap.connections.map((connection) => String(connection.id))
+  const bufferIdList = bootstrap.buffers.map((buffer) => buffer.buffer_id)
+  const bufferIds = new Set(bufferIdList)
+
+  if (
+    new Set(connectionIds).size !== connectionIds.length ||
+    bufferIds.size !== bufferIdList.length ||
+    !validMessagesByBuffer(bootstrap.messages_by_buffer, bufferIds) ||
+    !exactKeys(bootstrap.messages_by_buffer, bufferIds) ||
+    !validBootstrapCursors(
+      bootstrap.message_cursors_by_buffer,
+      bootstrap.messages_by_buffer,
+      bufferIds
+    ) ||
+    !validBootstrapOwnership(
+      bootstrap.connections,
+      bootstrap.buffers,
+      bootstrap.messages_by_buffer,
+      bootstrap.direct_message_tombstones
+    )
   ) return null
 
   const channelBufferIds = new Set(
@@ -125,14 +161,13 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
   const messagesByServer = Object.fromEntries(
     connections.map((connection) => [
       connection.id,
-      (bootstrap.messages_by_buffer || {})[connection.id]?.map(normalizeMessage) || [],
+      bootstrap.messages_by_buffer[connection.id].map(normalizeMessage),
     ])
   )
   const messagesByChannel = Object.fromEntries(
-    Object.entries(bootstrap.messages_by_buffer || {}).map(([bufferId, messages]) => [
-      bufferId,
-      messages.map(normalizeMessage),
-    ])
+    Object.entries(bootstrap.messages_by_buffer)
+      .filter(([bufferId]) => !bufferId.startsWith("server:"))
+      .map(([bufferId, messages]) => [bufferId, messages.map(normalizeMessage)])
   )
 
   let activeChannelId: string | null = null
@@ -166,17 +201,73 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
   return {
     activeChannelId,
     activeServerId,
-    commandCatalog: bootstrap.command_catalog || [],
+    commandCatalog: bootstrap.command_catalog,
     connections,
     directMessageTombstones: bootstrap.direct_message_tombstones,
-    cursorsByBuffer: bootstrap.message_cursors_by_buffer || {},
+    cursorsByBuffer: bootstrap.message_cursors_by_buffer,
     messagesByChannel,
     messagesByServer,
     push: bootstrap.push,
-    topics: bootstrap.topics?.length ? bootstrap.topics.map(normalizeTopic) : null,
+    topics: bootstrap.topics.length > 0 ? bootstrap.topics.map(normalizeTopic) : null,
     usersByChannel: bootstrap.users_by_buffer,
     view,
   }
+}
+
+function validBootstrapOwnership(
+  connections: BackendConnection[],
+  buffers: BufferRecord[],
+  messagesByBuffer: Record<string, ChatMessage[]>,
+  tombstones: DirectMessageTombstone[]
+): boolean {
+  const connectionIds = new Set(connections.map((connection) => String(connection.id)))
+  const buffersById = new Map(buffers.map((buffer) => [buffer.buffer_id, buffer]))
+
+  if (!connections.every((connection) => {
+    const buffer = buffersById.get(`server:${connection.id}`)
+    return buffer?.buffer_type === "server" &&
+      String(buffer.server_connection_id) === String(connection.id)
+  })) return false
+
+  if (!buffers.every((buffer) => connectionIds.has(String(buffer.server_connection_id)))) {
+    return false
+  }
+
+  if (!Object.entries(messagesByBuffer).every(([bufferId, messages]) => {
+    const owner = buffersById.get(bufferId)?.server_connection_id
+    return owner !== undefined && messages.every(
+      (message) => String(message.server_connection_id) === String(owner)
+    )
+  })) return false
+
+  const tombstoneIds = tombstones.map((tombstone) => tombstone.buffer_id)
+  if (new Set(tombstoneIds).size !== tombstoneIds.length) return false
+
+  return tombstones.every((tombstone) => {
+    if (!connectionIds.has(String(tombstone.server_connection_id))) return false
+    const buffer = buffersById.get(tombstone.buffer_id)
+    return !buffer || String(buffer.server_connection_id) === String(tombstone.server_connection_id)
+  })
+}
+
+function validBootstrapCursors(
+  cursors: Record<string, EntityId | null>,
+  messagesByBuffer: Record<string, ChatMessage[]>,
+  bufferIds: ReadonlySet<string>
+): boolean {
+  if (!exactKeys(cursors, bufferIds)) return false
+
+  return Object.entries(cursors).every(([bufferId, cursor]) => {
+    if (cursor !== null && !validEntityId(cursor)) return false
+    const messages = messagesByBuffer[bufferId]
+    const latestId = messages.length > 0 ? messages[messages.length - 1].id : null
+    return latestId === null ? cursor === null : String(cursor) === String(latestId)
+  })
+}
+
+function exactKeys(value: object, expected: ReadonlySet<string>): boolean {
+  const keys = Object.keys(value)
+  return keys.length === expected.size && keys.every((key) => expected.has(key))
 }
 
 function validCurrentUser(user?: CurrentUser | null): user is CurrentUser {
@@ -185,86 +276,6 @@ function validCurrentUser(user?: CurrentUser | null): user is CurrentUser {
     validEntityId(user.id) &&
     typeof user.email === "string" &&
     user.email.length > 0
-  )
-}
-
-function validBackendConnection(connection: BackendConnection): boolean {
-  return Boolean(
-    connection &&
-    validEntityId(connection.id) &&
-    typeof connection.host === "string" &&
-    connection.host.length > 0 &&
-    validNotificationPreference(connection)
-  )
-}
-
-function validBufferRecord(buffer: BufferRecord): boolean {
-  if (
-    !buffer ||
-    typeof buffer.buffer_id !== "string" ||
-    !validEntityId(buffer.server_connection_id) ||
-    typeof buffer.title !== "string"
-  ) return false
-
-  switch (buffer.buffer_type) {
-    case "server":
-      return (
-        buffer.buffer_id === `server:${buffer.server_connection_id}` &&
-        validNotificationPreference(buffer)
-      )
-
-    case "channel":
-      return (
-        validEntityId(buffer.channel_membership_id) &&
-        buffer.buffer_id === `channel:${buffer.channel_membership_id}` &&
-        validNotificationPreference(buffer)
-      )
-
-    case "direct_message":
-      return (
-        validEntityId(buffer.direct_message_thread_id) &&
-        buffer.buffer_id === `direct:${buffer.direct_message_thread_id}` &&
-        validRevision(buffer.direct_message_revision) &&
-        buffer.title.trim().length > 0 &&
-        typeof buffer.subtitle === "string" &&
-        buffer.subtitle.trim().length > 0 &&
-        typeof buffer.peer_nick === "string" &&
-        buffer.peer_nick === buffer.title &&
-        (buffer.account === null || typeof buffer.account === "string") &&
-        (buffer.hostmask === null || typeof buffer.hostmask === "string") &&
-        (buffer.closed_at === null || validIsoTimestamp(buffer.closed_at)) &&
-        typeof buffer.unread_count === "number" &&
-        Number.isSafeInteger(buffer.unread_count) &&
-        buffer.unread_count >= 0 &&
-        buffer.mention_count === 0 &&
-        typeof buffer.blocked === "boolean"
-      )
-  }
-}
-
-function validIsoTimestamp(value: unknown): value is string {
-  return typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value) &&
-    Number.isFinite(Date.parse(value))
-}
-
-function validDirectMessageTombstone(tombstone: DirectMessageTombstone): boolean {
-  return Boolean(
-    tombstone &&
-    validEntityId(tombstone.server_connection_id) &&
-    validEntityId(tombstone.direct_message_thread_id) &&
-    tombstone.buffer_id === `direct:${tombstone.direct_message_thread_id}` &&
-    validRevision(tombstone.revision)
-  )
-}
-
-function validNotificationPreference(value: {
-  mention_notifications_enabled: boolean
-  notification_preference_revision: number
-}): boolean {
-  return (
-    typeof value.mention_notifications_enabled === "boolean" &&
-    validRevision(value.notification_preference_revision)
   )
 }
 
@@ -284,13 +295,4 @@ function validPushConfig(push: PushConfig): boolean {
       ? typeof push.session_installation_id === "string"
       : push.session_installation_id === null)
   )
-}
-
-function validRevision(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-}
-
-function validEntityId(value: unknown): value is EntityId {
-  if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
-  return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
 }

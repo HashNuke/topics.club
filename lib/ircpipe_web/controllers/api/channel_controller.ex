@@ -1,7 +1,7 @@
 defmodule IrcpipeWeb.Api.ChannelController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat.{Connections, MembershipLookup, ReadState}
+  alias Ircpipe.Chat.{Connections, MembershipLookup}
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -26,26 +26,6 @@ defmodule IrcpipeWeb.Api.ChannelController do
         conn
         |> put_status(join_status(reason))
         |> json(%{error: join_error(reason)})
-    end
-  end
-
-  def mark_read(conn, %{"id" => id}) do
-    user = conn.assigns.current_scope.user
-    membership = MembershipLookup.get!(user, id)
-
-    case ReadState.mark(user, membership) do
-      :ok ->
-        json(conn, %{ok: true})
-
-      {:error, :connection_deleting} ->
-        conn
-        |> put_status(:conflict)
-        |> json(%{error: "connection_deleting"})
-
-      {:error, _reason} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "invalid_buffer"})
     end
   end
 

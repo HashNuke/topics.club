@@ -2,7 +2,7 @@ import AppShell from "./app_shell.tsx"
 
 const channel = {id: "channel:1", channel: "#elixir", topic: "Phoenix and OTP help", mention_count: 1, connection: {host: "irc.example.net", status: "connected"}}
 const server = {id: "server:1", server_connection_id: 1, name: "Example IRC", host: "irc.example.net", port: 6697, status: "connected", channels: [channel]}
-const topics = [{id: "elixir", channel: "#elixir", server_host: "irc.example.net", description: "Phoenix and OTP help.", members: 426}]
+const topics = [{id: 1, channel: "#elixir", name: "#elixir", server_host: "irc.example.net", server_port: 6697, use_tls: true, description: "Phoenix and OTP help.", members: 426}]
 const messages = [{id: "message:1", nick: "mira", body: "Welcome to the full app shell preview.", kind: "message", occurredAt: "2026-08-25T15:00:00Z"}]
 const users = [{nick: "mira", nick_key: "mira", role: "op", status: "online"}, {nick: "akash", nick_key: "akash", role: "user", status: "online"}]
 const noop = () => {}

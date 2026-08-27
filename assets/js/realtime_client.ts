@@ -1,16 +1,26 @@
 import type {
+  BufferJoinedPayload,
   BufferLeftPayload,
   BufferReadPayload,
   ChatMessage,
   DirectMessageClosedPayload,
   DirectMessageThreadPayload,
-  JoinedTopicPayload,
-  NotificationPreferencePayload,
+  NotificationPreferenceEventPayload,
   PresenceDiffPayload,
   PresenceSyncPayload,
   ServerStatusPayload,
 } from "./types.ts"
 import {validPresenceDiffPayload, validPresenceSyncPayload} from "./presence_payload.ts"
+import {
+  canonicalChatMessage,
+  validBufferJoinedPayload,
+  validBufferLeftPayload,
+  validBufferReadPayload,
+  validDirectMessageClosedPayload,
+  validDirectMessageThreadPayload,
+  validNotificationPreferenceEventPayload,
+  validServerStatusPayload,
+} from "./protocol_payload.ts"
 
 export type RealtimePayload = Record<string, unknown>
 
@@ -50,17 +60,16 @@ export interface RealtimeHandlers {
   onJoinTimeout?(): void
   onChannelClose?(payload: unknown): void
   onChannelError?(payload: unknown): void
-  onMessage?(payload: ChatMessage): void
   onBufferMessage?(payload: ChatMessage): void
   onBufferRead?(payload: BufferReadPayload): void
   onBufferLeft?(payload: BufferLeftPayload): void
-  onBufferJoined?(payload: JoinedTopicPayload): void
+  onBufferJoined?(payload: BufferJoinedPayload): void
   onDirectMessageThread?(payload: DirectMessageThreadPayload): void
   onDirectMessageClosed?(payload: DirectMessageClosedPayload): void
   onServerStatus?(payload: ServerStatusPayload): void
   onPresenceSync?(payload: PresenceSyncPayload): void
   onPresenceDiff?(payload: PresenceDiffPayload): void
-  onNotificationPreference?(payload: NotificationPreferencePayload): void
+  onNotificationPreference?(payload: NotificationPreferenceEventPayload): void
 }
 
 interface RealtimeClientOptions {
@@ -97,23 +106,45 @@ export function createRealtimeClient({
   channel.onClose?.((payload) => handlers.onChannelClose?.(payload))
   channel.onError?.((payload) => handlers.onChannelError?.(payload))
 
-  channel.on("message", (payload) => handlers.onMessage?.(payload as unknown as ChatMessage))
-  channel.on("buffer:message", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
-  channel.on("buffer:error", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
-  channel.on("buffer:system", (payload) => handlers.onBufferMessage?.(payload as unknown as ChatMessage))
-  channel.on("buffer:read", (payload) => handlers.onBufferRead?.(payload as unknown as BufferReadPayload))
-  channel.on("buffer:left", (payload) => handlers.onBufferLeft?.(payload as unknown as BufferLeftPayload))
-  channel.on("buffer:joined", (payload) => handlers.onBufferJoined?.(payload as unknown as JoinedTopicPayload))
-  channel.on("direct_message:thread", (payload) => handlers.onDirectMessageThread?.(payload as unknown as DirectMessageThreadPayload))
-  channel.on("direct_message:closed", (payload) => handlers.onDirectMessageClosed?.(payload as unknown as DirectMessageClosedPayload))
-  channel.on("server:status", (payload) => handlers.onServerStatus?.(payload as unknown as ServerStatusPayload))
+  channel.on("buffer:message", (payload) => {
+    const message = canonicalChatMessage(payload)
+    if (message) handlers.onBufferMessage?.(message)
+  })
+  channel.on("buffer:error", (payload) => {
+    const message = canonicalChatMessage(payload)
+    if (message) handlers.onBufferMessage?.(message)
+  })
+  channel.on("buffer:system", (payload) => {
+    const message = canonicalChatMessage(payload)
+    if (message) handlers.onBufferMessage?.(message)
+  })
+  channel.on("buffer:read", (payload) => {
+    if (validBufferReadPayload(payload)) handlers.onBufferRead?.(payload)
+  })
+  channel.on("buffer:left", (payload) => {
+    if (validBufferLeftPayload(payload)) handlers.onBufferLeft?.(payload)
+  })
+  channel.on("buffer:joined", (payload) => {
+    if (validBufferJoinedPayload(payload)) handlers.onBufferJoined?.(payload)
+  })
+  channel.on("direct_message:thread", (payload) => {
+    if (validDirectMessageThreadPayload(payload)) handlers.onDirectMessageThread?.(payload)
+  })
+  channel.on("direct_message:closed", (payload) => {
+    if (validDirectMessageClosedPayload(payload)) handlers.onDirectMessageClosed?.(payload)
+  })
+  channel.on("server:status", (payload) => {
+    if (validServerStatusPayload(payload)) handlers.onServerStatus?.(payload)
+  })
   channel.on("presence:sync", (payload) => {
     if (validPresenceSyncPayload(payload)) handlers.onPresenceSync?.(payload)
   })
   channel.on("presence:diff", (payload) => {
     if (validPresenceDiffPayload(payload)) handlers.onPresenceDiff?.(payload)
   })
-  channel.on("notification:preference", (payload) => handlers.onNotificationPreference?.(payload as unknown as NotificationPreferencePayload))
+  channel.on("notification:preference", (payload) => {
+    if (validNotificationPreferenceEventPayload(payload)) handlers.onNotificationPreference?.(payload)
+  })
 
   function connect() {
     socket.connect()

@@ -1,9 +1,9 @@
 {
-  "id": "/app",
+  "id": "/chat",
   "name": "topics.club",
   "short_name": "topics.club",
   "description": "A focused IRC client for finding and following great conversations.",
-  "start_url": "/app",
+  "start_url": "/chat",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0a0d12",

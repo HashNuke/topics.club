@@ -1,5 +1,5 @@
 import React from "react"
-import type {ChatMessage} from "../types.ts"
+import type {TimelineMessage} from "../types.ts"
 
 const META_MESSAGE_KINDS = [
   "system",
@@ -15,7 +15,7 @@ const META_MESSAGE_KINDS = [
   "error",
 ]
 
-export default function MessageRow({message, onRetryMessage}: {message: ChatMessage; onRetryMessage?: (message: ChatMessage) => void}) {
+export default function MessageRow({message, onRetryMessage}: {message: TimelineMessage; onRetryMessage?: (message: TimelineMessage) => void}) {
   if (META_MESSAGE_KINDS.includes(message.kind || "")) {
     return (
       <div

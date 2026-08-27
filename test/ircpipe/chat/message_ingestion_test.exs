@@ -65,7 +65,6 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
     assert Repo.aggregate(Message, :count) == initial_messages
     assert Repo.aggregate(Notification, :count) == initial_notifications
     assert Repo.aggregate(Oban.Job, :count) == initial_jobs
-    refute_received {:irc_message, _payload}
     refute_received {:buffer_system, _payload}
   end
 
@@ -97,7 +96,6 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
     assert Repo.aggregate(Message, :count) == initial_messages
     assert Repo.aggregate(Notification, :count) == initial_notifications
     assert Repo.aggregate(Oban.Job, :count) == initial_jobs
-    refute_received {:irc_message, _payload}
     refute_received {:buffer_system, _payload}
   end
 
@@ -115,7 +113,6 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
              )
 
     refute Repo.get_by(Message, body: "late channel line")
-    refute_received {:irc_message, _payload}
     refute_received {:buffer_message, _payload}
   end
 

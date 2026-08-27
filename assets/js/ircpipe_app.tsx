@@ -5,6 +5,7 @@ import {
   saveActiveBufferPreference,
   selectPreferredBuffer,
 } from "./active_buffer_preference.ts"
+import {bufferServerConnectionId} from "./connection_store.ts"
 import {createApiClient, type ApiClient} from "./api_client.ts"
 import {
   commandErrorMessage,
@@ -38,6 +39,14 @@ import {
   normalizeTopic,
 } from "./chat_store.ts"
 import {validPresenceDiffPayload, validPresenceSyncPayload} from "./presence_payload.ts"
+import {
+  validChatMessage,
+  validDirectMessageThreadPayload,
+  validEntityId,
+  validNotificationPreferencePayload,
+  validNotificationPreferenceResponse,
+  validTopicInput,
+} from "./protocol_payload.ts"
 import {requestedTopicId, topicForRequestedId} from "./topic_navigation.ts"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.ts"
 import useBufferMessages from "./hooks/use_buffer_messages.ts"
@@ -47,7 +56,6 @@ import useServerConnections from "./hooks/use_server_connections.ts"
 import type {RealtimeClient, RealtimeHandlers} from "./realtime_client.ts"
 import type {
   AppView,
-  BufferReadPayload,
   Channel,
   DirectMessageBufferRecord,
   ChannelDirectory,
@@ -63,6 +71,7 @@ import type {
   PushConfig,
   ServerConnection,
   Topic,
+  TimelineMessage,
   UsersByBuffer,
 } from "./types.ts"
 export {appendTimelineMessage, trimMessagesToLimit} from "./chat_store.ts"
@@ -84,26 +93,17 @@ function notificationPreferenceKey(scope: "server" | "channel", id: EntityId): s
   return `${scope}:${id}`
 }
 
-function validProtocolEntityId(value: unknown): value is EntityId {
-  if (typeof value === "number") return Number.isSafeInteger(value) && value > 0
-  return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value)
-}
-
 function validSentMessageReply(
-  message: ChatMessage,
+  message: unknown,
   channel: Channel,
   expectedBody: string
-): boolean {
+): message is ChatMessage {
   const expectedServerId = channel.connection?.server_connection_id
 
   if (
-    !message ||
+    !validChatMessage(message) ||
     message.type !== "buffer:message" ||
-    message.version !== 1 ||
-    !validProtocolEntityId(message.id) ||
-    message.event_id !== `message:${message.id}` ||
-    !validProtocolEntityId(message.server_connection_id) ||
-    !validProtocolEntityId(expectedServerId) ||
+    !validEntityId(expectedServerId) ||
     String(message.server_connection_id) !== String(expectedServerId) ||
     message.buffer_id !== channel.id ||
     typeof message.nick !== "string" ||
@@ -114,9 +114,9 @@ function validSentMessageReply(
   ) return false
 
   return channel.buffer_type === "direct_message"
-    ? validProtocolEntityId(message.direct_message_thread_id) &&
+    ? validEntityId(message.direct_message_thread_id) &&
         String(message.direct_message_thread_id) === String(channel.direct_message_thread_id)
-    : validProtocolEntityId(message.channel_membership_id) &&
+    : validEntityId(message.channel_membership_id) &&
         String(message.channel_membership_id) === String(channel.channel_membership_id)
 }
 
@@ -247,6 +247,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     applyDirectMessageClosed,
     applyDirectMessageThread,
     applyJoinedChannel,
+    applyJoinedTopicResponse,
     applyServerStatus,
     connections,
     closeDirectMessage,
@@ -301,7 +302,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   const {connectionHealth, retryRealtimeConnection} = useRealtimeConnection({
     handlers: {
-      onMessage: (payload) => applyOrQueueRealtimeEvent(() => applyRealtimeMessage(payload)),
       onBufferMessage: (payload) => applyOrQueueRealtimeEvent(() => applyRealtimeMessage(payload)),
       onBufferJoined: (payload) => applyOrQueueRealtimeEvent(() => {
         applyAuthoritativeJoinedTopic(payload)
@@ -403,7 +403,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     const navigateFromNotification = (event: MessageEvent) => {
       if (event.data?.type !== "notification:navigate") return
       const bufferId = notificationBufferId(event.data.bufferId)
-      const userId = validProtocolEntityId(event.data.userId) ? String(event.data.userId) : null
+      const userId = validEntityId(event.data.userId) ? String(event.data.userId) : null
       const sessionGeneration = typeof event.data.sessionGeneration === "string"
         ? event.data.sessionGeneration
         : null
@@ -427,7 +427,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient
       .topics()
       .then(({topics}) => {
-        setTopics(topics?.length ? topics.map(normalizeTopic) : [])
+        if (!Array.isArray(topics) || !topics.every(validTopicInput)) {
+          throw new Error("invalid topics payload")
+        }
+
+        setTopics(topics.map(normalizeTopic))
         setTopicsLoaded(true)
       })
       .catch(() => {
@@ -461,13 +465,16 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient
       .bootstrap()
       .then((bootstrap) => {
-        if (active) applyBootstrap(bootstrap)
+        if (!active) return
+
+        const applied = applyBootstrap(bootstrap)
+        setBootstrapLoading(false)
+        setBootstrapReady(applied)
       })
-      .catch(() => {})
-      .finally(() => {
+      .catch(() => {
         if (active) {
           setBootstrapLoading(false)
-          setBootstrapReady(true)
+          setBootstrapReady(false)
         }
       })
 
@@ -550,7 +557,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       try {
         const reply = await realtimeClientRef.current.push<{
           directory?: ChannelDirectory
-        } | (DirectMessageThreadPayload & {message: ChatMessage})>("command:run", {
+        } | (DirectMessageThreadPayload & {message: unknown})>("command:run", {
           command_id: commandId,
           input: body,
           buffer_id: bufferId,
@@ -585,7 +592,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     if (isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)) return
     setComposerError(null)
 
-    const nextMessage: ChatMessage = {
+    const nextMessage: TimelineMessage = {
       id: `${view}-${Date.now()}`,
       occurredAt: new Date().toISOString(),
       nick: currentUser?.email?.split("@")[0] || "you",
@@ -606,7 +613,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setDraft("")
 
       try {
-        const reply = await realtimeClientRef.current.push<{message: ChatMessage}>("message:send", {
+        const reply = await realtimeClientRef.current.push<{message: unknown}>("message:send", {
           client_message_id: clientMessageId,
           buffer_id: activeChannel.id,
           body,
@@ -630,7 +637,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setDraft("")
   }
 
-  async function retryMessage(message: ChatMessage): Promise<void> {
+  async function retryMessage(message: TimelineMessage): Promise<void> {
     if (!activeChannel || !isRealtimeChannel(activeChannel) || !realtimeClientRef.current || !realtimeReadyFor(activeChannel, connectionHealth)) return
 
     const clientMessageId = `client-${Date.now()}`
@@ -651,7 +658,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     }))
 
     try {
-      const reply = await realtimeClientRef.current.push<{message: ChatMessage}>("message:send", {
+      const reply = await realtimeClientRef.current.push<{message: unknown}>("message:send", {
         client_message_id: clientMessageId,
         buffer_id: activeChannel.id,
         body: message.body,
@@ -672,7 +679,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     try {
       const joined = await apiClient.joinDiscoveryServerChannel(serverChannel.id)
-      applyAuthoritativeJoinedTopic(joined)
+      applyJoinedTopicResponse(joined)
     } catch (_error) {
       setDiscoverError(`Could not join ${serverChannel.name} on ${serverChannel.network_name}.`)
     } finally {
@@ -771,7 +778,14 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     try {
       const {preference} = await apiClient.updateServerNotificationPreference(server.server_connection_id, enabled)
-      applyNotificationPreference(preference)
+      if (!validNotificationPreferenceResponse(preference, {
+        scope: "server",
+        id: server.server_connection_id,
+        mention_notifications_enabled: enabled,
+        baseRevision: revision,
+      }) || !applyNotificationPreference(preference)) {
+        rollbackNotificationPreference("server", server.server_connection_id, operation)
+      }
     } catch (_error) {
       rollbackNotificationPreference("server", server.server_connection_id, operation)
     } finally {
@@ -789,7 +803,14 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     try {
       const {preference} = await apiClient.updateChannelNotificationPreference(channel.channel_membership_id, enabled)
-      applyNotificationPreference(preference)
+      if (!validNotificationPreferenceResponse(preference, {
+        scope: "channel",
+        id: channel.channel_membership_id,
+        mention_notifications_enabled: enabled,
+        baseRevision: revision,
+      }) || !applyNotificationPreference(preference)) {
+        rollbackNotificationPreference("channel", channel.channel_membership_id, operation)
+      }
     } catch (_error) {
       rollbackNotificationPreference("channel", channel.channel_membership_id, operation)
     } finally {
@@ -806,14 +827,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     })
   }
 
-  function applyNotificationPreference(payload: NotificationPreferencePayload): void {
-    if (
-      !["server", "channel"].includes(payload.scope) ||
-      !validProtocolEntityId(payload.id) ||
-      typeof payload.mention_notifications_enabled !== "boolean" ||
-      !Number.isSafeInteger(payload.revision) ||
-      payload.revision < 0
-    ) return
+  function applyNotificationPreference(payload: NotificationPreferencePayload): boolean {
+    if (!validNotificationPreferencePayload(payload)) return false
+
+    const targetRevision = payload.scope === "server"
+      ? connectionsRef.current.find(
+        (server) => String(server.server_connection_id) === String(payload.id)
+      )?.notification_preference_revision
+      : connectionsRef.current
+        .flatMap((server) => server.channels)
+        .find((channel) =>
+          channel.buffer_type === "channel" &&
+          String(channel.channel_membership_id) === String(payload.id)
+        )?.notification_preference_revision
+    if (targetRevision === undefined || payload.revision <= targetRevision) return false
 
     setConnections((current) => current.map((server) => {
       if (payload.scope === "server" && String(server.server_connection_id) === String(payload.id)) {
@@ -849,6 +876,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         ),
       }
     }))
+
+    return true
   }
 
   function applyOptimisticNotificationPreference(
@@ -924,6 +953,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   function applyPresenceSync(payload: PresenceSyncPayload): void {
     if (!validPresenceSyncPayload(payload)) return
+    const ownerId = bufferServerConnectionId(connectionsRef.current, payload.buffer_id)
+    if (ownerId === null || String(ownerId) !== String(payload.server_connection_id)) return
 
     setUsersByChannel((current) => ({
       ...current,
@@ -933,6 +964,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   function applyPresenceDiff(payload: PresenceDiffPayload): void {
     if (!validPresenceDiffPayload(payload)) return
+    const ownerId = bufferServerConnectionId(connectionsRef.current, payload.buffer_id)
+    if (ownerId === null || String(ownerId) !== String(payload.server_connection_id)) return
 
     setUsersByChannel((current) => ({
       ...current,
@@ -1057,9 +1090,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient
       .bootstrap()
       .then((bootstrap) => {
-        if (applyBootstrap(bootstrap, true)) return reconcileAllBuffers()
+        if (!applyBootstrap(bootstrap, true)) throw new Error("invalid bootstrap payload")
       })
-      .catch(() => reconcileAllBuffers())
+      .catch(() => undefined)
+      .then(() => reconcileAllBuffers())
       .finally(() => {
         realtimeRefreshInFlightRef.current = false
 
@@ -1202,10 +1236,11 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function openDirectMessage(
-    payload: DirectMessageThreadPayload,
-    message: ChatMessage,
+    payload: unknown,
+    message: unknown,
     expectedBody: string
   ): boolean {
+    if (!validDirectMessageThreadPayload(payload)) return false
     const {buffer} = payload
     const server = connectionsRef.current.find(
       (connection) => String(connection.server_connection_id) === String(payload.connection.id)
@@ -1238,26 +1273,20 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function validDirectMessageReply(
-    message: ChatMessage,
+    message: unknown,
     buffer: DirectMessageBufferRecord,
     expectedBody: string
-  ): boolean {
+  ): message is ChatMessage {
     return Boolean(
-      message &&
+      validChatMessage(message) &&
       message.type === "buffer:message" &&
-      message.version === 1 &&
-      validProtocolEntityId(message.id) &&
-      message.event_id === `message:${message.id}` &&
-      validProtocolEntityId(message.server_connection_id) &&
-      validProtocolEntityId(message.direct_message_thread_id) &&
+      validEntityId(message.direct_message_thread_id) &&
       message.buffer_id === buffer.buffer_id &&
       String(message.server_connection_id) === String(buffer.server_connection_id) &&
       String(message.direct_message_thread_id) === String(buffer.direct_message_thread_id) &&
       typeof message.nick === "string" &&
       message.nick.length > 0 &&
-      message.body === expectedBody &&
-      typeof message.occurred_at === "string" &&
-      Number.isFinite(Date.parse(message.occurred_at))
+      message.body === expectedBody
     )
   }
 
@@ -1281,10 +1310,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         )
         applyDirectMessageThread(payload)
       } else {
-        const payload = await realtimeClientRef.current.push<BufferReadPayload>("buffer:read", {
+        await realtimeClientRef.current.push("buffer:read", {
           buffer_id: bufferId,
         })
-        applyBufferRead(payload)
       }
     } catch (error: unknown) {
       if (isStaleDirectMessageError(error)) refreshAuthoritativeBootstrapRef.current()

@@ -5,10 +5,122 @@ import userEvent from "@testing-library/user-event"
 import IrcpipeApp, {appendTimelineMessage, trimMessagesToLimit, visibleTimelineMessages} from "./ircpipe_app.tsx"
 
 const topicFixtures = [
-  {id: "fixture-elixir", name: "#elixir", description: "Phoenix, OTP, releases, and production Elixir help.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#elixir", members: 426},
-  {id: "fixture-phoenix", name: "#phoenix", description: "LiveView patterns, web UI questions, and framework support.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#phoenix", members: 188},
-  {id: "fixture-linux", name: "#linux", description: "Daily Linux discussion and troubleshooting.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#linux", members: 931},
+  {id: 101, name: "#elixir", description: "Phoenix, OTP, releases, and production Elixir help.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#elixir"},
+  {id: 102, name: "#phoenix", description: "LiveView patterns, web UI questions, and framework support.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#phoenix"},
+  {id: 103, name: "#linux", description: "Daily Linux discussion and troubleshooting.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#linux"},
 ]
+
+const systemMessageKinds = new Set([
+  "system",
+  "command",
+  "join",
+  "part",
+  "quit",
+  "nick",
+  "topic",
+  "mode",
+  "kick",
+])
+
+function canonicalMessage(message = {}) {
+  const id = message.id || 1
+  const bufferId = message.buffer_id || "channel:7"
+  const kind = message.kind || "message"
+  const channelMembershipId = bufferId.startsWith("channel:")
+    ? Number(bufferId.slice("channel:".length))
+    : null
+  const directMessageThreadId = bufferId.startsWith("direct:")
+    ? Number(bufferId.slice("direct:".length))
+    : null
+
+  return {
+    type: kind === "error"
+      ? "buffer:error"
+      : systemMessageKinds.has(kind)
+        ? "buffer:system"
+        : "buffer:message",
+    version: 1,
+    id,
+    event_id: `message:${id}`,
+    buffer_id: bufferId,
+    server_connection_id: bufferId.startsWith("server:")
+      ? Number(bufferId.slice("server:".length))
+      : bufferId.startsWith("channel:")
+        ? 42
+        : 1,
+    channel_membership_id: channelMembershipId,
+    direct_message_thread_id: directMessageThreadId,
+    occurred_at: "2026-05-13T10:00:00Z",
+    nick: systemMessageKinds.has(kind) ? null : "mira",
+    hostmask: null,
+    sender_role: null,
+    service: null,
+    body: "message",
+    kind,
+    mentioned: false,
+    metadata: {},
+    ...message,
+  }
+}
+
+function canonicalServerStatus(status, overrides = {}) {
+  return {
+    type: "server:status",
+    version: 1,
+    event_id: "server_status:42:1",
+    occurred_at: "2026-05-13T10:00:00Z",
+    server_connection_id: 42,
+    status,
+    nickname: "mira",
+    ...overrides,
+  }
+}
+
+function canonicalBufferLeft(bufferId, overrides = {}) {
+  const channelMembershipId = bufferId.startsWith("channel:")
+    ? Number(bufferId.slice("channel:".length))
+    : null
+
+  return {
+    type: "buffer:left",
+    version: 1,
+    event_id: `buffer_left:${bufferId}:1`,
+    occurred_at: "2026-05-13T10:00:00Z",
+    buffer_id: bufferId,
+    server_connection_id: 42,
+    channel_membership_id: channelMembershipId,
+    ...overrides,
+  }
+}
+
+function canonicalBufferRead(bufferId, overrides = {}) {
+  const channelMembershipId = bufferId.startsWith("channel:")
+    ? Number(bufferId.slice("channel:".length))
+    : null
+
+  return {
+    type: "buffer:read",
+    version: 1,
+    event_id: `buffer_read:${bufferId}:1`,
+    occurred_at: "2026-05-13T10:00:00Z",
+    buffer_id: bufferId,
+    server_connection_id: 42,
+    channel_membership_id: channelMembershipId,
+    unread_count: 0,
+    mention_count: 0,
+    ...overrides,
+  }
+}
+
+function canonicalBufferJoined(payload) {
+  return {
+    type: "buffer:joined",
+    version: 1,
+    event_id: `buffer_joined:${payload.buffer.buffer_id}:1`,
+    occurred_at: "2026-05-13T10:00:00Z",
+    ...payload,
+  }
+}
 
 function directThreadPayload(payload) {
   const threadId = payload.buffer.direct_message_thread_id
@@ -111,6 +223,15 @@ function joinResponse(id, channel) {
   }
 }
 
+function emptyBootstrapMessageState(buffers) {
+  const entries = buffers.map((buffer) => [buffer.buffer_id, []])
+  const cursorEntries = buffers.map((buffer) => [buffer.buffer_id, null])
+  return {
+    messages_by_buffer: Object.fromEntries(entries),
+    message_cursors_by_buffer: Object.fromEntries(cursorEntries),
+  }
+}
+
 function mockBootstrapFetch({
   afterMessages = [],
   bufferMessageResponses = null,
@@ -118,10 +239,17 @@ function mockBootstrapFetch({
   channelMentionCount = 0,
   channelUnreadCount = 0,
   connectionStatus = "connected",
+  deleteResponse = {
+    type: "server:deleted",
+    version: 1,
+    event_id: "server_deleted:42:1",
+    occurred_at: "2026-05-13T10:00:00Z",
+    server_connection_id: 42,
+  },
   includeDiscovery = false,
   joinResponsePromise = null,
   joinOk = true,
-  messageCursorsByBuffer = {"channel:7": 99},
+  messageCursorsByBuffer = null,
   push = {configured: false, vapid_public_key: null},
   pushSubscriptionOk = true,
   serverNotificationsEnabled = true,
@@ -196,7 +324,7 @@ function mockBootstrapFetch({
     if (path === "/api/connections/42" && options.method === "DELETE") {
       return {
         ok: true,
-        json: async () => ({deleted: {type: "server:deleted", server_connection_id: 42}}),
+        json: async () => ({deleted: deleteResponse}),
       }
     }
 
@@ -264,7 +392,7 @@ function mockBootstrapFetch({
         ok: true,
         json: async () => ({
           messages: [
-            {
+            canonicalMessage({
               id: 50,
               buffer_id: "channel:7",
               nick: "mira",
@@ -272,7 +400,7 @@ function mockBootstrapFetch({
               kind: "message",
               mentioned: false,
               occurred_at: "2026-05-13T09:30:00Z",
-            },
+            }),
           ],
         }),
       }
@@ -285,11 +413,26 @@ function mockBootstrapFetch({
 
       return {
         ok: true,
-        json: async () => ({messages: await Promise.resolve(messagesOrPromise)}),
+        json: async () => ({
+          messages: (await Promise.resolve(messagesOrPromise)).map(canonicalMessage),
+        }),
       }
     }
 
     if (path === "/api/bootstrap") {
+      const channelMessages = (bootstrapChannelMessages || [
+        canonicalMessage({
+          id: 99,
+          buffer_id: "channel:7",
+          nick: "akash",
+          body: "loaded from bootstrap",
+          kind: "message",
+          mentioned: false,
+          occurred_at: "2026-05-13T10:00:00Z",
+        }),
+      ]).map(canonicalMessage)
+      const latestChannelMessage = channelMessages[channelMessages.length - 1]
+
       return {
         ok: true,
         json: async () => ({
@@ -304,9 +447,9 @@ function mockBootstrapFetch({
           },
           server_time: "2026-05-13T10:00:00Z",
           command_catalog: [
-            {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["server", "channel"], availability: "enabled"},
-            {name: "/list", usage: "/list", description: "Browse channels", contexts: ["server", "channel"], availability: "enabled"},
-            {name: "/me", usage: "/me action", description: "Send an action", contexts: ["channel"], availability: "enabled"},
+            {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel"], availability: "enabled", examples: ["/join #testing"]},
+            {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server", "channel"], availability: "enabled", examples: ["/list"]},
+            {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/me waves"]},
           ],
           connections: [
             {
@@ -352,19 +495,13 @@ function mockBootstrapFetch({
           ],
           active_buffer_id: "channel:7",
           messages_by_buffer: {
-            "channel:7": bootstrapChannelMessages || [
-              {
-                id: 99,
-                buffer_id: "channel:7",
-                nick: "akash",
-                body: "loaded from bootstrap",
-                kind: "message",
-                mentioned: false,
-                occurred_at: "2026-05-13T10:00:00Z",
-              },
-            ],
+            "server:42": [],
+            "channel:7": channelMessages,
           },
-          message_cursors_by_buffer: messageCursorsByBuffer,
+          message_cursors_by_buffer: messageCursorsByBuffer || {
+            "server:42": null,
+            "channel:7": latestChannelMessage?.id || null,
+          },
           users_by_buffer: {"channel:7": []},
           topics: topicFixtures,
         }),
@@ -393,7 +530,7 @@ function mockDiscoveryFetch() {
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (path, options = {}) => {
     if (path === "/api/bootstrap") {
-      return {ok: true, json: async () => ({connections: [], buffers: [], direct_message_tombstones: [], messages_by_buffer: {}, users_by_buffer: {}, topics: [], push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false}})}
+      return {ok: true, json: async () => ({connections: [], buffers: [], command_catalog: [], direct_message_tombstones: [], messages_by_buffer: {}, message_cursors_by_buffer: {}, users_by_buffer: {}, topics: [], push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false}})}
     }
 
     if (path === "/api/discovery/server_channels") {
@@ -434,8 +571,10 @@ function mockResolvedLocalTopicFetch() {
         json: async () => ({
           connections: [],
           buffers: [],
+          command_catalog: [],
           direct_message_tombstones: [],
           messages_by_buffer: {},
+          message_cursors_by_buffer: {},
           users_by_buffer: {},
           topics: [],
           push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false},
@@ -491,8 +630,10 @@ function mockManualJoinFetch() {
         json: async () => ({
           connections: [],
           buffers: [],
+          command_catalog: [],
           direct_message_tombstones: [],
           messages_by_buffer: {},
+          message_cursors_by_buffer: {},
           users_by_buffer: {},
           topics: topicFixtures,
           push: {configured: false, vapid_public_key: null, session_generation: "test-session", session_installation_id: null, session_registration_confirmed: false},
@@ -561,6 +702,68 @@ function refreshAccountMessages(postMessage) {
   return postMessage.mock.calls.filter(([message]) => message?.type === "notification:refresh-account")
 }
 
+function installSubscribedNotificationBrowser(userId = "1") {
+  const originalNotification = window.Notification
+  const originalPushManager = window.PushManager
+  const originalServiceWorker = navigator.serviceWorker
+  const installationStorageKey = "ircpipe.notification-installation"
+  const originalInstallation = localStorage.getItem(installationStorageKey)
+  const NotificationMock = vi.fn()
+  NotificationMock.permission = "granted"
+  NotificationMock.requestPermission = vi.fn().mockResolvedValue("granted")
+  const subscription = {
+    toJSON: () => ({
+      endpoint: "https://push.example.test/subscription",
+      expirationTime: null,
+      keys: {p256dh: "p256dh", auth: "auth"},
+    }),
+  }
+  const registration = {
+    pushManager: {
+      getSubscription: vi.fn().mockResolvedValue(subscription),
+      subscribe: vi.fn(),
+    },
+  }
+
+  Object.defineProperty(window, "Notification", {value: NotificationMock, configurable: true})
+  Object.defineProperty(window, "PushManager", {value: vi.fn(), configurable: true})
+  Object.defineProperty(navigator, "serviceWorker", {
+    value: {
+      ready: Promise.resolve(registration),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    },
+    configurable: true,
+  })
+  localStorage.setItem(
+    installationStorageKey,
+    JSON.stringify({installation_id: "browser-installation", user_id: userId})
+  )
+
+  return () => {
+    if (originalNotification) {
+      Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
+    } else {
+      delete window.Notification
+    }
+    if (originalPushManager) {
+      Object.defineProperty(window, "PushManager", {value: originalPushManager, configurable: true})
+    } else {
+      delete window.PushManager
+    }
+    if (originalServiceWorker) {
+      Object.defineProperty(navigator, "serviceWorker", {value: originalServiceWorker, configurable: true})
+    } else {
+      delete navigator.serviceWorker
+    }
+    if (originalInstallation === null) {
+      localStorage.removeItem(installationStorageKey)
+    } else {
+      localStorage.setItem(installationStorageKey, originalInstallation)
+    }
+  }
+}
+
 function directMessageApiClient() {
   return {
     topics: vi.fn().mockResolvedValue({topics: []}),
@@ -583,11 +786,29 @@ function directMessageApiClient() {
       ],
       active_buffer_id: "direct:9",
       messages_by_buffer: {
-        "direct:9": [{id: 31, buffer_id: "direct:9", nick: "Zed", body: "private hello"}],
+        "server:1": [],
+        "channel:4": [],
+        "direct:9": [canonicalMessage({
+          id: 31,
+          buffer_id: "direct:9",
+          nick: "Zed",
+          body: "private hello",
+        })],
+        "channel:3": [],
+        "direct:8": [],
+        "server:2": [],
       },
-      message_cursors_by_buffer: {},
+      message_cursors_by_buffer: {
+        "server:1": null,
+        "channel:4": null,
+        "direct:9": 31,
+        "channel:3": null,
+        "direct:8": null,
+        "server:2": null,
+      },
       users_by_buffer: {"channel:3": [], "channel:4": []},
-      command_catalog: [{name: "/msg", contexts: ["channel"]}],
+      command_catalog: [{name: "/msg", usage: "/msg nick message", description: "Send a private message", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/msg akash hello"]}],
+      topics: [],
     }),
   }
 }
@@ -641,6 +862,52 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByRole("link", {name: "Developer OAuth"})).toHaveAttribute("href", "/auth/developer")
   })
 
+  test("rejects a malformed public topics response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        topics: [{
+          id: 101,
+          name: "#broken",
+          channel: "#broken",
+          description: 42,
+          server_host: "irc.example.test",
+          server_port: 6697,
+          use_tls: true,
+        }],
+      }),
+    })
+
+    render(<IrcpipeApp currentUser={null} developerOauth={true} />)
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+    expect(screen.queryByText("#broken")).not.toBeInTheDocument()
+  })
+
+  test("discards noncanonical presentation fields from public topics", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        topics: [{
+          id: 101,
+          name: "#safe",
+          channel: "#safe",
+          description: "Safe topic",
+          server_host: "irc.example.test",
+          server_port: 6697,
+          use_tls: true,
+          members: {},
+          vibe: {},
+        }],
+      }),
+    })
+
+    render(<IrcpipeApp currentUser={null} developerOauth={true} />)
+
+    const topic = await screen.findByRole("button", {name: /#safe/i})
+    expect(topic).toHaveTextContent("many online")
+  })
+
   test("asks unauthenticated users to sign in before joining a topic", async () => {
     const user = userEvent.setup()
     mockTopicsFetch()
@@ -654,7 +921,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(within(dialog).getByRole("heading", {name: "Sign in to join"})).toBeInTheDocument()
     expect(within(dialog).getByRole("link", {name: "Developer OAuth"})).toHaveAttribute(
       "href",
-      "/auth/developer?topic=fixture-phoenix"
+      "/auth/developer?topic=102"
     )
   })
 
@@ -767,7 +1034,13 @@ describe("IrcpipeApp UI prototype", () => {
       buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 1, blocked: false},
       revision: 1,
     }))
-    realtimeHandlers.onBufferMessage({id: 88, buffer_id: "direct:12", nick: "akash", body: "incoming DM"})
+    realtimeHandlers.onBufferMessage(canonicalMessage({
+      id: 88,
+      buffer_id: "direct:12",
+      server_connection_id: 42,
+      nick: "akash",
+      body: "incoming DM",
+    }))
 
     expect(await screen.findByLabelText("1 unread message from akash")).toBeInTheDocument()
     expect(screen.getByRole("heading", {name: "#testing"})).toBeInTheDocument()
@@ -868,10 +1141,16 @@ describe("IrcpipeApp UI prototype", () => {
     const user = userEvent.setup()
     const seedClient = directMessageApiClient()
     const initial = await seedClient.bootstrap()
+    const rotatedBuffers = [
+      ...initial.buffers,
+      directBufferRecord(12, "Mona", {unread_count: 1}),
+    ]
     const rotatedSession = {
       ...initial,
       push: {...initial.push, session_generation: "session-b"},
-      buffers: [...initial.buffers, directBufferRecord(12, "Mona", {unread_count: 1})],
+      buffers: rotatedBuffers,
+      messages_by_buffer: {...initial.messages_by_buffer, "direct:12": []},
+      message_cursors_by_buffer: {...initial.message_cursors_by_buffer, "direct:12": null},
     }
     const apiClient = {
       ...seedClient,
@@ -1154,6 +1433,9 @@ describe("IrcpipeApp UI prototype", () => {
         ...initial,
         active_buffer_id: "direct:8",
         buffers: initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9"),
+        ...emptyBootstrapMessageState(
+          initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9")
+        ),
         direct_message_tombstones: [{
           buffer_id: "direct:9",
           server_connection_id: 1,
@@ -1294,7 +1576,10 @@ describe("IrcpipeApp UI prototype", () => {
         ...initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9"),
         directBufferRecord(10, "Bella", {unread_count: 1}),
       ],
-      messages_by_buffer: {},
+      ...emptyBootstrapMessageState([
+        ...initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9"),
+        directBufferRecord(10, "Bella", {unread_count: 1}),
+      ]),
     }
     const apiClient = {
       ...seedClient,
@@ -1347,6 +1632,68 @@ describe("IrcpipeApp UI prototype", () => {
     act(() => realtimeHandlers.onChannelError({reason: "server restart"}))
     await act(async () => realtimeHandlers.onJoinOk())
     await waitFor(() => expect(apiClient.bootstrap).toHaveBeenCalledTimes(3))
+  })
+
+  test("reconciles known buffers before replaying events after a malformed reconnect bootstrap", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    let resolveRefresh
+    let serveMissedMessage = false
+    const missedMessage = canonicalMessage({
+      id: 32,
+      buffer_id: "direct:9",
+      server_connection_id: 1,
+      nick: "Zed",
+      body: "persisted while disconnected",
+    })
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi
+        .fn()
+        .mockResolvedValueOnce(initial)
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve })),
+      bufferMessages: vi.fn().mockImplementation((bufferId) =>
+        Promise.resolve({
+          messages: serveMissedMessage && bufferId === "direct:9" ? [missedMessage] : [],
+        })
+      ),
+    }
+    const client = fakeRealtimeClient(vi.fn())
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    await waitFor(() => expect(apiClient.bufferMessages).toHaveBeenCalledTimes(6))
+    apiClient.bufferMessages.mockClear()
+    serveMissedMessage = true
+    await act(async () => realtimeHandlers.onOpen())
+    await act(async () => realtimeHandlers.onJoinOk())
+
+    act(() => {
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
+        connection: {id: 1, host: "irc.old.test", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+        buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 12, direct_message_revision: 1, title: "Mona", blocked: false},
+        revision: 1,
+      }))
+    })
+
+    expect(screen.queryByText("Mona")).not.toBeInTheDocument()
+    await act(async () => resolveRefresh({...initial, messages_by_buffer: {}}))
+
+    expect(await screen.findByText("persisted while disconnected")).toBeInTheDocument()
+    expect(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("Mona")).toBeInTheDocument()
+    expect(apiClient.bufferMessages).toHaveBeenCalled()
   })
 
   test("refreshes the worker account when the same user rotates session generation", async () => {
@@ -1427,7 +1774,7 @@ describe("IrcpipeApp UI prototype", () => {
         connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
         buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 0, blocked: false},
         revision: 1,
-        message: {type: "buffer:message", version: 1, event_id: "message:89", id: 89, buffer_id: "direct:12", server_connection_id: 42, direct_message_thread_id: 12, nick: "mira", body: "hello privately", occurred_at: "2026-08-26T00:00:00Z"},
+        message: canonicalMessage({id: 89, buffer_id: "direct:12", server_connection_id: 42, nick: "mira", body: "hello privately", occurred_at: "2026-08-26T00:00:00Z", occurredAt: "invalid", clientMessageId: "wire-client-id", pending: true, failed: true}),
       }))
     })
     const client = fakeRealtimeClient(push)
@@ -1451,6 +1798,8 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
     expect(screen.getByText("hello privately")).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Retry"})).not.toBeInTheDocument()
+    expect(screen.getByText("hello privately").closest("div")?.querySelector("time")).toHaveAttribute("datetime", "2026-08-26T00:00:00Z")
     expect(push).toHaveBeenCalledWith("command:run", expect.objectContaining({input: "/msg akash hello privately", buffer_id: "channel:7"}))
   })
 
@@ -1461,7 +1810,7 @@ describe("IrcpipeApp UI prototype", () => {
       connection: {id: 42, name: "local", host: "127.0.0.1", port: 6669, use_tls: false, nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
       buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 0, blocked: false},
       revision: 1,
-      message: {type: "buffer:message", version: 1, event_id: "message:89", id: 89, buffer_id: "direct:12", server_connection_id: 42, direct_message_thread_id: 12, nick: "mira", body: "different body", occurred_at: "2026-08-26T00:00:00Z"},
+      message: canonicalMessage({id: 89, buffer_id: "direct:12", server_connection_id: 42, nick: "mira", body: "different body", occurred_at: "2026-08-26T00:00:00Z"}),
     }))
     const client = fakeRealtimeClient(push)
     let realtimeHandlers
@@ -1640,6 +1989,9 @@ describe("IrcpipeApp UI prototype", () => {
       ...initial,
       active_buffer_id: "direct:8",
       buffers: initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9"),
+      ...emptyBootstrapMessageState(
+        initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9")
+      ),
       direct_message_tombstones: [
         {
           buffer_id: "direct:9",
@@ -1694,18 +2046,57 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onBufferMessage({
-      type: "buffer:message",
+    realtimeHandlers.onBufferMessage(canonicalMessage({
       buffer_id: "channel:7",
       id: 206,
       nick: "dev23",
       body: "dev23 joined #elixir.",
       kind: "join",
       occurred_at: "2026-05-13T10:05:00Z",
-    })
+    }))
 
     expect(await screen.findByText("dev23 joined #elixir.")).toBeInTheDocument()
     expect(screen.queryByText("dev23:")).not.toBeInTheDocument()
+  })
+
+  test("rejects canonical-looking realtime events owned by another server", async () => {
+    mockBootstrapFetch({channelMentionCount: 3, channelUnreadCount: 4})
+    const client = fakeRealtimeClient(vi.fn().mockResolvedValue({ok: true}))
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+    act(() => {
+      realtimeHandlers.onBufferMessage(canonicalMessage({
+        id: 207,
+        buffer_id: "channel:7",
+        server_connection_id: 99,
+        nick: "intruder",
+        body: "wrong owner message",
+      }))
+      realtimeHandlers.onPresenceSync(canonicalPresenceSync(
+        [{nick: "intruder", nick_key: "intruder", role: "user", status: "online"}],
+        {server_connection_id: 99}
+      ))
+      realtimeHandlers.onBufferRead(canonicalBufferRead("channel:7", {server_connection_id: 99}))
+      realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:7", {server_connection_id: 99}))
+    })
+
+    expect(screen.queryByText("wrong owner message")).not.toBeInTheDocument()
+    expect(screen.queryByText("intruder")).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    expect(screen.getByText("3")).toBeInTheDocument()
   })
 
   test("reconciles messages newer than the bootstrap cursor", async () => {
@@ -1719,6 +2110,10 @@ describe("IrcpipeApp UI prototype", () => {
           kind: "message",
           mentioned: false,
           occurred_at: "2026-05-13T10:01:00Z",
+          occurredAt: "invalid",
+          clientMessageId: "wire-client-id",
+          pending: true,
+          failed: true,
         },
       ],
     })
@@ -1727,6 +2122,8 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
     expect(await screen.findByText("missed during bootstrap")).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Retry"})).not.toBeInTheDocument()
+    expect(screen.getByText("missed during bootstrap").closest("div")?.querySelector("time")).toHaveAttribute("datetime", "2026-05-13T10:01:00Z")
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/buffer_messages?limit=50&buffer_id=channel%3A7",
       expect.objectContaining({credentials: "same-origin"})
@@ -1767,25 +2164,56 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByText("Phoenix, OTP, releases, and production Elixir help.")).not.toBeInTheDocument()
   })
 
+  test("does not open realtime for a schema-invalid initial bootstrap", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    const invalid = {
+      ...initial,
+      buffers: initial.buffers.map((buffer) =>
+        buffer.buffer_type === "channel" ? {...buffer, subtitle: {}} : buffer
+      ),
+    }
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn().mockResolvedValue(invalid),
+    }
+    const realtimeClientFactory = vi.fn(() => fakeRealtimeClient(vi.fn()))
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={realtimeClientFactory}
+      />
+    )
+
+    await act(async () => {
+      await apiClient.bootstrap.mock.results[0]?.value
+    })
+
+    expect(realtimeClientFactory).not.toHaveBeenCalled()
+    expect(screen.queryByText("Zed")).not.toBeInTheDocument()
+  })
+
   test("sends channel messages through the realtime client and replaces pending message", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
     const push = vi.fn().mockResolvedValue({
       client_message_id: "client-reply",
-      message: {
-        type: "buffer:message",
-        version: 1,
-        event_id: "message:100",
+      message: canonicalMessage({
         id: 100,
         buffer_id: "channel:7",
-        server_connection_id: 42,
-        channel_membership_id: 7,
         nick: "mira",
         body: "sent through socket",
         kind: "message",
         mentioned: false,
         occurred_at: "2026-05-13T10:01:00Z",
-      },
+        occurredAt: "invalid",
+        clientMessageId: "wire-client-id",
+        pending: true,
+        failed: true,
+      }),
     })
     const client = fakeRealtimeClient(push)
     let realtimeHandlers
@@ -1817,26 +2245,24 @@ describe("IrcpipeApp UI prototype", () => {
     )
     expect(await screen.findByText("sent through socket")).toBeInTheDocument()
     expect(screen.queryByText("sending")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Retry"})).not.toBeInTheDocument()
+    expect(screen.getByText("sent through socket").closest("div")?.querySelector("time")).toHaveAttribute("datetime", "2026-05-13T10:01:00Z")
   })
 
   test("rejects a sent-message reply from a different server connection", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
     const push = vi.fn().mockResolvedValue({
-      message: {
-        type: "buffer:message",
-        version: 1,
-        event_id: "message:100",
+      message: canonicalMessage({
         id: 100,
         buffer_id: "channel:7",
         server_connection_id: 999,
-        channel_membership_id: 7,
         nick: "mira",
         body: "wrong server",
         kind: "message",
         mentioned: false,
         occurred_at: "2026-05-13T10:01:00Z",
-      },
+      }),
     })
     const client = fakeRealtimeClient(push)
     let realtimeHandlers
@@ -1920,20 +2346,15 @@ describe("IrcpipeApp UI prototype", () => {
       .fn()
       .mockRejectedValueOnce({reason: "not_connected"})
       .mockResolvedValueOnce({
-        message: {
-          type: "buffer:message",
-          version: 1,
-          event_id: "message:101",
+        message: canonicalMessage({
           id: 101,
           buffer_id: "channel:7",
-          server_connection_id: 42,
-          channel_membership_id: 7,
           nick: "mira",
           body: "try again",
           kind: "message",
           mentioned: false,
           occurred_at: "2026-05-13T10:02:00Z",
-        },
+        }),
       })
     const client = fakeRealtimeClient(push)
     let realtimeHandlers
@@ -2028,7 +2449,6 @@ describe("IrcpipeApp UI prototype", () => {
     const client = fakeRealtimeClient(vi.fn())
     mockBootstrapFetch({
       connectionStatus: "connecting",
-      messageCursorsByBuffer: {},
       afterMessages: [
         {
           id: 101,
@@ -2063,7 +2483,7 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByText("loaded from bootstrap")).toBeInTheDocument()
-    realtimeHandlers.onServerStatus({server_connection_id: 42, status: "connected"})
+    realtimeHandlers.onServerStatus(canonicalServerStatus("connected"))
 
     expect(await screen.findByText("first missed")).toBeInTheDocument()
     expect(await screen.findByText("second missed")).toBeInTheDocument()
@@ -2083,7 +2503,6 @@ describe("IrcpipeApp UI prototype", () => {
     let realtimeHandlers
     const client = fakeRealtimeClient(vi.fn())
     mockBootstrapFetch({
-      messageCursorsByBuffer: {},
       afterMessages: [
         {
           id: 100,
@@ -2156,7 +2575,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     await waitFor(() => {
       const requests = globalThis.fetch.mock.calls.filter(([path]) => String(path).startsWith("/api/buffer_messages"))
-      expect(requests).toHaveLength(2)
+      expect(requests).toHaveLength(3)
     })
 
     realtimeHandlers.onJoinOk()
@@ -2240,11 +2659,10 @@ describe("IrcpipeApp UI prototype", () => {
     const commandRow = (await screen.findByText("WHOIS mira")).closest("[data-command-status]")
     expect(commandRow).toHaveAttribute("data-command-status", "sent")
 
-    realtimeHandlers.onBufferMessage({
+    realtimeHandlers.onBufferMessage(canonicalMessage({
       ...sentCommand,
-      type: "buffer:system",
       metadata: {command_id: "whois-race-1", command_status: "completed"},
-    })
+    }))
 
     await waitFor(() => expect(commandRow).toHaveAttribute("data-command-status", "completed"))
     resolveTail([sentCommand])
@@ -2453,12 +2871,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onBufferLeft({
-      type: "buffer:left",
-      buffer_id: "channel:7",
-      server_connection_id: 42,
-      channel_membership_id: 7,
-    })
+    realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:7"))
 
     expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
     expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
@@ -2483,12 +2896,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onBufferLeft({
-      type: "buffer:left",
-      buffer_id: "server:42",
-      server_connection_id: 42,
-      channel_membership_id: null,
-    })
+    realtimeHandlers.onBufferLeft(canonicalBufferLeft("server:42"))
 
     expect(await screen.findByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
     expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
@@ -2514,8 +2922,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onBufferJoined({
-      type: "buffer:joined",
+    realtimeHandlers.onBufferJoined(canonicalBufferJoined({
       connection: {
         id: 42,
         name: "local",
@@ -2540,7 +2947,7 @@ describe("IrcpipeApp UI prototype", () => {
         mention_notifications_enabled: true,
         notification_preference_revision: 0,
       },
-    })
+    }))
 
     await user.click(await screen.findByRole("button", {name: /^#phoenix$/i}))
 
@@ -2567,15 +2974,14 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
     await user.click(screen.getByRole("button", {name: "local"}))
 
-    realtimeHandlers.onBufferMessage({
-      type: "buffer:message",
+    realtimeHandlers.onBufferMessage(canonicalMessage({
       buffer_id: "server:42",
       id: 204,
       nick: "127.0.0.1",
       body: "MOTD starts here",
       kind: "notice",
       occurred_at: "2026-05-13T10:03:00Z",
-    })
+    }))
 
     expect(await screen.findByText("MOTD starts here")).toBeInTheDocument()
   })
@@ -2605,15 +3011,14 @@ describe("IrcpipeApp UI prototype", () => {
     Object.defineProperty(scrollback, "scrollTop", {value: 100, writable: true, configurable: true})
     fireEvent.scroll(scrollback)
 
-    realtimeHandlers.onBufferMessage({
-      type: "buffer:message",
+    realtimeHandlers.onBufferMessage(canonicalMessage({
       buffer_id: "channel:7",
       id: 205,
       nick: "akash",
       body: "new while reading",
       kind: "message",
       occurred_at: "2026-05-13T10:04:00Z",
-    })
+    }))
 
     const jump = await screen.findByRole("button", {name: "1 new message"})
     await user.click(jump)
@@ -2787,6 +3192,44 @@ describe("IrcpipeApp UI prototype", () => {
       } else {
         localStorage.setItem(installationStorageKey, originalInstallation)
       }
+    }
+  })
+
+  test.each([
+    ["malformed", {scope: "channel", id: 7, mention_notifications_enabled: false}],
+    ["mismatched", {scope: "channel", id: 8, mention_notifications_enabled: false, revision: 1}],
+  ])("rolls back a channel mute after a %s successful HTTP payload", async (_kind, preference) => {
+    const user = userEvent.setup()
+    const restoreNotificationBrowser = installSubscribedNotificationBrowser()
+    mockBootstrapFetch({
+      push: {configured: true, vapid_public_key: "AQ"},
+      channelPreferenceResponsePromise: Promise.resolve({
+        ok: true,
+        json: async () => ({preference}),
+      }),
+    })
+
+    try {
+      await act(async () => {
+        render(
+          <IrcpipeApp
+            currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+            developerOauth={true}
+          />
+        )
+      })
+
+      await user.click(await screen.findByLabelText("Mute mention notifications for #testing"))
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Mute mention notifications for #testing")).toBeInTheDocument()
+      })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/channel_memberships/7/notification_preferences",
+        expect.objectContaining({method: "PUT"})
+      )
+    } finally {
+      restoreNotificationBrowser()
     }
   })
 
@@ -3048,12 +3491,7 @@ describe("IrcpipeApp UI prototype", () => {
       expect(push).toHaveBeenCalledWith("channel:leave", {buffer_id: "channel:7"})
       expect(screen.getByRole("heading", {name: "#testing", level: 1})).toBeInTheDocument()
 
-      realtimeHandlers.onBufferLeft({
-        type: "buffer:left",
-        buffer_id: "channel:7",
-        server_connection_id: 42,
-        channel_membership_id: 7,
-      })
+      realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:7"))
 
       expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
       expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
@@ -3066,18 +3504,23 @@ describe("IrcpipeApp UI prototype", () => {
     mockBootstrapFetch({channelMentionCount: 3, channelUnreadCount: 4})
     const push = vi.fn(() => Promise.resolve({buffer_id: "channel:7", unread_count: 0, mention_count: 0}))
     const client = fakeRealtimeClient(push)
+    let realtimeHandlers
 
     render(
       <IrcpipeApp
         currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
         developerOauth={true}
-        realtimeClientFactory={() => client}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
       />
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"}))
+    act(() => realtimeHandlers.onBufferRead(canonicalBufferRead("channel:7")))
     await waitFor(() => expect(screen.queryByText("3")).not.toBeInTheDocument())
   })
 
@@ -3100,7 +3543,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onBufferMessage({
+    realtimeHandlers.onBufferMessage(canonicalMessage({
       id: 201,
       buffer_id: "channel:7",
       nick: "akash",
@@ -3108,7 +3551,7 @@ describe("IrcpipeApp UI prototype", () => {
       kind: "message",
       mentioned: true,
       occurred_at: "2026-05-13T10:01:00Z",
-    })
+    }))
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"}))
   })
@@ -3118,10 +3561,10 @@ describe("IrcpipeApp UI prototype", () => {
     mockBootstrapFetch()
     const push = vi.fn((event) => {
       if (event === "server:reconnect") {
-        return Promise.resolve({type: "server:status", server_connection_id: 42, status: "connecting"})
+        return Promise.resolve(canonicalServerStatus("connecting"))
       }
 
-      return Promise.resolve({type: "server:status", server_connection_id: 42, status: "disconnected"})
+      return Promise.resolve(canonicalServerStatus("disconnected"))
     })
     const client = fakeRealtimeClient(push)
 
@@ -3214,6 +3657,33 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByRole("button", {name: /#testing/i})).not.toBeInTheDocument()
   })
 
+  test.each([
+    {server_connection_id: 42},
+    {
+      type: "server:deleted",
+      version: 1,
+      event_id: "server_deleted:99:1",
+      occurred_at: "2026-05-13T10:00:00Z",
+      server_connection_id: 99,
+    },
+  ])("keeps a server when deletion acknowledgement is not exact: $server_connection_id", async (deleteResponse) => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({deleteResponse})
+
+    render(<IrcpipeApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    await user.click(screen.getByRole("button", {name: "Server actions for local"}))
+    await user.click(screen.getByRole("menuitem", {name: "Leave server"}))
+    await user.click(within(screen.getByRole("dialog", {name: "Leave server"})).getByRole("button", {name: "Leave"}))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/connections/42",
+      expect.objectContaining({method: "DELETE"})
+    ))
+    expect(screen.getByRole("heading", {name: "#testing"})).toBeInTheDocument()
+  })
+
   test("browses, filters, and joins channels from a server directory", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
@@ -3269,12 +3739,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(await screen.findByRole("heading", {name: "~quiet"})).toBeInTheDocument()
     expect(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("~quiet")).toBeInTheDocument()
 
-    realtimeHandlers.onBufferLeft({
-      type: "buffer:left",
-      buffer_id: "channel:12",
-      server_connection_id: 42,
-      channel_membership_id: 12,
-    })
+    realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:12"))
 
     expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
     expect(screen.queryByRole("button", {name: /~quiet/})).not.toBeInTheDocument()
@@ -3320,12 +3785,7 @@ describe("IrcpipeApp UI prototype", () => {
     const elixirRow = (await screen.findByText("#elixir")).closest("article")
     await user.click(within(elixirRow).getByRole("button", {name: "Join"}))
 
-    realtimeHandlers.onBufferLeft({
-      type: "buffer:left",
-      buffer_id: "channel:12",
-      server_connection_id: 42,
-      channel_membership_id: 12,
-    })
+    realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:12"))
 
     resolveJoinResponse({
       ok: true,
@@ -3381,12 +3841,12 @@ describe("IrcpipeApp UI prototype", () => {
     await user.click(await screen.findByRole("button", {name: "Browse channels on local"}))
     const row = (await screen.findByText("#elixir")).closest("article")
     await user.click(within(row).getByRole("button", {name: "Join"}))
-    realtimeHandlers.onBufferLeft({type: "buffer:left", buffer_id: "channel:12", server_connection_id: 42})
+    realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:12"))
     resolveFirstJoin(joinResponse(12, "#elixir"))
     expect(await screen.findByText(/Could not join #elixir/)).toBeInTheDocument()
 
     await user.click(within(row).getByRole("button", {name: "Join"}))
-    realtimeHandlers.onBufferLeft({type: "buffer:left", buffer_id: "channel:7", server_connection_id: 42})
+    realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:7"))
     resolveRetry(joinResponse(12, "#elixir"))
 
     expect(await screen.findByRole("heading", {name: "#elixir", level: 1})).toBeInTheDocument()

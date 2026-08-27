@@ -1,10 +1,11 @@
 import {useState} from "react"
 import ChatPane from "./chat_pane.tsx"
 import type {ComponentProps} from "react"
+import type {CommandCatalogEntry} from "../types.ts"
 
-const commandCatalog = [
-  {name: "/join", usage: "/join #channel", description: "Join a channel", contexts: ["channel"], availability: "enabled"},
-  {name: "/me", usage: "/me action", description: "Send an action", contexts: ["channel"], availability: "enabled"},
+const commandCatalog: CommandCatalogEntry[] = [
+  {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/join #elixir"]},
+  {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/me waves"]},
 ]
 
 const activeChannel = {

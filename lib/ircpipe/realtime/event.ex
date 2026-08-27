@@ -108,6 +108,23 @@ defmodule Ircpipe.Realtime.Event do
     }
   end
 
+  def notification_preference(scope, record) do
+    scope = to_string(scope)
+    occurred_at = DateTime.utc_now(:second)
+
+    %{
+      type: "notification:preference",
+      version: @version,
+      event_id:
+        "notification_preference:#{scope}:#{record.id}:#{record.notification_preference_revision}",
+      occurred_at: occurred_at,
+      scope: scope,
+      id: record.id,
+      mention_notifications_enabled: record.mention_notifications_enabled,
+      revision: record.notification_preference_revision
+    }
+  end
+
   def buffer_left(payload) do
     payload = Map.new(payload)
     buffer_id = Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")

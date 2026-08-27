@@ -340,7 +340,6 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).nickname == "ircpipe"
     assert SessionLocator.whereis(connection) == session_pid
     assert Repo.aggregate(Oban.Job, :count) == initial_jobs
-    refute_received {:irc_message, _event}
     refute_received {:direct_message_thread, _event}
     refute_received {:buffer_message, _event}
     refute_received {:presence_diff, _event}
@@ -527,7 +526,6 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert connection_id == connection.id
     assert Repo.get_by(Message, body: "mira: committed before deletion")
     assert Repo.get_by(Notification, user_id: user.id)
-    refute_received {:irc_message, _event}
 
     delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
@@ -541,7 +539,6 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert {:ok, _message} = Task.await(ingestion_task, 5_000)
 
     assert Repo.aggregate(Oban.Job, :count) == jobs_after_mark
-    refute_received {:irc_message, _event}
     refute_received {:buffer_message, _event}
 
     send(delete_pid, {:continue_marked_connection_delete, delete_ref})
@@ -598,7 +595,6 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert {:ok, _message} = Task.await(ingestion_task, 5_000)
 
     refute Repo.get_by(Message, body: "mira: deleted before effects")
-    refute_received {:irc_message, _event}
     assert all_enqueued(worker: PushWorker) == []
   end
 

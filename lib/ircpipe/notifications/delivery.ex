@@ -291,7 +291,7 @@ defmodule Ircpipe.Notifications.Delivery do
       channel_membership_id: record.channel_membership_id,
       channel: record.channel,
       buffer_id: "channel:#{record.channel_membership_id}",
-      url: "/app?buffer=channel:#{record.channel_membership_id}"
+      url: "/chat?buffer=channel:#{record.channel_membership_id}"
     }
   end
 
@@ -308,7 +308,7 @@ defmodule Ircpipe.Notifications.Delivery do
       direct_message_thread_id: record.direct_message_thread_id,
       peer_nick: record.peer_nick,
       buffer_id: "direct:#{record.direct_message_thread_id}",
-      url: "/app?buffer=direct:#{record.direct_message_thread_id}"
+      url: "/chat?buffer=direct:#{record.direct_message_thread_id}"
     }
   end
 
