@@ -10,7 +10,6 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.DirectMessageSender
   alias Ircpipe.Chat.DirectMessageRenamer
-  alias Ircpipe.Chat.MembershipReconciler
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.ConnectionLock
@@ -22,6 +21,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.PendingEchoes
+  alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.Targets
   alias Ircpipe.Repo
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
@@ -213,7 +213,7 @@ defmodule Ircpipe.Irc.Session do
 
     state =
       state
-      |> maybe_refresh_client_info(event.name)
+      |> Registration.refresh(event.name)
       |> CommandLifecycle.process_event(event)
       |> JoinReconciliation.reconcile_event(event)
 
@@ -238,7 +238,7 @@ defmodule Ircpipe.Irc.Session do
      state
      |> Map.put(:connection, updated)
      |> Map.put(:registered?, true)
-     |> refresh_client_info()
+     |> Registration.refresh_client_info()
      |> JoinLifecycle.schedule_flush()}
   end
 
@@ -1166,88 +1166,6 @@ defmodule Ircpipe.Irc.Session do
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error
-
-  defp maybe_refresh_client_info(state, event_name)
-       when event_name in [:isupport, :isupport_batch] do
-    state =
-      state
-      |> refresh_client_info()
-      |> Map.put(:isupport_seen?, true)
-
-    if Map.get(state, :registration_boundary_reached?, false) do
-      finalize_registration_support(state)
-    else
-      state
-    end
-  end
-
-  defp maybe_refresh_client_info(state, event_name)
-       when event_name in [:motd_end, :motd_missing] do
-    state
-    |> refresh_client_info()
-    |> Map.put(:registration_boundary_reached?, true)
-    |> finalize_registration_support()
-  end
-
-  defp maybe_refresh_client_info(state, event_name)
-       when event_name in [
-              :registered,
-              :welcome,
-              :cap_ack,
-              :cap_del,
-              :cap_nak,
-              :cap_new,
-              :nick,
-              :connected,
-              :disconnected,
-              :disconnect,
-              :reconnecting
-            ],
-       do: refresh_client_info(state)
-
-  defp maybe_refresh_client_info(state, _event_name), do: state
-
-  defp refresh_client_info(%{client: nil} = state), do: Map.put(state, :client_info, nil)
-
-  defp refresh_client_info(%{client: client} = state) do
-    info = Ircxd.Client.connection_info(client)
-    JoinLifecycle.restore(state, info)
-  catch
-    :exit, _reason -> Map.put(state, :client_info, nil)
-  end
-
-  defp persist_casemapping(connection, casemapping) do
-    mapping = Atom.to_string(casemapping)
-
-    if connection.casemapping == mapping do
-      connection
-    else
-      {:ok, updated} = Chat.update_connection_casemapping(connection, casemapping)
-      {:ok, _losers} = MembershipReconciler.reconcile(updated, casemapping)
-      updated
-    end
-  end
-
-  defp finalize_registration_support(%{isupport_seen?: true, client_info: %Info{} = info} = state) do
-    connection = persist_casemapping(state.connection, info.casemapping)
-    mapping = info.casemapping
-
-    state
-    |> Map.put(:connection, connection)
-    |> Map.put(:active_casemapping, mapping)
-    |> JoinLifecycle.rekey(mapping)
-    |> Map.put(:isupport_received?, true)
-    |> Map.put(:join_validation_ready?, true)
-    |> Map.put(:join_flush_timer, JoinLifecycle.cancel_flush(state))
-    |> JoinLifecycle.flush()
-  end
-
-  defp finalize_registration_support(state) do
-    state
-    |> Map.put(:join_validation_ready?, true)
-    |> Map.put(:join_flush_timer, JoinLifecycle.cancel_flush(state))
-    |> JoinLifecycle.flush()
-  end
 
   defp present?(value), do: is_binary(value) and value != ""
 
