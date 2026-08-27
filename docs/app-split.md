@@ -29,7 +29,7 @@ Sizing used by this document:
 - [x] Every current module has a documented logical owner: core, shared protocol, engine, web, combined assembly, or tooling.
 - [ ] All web-to-IRC calls pass through `Ircpipe.EngineClient`.
 - [ ] Core and web modules have no direct dependency on engine implementation modules.
-- [ ] The combined supervision tree is divided into logical core, engine, and web supervisors.
+- [x] The combined supervision tree is divided into logical core, engine, and web supervisors.
 - [ ] The repository is an umbrella containing core, engine, and web OTP applications.
 - [ ] The three release artifacts build independently.
 - [ ] Split web and engine nodes communicate successfully in an integration environment.
@@ -736,7 +736,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 - [ ] No engine module references `IrcpipeWeb`.
 - [ ] No web-owned worker assumes an IRC process is local.
 - [ ] Every engine operation uses the versioned request path in combined mode.
-- [ ] The root application starts distinct logical core, engine, and web supervisor branches.
+- [x] The root application starts distinct logical core, engine, and web supervisor branches.
 - [ ] The ownership manifest maps cleanly to future `apps/ircpipe_core`, `apps/ircpipe_engine`, and `apps/ircpipe_web` destinations.
 - [ ] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
 - [ ] Ordinary messages still commit before broadcast and do not pass through Oban.
