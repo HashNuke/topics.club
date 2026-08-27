@@ -3,11 +3,11 @@ defmodule Ircpipe.Irc.Session do
 
   require Logger
 
-  alias Ircpipe.Chat
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
   alias Ircpipe.Irc.Session.ChannelListRequest
   alias Ircpipe.Irc.Session.ConnectionEvents
+  alias Ircpipe.Irc.Session.DepartureCommands
   alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.JoinLifecycle
@@ -19,7 +19,6 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.ServerEvents
   alias Ircpipe.Irc.Session.StartupAuthorization
-  alias Ircpipe.Irc.Session.Targets
   alias Ircpipe.Chat.{CommandMessages, ServerConnection}
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
@@ -55,14 +54,6 @@ defmodule Ircpipe.Irc.Session do
 
   def privmsg_thread(%ServerConnection{} = connection, thread_id, body) do
     GenServer.call(via(connection), {:privmsg_thread, thread_id, body})
-  end
-
-  def nick(%ServerConnection{} = connection, nick) do
-    GenServer.call(via(connection), {:nick, nick})
-  end
-
-  def topic(%ServerConnection{} = connection, channel, topic) do
-    GenServer.call(via(connection), {:topic, channel, topic})
   end
 
   def part(%ServerConnection{} = connection, channel, reason \\ "") do
@@ -459,65 +450,19 @@ defmodule Ircpipe.Irc.Session do
     {:reply, reply, state}
   end
 
-  def handle_call({:nick, nick}, _from, state) do
-    with {:ok, client} <- fetch_client(state),
-         :ok <- Ircxd.Client.nick(client, nick) do
-      {:reply, :ok, state}
-    else
-      error -> {:reply, error, state}
-    end
-  end
-
-  def handle_call({:topic, channel, topic}, _from, state) do
-    with {:ok, client} <- fetch_client(state),
-         :ok <- Ircxd.Client.topic(client, channel, topic) do
-      {:reply, :ok, state}
-    else
-      error -> {:reply, error, state}
-    end
-  end
-
   def handle_call({:part, channel, reason}, _from, state) do
-    key = Targets.key(state, channel)
-
-    if not MapSet.member?(state.joined_channels, key) and MapSet.member?(state.pending_joins, key) and
-         not MapSet.member?(Map.get(state, :sent_joins, MapSet.new()), key) do
-      case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
-        {:ok, _membership} ->
-          {:reply, :ok, %{state | pending_joins: MapSet.delete(state.pending_joins, key)}}
-
-        {:error, reason} ->
-          {:reply, {:error, reason}, state}
-      end
-    else
-      with {:ok, client} <- fetch_client(state),
-           :ok <- Ircxd.Client.part(client, channel, reason) do
-        {:reply, :ok, %{state | pending_joins: MapSet.delete(state.pending_joins, key)}}
-      else
-        error -> {:reply, error, state}
-      end
-    end
+    {reply, state} = DepartureCommands.part(state, channel, reason)
+    {:reply, reply, state}
   end
 
   def handle_call({:quit, reason}, _from, state) do
-    result =
-      case state.client do
-        nil -> :ok
-        client -> Ircxd.Client.quit(client, reason)
-      end
-
-    EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
-    {:stop, :normal, normalize_result(result), state}
+    {reply, state} = DepartureCommands.quit(state, reason)
+    {:stop, :normal, reply, state}
   end
 
   def handle_call(:quit_for_deletion, _from, state) do
-    result =
-      case state.client do
-        nil -> :ok
-        client -> Ircxd.Client.quit(client, "connection deleted")
-      end
-
-    {:stop, :normal, normalize_result(result), Map.put(state, :deleting?, true)}
+    {reply, state} = DepartureCommands.quit_for_deletion(state)
+    {:stop, :normal, reply, state}
   end
 
   @impl true
@@ -539,9 +484,6 @@ defmodule Ircpipe.Irc.Session do
        do: EventRecorder.irc_error(state, payload)
 
   defp maybe_record_membership_failure(%Event{}, _state), do: :ok
-
-  defp normalize_result(:ok), do: :ok
-  defp normalize_result(error), do: error
 
   defp legacy_event_name(name) when is_atom(name), do: Atom.to_string(name)
   defp legacy_event_name(event) when is_tuple(event), do: event |> elem(0) |> to_string()

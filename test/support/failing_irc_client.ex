@@ -9,7 +9,7 @@ defmodule Ircpipe.FailingIrcClient do
   def init(reason), do: {:ok, reason}
 
   @impl true
-  def handle_call({:send, "JOIN", [_channel]}, _from, reason) do
+  def handle_call({:send, _command, _params}, _from, reason) do
     {:reply, {:error, reason}, reason}
   end
 end

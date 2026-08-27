@@ -866,7 +866,17 @@ defmodule Ircpipe.Irc.SessionTest do
     {:ok, _pid} = SessionSupervisor.start_session(connection)
 
     assert_receive {:irc_server_line, "JOIN #room"}, 1_000
-    assert :ok = Session.nick(connection, "ircpipe2")
+    {:ok, info} = Session.connection_info(connection)
+    {:ok, intent} = CommandRegistry.resolve("NICK ircpipe2", info)
+
+    assert {:ok, %{status: "sent"}} =
+             Session.execute(
+               connection,
+               intent,
+               "nick-refresh-state",
+               "server:#{connection.id}"
+             )
+
     assert_receive {:irc_server_line, "NICK ircpipe2"}, 1_000
 
     assert :ok =
