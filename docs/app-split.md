@@ -338,7 +338,7 @@ Slow or retryable work remains asynchronous:
 
 The engine starts a lightweight marker registered under a stable global name. The registration identifies the single engine node; it must not perform all IRC work in one serialized GenServer loop.
 
-`Ircpipe.EngineClient` resolves the marker, obtains its node, and invokes a stable engine API on that node. In combined mode the resolved node is the local node.
+In split mode, the RPC adapter resolves the marker, obtains its node, and invokes a stable engine API on that node. The combined-mode local adapter invokes the API under the local engine task supervisor without consulting the marker.
 
 The existing `Ircpipe.Irc.SingleNodeGuard` must be replaced. The new guard permits web nodes in the cluster and fails engine startup when another engine marker is already registered.
 
