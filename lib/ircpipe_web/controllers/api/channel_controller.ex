@@ -11,6 +11,7 @@ defmodule IrcpipeWeb.Api.ChannelController do
     connection = Connections.get!(user, connection_id)
 
     with :ok <- CommandRegistry.validate_join_channel_syntax(channel),
+         {:ok, connection} <- Connections.request_connect(user, connection.id),
          :ok <- start_session(connection),
          {:ok, membership, status} <- try_join(connection, user, channel) do
       conn

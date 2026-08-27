@@ -17,10 +17,14 @@ defmodule Ircpipe.Chat.ConnectionActivityTest do
 
     active_zulu = connection_fixture(active_user, "zulu")
     active_alpha = connection_fixture(active_user, "alpha")
+    paused_connection = connection_fixture(active_user, "paused")
     cutoff_connection = connection_fixture(cutoff_user, "cutoff")
     inactive_connection = connection_fixture(inactive_user, "inactive")
     never_seen_connection = connection_fixture(never_seen_user, "never-seen")
     {:ok, membership} = Chat.join_channel(active_user, active_alpha, "#elixir")
+
+    assert {:ok, paused_connection} =
+             Connections.request_disconnect(active_user, paused_connection.id)
 
     assert [recent_alpha, recent_zulu, recent_at_cutoff] =
              ConnectionActivity.recently_seen(cutoff)
@@ -34,6 +38,11 @@ defmodule Ircpipe.Chat.ConnectionActivityTest do
     assert Enum.map(recent_alpha.channel_memberships, & &1.id) == [membership.id]
     assert recent_zulu.channel_memberships == []
     assert recent_at_cutoff.channel_memberships == []
+
+    refute paused_connection.id in Enum.map(
+             ConnectionActivity.recently_seen(cutoff),
+             & &1.id
+           )
 
     assert Enum.map(ConnectionActivity.inactive(cutoff), & &1.id) == [
              inactive_connection.id,

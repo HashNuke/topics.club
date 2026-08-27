@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   alias Ircpipe.Chat.ConnectionSnapshot
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.MessageHistory
+  alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Chat.Topics
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.SessionLocator
@@ -36,7 +37,9 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     ConnectionSnapshot.broadcast_reconciliations(snapshot.connection_reconciliations)
     connections = snapshot.connections
 
-    Enum.each(connections, &start_session/1)
+    connections
+    |> Enum.filter(&ServerConnection.connect_desired?/1)
+    |> Enum.each(&start_session/1)
 
     buffers = Enum.flat_map(connections, &BootstrapBuffers.for_connection/1)
     active_buffer_id = BootstrapBuffers.active_id(buffers)

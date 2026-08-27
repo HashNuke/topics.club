@@ -83,6 +83,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
     assert connection_id == connection.id
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert Connections.get!(user, connection.id).desired_state == "connected"
     assert :ok = Session.quit(connection)
   end
 
@@ -132,6 +133,7 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
     assert connection_id == connection.id
     assert SessionLocator.status(connection) == "disconnected"
+    assert Connections.get!(user, connection.id).desired_state == "paused"
   end
 
   test "updates an owned server connection", %{conn: conn, user: user} do

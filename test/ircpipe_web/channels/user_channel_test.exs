@@ -1521,6 +1521,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert server_connection_id == connection.id
     assert_receive {:irc_server_line, "NICK mira"}, 1_000
     assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert Connections.get!(user, connection.id).desired_state == "connected"
 
     disconnect_ref = push(socket, "server:disconnect", %{"server_connection_id" => connection.id})
 
@@ -1531,6 +1532,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
 
     assert SessionLocator.status(connection) == "disconnected"
+    assert Connections.get!(user, connection.id).desired_state == "paused"
   end
 
   defp join_user_channel(user) do

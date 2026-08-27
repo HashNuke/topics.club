@@ -11,8 +11,9 @@ defmodule Ircpipe.Chat.ConnectionActivity do
     ServerConnection
     |> join(:inner, [connection], user in User, on: user.id == connection.user_id)
     |> where(
-      [_connection, user],
-      not is_nil(user.last_seen_at) and user.last_seen_at >= ^cutoff
+      [connection, user],
+      connection.desired_state == "connected" and not is_nil(user.last_seen_at) and
+        user.last_seen_at >= ^cutoff
     )
     |> preload(:channel_memberships)
     |> order_by([connection], asc: connection.user_id, asc: connection.name)

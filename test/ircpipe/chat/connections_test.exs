@@ -21,6 +21,7 @@ defmodule Ircpipe.Chat.ConnectionsTest do
 
     assert connection.nickname == "u_3dev"
     assert connection.sasl_username == "u_3dev"
+    assert connection.desired_state == "connected"
 
     Repo.insert!(%ChannelMembership{
       channel: "#elixir",
@@ -45,6 +46,32 @@ defmodule Ircpipe.Chat.ConnectionsTest do
 
     assert updated.name == "renamed"
     assert updated.host == "irc.renamed.test"
+  end
+
+  test "persists connection intent independently of observed status" do
+    user = AccountsFixtures.user_fixture()
+    other_user = AccountsFixtures.user_fixture()
+
+    assert {:ok, connection} =
+             Connections.create(user, %{
+               "name" => "durable intent",
+               "host" => "irc.intent.test",
+               "nickname" => "mira",
+               "status" => "errored"
+             })
+
+    assert {:ok, paused} = Connections.request_disconnect(user, connection.id)
+    assert paused.desired_state == "paused"
+    assert paused.status == "errored"
+    assert Connections.get!(user, connection.id).desired_state == "paused"
+
+    assert_raise Ecto.NoResultsError, fn ->
+      Connections.request_connect(other_user, connection.id)
+    end
+
+    assert {:ok, reconnecting} = Connections.request_connect(user, connection.id)
+    assert reconnecting.desired_state == "connected"
+    assert reconnecting.status == "errored"
   end
 
   test "deletes an owned connection before broadcasting its buffers as left" do

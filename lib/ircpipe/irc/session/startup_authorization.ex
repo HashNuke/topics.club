@@ -11,10 +11,13 @@ defmodule Ircpipe.Irc.Session.StartupAuthorization do
   def load(%ServerConnection{} = requested_connection) do
     ConnectionLock.run(requested_connection, fn ->
       case authoritative_connection(requested_connection) do
-        %ServerConnection{} = connection ->
+        %ServerConnection{desired_state: "connected"} = connection ->
           pending_channels = JoinLifecycle.persisted_channels(connection)
           maybe_pause_after_lookup(connection)
           {connection, pending_channels}
+
+        %ServerConnection{desired_state: "paused"} ->
+          {:error, :connection_paused}
 
         nil ->
           nil

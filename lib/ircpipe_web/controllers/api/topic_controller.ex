@@ -1,7 +1,7 @@
 defmodule IrcpipeWeb.Api.TopicController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat.Topics
+  alias Ircpipe.Chat.{Connections, Topics}
   alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
 
   def index(conn, _params) do
@@ -13,6 +13,7 @@ defmodule IrcpipeWeb.Api.TopicController do
     topic = Topics.get!(id)
 
     with {:ok, %{connection: connection, topic: topic}} <- Topics.join(user, topic),
+         {:ok, connection} <- Connections.request_connect(user, connection.id),
          :ok <- start_session(connection) do
       case try_join(connection, user, topic.channel) do
         {:ok, membership, status} ->

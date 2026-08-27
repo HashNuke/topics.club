@@ -14,7 +14,8 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   def create(conn, %{"connection" => attrs}) do
     user = conn.assigns.current_scope.user
 
-    with {:ok, connection} <- Connections.create_or_get(user, attrs) do
+    with {:ok, connection} <- Connections.create_or_get(user, attrs),
+         {:ok, connection} <- Connections.request_connect(user, connection.id) do
       SessionSupervisor.start_session(connection)
 
       conn
@@ -33,20 +34,20 @@ defmodule IrcpipeWeb.Api.ConnectionController do
 
   def connect(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    connection = Connections.get!(user, id)
 
-    with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
+    with {:ok, connection} <- Connections.request_connect(user, id),
+         {:ok, _pid} <- SessionSupervisor.start_session(connection) do
       json(conn, %{connection: connection_json(connection)})
     end
   end
 
   def disconnect(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    connection = Connections.get!(user, id)
 
-    :ok = SessionSupervisor.stop_session(connection)
-
-    json(conn, %{connection: connection_json(connection)})
+    with {:ok, connection} <- Connections.request_disconnect(user, id),
+         :ok <- SessionSupervisor.stop_session(connection) do
+      json(conn, %{connection: connection_json(connection)})
+    end
   end
 
   def delete(conn, %{"id" => id}) do

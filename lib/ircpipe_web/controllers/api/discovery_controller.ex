@@ -27,6 +27,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
              "port" => network.port,
              "use_tls" => network.use_tls
            }),
+         {:ok, connection} <- Connections.request_connect(user, connection.id),
          {:ok, _pid} <- SessionSupervisor.start_session(connection),
          {:ok, membership, status} <- request_join(connection, user, server_channel.name) do
       conn

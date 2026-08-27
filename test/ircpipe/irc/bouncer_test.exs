@@ -66,6 +66,29 @@ defmodule Ircpipe.Irc.BouncerTest do
     assert SessionLocator.status(connection) == "disconnected"
   end
 
+  test "does not restore a recently active user's paused connection" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+    mark_seen(user, DateTime.utc_now(:second))
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "paused",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    assert {:ok, _paused} = Connections.request_disconnect(user, connection.id)
+
+    pid = start_supervised!({Bouncer, enabled?: true, sweep_interval: :timer.hours(1), name: nil})
+    _ = :sys.get_state(pid)
+
+    assert SessionLocator.status(connection) == "disconnected"
+    refute_receive {:irc_server_line, "NICK mira"}
+  end
+
   test "stays disabled when configured off" do
     assert capture_log(fn ->
              pid = start_supervised!({Bouncer, enabled?: false, sweep_interval: 1, name: nil})

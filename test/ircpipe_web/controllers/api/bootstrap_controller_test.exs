@@ -11,7 +11,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.Topic
-  alias Ircpipe.Irc.{Session, SessionSupervisor}
+  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
 
@@ -21,6 +21,27 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     conn = build_conn() |> get(~p"/api/bootstrap")
 
     assert redirected_to(conn) == ~p"/users/log-in"
+  end
+
+  test "does not restore a paused server connection", %{conn: conn, user: user} do
+    server = start_supervised!({IrcTestServer, self()})
+
+    assert {:ok, connection} =
+             Connections.create(user, %{
+               "name" => "paused",
+               "host" => "127.0.0.1",
+               "port" => IrcTestServer.port(server),
+               "use_tls" => false,
+               "nickname" => "mira"
+             })
+
+    assert {:ok, _paused} = Connections.request_disconnect(user, connection.id)
+
+    assert %{"connections" => [%{"status" => "disconnected"}]} =
+             conn |> get(~p"/api/bootstrap") |> json_response(200)
+
+    assert SessionLocator.status(connection) == "disconnected"
+    refute_receive {:irc_server_line, "NICK mira"}
   end
 
   test "returns user-scoped bootstrap data", %{conn: conn, user: user} do

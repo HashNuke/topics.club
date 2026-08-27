@@ -42,4 +42,18 @@ defmodule Ircpipe.Irc.Session.StartupAuthorizationTest do
 
     assert StartupAuthorization.load(connection) == nil
   end
+
+  test "rejects a connection the user has paused" do
+    user = AccountsFixtures.user_fixture()
+
+    assert {:ok, connection} =
+             Connections.create(user, %{
+               "name" => "paused startup",
+               "host" => "irc.paused-startup.test",
+               "nickname" => "mira"
+             })
+
+    assert {:ok, paused} = Connections.request_disconnect(user, connection.id)
+    assert StartupAuthorization.load(paused) == {:error, :connection_paused}
+  end
 end

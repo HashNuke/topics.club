@@ -19,6 +19,7 @@ defmodule Ircpipe.Chat.ServerConnection do
     field :sasl_username, :string
     field :sasl_password, Ircpipe.Encrypted.Binary, redact: true
     field :status, :string, default: "disconnected"
+    field :desired_state, :string, default: "connected"
     field :casemapping, :string
     field :last_connected_at, :utc_datetime
     field :last_read_at, :utc_datetime
@@ -59,4 +60,7 @@ defmodule Ircpipe.Chat.ServerConnection do
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint([:user_id, :name])
   end
+
+  def connect_desired?(%__MODULE__{desired_state: "connected"}), do: true
+  def connect_desired?(%__MODULE__{}), do: false
 end

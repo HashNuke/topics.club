@@ -293,20 +293,22 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in("server:disconnect", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
-    connection = Connections.get!(user, connection_id)
 
-    :ok = SessionSupervisor.stop_session(connection)
-
-    Reply.ok(socket, Event.server_status(connection, SessionLocator.status(connection)))
+    with {:ok, connection} <- Connections.request_disconnect(user, connection_id),
+         :ok <- SessionSupervisor.stop_session(connection) do
+      Reply.ok(socket, Event.server_status(connection, SessionLocator.status(connection)))
+    else
+      _error -> Reply.error(socket, %{reason: "disconnect_failed"})
+    end
   rescue
     Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end
 
   def handle_in("server:reconnect", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
-    connection = Connections.get!(user, connection_id)
 
-    with {:ok, _pid} <- SessionSupervisor.start_session(connection) do
+    with {:ok, connection} <- Connections.request_connect(user, connection_id),
+         {:ok, _pid} <- SessionSupervisor.start_session(connection) do
       Reply.ok(socket, Event.server_status(connection, SessionLocator.status(connection)))
     else
       _error -> Reply.error(socket, %{reason: "reconnect_failed"})
