@@ -4,19 +4,16 @@ defmodule Ircpipe.Irc.Session do
   require Logger
 
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
-  alias Ircpipe.Chat.DirectMessageRenamer
-  alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
   alias Ircpipe.Irc.Session.ChannelListRequest
   alias Ircpipe.Irc.Session.ClientOptions
   alias Ircpipe.Irc.Session.EventRecorder
-  alias Ircpipe.Irc.Session.Identity
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircpipe.Irc.Session.JoinReconciliation
+  alias Ircpipe.Irc.Session.MembershipEvents
   alias Ircpipe.Irc.Session.OutboundMessages
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Registration
@@ -328,243 +325,44 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, state}
   end
 
-  def handle_info({:ircxd, {:names, %{channel: channel, names: names}}}, state) do
-    normalized = Targets.key(state, channel)
-    names_buffers = Map.get(state, :names_buffers, %{})
-    buffered_names = Map.get(names_buffers, normalized, []) ++ names
+  def handle_info({:ircxd, {:names, %{channel: _channel, names: _names} = payload}}, state),
+    do: {:noreply, MembershipEvents.handle(:names, state, payload)}
 
-    state = Map.put(state, :names_buffers, Map.put(names_buffers, normalized, buffered_names))
+  def handle_info({:ircxd, {:names_end, %{channel: _channel} = payload}}, state),
+    do: {:noreply, MembershipEvents.handle(:names_end, state, payload)}
 
-    state =
-      if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
-           Identity.listed?(names, state.connection.nickname) do
-        JoinLifecycle.mark_joined(state, channel)
-      else
-        state
-      end
+  def handle_info({:ircxd, {:join, %{channel: _channel, nick: _nick} = payload}}, state),
+    do: {:noreply, MembershipEvents.handle(:join, state, payload)}
 
-    {:noreply, state}
-  end
+  def handle_info({:ircxd, {:part, %{channel: _channel, nick: _nick} = payload}}, state),
+    do: {:noreply, MembershipEvents.handle(:part, state, payload)}
 
-  def handle_info({:ircxd, {:names_end, %{channel: channel}}}, state) do
-    normalized = Targets.key(state, channel)
-    names_buffers = Map.get(state, :names_buffers, %{})
-    names = Map.get(names_buffers, normalized, [])
-
-    if names != [] do
-      Presence.sync(state.connection, channel, names, Targets.casemapping(state))
-    end
-
-    state =
-      state
-      |> Map.put(:names_buffers, Map.delete(names_buffers, normalized))
-      |> JoinLifecycle.mark_joined_from_names(channel, names)
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:join, %{channel: channel, nick: nick} = payload}}, state) do
-    self? = Identity.source_self?(state, payload, nick)
-
-    if self? do
-      {:ok, _membership} =
-        Chat.confirm_channel_join(
-          state.connection,
-          channel,
-          Targets.casemapping(state),
-          "connected"
-        )
-    end
-
-    Presence.diff(
-      state.connection,
-      channel,
-      %{action: "join", user: %{nick: nick, role: "user", status: "online"}},
-      Targets.casemapping(state)
-    )
-
-    EventRecorder.channel_line(state, channel, "join", nick, "#{nick} joined #{channel}.")
-
-    state =
-      if self? do
-        JoinLifecycle.mark_joined(state, channel)
-      else
-        state
-      end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:part, %{channel: channel, nick: nick} = payload}}, state) do
-    self? = Identity.source_self?(state, payload, nick)
-
-    Presence.diff(
-      state.connection,
-      channel,
-      %{action: "part", nick: nick},
-      Targets.casemapping(state)
-    )
-
-    EventRecorder.channel_line(state, channel, "part", nick, "#{nick} left #{channel}.")
-
-    state =
-      if self? do
-        {:ok, _membership} =
-          Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state))
-
-        %{
-          state
-          | joined_channels: MapSet.delete(state.joined_channels, Targets.key(state, channel))
-        }
-      else
-        state
-      end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:quit, %{nick: nick}}}, state) do
-    EventRecorder.present_nick_line(state.connection, "quit", nick, fn _membership ->
-      "#{nick} quit."
-    end)
-
-    Presence.diff(state.connection, nil, %{action: "quit", nick: nick})
-    {:noreply, state}
-  end
+  def handle_info({:ircxd, {:quit, %{nick: _nick} = payload}}, state),
+    do: {:noreply, MembershipEvents.handle(:quit, state, payload)}
 
   def handle_info(
-        {:ircxd, {:nick, %{old_nick: old_nick, new_nick: new_nick} = payload}},
+        {:ircxd, {:nick, %{old_nick: _old_nick, new_nick: _new_nick} = payload}},
         state
-      ) do
-    self? = Identity.source_self?(state, payload, old_nick)
+      ),
+      do: {:noreply, MembershipEvents.handle(:nick, state, payload)}
 
-    EventRecorder.present_nick_line(
-      state.connection,
-      "nick",
-      old_nick,
-      new_nick,
-      fn _membership -> "#{old_nick} is now #{new_nick}." end
-    )
+  def handle_info({:ircxd, {:away, %{nick: _nick} = payload}}, state),
+    do: {:noreply, MembershipEvents.handle(:away, state, payload)}
 
-    Presence.diff(state.connection, nil, %{
-      action: "nick",
-      old_nick: old_nick,
-      new_nick: new_nick
-    })
-
-    unless self? do
-      DirectMessageRenamer.rename(
-        state.connection,
-        old_nick,
-        new_nick,
-        EventFormatting.sender_metadata(payload),
-        Targets.casemapping(state)
-      )
-    end
-
-    state =
-      if self? do
-        case ConnectionLifecycle.update_nickname(state.connection, new_nick, "connected") do
-          {:ok, connection} -> %{state | connection: connection}
-          {:error, _changeset} -> state
-        end
-      else
-        state
-      end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:away, %{nick: nick} = payload}}, state) do
-    status = if Map.get(payload, :away?), do: "away", else: "online"
-
-    Presence.diff(state.connection, nil, %{
-      action: "away",
-      nick: nick,
-      status: status
-    })
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:mode, %{target: target} = payload}}, state) do
-    if Targets.channel?(state, target) do
-      payload
-      |> EventFormatting.mode_presence_diffs(Targets.isupport(state))
-      |> Enum.each(
-        &Presence.diff(
-          state.connection,
-          target,
-          &1,
-          Targets.casemapping(state)
-        )
-      )
-
-      EventRecorder.channel_line(
-        state,
-        target,
-        "mode",
-        Map.get(payload, :nick),
-        EventFormatting.mode_body(payload)
-      )
-    else
-      EventRecorder.server_line(state.connection, EventFormatting.mode_body(payload), "mode")
-    end
-
-    {:noreply, state}
-  end
+  def handle_info({:ircxd, {:mode, %{target: _target} = payload}}, state),
+    do: {:noreply, MembershipEvents.handle(:mode, state, payload)}
 
   def handle_info(
-        {:ircxd, {:kick, %{channel: channel, nick: nick, target_nick: target_nick} = payload}},
+        {:ircxd, {:kick, %{channel: _channel, nick: _nick, target_nick: _target_nick} = payload}},
         state
-      ) do
-    target_self? = Identity.event_self?(state, payload, :target_self?, target_nick)
+      ),
+      do: {:noreply, MembershipEvents.handle(:kick, state, payload)}
 
-    Presence.diff(
-      state.connection,
-      channel,
-      %{action: "part", nick: target_nick},
-      Targets.casemapping(state)
-    )
-
-    EventRecorder.channel_line(
-      state,
-      channel,
-      "kick",
-      nick,
-      EventFormatting.kick_body(payload)
-    )
-
-    state =
-      if target_self? do
-        case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
-          {:ok, _membership} ->
-            %{
-              state
-              | joined_channels: MapSet.delete(state.joined_channels, Targets.key(state, channel))
-            }
-
-          {:error, _reason} ->
-            state
-        end
-      else
+  def handle_info(
+        {:ircxd, {:topic, %{channel: _channel, nick: _nick, topic: _topic} = payload}},
         state
-      end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:ircxd, {:topic, %{channel: channel, nick: nick, topic: topic}}}, state) do
-    EventRecorder.channel_line(
-      state,
-      channel,
-      "topic",
-      nick,
-      "#{nick} changed the topic to: #{topic}"
-    )
-
-    {:noreply, state}
-  end
+      ),
+      do: {:noreply, MembershipEvents.handle(:topic, state, payload)}
 
   def handle_info({:ircxd, {:irc_error, payload}}, state) do
     state = JoinReconciliation.reconcile_legacy_error(state, payload)
