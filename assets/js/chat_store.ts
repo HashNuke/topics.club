@@ -100,7 +100,11 @@ export function mergeOlderMessages(olderMessages: TimelineMessage[], currentMess
   return sortTimelineMessages([...prepended, ...updatedCurrent])
 }
 
-export function mergeNewerMessages(currentMessages: TimelineMessage[], newerMessages: TimelineMessage[]): TimelineMessage[] {
+export function mergeNewerMessages(
+  currentMessages: TimelineMessage[],
+  newerMessages: TimelineMessage[],
+  limit = MESSAGE_RENDER_LIMIT
+): TimelineMessage[] {
   const updatesById = new Map(
     newerMessages
       .filter((message) => message.id != null)
@@ -115,7 +119,7 @@ export function mergeNewerMessages(currentMessages: TimelineMessage[], newerMess
   })
   const appended = newerMessages.filter((message) => message.id == null || !currentIds.has(message.id))
 
-  return trimMessagesToLimit(sortTimelineMessages([...updatedCurrent, ...appended]))
+  return trimMessagesToLimit(sortTimelineMessages([...updatedCurrent, ...appended]), limit)
 }
 
 function commandStatusRank(message?: TimelineMessage): number {

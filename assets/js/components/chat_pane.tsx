@@ -26,7 +26,11 @@ export function ChatPane({activeChannel, commandCatalog, composerError, connecti
     onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(activeChannel?.id, nextReadingOlder),
   })
-  const visibleMessages = visibleTimelineMessages(messages, readingOlder)
+  const visibleMessages = visibleTimelineMessages(
+    messages,
+    readingOlder,
+    activeChannel?.buffer_type === "direct_message" ? Number.POSITIVE_INFINITY : undefined
+  )
   const sendDisabled = isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)
 
   return (

@@ -1092,6 +1092,273 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByRole("button", {name: "Send"})).toBeEnabled()
   })
 
+  test("hydrates retained history when an incoming message reopens a closed private message", async () => {
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    const retained = Array.from({length: 450}, (_, index) => canonicalMessage({
+      id: 301 + index,
+      buffer_id: "direct:9",
+      server_connection_id: 1,
+      channel_membership_id: null,
+      direct_message_thread_id: 9,
+      nick: "Zed",
+      body: index === 449 ? "message that reopened the DM" : `retained message ${index + 1}`,
+      occurred_at: new Date(Date.UTC(2026, 7, 26, 9, 0, index)).toISOString(),
+    }))
+    apiClient.bufferMessages = vi.fn((bufferId, params = {}) => {
+      if (bufferId !== "direct:9" || params.limit !== 150) return Promise.resolve({messages: []})
+      if (!params.before) return Promise.resolve({messages: retained.slice(-150)})
+      const cursorIndex = retained.findIndex((message) => message.id === params.before)
+      if (cursorIndex < 0) return Promise.resolve({messages: []})
+      return Promise.resolve({messages: retained.slice(Math.max(0, cursorIndex - 150), cursorIndex)})
+    })
+    const client = fakeRealtimeClient(vi.fn().mockResolvedValue({}))
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    act(() => realtimeHandlers.onDirectMessageClosed(directClosedPayload(9, 2)))
+    expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+
+    act(() => {
+      realtimeHandlers.onDirectMessageThread(directThreadPayload({
+        connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+        buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 3, title: "Zed", unread_count: 1, blocked: false},
+        revision: 3,
+      }))
+      realtimeHandlers.onBufferMessage(canonicalMessage({
+        id: 750,
+        buffer_id: "direct:9",
+        server_connection_id: 1,
+        channel_membership_id: null,
+        direct_message_thread_id: 9,
+        nick: "Zed",
+        body: "message that reopened the DM",
+        occurred_at: "2026-08-26T10:00:00Z",
+      }))
+    })
+
+    await user.click(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("Zed"))
+    expect(await screen.findByText("retained message 1")).toBeInTheDocument()
+    expect(screen.getByText("retained message 449")).toBeInTheDocument()
+    expect(screen.getByText("message that reopened the DM")).toBeInTheDocument()
+    expect(apiClient.bufferMessages).toHaveBeenCalledWith("direct:9", {limit: 150})
+    expect(apiClient.bufferMessages).toHaveBeenCalledWith("direct:9", {limit: 150, before: 601})
+    expect(apiClient.bufferMessages).toHaveBeenCalledWith("direct:9", {limit: 150, before: 451})
+    expect(apiClient.bufferMessages).toHaveBeenCalledWith("direct:9", {limit: 150, before: 301})
+  })
+
+  test("discards retained DM history when the thread closes during hydration", async () => {
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    let resolveStaleHistory
+    const staleHistory = new Promise((resolve) => { resolveStaleHistory = resolve })
+    apiClient.bufferMessages = vi.fn((bufferId, params = {}) =>
+      bufferId === "direct:9" && params.limit === 150 && !params.before
+        ? staleHistory
+        : Promise.resolve({messages: []})
+    )
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(vi.fn().mockResolvedValue({}))
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    act(() => realtimeHandlers.onDirectMessageClosed(directClosedPayload(9, 2)))
+    act(() => realtimeHandlers.onDirectMessageThread(directThreadPayload({
+      connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 3, title: "Zed", unread_count: 1, blocked: false},
+      revision: 3,
+    })))
+    await waitFor(() => expect(apiClient.bufferMessages).toHaveBeenCalledWith("direct:9", {limit: 150}))
+    act(() => realtimeHandlers.onDirectMessageClosed(directClosedPayload(9, 4)))
+    await act(async () => resolveStaleHistory({messages: [canonicalMessage({
+      id: 601,
+      buffer_id: "direct:9",
+      server_connection_id: 1,
+      channel_membership_id: null,
+      direct_message_thread_id: 9,
+      nick: "Zed",
+      body: "stale retained message",
+    })]}))
+
+    apiClient.bufferMessages.mockImplementation(() => Promise.resolve({messages: []}))
+
+    act(() => realtimeHandlers.onDirectMessageThread(directThreadPayload({
+      connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 5, title: "Zed", unread_count: 1, blocked: false},
+      revision: 5,
+    })))
+
+    await user.click(await within(screen.getByRole("navigation", {name: "Joined topics"})).findByText("Zed"))
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    expect(screen.queryByText("stale retained message")).not.toBeInTheDocument()
+  })
+
+  test("retries reopened DM hydration requested during an in-flight mark-read revision", async () => {
+    const user = userEvent.setup()
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    initial.active_buffer_id = "direct:8"
+    initial.buffers.find((buffer) => buffer.buffer_id === "direct:9").unread_count = 0
+    let rejectHistory
+    const failingHistory = new Promise((_resolve, reject) => { rejectHistory = reject })
+    let historyAttempts = 0
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn().mockResolvedValue(initial),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    const push = vi.fn((event) => event === "buffer:read"
+      ? Promise.resolve(directThreadPayload({
+          connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+          buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 4, title: "Zed", unread_count: 0, blocked: false},
+          revision: 4,
+        }))
+      : Promise.resolve({}))
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+    await waitFor(() => expect(apiClient.bufferMessages).toHaveBeenCalled())
+    apiClient.bufferMessages.mockImplementation((bufferId, params = {}) =>
+      bufferId !== "direct:9" || params.limit !== 150
+        ? Promise.resolve({messages: []})
+        : ++historyAttempts === 1
+          ? failingHistory
+          : Promise.resolve({messages: [canonicalMessage({
+              id: 801,
+              buffer_id: "direct:9",
+              server_connection_id: 1,
+              channel_membership_id: null,
+              direct_message_thread_id: 9,
+              nick: "Zed",
+              body: "history survived mark read",
+            })]})
+    )
+    act(() => realtimeHandlers.onDirectMessageClosed(directClosedPayload(9, 2)))
+    act(() => realtimeHandlers.onDirectMessageThread(directThreadPayload({
+      connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 3, title: "Zed", unread_count: 1, blocked: false},
+      revision: 3,
+    })))
+    await waitFor(() => expect(apiClient.bufferMessages).toHaveBeenCalledWith("direct:9", {limit: 150}))
+
+    await user.click(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("Zed"))
+    await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {
+      buffer_id: "direct:9",
+      expected_revision: 3,
+    }))
+    await act(async () => rejectHistory(new Error("first history request failed")))
+
+    expect(await screen.findByText("history survived mark read")).toBeInTheDocument()
+    expect(historyAttempts).toBe(2)
+  })
+
+  test("hydrates a reopened DM installed by an in-flight reconnect bootstrap", async () => {
+    const seedClient = directMessageApiClient()
+    const seeded = await seedClient.bootstrap()
+    const initial = structuredClone(seeded)
+    initial.buffers = initial.buffers.filter((buffer) => buffer.buffer_id !== "direct:9")
+    delete initial.messages_by_buffer["direct:9"]
+    delete initial.message_cursors_by_buffer["direct:9"]
+    initial.active_buffer_id = "direct:8"
+
+    const refreshed = structuredClone(seeded)
+    const reopened = refreshed.buffers.find((buffer) => buffer.buffer_id === "direct:9")
+    reopened.direct_message_revision = 3
+    reopened.unread_count = 1
+    refreshed.active_buffer_id = "direct:8"
+    refreshed.messages_by_buffer["direct:9"] = [canonicalMessage({
+      id: 902,
+      buffer_id: "direct:9",
+      server_connection_id: 1,
+      channel_membership_id: null,
+      direct_message_thread_id: 9,
+      nick: "Zed",
+      body: "latest bootstrap DM",
+    })]
+    refreshed.message_cursors_by_buffer["direct:9"] = 902
+
+    let resolveRefresh
+    const refresh = new Promise((resolve) => { resolveRefresh = resolve })
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(refresh),
+      bufferMessages: vi.fn((bufferId, params = {}) => Promise.resolve({
+        messages: bufferId === "direct:9" && params.limit === 150
+          ? [canonicalMessage({
+              id: 901,
+              buffer_id: "direct:9",
+              server_connection_id: 1,
+              channel_membership_id: null,
+              direct_message_thread_id: 9,
+              nick: "Zed",
+              body: "older than bootstrap window",
+            })]
+          : [],
+      })),
+    }
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(vi.fn().mockResolvedValue({}))
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
+    act(() => realtimeHandlers.onJoinOk())
+    act(() => realtimeHandlers.onDirectMessageThread(directThreadPayload({
+      connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 3, title: "Zed", unread_count: 1, blocked: false},
+      revision: 3,
+    })))
+    await act(async () => resolveRefresh(refreshed))
+
+    await waitFor(() => expect(apiClient.bufferMessages).toHaveBeenCalledWith("direct:9", {limit: 150}))
+    await userEvent.click(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("Zed"))
+    expect(await screen.findByText("older than bootstrap window")).toBeInTheDocument()
+    expect(screen.getByText("latest bootstrap DM")).toBeInTheDocument()
+  })
+
   test("opens a notification DM after its authoritative thread arrives", async () => {
     const user = userEvent.setup()
     const seedClient = directMessageApiClient()
@@ -1711,7 +1978,11 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
-    await waitFor(() => expect(apiClient.bufferMessages).toHaveBeenCalledTimes(6))
+    await waitFor(() => {
+      const calls = apiClient.bufferMessages.mock.calls
+      expect(calls.filter(([_bufferId, params]) => params.limit === 50)).toHaveLength(6)
+      expect(calls.filter(([_bufferId, params]) => params.limit === 150)).toHaveLength(2)
+    })
     apiClient.bufferMessages.mockClear()
     serveMissedMessage = true
     await act(async () => realtimeHandlers.onOpen())

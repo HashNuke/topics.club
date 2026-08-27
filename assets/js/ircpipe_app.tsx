@@ -219,11 +219,14 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const {
     appendSystemMessage,
     applyRealtimeMessage,
+    cancelDirectMessageHistory,
+    hydrateDirectMessageHistory,
     loadOlderMessages,
     markPendingFailed,
     messagesByChannel,
     messagesByServer,
     reconcileAllBuffers,
+    reconcileDirectMessageHistories,
     reconcileBootstrapCursors,
     reconcileServerBuffers,
     replaceBootstrapMessages,
@@ -269,7 +272,9 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     apiClient,
     appendSystemMessage,
     canJoinTopics: Boolean(currentUser),
+    cancelDirectMessageHistory,
     connectionsRef,
+    hydrateDirectMessageHistory,
     realtimeClientRef,
     reconcileServerBuffers,
     refreshAuthoritativeBootstrap: () => refreshAuthoritativeBootstrapRef.current(),
@@ -1008,6 +1013,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     const state = buildBootstrapState(bootstrap)
     if (!state) return false
+    const previousConnections = connectionsRef.current
 
     const pendingNotificationRequest = notificationBufferRequestRef.current
     const notificationRequest = pendingNotificationRequest &&
@@ -1059,6 +1065,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setConnections(state.connections)
     connectionsRef.current = state.connections
     replaceBootstrapMessages(state.messagesByChannel, state.messagesByServer)
+    reconcileDirectMessageHistories(previousConnections, state.connections)
     setUsersByChannel(state.usersByChannel)
     if (preferredBuffer) {
       setActiveChannelId(preferredBuffer.activeChannelId)

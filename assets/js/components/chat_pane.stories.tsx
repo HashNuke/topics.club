@@ -20,6 +20,14 @@ const messages = [
   {id: "pane-3", body: "lena joined #elixir", kind: "system", occurredAt: "2026-08-25T15:03:00Z"},
 ]
 
+const retainedDirectMessages = Array.from({length: 350}, (_, index) => ({
+  id: `direct-${index + 1}`,
+  nick: index % 2 === 0 ? "Zed" : "mira",
+  body: `Retained private message ${index + 1}`,
+  kind: "message",
+  occurredAt: new Date(Date.UTC(2026, 7, 25, 15, 0, index)).toISOString(),
+}))
+
 type ChatPaneArgs = ComponentProps<typeof ChatPane>
 
 function InteractiveChatPane(args: ChatPaneArgs) {
@@ -61,6 +69,18 @@ export default {
 }
 
 export const Conversation = {}
+
+export const RetainedDirectMessage = {
+  args: {
+    activeChannel: {
+      id: "direct:9",
+      buffer_type: "direct_message",
+      channel: "Zed",
+      connection: {host: "irc.example.net", status: "connected"},
+    },
+    messages: retainedDirectMessages,
+  },
+}
 
 export const EmptyChannel = {
   args: {messages: []},

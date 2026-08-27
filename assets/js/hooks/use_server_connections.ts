@@ -88,10 +88,12 @@ interface ServerConnectionsOptions {
   apiClient: ApiClient
   appendSystemMessage: (body: string) => void
   canJoinTopics: boolean
+  cancelDirectMessageHistory: (bufferId: string) => void
   connectionsRef: MutableRefObject<ServerConnection[]>
   realtimeClientRef: MutableRefObject<RealtimeClient | null>
   reconcileServerBuffers: (serverConnectionId: EntityId) => void
   refreshAuthoritativeBootstrap: () => void
+  hydrateDirectMessageHistory: (bufferId: string) => Promise<void>
   setActiveChannelId: Dispatch<SetStateAction<string | null>>
   setActiveServerId: Dispatch<SetStateAction<string | null>>
   setMessagesByChannel: Dispatch<SetStateAction<MessagesByBuffer>>
@@ -108,7 +110,9 @@ export default function useServerConnections({
   apiClient,
   appendSystemMessage,
   canJoinTopics,
+  cancelDirectMessageHistory,
   connectionsRef,
+  hydrateDirectMessageHistory,
   realtimeClientRef,
   reconcileServerBuffers,
   refreshAuthoritativeBootstrap,
@@ -338,6 +342,7 @@ export default function useServerConnections({
       ...current,
       [directMessage.id]: current[directMessage.id] || [],
     }))
+    defer(() => hydrateDirectMessageHistory(directMessage.id))
     return true
   }
 
@@ -354,6 +359,7 @@ export default function useServerConnections({
   function applyDirectMessageTombstone(payload: DirectMessageTombstone): boolean {
     const bufferId = payload.buffer_id
     if (!acceptDirectMessageRevision(bufferId, payload.revision)) return false
+    cancelDirectMessageHistory(bufferId)
 
     const serverId = `server:${payload.server_connection_id}`
     const currentServer = connectionsRef.current.find((server) => server.id === serverId)
