@@ -3,7 +3,7 @@ import ChannelDirectoryPane from "./channel_directory_pane.tsx"
 import ChatPane from "./chat_pane.tsx"
 import DiscoverPane from "./discover_pane.tsx"
 import LeftSidebar from "./left_sidebar.tsx"
-import MobileDrawer, {MobileDrawerHeader} from "./mobile_drawer.tsx"
+import MobileDrawer from "./mobile_drawer.tsx"
 import RightSidebar from "./right_sidebar.tsx"
 import ServerBufferPane from "./server_buffer_pane.tsx"
 import TopBar from "./top_bar.tsx"
@@ -93,7 +93,7 @@ export default function AppShell(props: AppShellProps) {
       </section>
       {showsUserSidebar && <RightSidebar activeChannel={props.activeChannel} users={props.users} onSetDirectMessageBlocked={props.onSetDirectMessageBlocked} />}
     </div>
-    {mobileMenuOpen && <MobileDrawer side="left" onClose={() => setMobileMenuOpen(false)}><MobileDrawerHeader title="Channels" onClose={() => setMobileMenuOpen(false)} /><LeftSidebar {...props} mobile onDiscover={() => { props.onDiscover(); setMobileMenuOpen(false) }} onOpenChannelDirectory={(server) => { props.onOpenChannelDirectory(server); setMobileMenuOpen(false) }} onSelectChannel={(channel) => { props.onSelectChannel(channel); setMobileMenuOpen(false) }} onSelectServer={(server) => { props.onSelectServer(server); setMobileMenuOpen(false) }} /></MobileDrawer>}
-    {showsUserSidebar && mobileUsersOpen && <MobileDrawer side="right" onClose={() => setMobileUsersOpen(false)}><MobileDrawerHeader title={props.activeChannel?.buffer_type === "direct_message" ? "Private message" : "People"} onClose={() => setMobileUsersOpen(false)} /><RightSidebar activeChannel={props.activeChannel} users={props.users} mobile onSetDirectMessageBlocked={props.onSetDirectMessageBlocked} /></MobileDrawer>}
+    {mobileMenuOpen && <MobileDrawer side="left" onClose={() => setMobileMenuOpen(false)}><LeftSidebar {...props} mobile onCloseMobile={() => setMobileMenuOpen(false)} onDiscover={() => { props.onDiscover(); setMobileMenuOpen(false) }} onOpenChannelDirectory={(server) => { props.onOpenChannelDirectory(server); setMobileMenuOpen(false) }} onSelectChannel={(channel) => { props.onSelectChannel(channel); setMobileMenuOpen(false) }} onSelectServer={(server) => { props.onSelectServer(server); setMobileMenuOpen(false) }} /></MobileDrawer>}
+    {showsUserSidebar && mobileUsersOpen && <MobileDrawer side="right" onClose={() => setMobileUsersOpen(false)}><RightSidebar activeChannel={props.activeChannel} users={props.users} mobile onCloseMobile={() => setMobileUsersOpen(false)} onSetDirectMessageBlocked={props.onSetDirectMessageBlocked} /></MobileDrawer>}
   </main>
 }
