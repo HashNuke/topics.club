@@ -101,6 +101,24 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
     refute_received {:buffer_system, _payload}
   end
 
+  test "reports a missing channel membership without persisting or publishing" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:error, :channel_membership_not_found} =
+             MessageIngestion.record_channel(
+               connection,
+               "#missing",
+               "akash",
+               "late channel line"
+             )
+
+    refute Repo.get_by(Message, body: "late channel line")
+    refute_received {:irc_message, _payload}
+    refute_received {:buffer_message, _payload}
+  end
+
   defp connection_fixture(user) do
     {:ok, connection} =
       Connections.create(user, %{

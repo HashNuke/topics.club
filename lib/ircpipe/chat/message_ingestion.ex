@@ -30,17 +30,20 @@ defmodule Ircpipe.Chat.MessageIngestion do
         casemapping \\ :rfc1459
       ) do
     assert_transaction_owner!()
-
-    membership =
-      channel_membership(connection, channel, casemapping, "joined") ||
-        raise(Ecto.NoResultsError, queryable: ChannelMembership)
-
-    user = Repo.get!(User, connection.user_id)
     attention? = metadata_value(metadata, :direction) != "outgoing"
-    mentioned = attention? and MentionDetection.mentioned?(body, connection.nickname, casemapping)
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      membership =
+        channel_membership(active_connection, channel, casemapping, "joined") ||
+          Repo.rollback(:channel_membership_not_found)
+
+      user = Repo.get!(User, active_connection.user_id)
+
+      mentioned =
+        attention? and
+          MentionDetection.mentioned?(body, connection.nickname, casemapping)
 
       {:ok, message} =
         %Message{
@@ -88,10 +91,10 @@ defmodule Ircpipe.Chat.MessageIngestion do
         end
 
       Retention.prune(user)
-      {message, notification, active_connection}
+      {message, notification, active_connection, membership}
     end)
     |> case do
-      {:ok, {message, notification, active_connection}} ->
+      {:ok, {message, notification, active_connection, membership}} ->
         _effects =
           ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
             if notification, do: Delivery.enqueue(notification)
