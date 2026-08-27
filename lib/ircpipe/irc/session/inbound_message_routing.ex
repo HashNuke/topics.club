@@ -1,8 +1,7 @@
 defmodule Ircpipe.Irc.Session.InboundMessageRouting do
   @moduledoc false
 
-  alias Ircpipe.Chat.DirectMessageIngestion
-  alias Ircpipe.Chat.MessageIngestion
+  alias Ircpipe.Chat.{ConnectionLifecycle, DirectMessageIngestion, MessageIngestion}
   alias Ircpipe.Irc.EventFormatting
 
   alias Ircpipe.Irc.Session.{
@@ -23,9 +22,21 @@ defmodule Ircpipe.Irc.Session.InboundMessageRouting do
   end
 
   defp route(state, target, nick, body, kind, payload) do
+    state = reconcile_self_nickname(state, nick, payload)
     {echo_status, state} = pop_pending_echo(state, target, body, kind, payload)
     record(echo_status, state, target, nick, body, kind, payload)
     state
+  end
+
+  defp reconcile_self_nickname(state, nick, payload) do
+    if Identity.source_self?(state, payload, nick) do
+      case ConnectionLifecycle.update_nickname(state.connection, nick, "connected") do
+        {:ok, connection} -> %{state | connection: connection}
+        {:error, _reason} -> state
+      end
+    else
+      state
+    end
   end
 
   defp pop_pending_echo(state, target, body, kind, %{nick: nick} = payload) do

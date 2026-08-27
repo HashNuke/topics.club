@@ -2,11 +2,13 @@ defmodule Ircpipe.Irc.Session.InboundMessageRoutingTest do
   use Ircpipe.DataCase, async: false
 
   alias Ircpipe.AccountsFixtures
+  alias Ircpipe.Chat
   alias Ircpipe.Chat.{Connections, DirectMessageLifecycle, Message}
   alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.Irc.Session.{InboundMessageRouting, PendingEchoes}
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
+  alias Ircxd.Client.Info
 
   test "routes a user private message into a direct-message buffer" do
     user = AccountsFixtures.user_fixture()
@@ -55,6 +57,67 @@ defmodule Ircpipe.Irc.Session.InboundMessageRoutingTest do
     assert InboundMessageRouting.notice(state, notice) == state
     refute Repo.get_by(Message, body: "late private message")
     refute Repo.get_by(Message, body: "late notice")
+  end
+
+  test "reconciles the stored nickname from an authoritative self message" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, _membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    state = %{
+      connection: connection,
+      active_casemapping: :rfc1459,
+      client_info: struct(Info, current_nick: "mira_", casemapping: :rfc1459),
+      isupport_received?: true,
+      pending_echoes: PendingEchoes.new()
+    }
+
+    returned =
+      InboundMessageRouting.privmsg(state, %{
+        target: "#elixir",
+        nick: "mira_",
+        raw_source: "mira_!user@example.test",
+        body: "authoritative self echo"
+      })
+
+    assert returned.connection.nickname == "mira_"
+    assert Connections.get!(user, connection.id).nickname == "mira_"
+    first_event = receive_user_event()
+    assert {:server_status, %{nickname: "mira_", status: "connected"}} = first_event
+    second_event = receive_user_event()
+    assert {:buffer_message, %{body: "authoritative self echo", nick: "mira_"}} = second_event
+  end
+
+  test "reconciles persisted nickname drift even when the session snapshot already matches IRC" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, _membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    cached_connection = %{connection | nickname: "mira_"}
+    connection |> Ecto.Changeset.change(nickname: "stale-edit") |> Repo.update!()
+
+    state = %{
+      connection: cached_connection,
+      active_casemapping: :rfc1459,
+      client_info: struct(Info, current_nick: "mira_", casemapping: :rfc1459),
+      isupport_received?: true,
+      pending_echoes: PendingEchoes.new()
+    }
+
+    returned =
+      InboundMessageRouting.privmsg(state, %{
+        target: "#elixir",
+        nick: "mira_",
+        raw_source: "mira_!user@example.test",
+        body: "self echo after stale edit"
+      })
+
+    assert returned.connection.nickname == "mira_"
+    assert Connections.get!(user, connection.id).nickname == "mira_"
+    assert_receive {:server_status, %{nickname: "mira_", status: "connected"}}
+    assert_receive {:buffer_message, %{body: "self echo after stale edit"}}
   end
 
   test "keeps the session alive when late channel messages arrive without a membership" do
@@ -107,5 +170,15 @@ defmodule Ircpipe.Irc.Session.InboundMessageRoutingTest do
       })
 
     connection
+  end
+
+  defp receive_user_event do
+    receive do
+      {:server_status, _payload} = event -> event
+      {:buffer_message, _payload} = event -> event
+      _unrelated_message -> receive_user_event()
+    after
+      100 -> flunk("expected a user PubSub event")
+    end
   end
 end

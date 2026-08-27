@@ -68,6 +68,12 @@ defmodule Ircpipe.Chat.ConnectionLifecycleTest do
     assert updated.status == "disconnected"
   end
 
+  test "does not broadcast when the persisted nickname already matches", %{connection: connection} do
+    assert {:ok, unchanged} = ConnectionLifecycle.update_nickname(connection, "mira", "connected")
+    assert unchanged.nickname == "mira"
+    refute_receive {:server_status, _event}
+  end
+
   test "drops mutations and status publication after deletion is marked", %{
     connection: connection
   } do

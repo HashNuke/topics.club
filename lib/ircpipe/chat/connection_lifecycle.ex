@@ -38,15 +38,30 @@ defmodule Ircpipe.Chat.ConnectionLifecycle do
     assert_no_outer_transaction!()
 
     Repo.transaction(fn ->
-      connection.id
-      |> ServerConnectionLock.lock_active!()
-      |> ServerConnection.changeset(%{nickname: nickname})
-      |> update_or_rollback()
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      if active_connection.nickname == nickname do
+        {:unchanged, active_connection}
+      else
+        updated =
+          active_connection
+          |> ServerConnection.changeset(%{nickname: nickname})
+          |> update_or_rollback()
+
+        {:updated, updated}
+      end
     end)
-    |> tap(fn
-      {:ok, updated} -> broadcast_status(updated, status || updated.status)
-      _other -> :ok
-    end)
+    |> case do
+      {:ok, {:unchanged, active_connection}} ->
+        {:ok, active_connection}
+
+      {:ok, {:updated, updated_connection}} ->
+        broadcast_status(updated_connection, status || updated_connection.status)
+        {:ok, updated_connection}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   def broadcast_status(%ServerConnection{} = connection, status) do
