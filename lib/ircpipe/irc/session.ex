@@ -10,10 +10,10 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.MembershipReconciler
   alias Ircpipe.Irc.CommandRegistry
-  alias Ircpipe.Irc.CommandResult
   alias Ircpipe.Irc.ConnectionLock
   alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Identifier
+  alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.Identity
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Targets
@@ -24,8 +24,6 @@ defmodule Ircpipe.Irc.Session do
   alias Ircxd.Client.{Event, Info}
 
   @channel_list_timeout 10_000
-  @command_grace_timeout 300
-  @command_timeout 15_000
   @isupport_settle_timeout 100
 
   def child_spec(%ServerConnection{} = connection) do
@@ -206,12 +204,12 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, %Event{} = event}, state) do
-    suppress_legacy? = suppress_correlated_legacy_output?(state, event)
+    suppress_legacy? = CommandLifecycle.suppress_legacy_output?(state, event)
 
     state =
       state
       |> maybe_refresh_client_info(event.name)
-      |> process_command_event(event)
+      |> CommandLifecycle.process_event(event)
       |> reconcile_command_membership_event(event)
 
     cond do
@@ -255,7 +253,7 @@ defmodule Ircpipe.Irc.Session do
   def handle_info({:ircxd, :disconnected}, state) do
     record_server_line(state.connection, "Disconnected from #{state.connection.host}.")
     update_status(state.connection, "disconnected")
-    {:noreply, fail_pending_commands(state, "Connection closed before completion.")}
+    {:noreply, CommandLifecycle.fail_all(state, "Connection closed before completion.")}
   end
 
   def handle_info({:ircxd, {:reconnecting, _payload}}, state) do
@@ -707,25 +705,11 @@ defmodule Ircpipe.Irc.Session do
   def handle_info({:channel_list_timeout, _ref}, state), do: {:noreply, state}
 
   def handle_info({:command_timeout, command_id}, state) do
-    case Map.pop(state.pending_commands, command_id) do
-      {nil, _pending_commands} ->
-        {:noreply, state}
-
-      {pending, pending_commands} ->
-        update_command_status(pending, "timed_out", %{error: "No server response was received."})
-        {:noreply, %{state | pending_commands: pending_commands}}
-    end
+    {:noreply, CommandLifecycle.timeout(state, command_id)}
   end
 
   def handle_info({:command_grace_timeout, command_id}, state) do
-    case Map.pop(state.pending_commands, command_id) do
-      {nil, _pending_commands} ->
-        {:noreply, state}
-
-      {pending, pending_commands} ->
-        update_command_status(pending, "completed", %{})
-        {:noreply, %{state | pending_commands: pending_commands}}
-    end
+    {:noreply, CommandLifecycle.grace_timeout(state, command_id)}
   end
 
   def handle_info(
@@ -835,17 +819,17 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_call({:execute, intent, command_id, buffer_id}, _from, state) do
-    with :ok <- validate_command_id(command_id, state),
+    with :ok <- CommandLifecycle.validate_id(command_id, state),
          {:ok, client} <- fetch_registered_client(state),
          :ok <- prepare_managed_command(state, intent),
          {:ok, invocation} <- record_command_invocation(state, intent, command_id, buffer_id),
-         {message, labeled?} <- maybe_label_command(intent.message, command_id, state) do
+         {message, labeled?} <- CommandLifecycle.label(intent.message, command_id, state) do
       case Ircxd.Client.transmit(client, message) do
         :ok ->
           {state, managed_outcome} = persist_managed_outcome(state, intent)
 
           state =
-            maybe_track_pending_command(
+            CommandLifecycle.track(
               state,
               intent,
               message,
@@ -873,11 +857,11 @@ defmodule Ircpipe.Irc.Session do
             error: inspect(reason)
           })
 
-          {:reply, {:error, command_execution_error(reason)}, state}
+          {:reply, {:error, CommandLifecycle.execution_error(reason)}, state}
       end
     else
       {:error, %{code: _code} = error} -> {:reply, {:error, error}, state}
-      {:error, reason} -> {:reply, {:error, command_execution_error(reason)}, state}
+      {:error, reason} -> {:reply, {:error, CommandLifecycle.execution_error(reason)}, state}
     end
   end
 
@@ -1027,7 +1011,7 @@ defmodule Ircpipe.Irc.Session do
   def terminate(_reason, %{deleting?: true}), do: :ok
 
   def terminate(_reason, %{connection: connection} = state) do
-    fail_pending_commands(state, "IRC session stopped before completion.")
+    CommandLifecycle.fail_all(state, "IRC session stopped before completion.")
     update_status(connection, "disconnected")
     :ok
   end
@@ -1240,7 +1224,7 @@ defmodule Ircpipe.Irc.Session do
               is_binary(target) do
     case pending_join_for_event(state, event) do
       {command_id, pending} ->
-        if target_matches?(state, target, pending.targets) do
+        if CommandLifecycle.target_matches?(state, target, pending.targets) do
           reject_join_targets(
             state,
             [target],
@@ -1271,7 +1255,7 @@ defmodule Ircpipe.Irc.Session do
           payload
           |> Map.get(:context)
           |> List.wrap()
-          |> Enum.filter(&target_matches?(state, &1, pending.targets))
+          |> Enum.filter(&CommandLifecycle.target_matches?(state, &1, pending.targets))
 
         all_context_targets =
           payload
@@ -1342,8 +1326,8 @@ defmodule Ircpipe.Irc.Session do
 
     case correlated_pending do
       {command_id, pending} ->
-        update_command_status(pending, "failed", %{error: reason})
-        finish_pending_command(state, command_id, pending)
+        CommandLifecycle.update_status(pending, "failed", %{error: reason})
+        CommandLifecycle.finish(state, command_id, pending)
 
       :match_unlabeled ->
         maybe_fail_unlabeled_join(state, targets, reason)
@@ -1394,8 +1378,8 @@ defmodule Ircpipe.Irc.Session do
     case pending_join_matching_targets(state, rejected_targets, false) do
       {command_id, %{targets: targets} = pending} ->
         if targets != [] and targets -- rejected_targets == [] do
-          update_command_status(pending, "failed", %{error: reason})
-          finish_pending_command(state, command_id, pending)
+          CommandLifecycle.update_status(pending, "failed", %{error: reason})
+          CommandLifecycle.finish(state, command_id, pending)
         else
           state
         end
@@ -1527,21 +1511,6 @@ defmodule Ircpipe.Irc.Session do
     end
   end
 
-  defp validate_command_id(command_id, state) when is_binary(command_id) do
-    cond do
-      not String.match?(command_id, ~r/\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z/) ->
-        {:error, :invalid_command_id}
-
-      Map.has_key?(state.pending_commands, command_id) ->
-        {:error, :duplicate_command_id}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_command_id(_command_id, _state), do: {:error, :invalid_command_id}
-
   defp prepare_managed_command(
          state,
          %{disposition: :managed, message: %{command: "JOIN", params: [channels | _rest]}}
@@ -1645,16 +1614,6 @@ defmodule Ircpipe.Irc.Session do
 
   defp command_invocation_display(_state, intent), do: intent.display
 
-  defp maybe_label_command(message, command_id, %{client_info: %Info{} = info}) do
-    if MapSet.member?(info.active_caps, "labeled-response") do
-      {%{message | tags: Map.put(message.tags, "label", command_id)}, true}
-    else
-      {message, false}
-    end
-  end
-
-  defp maybe_label_command(message, _command_id, _state), do: {message, false}
-
   defp persist_managed_outcome(
          state,
          %{disposition: :managed, message: %{command: "JOIN", params: [channels | _rest]}}
@@ -1743,389 +1702,6 @@ defmodule Ircpipe.Irc.Session do
 
   defp outgoing_kind_and_body("PRIVMSG", body), do: {"message", body}
   defp outgoing_kind_and_body("NOTICE", body), do: {"notice", body}
-
-  defp maybe_track_pending_command(
-         state,
-         intent,
-         message,
-         invocation,
-         command_id,
-         buffer_id,
-         labeled?
-       ) do
-    terminal_events = effective_terminal_events(message.command, intent.spec)
-
-    if labeled? or intent.spec.result_events != [] or terminal_events != [] do
-      pending = %{
-        command_id: command_id,
-        buffer_id: buffer_id,
-        command: message.command,
-        targets: correlation_targets(state, message),
-        spec: Map.put(intent.spec, :terminal_events, terminal_events),
-        invocation: invocation,
-        labeled?: labeled?,
-        timer: Process.send_after(self(), {:command_timeout, command_id}, @command_timeout)
-      }
-
-      %{state | pending_commands: Map.put(state.pending_commands, command_id, pending)}
-    else
-      state
-    end
-  end
-
-  defp correlation_targets(state, %Message{command: command, params: [targets | _rest]})
-       when command in ["JOIN", "PART", "PRIVMSG", "NOTICE"] do
-    targets
-    |> String.split(",", trim: true)
-    |> Enum.map(&normalize_correlation_target(state, &1))
-  end
-
-  defp correlation_targets(state, %Message{command: command, params: [target | _rest]})
-       when command in ["NICK", "TOPIC", "MODE", "KICK", "INVITE"] do
-    [normalize_correlation_target(state, target)]
-  end
-
-  defp correlation_targets(state, %Message{command: command, params: params})
-       when command in ["ISON", "USERHOST"] do
-    Enum.map(params, &normalize_correlation_target(state, &1))
-  end
-
-  defp correlation_targets(state, %Message{command: "WHOIS", params: params}) do
-    case List.last(params) do
-      target when is_binary(target) -> [normalize_correlation_target(state, target)]
-      _target -> []
-    end
-  end
-
-  defp correlation_targets(state, %Message{command: command, params: [targets | _rest]})
-       when command in ["LIST", "NAMES", "WHO", "WHOWAS"] do
-    targets
-    |> String.split(",", trim: true)
-    |> Enum.map(&normalize_correlation_target(state, &1))
-  end
-
-  defp correlation_targets(_state, %Message{}), do: []
-
-  defp normalize_correlation_target(state, target) do
-    if Targets.channel?(state, target),
-      do: Targets.key(state, target),
-      else: Targets.normalize(state, target)
-  end
-
-  defp effective_terminal_events(command, spec) do
-    application_events =
-      case {command, spec.family} do
-        {"AWAY", _family} -> [:away, :now_away, :unaway]
-        {"INVITE", _family} -> [:inviting, :invite]
-        {"JOIN", _family} -> [:join]
-        {"KICK", _family} -> [:kick]
-        {"MODE", :mutation} -> [:mode]
-        {"NICK", _family} -> [:nick]
-        {"PART", _family} -> [:part]
-        {"QUIT", _family} -> [:disconnect, :disconnected]
-        {"TOPIC", :mutation} -> [:topic]
-        {_command, _family} -> []
-      end
-
-    Enum.uniq(spec.terminal_events ++ application_events)
-  end
-
-  defp process_command_event(state, %Event{name: :labeled_request, payload: payload}) do
-    command_id = Map.get(payload, :label)
-
-    case Map.get(state.pending_commands, command_id) do
-      nil ->
-        state
-
-      pending ->
-        status = payload |> Map.get(:status) |> lifecycle_status()
-        update_command_status(pending, status, lifecycle_metadata(payload))
-
-        if status in ["completed", "failed"] do
-          finish_pending_command(state, command_id, pending)
-        else
-          state
-        end
-    end
-  end
-
-  defp process_command_event(state, %Event{derivative?: true}), do: state
-
-  defp process_command_event(state, %Event{} = event) do
-    case pending_for_event(state, event) do
-      {command_id, pending} ->
-        state = maybe_record_command_result(state, event, pending)
-
-        cond do
-          not pending.labeled? and pending.command != "JOIN" and
-            event.name in [:standard_reply, :standard_reply_error] and
-              Map.get(event.payload, :type) == :fail ->
-            update_command_status(pending, "failed", %{
-              error: Map.get(event.payload, :description) || "Command failed."
-            })
-
-            finish_pending_command(state, command_id, pending)
-
-          not pending.labeled? and event.name in pending.spec.terminal_events ->
-            update_command_status(pending, "completed", %{})
-            finish_pending_command(state, command_id, pending)
-
-          not pending.labeled? and pending.spec.terminal_events == [] and
-              event.name in pending.spec.result_events ->
-            reschedule_pending_grace(state, command_id, pending)
-
-          true ->
-            state
-        end
-
-      nil ->
-        state
-    end
-  end
-
-  defp suppress_correlated_legacy_output?(state, %Event{name: name})
-       when name in [:motd_start, :motd] do
-    state
-    |> Map.get(:pending_commands, %{})
-    |> Enum.any?(fn {_command_id, pending} -> pending.command == "MOTD" end)
-  end
-
-  defp suppress_correlated_legacy_output?(_state, %Event{}), do: false
-
-  defp pending_for_event(state, %Event{label: label}) when is_binary(label) do
-    case Map.get(state.pending_commands, label) do
-      nil -> nil
-      pending -> {label, pending}
-    end
-  end
-
-  defp pending_for_event(state, %Event{} = event) do
-    state.pending_commands
-    |> Enum.filter(fn {_command_id, pending} ->
-      not pending.labeled? and
-        event_matches_pending?(state, event, pending)
-    end)
-    |> Enum.min_by(fn {_command_id, pending} -> pending.invocation.id end, fn -> nil end)
-  end
-
-  defp event_matches_pending?(
-         state,
-         %Event{name: :join, payload: payload},
-         %{command: "JOIN"} = pending
-       ) do
-    channel = Map.get(payload, :channel)
-    nick = Map.get(payload, :nick)
-
-    self_event?(state, payload, nick) and target_matches?(state, channel, pending.targets)
-  end
-
-  defp event_matches_pending?(
-         state,
-         %Event{name: :part, payload: payload},
-         %{command: "PART"} = pending
-       ) do
-    channel = Map.get(payload, :channel)
-    nick = Map.get(payload, :nick)
-
-    self_event?(state, payload, nick) and target_matches?(state, channel, pending.targets)
-  end
-
-  defp event_matches_pending?(
-         state,
-         %Event{name: :nick, payload: payload},
-         %{command: "NICK"} = pending
-       ) do
-    new_nick = Map.get(payload, :new_nick)
-    old_nick = Map.get(payload, :old_nick)
-
-    self_event?(state, payload, old_nick) and target_matches?(state, new_nick, pending.targets)
-  end
-
-  defp event_matches_pending?(
-         state,
-         %Event{name: :topic, payload: payload},
-         %{command: "TOPIC"} = pending
-       ) do
-    channel = Map.get(payload, :channel)
-    nick = Map.get(payload, :nick)
-
-    pending.spec.family == :mutation and self_event?(state, payload, nick) and
-      target_matches?(state, channel, pending.targets)
-  end
-
-  defp event_matches_pending?(state, %Event{name: name, payload: payload}, pending)
-       when name in [:standard_reply, :standard_reply_error] do
-    Map.get(payload, :command) == pending.command and
-      standard_reply_target_matches?(state, payload, pending.targets)
-  end
-
-  defp event_matches_pending?(state, %Event{name: name} = event, pending) do
-    name in (pending.spec.result_events ++ pending.spec.terminal_events) and
-      query_target_matches?(state, event, pending.targets)
-  end
-
-  defp query_target_matches?(_state, _event, []), do: true
-
-  defp query_target_matches?(state, %Event{payload: payload}, targets) when is_map(payload) do
-    candidates =
-      [:channel, :target, :nick, :mask]
-      |> Enum.map(&Map.get(payload, &1))
-      |> Enum.filter(&is_binary/1)
-
-    candidates == [] or Enum.any?(candidates, &target_matches?(state, &1, targets))
-  end
-
-  defp query_target_matches?(_state, _event, _targets), do: true
-
-  defp standard_reply_target_matches?(_state, _payload, []), do: true
-
-  defp standard_reply_target_matches?(state, payload, targets) do
-    case Map.get(payload, :context, []) do
-      [] ->
-        true
-
-      context ->
-        Enum.any?(context, fn
-          value when is_binary(value) -> normalize_correlation_target(state, value) in targets
-          _value -> false
-        end)
-    end
-  end
-
-  defp self_event?(state, payload, nick) do
-    Identity.event_self?(state, payload, :source_self?, nick)
-  end
-
-  defp target_matches?(state, target, targets) when is_binary(target),
-    do: normalize_correlation_target(state, target) in targets
-
-  defp target_matches?(_state, _target, _targets), do: false
-
-  defp maybe_record_command_result(state, event, pending) do
-    if command_result_event?(event, pending) do
-      formatted = CommandResult.format(event)
-
-      metadata =
-        Map.merge(formatted.metadata, %{
-          command_id: pending.command_id,
-          command: pending.command,
-          command_status: "result"
-        })
-
-      _result =
-        Chat.record_command_message(
-          state.connection,
-          result_buffer_id(state, event, pending),
-          formatted.body,
-          metadata
-        )
-    end
-
-    state
-  end
-
-  defp command_result_event?(%Event{name: name}, pending) do
-    name in pending.spec.result_events or name in [:standard_reply, :standard_reply_error]
-  end
-
-  defp result_buffer_id(state, event, pending) do
-    channel =
-      if is_map(event.payload) do
-        Map.get(event.payload, :channel) || Map.get(event.payload, :target)
-      end
-
-    if is_binary(channel) and Targets.channel?(state, channel) do
-      case Chat.get_channel_membership(state.connection, channel, Targets.casemapping(state)) do
-        %ChannelMembership{id: membership_id, status: status}
-        when status in ["pending", "joined"] ->
-          "channel:#{membership_id}"
-
-        _membership ->
-          pending.buffer_id
-      end
-    else
-      pending.buffer_id
-    end
-  end
-
-  defp finish_pending_command(state, command_id, pending) do
-    Process.cancel_timer(pending.timer)
-    %{state | pending_commands: Map.delete(state.pending_commands, command_id)}
-  end
-
-  defp reschedule_pending_grace(state, command_id, pending) do
-    Process.cancel_timer(pending.timer)
-
-    pending = %{
-      pending
-      | timer:
-          Process.send_after(
-            self(),
-            {:command_grace_timeout, command_id},
-            @command_grace_timeout
-          )
-    }
-
-    %{state | pending_commands: Map.put(state.pending_commands, command_id, pending)}
-  end
-
-  defp fail_pending_commands(state, reason) do
-    Enum.each(Map.get(state, :pending_commands, %{}), fn {_command_id, pending} ->
-      Process.cancel_timer(pending.timer)
-      update_command_status(pending, "failed", %{error: reason})
-    end)
-
-    Map.put(state, :pending_commands, %{})
-  end
-
-  defp update_command_status(pending, status, metadata) do
-    Chat.update_command_message(
-      pending.invocation,
-      Map.merge(metadata, %{command_status: status})
-    )
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
-  end
-
-  defp lifecycle_status(:sent), do: "sent"
-  defp lifecycle_status(:acknowledged), do: "acknowledged"
-  defp lifecycle_status(:completed), do: "completed"
-  defp lifecycle_status(:failed), do: "failed"
-  defp lifecycle_status(_status), do: "sent"
-
-  defp lifecycle_metadata(payload) do
-    case Map.get(payload, :reason) do
-      nil -> %{}
-      reason -> %{error: inspect(reason)}
-    end
-  end
-
-  defp command_execution_error(reason) do
-    %{
-      code: error_code(reason),
-      message: command_execution_message(reason),
-      recoverable: reason not in [:invalid_command_id, :duplicate_command_id]
-    }
-  end
-
-  defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "command_failed"
-
-  defp command_execution_message(:not_connected),
-    do: "Connect to the server before running a command."
-
-  defp command_execution_message(:invalid_command_id), do: "The command identifier is invalid."
-  defp command_execution_message(:duplicate_command_id), do: "This command was already submitted."
-  defp command_execution_message(:already_joined), do: "You are already in that channel."
-  defp command_execution_message(:not_joined), do: "Join that channel before sending to it."
-
-  defp command_execution_message(reason),
-    do: "The IRC command could not be sent: #{inspect(reason)}"
 
   defp parse_visible_users(value) when is_integer(value), do: value
 
