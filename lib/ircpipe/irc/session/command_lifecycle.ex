@@ -1,8 +1,7 @@
 defmodule Ircpipe.Irc.Session.CommandLifecycle do
   @moduledoc false
 
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelMembership, CommandMessages}
+  alias Ircpipe.Chat.{ChannelMembership, CommandMessages, MembershipLookup}
   alias Ircpipe.Irc.CommandResult
   alias Ircpipe.Irc.Session.{Identity, Targets}
   alias Ircxd.Client.{Event, Info}
@@ -367,7 +366,11 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
       end
 
     if is_binary(channel) and Targets.channel?(state, channel) do
-      case Chat.get_channel_membership(state.connection, channel, Targets.casemapping(state)) do
+      case MembershipLookup.find_by_channel(
+             state.connection,
+             channel,
+             Targets.casemapping(state)
+           ) do
         %ChannelMembership{id: membership_id, status: status}
         when status in ["pending", "joined"] ->
           "channel:#{membership_id}"

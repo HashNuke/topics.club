@@ -7,12 +7,12 @@ defmodule Ircpipe.Chat do
     BufferEvents,
     ChannelMembership,
     ChannelUser,
+    MembershipLookup,
     MembershipReconciler,
     ServerConnection,
     ServerConnectionLock
   }
 
-  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
 
   def update_connection_casemapping(%ServerConnection{} = connection, casemapping) do
@@ -28,7 +28,13 @@ defmodule Ircpipe.Chat do
   end
 
   def request_channel_join(user, %ServerConnection{} = connection, channel),
-    do: request_channel_join(user, connection, channel, stored_casemapping(connection) || :ascii)
+    do:
+      request_channel_join(
+        user,
+        connection,
+        channel,
+        MembershipLookup.casemapping(connection) || :ascii
+      )
 
   def request_channel_join(
         %User{id: user_id} = user,
@@ -44,7 +50,7 @@ defmodule Ircpipe.Chat do
            losers = MembershipReconciler.reconcile_in_transaction(active_connection, casemapping)
 
            membership =
-             case channel_membership(active_connection, channel, casemapping) do
+             case MembershipLookup.find_by_channel(active_connection, channel, casemapping) do
                %ChannelMembership{} = membership ->
                  attrs =
                    if membership.status == "joined" do
@@ -101,7 +107,7 @@ defmodule Ircpipe.Chat do
       active_connection = ServerConnectionLock.lock_active!(connection.id)
 
       {membership, broadcast?} =
-        case channel_membership(active_connection, channel, casemapping) do
+        case MembershipLookup.find_by_channel(active_connection, channel, casemapping) do
           %ChannelMembership{} = membership ->
             updated =
               membership
@@ -162,7 +168,7 @@ defmodule Ircpipe.Chat do
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-      case channel_membership(active_connection, channel, casemapping) do
+      case MembershipLookup.find_by_channel(active_connection, channel, casemapping) do
         %ChannelMembership{} = membership ->
           rejected =
             membership
@@ -205,7 +211,7 @@ defmodule Ircpipe.Chat do
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-      case channel_membership(active_connection, channel, casemapping) do
+      case MembershipLookup.find_by_channel(active_connection, channel, casemapping) do
         %ChannelMembership{} = membership ->
           updated =
             membership
@@ -262,7 +268,7 @@ defmodule Ircpipe.Chat do
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-      case channel_membership(active_connection, channel, casemapping, "joined") do
+      case MembershipLookup.find_by_channel(active_connection, channel, casemapping, "joined") do
         %ChannelMembership{} = membership ->
           membership
           |> ChannelMembership.changeset(%{last_error: reason_text(reason)})
@@ -272,33 +278,6 @@ defmodule Ircpipe.Chat do
           Repo.rollback(:invalid_buffer)
       end
     end)
-  end
-
-  def get_membership!(%User{id: user_id}, id) do
-    ChannelMembership
-    |> where([m], m.user_id == ^user_id and m.id == ^id)
-    |> preload(:server_connection)
-    |> Repo.one!()
-  end
-
-  def get_channel_membership(%ServerConnection{} = connection, channel, casemapping \\ :rfc1459),
-    do: channel_membership(connection, channel, casemapping)
-
-  def get_membership_by_channel!(
-        %User{id: user_id},
-        %ServerConnection{} = connection,
-        channel,
-        casemapping \\ nil
-      ) do
-    mapping = casemapping || stored_casemapping(connection) || :ascii
-
-    case channel_membership(connection, channel, mapping) do
-      %ChannelMembership{user_id: ^user_id} = membership ->
-        Repo.preload(membership, :server_connection)
-
-      _membership ->
-        raise Ecto.NoResultsError, queryable: ChannelMembership
-    end
   end
 
   def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
@@ -316,30 +295,6 @@ defmodule Ircpipe.Chat do
 
   defp reason_text(reason) when is_binary(reason), do: reason
   defp reason_text(reason), do: inspect(reason)
-
-  defp channel_membership(connection, channel, casemapping, status \\ nil) do
-    query =
-      from(m in ChannelMembership,
-        where: m.server_connection_id == ^connection.id
-      )
-
-    query = if status, do: where(query, [m], m.status == ^status), else: query
-    key = Identifier.key(channel, casemapping)
-
-    query
-    |> Repo.all()
-    |> Enum.find(&(Identifier.key(&1.channel, casemapping) == key))
-  end
-
-  defp stored_casemapping(%ServerConnection{casemapping: mapping}) when is_binary(mapping) do
-    case mapping do
-      "ascii" -> :ascii
-      "strict_rfc1459" -> :strict_rfc1459
-      _mapping -> :rfc1459
-    end
-  end
-
-  defp stored_casemapping(%ServerConnection{}), do: nil
 
   defp update_or_rollback(changeset) do
     case Repo.update(changeset) do

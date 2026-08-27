@@ -1,9 +1,7 @@
 defmodule IrcpipeWeb.Api.ChannelController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.ReadState
-  alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.{Connections, MembershipLookup, ReadState}
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -33,14 +31,14 @@ defmodule IrcpipeWeb.Api.ChannelController do
 
   def mark_read(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    membership = Chat.get_membership!(user, id)
+    membership = MembershipLookup.get!(user, id)
     :ok = ReadState.mark(user, membership)
     json(conn, %{ok: true})
   end
 
   def leave(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
-    membership = Chat.get_membership!(user, id)
+    membership = MembershipLookup.get!(user, id)
 
     case try_part(membership) do
       :ok ->

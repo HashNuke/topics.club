@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.ChannelMembership
+  alias Ircpipe.Chat.MembershipLookup
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
@@ -51,7 +52,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
 
     assert json_response(conn, 200) == %{"ok" => true}
 
-    reloaded = Chat.get_membership!(user, membership.id)
+    reloaded = MembershipLookup.get!(user, membership.id)
     assert reloaded.unread_count == 0
     assert reloaded.mention_count == 0
   end
@@ -91,7 +92,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
                    1_000
 
     assert membership_id == membership.id
-    assert Chat.get_membership!(user, membership.id).status == "left"
+    assert MembershipLookup.get!(user, membership.id).status == "left"
     assert :ok = Ircpipe.Irc.Session.quit(connection)
   end
 

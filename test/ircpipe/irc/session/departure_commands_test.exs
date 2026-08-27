@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.Session.DepartureCommandsTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{Connections, MessageHistory}
+  alias Ircpipe.Chat.{Connections, MembershipLookup, MessageHistory}
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.Session.DepartureCommands
 
@@ -39,7 +39,7 @@ defmodule Ircpipe.Irc.Session.DepartureCommandsTest do
     assert {:ok, returned} = DepartureCommands.part(state, "#queued", "leaving")
 
     refute MapSet.member?(returned.pending_joins, "#queued")
-    assert Chat.get_membership!(context.user, membership.id).status == "left"
+    assert MembershipLookup.get!(context.user, membership.id).status == "left"
 
     assert_receive {:buffer_left, %{channel_membership_id: membership_id}}
     assert membership_id == membership.id
@@ -58,7 +58,7 @@ defmodule Ircpipe.Irc.Session.DepartureCommandsTest do
     assert {{:error, :closed}, returned} = DepartureCommands.part(state, "#joined", "later")
 
     assert returned == state
-    assert Chat.get_membership!(context.user, membership.id).status == "joined"
+    assert MembershipLookup.get!(context.user, membership.id).status == "joined"
     membership_id = membership.id
     refute_receive {:buffer_left, %{channel_membership_id: ^membership_id}}
   end

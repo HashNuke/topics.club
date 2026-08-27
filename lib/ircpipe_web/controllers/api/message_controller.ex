@@ -1,8 +1,7 @@
 defmodule IrcpipeWeb.Api.MessageController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.MessageHistory
+  alias Ircpipe.Chat.{MembershipLookup, MessageHistory}
   alias Ircpipe.Irc.Session
   alias Ircpipe.Realtime.Event
 
@@ -38,7 +37,7 @@ defmodule IrcpipeWeb.Api.MessageController do
 
   def create(conn, %{"channel_id" => channel_id, "body" => body}) do
     user = conn.assigns.current_scope.user
-    membership = Chat.get_membership!(user, channel_id)
+    membership = MembershipLookup.get!(user, channel_id)
 
     case Session.say(membership.server_connection, membership.channel, body) do
       :ok ->

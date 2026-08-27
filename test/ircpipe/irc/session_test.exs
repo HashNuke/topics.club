@@ -8,7 +8,15 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.MessageIngestion
-  alias Ircpipe.Chat.{CommandMessages, DirectMessageThread, MessageHistory, Notification}
+
+  alias Ircpipe.Chat.{
+    CommandMessages,
+    DirectMessageThread,
+    MembershipLookup,
+    MessageHistory,
+    Notification
+  }
+
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.IrcTestServer
@@ -807,7 +815,7 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    unchanged = Chat.get_membership!(user, membership.id)
+    unchanged = MembershipLookup.get!(user, membership.id)
     assert unchanged.status == "joined"
     assert unchanged.auto_join
     refute_receive {:buffer_left, _event}
@@ -842,7 +850,7 @@ defmodule Ircpipe.Irc.SessionTest do
              Session.handle_call({:part, "#queued", "leaving"}, self(), state)
 
     refute MapSet.member?(returned.pending_joins, "#queued")
-    assert Chat.get_membership!(user, membership.id).status == "left"
+    assert MembershipLookup.get!(user, membership.id).status == "left"
     assert_receive {:buffer_left, %{channel_membership_id: membership_id}}
     assert membership_id == membership.id
   end
@@ -884,7 +892,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:buffer_error, %{body: "No such channel"}}, 1_000
 
-    assert Chat.get_membership!(user, membership.id).status == "joined"
+    assert MembershipLookup.get!(user, membership.id).status == "joined"
     membership_id = membership.id
     refute_receive {:buffer_left, %{channel_membership_id: ^membership_id}}
     assert :ok = Session.quit(connection)
@@ -925,7 +933,7 @@ defmodule Ircpipe.Irc.SessionTest do
                     %{buffer_id: "channel:" <> _, channel_membership_id: membership_id}}
 
     assert membership_id == membership.id
-    rejected = Chat.get_membership!(user, membership.id)
+    rejected = MembershipLookup.get!(user, membership.id)
     assert rejected.status == "error"
     refute rejected.auto_join
   end
@@ -1456,7 +1464,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert {:noreply, state} = Session.handle_info({:ircxd, unrelated_join}, state)
     assert Map.has_key?(state.pending_commands, "join-wanted-1")
-    assert Chat.get_membership!(user, membership.id).status == "pending"
+    assert MembershipLookup.get!(user, membership.id).status == "pending"
 
     unrelated_nick =
       Ircxd.Client.Event.from_legacy!(
@@ -1486,7 +1494,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert Map.has_key?(state.pending_commands, "join-wanted-1")
     assert MapSet.member?(state.pending_joins, "#wanted")
-    assert Chat.get_membership!(user, membership.id).status == "pending"
+    assert MembershipLookup.get!(user, membership.id).status == "pending"
 
     join_error =
       Ircxd.Client.Event.from_legacy!(
@@ -1504,7 +1512,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:buffer_left, %{buffer_id: "channel:" <> _}}
 
-    rejected = Chat.get_membership!(user, membership.id)
+    rejected = MembershipLookup.get!(user, membership.id)
     assert rejected.status == "error"
     refute rejected.auto_join
 
@@ -1546,7 +1554,7 @@ defmodule Ircpipe.Irc.SessionTest do
                state
              )
 
-    assert Chat.get_membership!(user, membership.id).status == "pending"
+    assert MembershipLookup.get!(user, membership.id).status == "pending"
     refute MapSet.member?(returned.joined_channels, "#room")
   end
 
@@ -1891,7 +1899,7 @@ defmodule Ircpipe.Irc.SessionTest do
     state = :sys.get_state(Session.via(connection))
     refute state.isupport_received?
     assert Connections.get!(user, connection.id).casemapping == nil
-    refute Chat.get_membership!(user, membership.id).status == "error"
+    refute MembershipLookup.get!(user, membership.id).status == "error"
 
     assert :ok =
              IrcTestServer.send_line(
@@ -1935,7 +1943,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     _ = :sys.get_state(Session.via(connection))
     refute_receive {:irc_server_line, "JOIN ~custom"}, 200
-    assert Chat.get_membership!(user, membership.id).status == "joined"
+    assert MembershipLookup.get!(user, membership.id).status == "joined"
     assert Connections.get!(user, connection.id).casemapping == "ascii"
     assert :ok = Session.quit(connection)
   end
@@ -2201,7 +2209,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert {:noreply, returned} = Session.handle_info({:ircxd, event}, state)
     refute MapSet.member?(returned.pending_joins, "#native")
-    assert Chat.get_membership!(user, membership.id).status == "error"
+    assert MembershipLookup.get!(user, membership.id).status == "error"
   end
 
   test "does not let an unknown labeled failure reject a newer native JOIN" do
@@ -2246,7 +2254,7 @@ defmodule Ircpipe.Irc.SessionTest do
              Session.handle_info({:ircxd, %{event | label: "old-command"}}, state)
 
     assert MapSet.member?(returned.pending_joins, "#new")
-    assert Chat.get_membership!(user, membership.id).status == "pending"
+    assert MembershipLookup.get!(user, membership.id).status == "pending"
   end
 
   defp two_pending_joins(scenario) do

@@ -3,7 +3,14 @@ defmodule Ircpipe.Irc.Session.JoinRequests do
 
   alias Ircpipe.Accounts.User
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelMembership, ServerConnection, ServerConnectionLock}
+
+  alias Ircpipe.Chat.{
+    ChannelMembership,
+    MembershipLookup,
+    ServerConnection,
+    ServerConnectionLock
+  }
+
   alias Ircpipe.Irc.{ConnectionLock, Session.JoinLifecycle, Session.Targets}
 
   def request(
@@ -40,7 +47,7 @@ defmodule Ircpipe.Irc.Session.JoinRequests do
   end
 
   defp pending_reply(state, channel, key) do
-    case Chat.get_channel_membership(state.connection, channel, Targets.casemapping(state)) do
+    case MembershipLookup.find_by_channel(state.connection, channel, Targets.casemapping(state)) do
       %ChannelMembership{} = membership ->
         status =
           if MapSet.member?(Map.get(state, :sent_joins, MapSet.new()), key),

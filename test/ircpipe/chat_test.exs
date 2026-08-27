@@ -10,6 +10,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat.{
     ChannelMembership,
     ChannelUser,
+    MembershipLookup,
     MembershipReconciler,
     Message,
     MessageHistory,
@@ -130,9 +131,9 @@ defmodule Ircpipe.ChatTest do
     {:ok, rfc_joined} = Chat.confirm_channel_join(connection, "#" <> "{ops}", :rfc1459)
     assert rfc_joined.id == rfc_pending.id
 
-    assert Chat.get_channel_membership(connection, "#PIPE", :ascii).id == ascii_pending.id
+    assert MembershipLookup.find_by_channel(connection, "#PIPE", :ascii).id == ascii_pending.id
 
-    assert Chat.get_channel_membership(connection, "#" <> "{OPS}", :rfc1459).id ==
+    assert MembershipLookup.find_by_channel(connection, "#" <> "{OPS}", :rfc1459).id ==
              rfc_pending.id
   end
 
@@ -210,7 +211,7 @@ defmodule Ircpipe.ChatTest do
     assert connection_id == connection.id
     assert loser_id in [first.id, second.id]
     assert loser_channel in [first.channel, second.channel]
-    membership = Chat.get_channel_membership(connection, "#" <> "{OPS}", :rfc1459)
+    membership = MembershipLookup.find_by_channel(connection, "#" <> "{OPS}", :rfc1459)
     assert membership.id in [first.id, second.id]
 
     assert Enum.map(MessageHistory.list_messages(user, membership.id), & &1.body) == [
@@ -301,7 +302,7 @@ defmodule Ircpipe.ChatTest do
     assert Repo.get!(ChannelMembership, pending_rejection.id).status == "pending"
     assert Repo.get!(ChannelMembership, joined_left.id).status == "joined"
     assert Repo.get!(ChannelMembership, joined_part.id).last_error == nil
-    refute Chat.get_channel_membership(connection, "#after-mark")
+    refute MembershipLookup.find_by_channel(connection, "#after-mark")
     refute_received {:buffer_joined, _event}
     refute_received {:buffer_left, _event}
   end
@@ -338,7 +339,7 @@ defmodule Ircpipe.ChatTest do
 
     assert Repo.get!(ChannelMembership, pending.id).status == "pending"
     assert Repo.get!(ChannelMembership, pending.id).last_error == nil
-    refute Chat.get_channel_membership(connection, "#new")
+    refute MembershipLookup.find_by_channel(connection, "#new")
     assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).casemapping == nil
     refute_received {:buffer_joined, _event}
     refute_received {:buffer_left, _event}
@@ -360,16 +361,16 @@ defmodule Ircpipe.ChatTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     MessageIngestion.record_channel(connection, "#elixir", "akash", "scoped")
 
-    assert Chat.get_membership!(user, membership.id).id == membership.id
-    assert Chat.get_membership_by_channel!(user, connection, "#elixir").id == membership.id
+    assert MembershipLookup.get!(user, membership.id).id == membership.id
+    assert MembershipLookup.get_by_channel!(user, connection, "#elixir").id == membership.id
 
     assert [%Message{body: "scoped"}] =
              MessageHistory.list_buffer_messages(user, "channel:#{membership.id}")
 
-    assert_raise Ecto.NoResultsError, fn -> Chat.get_membership!(other_user, membership.id) end
+    assert_raise Ecto.NoResultsError, fn -> MembershipLookup.get!(other_user, membership.id) end
 
     assert_raise Ecto.NoResultsError, fn ->
-      Chat.get_membership_by_channel!(other_user, connection, "#elixir")
+      MembershipLookup.get_by_channel!(other_user, connection, "#elixir")
     end
 
     assert_raise Ecto.NoResultsError, fn ->

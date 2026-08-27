@@ -2,8 +2,7 @@ defmodule Ircpipe.Irc.Session.JoinRequestsTest do
   use Ircpipe.DataCase, async: true
 
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.{Connections, ServerConnection}
+  alias Ircpipe.Chat.{Connections, MembershipLookup, ServerConnection}
   alias Ircpipe.Irc.Session.JoinRequests
   alias Ircpipe.Repo
 
@@ -103,7 +102,7 @@ defmodule Ircpipe.Irc.Session.JoinRequestsTest do
 
     assert returned == state
 
-    rejected = Chat.get_channel_membership(context.connection, "#elixir", :ascii)
+    rejected = MembershipLookup.find_by_channel(context.connection, "#elixir", :ascii)
     assert rejected.status == "error"
     refute rejected.auto_join
     assert rejected.last_error == "{:error, :closed}"

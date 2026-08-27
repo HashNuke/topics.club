@@ -15,6 +15,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Chat.MessageIngestion
+  alias Ircpipe.Chat.MembershipLookup
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
@@ -645,7 +646,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert connection_id == connection.id
     assert membership_id == membership.id
 
-    reloaded = Chat.get_membership!(user, membership.id)
+    reloaded = MembershipLookup.get!(user, membership.id)
     assert reloaded.unread_count == 0
     assert reloaded.mention_count == 0
   end
@@ -1067,7 +1068,7 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
 
     assert buffer_id == "channel:#{membership.id}"
-    left_membership = Chat.get_membership!(user, membership.id)
+    left_membership = MembershipLookup.get!(user, membership.id)
     assert left_membership.status == "left"
     assert left_membership.auto_join == false
     assert left_membership.left_at

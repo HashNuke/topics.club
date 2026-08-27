@@ -1,11 +1,9 @@
 defmodule IrcpipeWeb.UserChannel.BufferResolver do
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.Connections
-  alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.{Connections, DirectMessageLifecycle, MembershipLookup}
   alias Ircpipe.Irc.Session
 
   def membership(user, membership_id) do
-    membership = Chat.get_membership!(user, membership_id)
+    membership = MembershipLookup.get!(user, membership_id)
 
     if membership.status in ["pending", "joined"],
       do: {:ok, membership},
@@ -62,7 +60,7 @@ defmodule IrcpipeWeb.UserChannel.BufferResolver do
         {:error, _reason} -> nil
       end
 
-    membership = Chat.get_membership_by_channel!(user, connection, channel, casemapping)
+    membership = MembershipLookup.get_by_channel!(user, connection, channel, casemapping)
 
     if membership.status in ["pending", "joined"],
       do: {:ok, membership},
