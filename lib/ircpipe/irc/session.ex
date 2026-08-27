@@ -9,6 +9,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.DirectMessageSender
+  alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MembershipReconciler
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.ConnectionLock
@@ -520,7 +521,7 @@ defmodule Ircpipe.Irc.Session do
     })
 
     unless self? do
-      Chat.rename_direct_message_peer(
+      DirectMessageRenamer.rename(
         state.connection,
         old_nick,
         new_nick,

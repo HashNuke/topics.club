@@ -5,6 +5,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.DirectMessageSender
   alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, MessageHistory, Notification}
   alias Ircpipe.Irc.Identifier
@@ -442,7 +443,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     flush_mailbox()
 
     assert {:ok, renamed} =
-             Chat.rename_direct_message_peer(
+             DirectMessageRenamer.rename(
                connection,
                "alpha",
                "beta",
@@ -728,7 +729,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     displacement =
       Task.Supervisor.async_nolink(supervisor, fn ->
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Chat.rename_direct_message_peer(
+          DirectMessageRenamer.rename(
             connection,
             account_a.peer_nick,
             account_b.peer_nick,

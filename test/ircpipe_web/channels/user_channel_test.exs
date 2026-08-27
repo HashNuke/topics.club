@@ -11,6 +11,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -391,7 +392,7 @@ defmodule IrcpipeWeb.UserChannelTest do
              )
 
     assert {:ok, renamed} =
-             Chat.rename_direct_message_peer(
+             DirectMessageRenamer.rename(
                connection,
                original.peer_nick,
                displaced.peer_nick,
