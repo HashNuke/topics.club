@@ -4,6 +4,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
   alias Ircpipe.Irc.Session.ChannelListCommands
+  alias Ircpipe.Irc.Session.ChannelListEvents
   alias Ircpipe.Irc.Session.ChannelListRequest
   alias Ircpipe.Irc.Session.ClientLifecycle
   alias Ircpipe.Irc.Session.ConnectionEvents
@@ -264,32 +265,19 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, ServerEvents.handle(:nick_in_use, state, payload)}
   end
 
-  def handle_info({:ircxd, {:list_start, _payload}}, %{channel_list_request: request} = state)
-      when not is_nil(request) do
-    {:noreply, %{state | channel_list_request: ChannelListRequest.reset(request)}}
-  end
-
   def handle_info(
-        {:ircxd, {:list_entry, %{channel: _channel} = payload}},
-        %{channel_list_request: request} = state
+        {:ircxd, {event_name, _payload} = event},
+        state
       )
-      when not is_nil(request) do
-    {:noreply, %{state | channel_list_request: ChannelListRequest.add(request, payload)}}
+      when event_name in [:list_start, :list_entry, :list_end] do
+    case ChannelListEvents.handle_irc(state, event) do
+      {:handled, state} -> {:noreply, state}
+      :unhandled -> {:noreply, UnhandledEvents.handle(state, event)}
+    end
   end
 
-  def handle_info({:ircxd, {:list_end, _payload}}, %{channel_list_request: request} = state)
-      when not is_nil(request) do
-    {:noreply, %{state | channel_list_request: ChannelListRequest.complete(request)}}
-  end
-
-  def handle_info(
-        {:channel_list_timeout, ref},
-        %{channel_list_request: %{ref: ref} = request} = state
-      ) do
-    {:noreply, %{state | channel_list_request: ChannelListRequest.expire(request)}}
-  end
-
-  def handle_info({:channel_list_timeout, _ref}, state), do: {:noreply, state}
+  def handle_info({:channel_list_timeout, ref}, state),
+    do: {:noreply, ChannelListEvents.timeout(state, ref)}
 
   def handle_info({:command_timeout, command_id}, state) do
     {:noreply, CommandLifecycle.timeout(state, command_id)}
