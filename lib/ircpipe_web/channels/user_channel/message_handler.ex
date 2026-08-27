@@ -11,7 +11,8 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
   def send_message(
         %{"buffer_id" => "channel:" <> membership_id, "body" => body} = payload,
         socket
-      ) do
+      )
+      when is_binary(body) do
     user = socket.assigns.current_user
     client_message_id = Map.get(payload, "client_message_id")
 
@@ -53,7 +54,8 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
   def send_message(
         %{"buffer_id" => "direct:" <> thread_id, "body" => body} = payload,
         socket
-      ) do
+      )
+      when is_binary(body) do
     user = socket.assigns.current_user
     client_message_id = Map.get(payload, "client_message_id")
 
@@ -79,11 +81,22 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
     end
   end
 
-  def send_message(payload, socket) do
+  def send_message(%{"body" => body} = payload, socket) when is_binary(body) do
     Reply.error(socket, %{
       reason: "invalid_buffer",
       client_message_id: Map.get(payload, "client_message_id")
     })
+  end
+
+  def send_message(payload, socket) when is_map(payload) do
+    Reply.error(socket, %{
+      reason: "invalid_arguments",
+      client_message_id: Map.get(payload, "client_message_id")
+    })
+  end
+
+  def send_message(_payload, socket) do
+    Reply.error(socket, %{reason: "invalid_arguments"})
   end
 
   defp say(membership, body) do

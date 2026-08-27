@@ -530,6 +530,53 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert :ok = Session.quit(connection)
   end
 
+  test "rejects a malformed channel message body without terminating the user channel" do
+    user = AccountsFixtures.user_fixture()
+    socket = join_user_channel(user)
+    channel_ref = Process.monitor(socket.channel_pid)
+
+    malformed_ref =
+      push(socket, "message:send", %{
+        "client_message_id" => "malformed-channel",
+        "buffer_id" => "channel:123",
+        "body" => 1
+      })
+
+    assert_reply malformed_ref, :error, %{
+      reason: "invalid_arguments",
+      client_message_id: "malformed-channel"
+    }
+
+    alive_ref = push(socket, "command:suggest", %{"input" => "/jo"})
+    assert_reply alive_ref, :ok, %{reply: "ok"}
+    refute_receive {:DOWN, ^channel_ref, :process, _pid, _reason}
+  end
+
+  test "rejects malformed direct-message and non-map payloads without terminating the channel" do
+    user = AccountsFixtures.user_fixture()
+    socket = join_user_channel(user)
+    channel_ref = Process.monitor(socket.channel_pid)
+
+    malformed_dm_ref =
+      push(socket, "message:send", %{
+        "client_message_id" => "malformed-direct",
+        "buffer_id" => "direct:123",
+        "body" => ["not", "text"]
+      })
+
+    assert_reply malformed_dm_ref, :error, %{
+      reason: "invalid_arguments",
+      client_message_id: "malformed-direct"
+    }
+
+    malformed_payload_ref = push(socket, "message:send", 1)
+    assert_reply malformed_payload_ref, :error, %{reason: "invalid_arguments"}
+
+    alive_ref = push(socket, "command:suggest", %{"input" => "/jo"})
+    assert_reply alive_ref, :ok, %{reply: "ok"}
+    refute_receive {:DOWN, ^channel_ref, :process, _pid, _reason}
+  end
+
   test "broadcasts sent channel messages to every browser socket for the user" do
     server = start_supervised!({IrcTestServer, self()})
     user = AccountsFixtures.user_fixture()
