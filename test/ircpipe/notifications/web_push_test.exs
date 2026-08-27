@@ -194,6 +194,31 @@ defmodule Ircpipe.Notifications.WebPushTest do
              WebPush.send(%PushSubscription{}, %{title: "Mention"})
   end
 
+  test "rejects mismatched and invalid VAPID key material" do
+    first = WebPush.generate_keypair()
+    second = WebPush.generate_keypair()
+
+    for {public_key, private_key} <- [
+          {first.public_key, second.private_key},
+          {first.public_key, Base.url_encode64(<<0::256>>, padding: false)},
+          {first.public_key,
+           Base.url_encode64(
+             <<0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551::256>>,
+             padding: false
+           )},
+          {Base.url_encode64(<<4, 0::512>>, padding: false), first.private_key}
+        ] do
+      Application.put_env(:ircpipe, WebPush,
+        public_key: public_key,
+        private_key: private_key,
+        subject: "mailto:notifications@example.com"
+      )
+
+      refute WebPush.configured?()
+      assert WebPush.public_key() == nil
+    end
+  end
+
   defp header(headers, name) do
     headers
     |> Enum.find_value(fn

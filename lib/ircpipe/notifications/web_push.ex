@@ -2,14 +2,15 @@ defmodule Ircpipe.Notifications.WebPush do
   @moduledoc false
   import Bitwise
 
+  alias Ircpipe.Notifications.VapidKeypair
+
   @record_size 4_096
   @default_ttl 86_400
 
   def configured? do
     config = config()
 
-    valid_encoded_key?(config[:public_key], 65) and
-      valid_encoded_key?(config[:private_key], 32) and
+    VapidKeypair.valid?(config[:public_key], config[:private_key]) and
       valid_subject?(config[:subject])
   end
 
@@ -281,15 +282,6 @@ defmodule Ircpipe.Notifications.WebPush do
   defp hkdf_expand(key, info, length), do: key |> hmac(info <> <<1>>) |> binary_part(0, length)
   defp hmac(key, data), do: :crypto.mac(:hmac, :sha256, key, data)
   defp base64url(value), do: Base.url_encode64(value, padding: false)
-
-  defp valid_encoded_key?(value, expected_size) when is_binary(value) do
-    case Base.url_decode64(value, padding: false) do
-      {:ok, decoded} -> byte_size(decoded) == expected_size
-      :error -> false
-    end
-  end
-
-  defp valid_encoded_key?(_value, _expected_size), do: false
 
   defp valid_subject?(subject) when is_binary(subject) do
     case URI.parse(subject) do
