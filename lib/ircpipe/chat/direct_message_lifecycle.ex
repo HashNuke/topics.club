@@ -26,18 +26,23 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
         %ServerConnection{user_id: user_id} = connection,
         peer_nick
       ) do
+    assert_transaction_owner!()
+
     if Identifier.valid_nick?(peer_nick) do
       Repo.transaction(fn ->
-        ServerConnectionLock.lock!(connection.id)
+        active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-        case DirectMessageStore.ensure_thread(user, connection, peer_nick, %{}, false) do
+        case DirectMessageStore.ensure_thread(user, active_connection, peer_nick, %{}, false) do
           {:ok, thread, archived_threads} -> {thread, archived_threads}
           {:error, changeset} -> Repo.rollback(changeset)
         end
       end)
       |> case do
         {:ok, {thread, archived_threads}} ->
-          Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+          publish(connection.id, fn ->
+            Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+          end)
+
           {:ok, thread}
 
         {:error, reason} ->
@@ -49,43 +54,51 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
   end
 
   def close(%Scope{user: user}, id) do
-    now = DateTime.utc_now(:second)
-
-    Repo.transaction(fn ->
-      candidate = get!(user, id)
-      ServerConnectionLock.lock!(candidate.server_connection_id)
-      thread = get!(user, id)
-
-      updated =
-        thread
-        |> DirectMessageStore.changeset(%{
-          closed_at: now,
-          last_read_at: now,
-          unread_count: 0
-        })
-        |> Repo.update!()
-
-      DirectMessageStore.mark_notifications_read(thread.id, now)
-      updated
-    end)
-    |> tap(fn
-      {:ok, closed} -> BufferEvents.direct_message_closed(closed)
-      _result -> :ok
-    end)
-  end
-
-  def set_blocked(%Scope{user: user}, id, blocked?) when is_boolean(blocked?) do
+    assert_transaction_owner!()
     now = DateTime.utc_now(:second)
 
     result =
       Repo.transaction(fn ->
         candidate = get!(user, id)
-        ServerConnectionLock.lock!(candidate.server_connection_id)
+        ServerConnectionLock.lock_active!(candidate.server_connection_id)
+        thread = get!(user, id)
+
+        updated =
+          thread
+          |> DirectMessageStore.changeset(%{
+            closed_at: now,
+            last_read_at: now,
+            unread_count: 0
+          })
+          |> Repo.update!()
+
+        DirectMessageStore.mark_notifications_read(thread.id, now)
+        {updated, thread.server_connection_id}
+      end)
+
+    case result do
+      {:ok, {closed, connection_id}} ->
+        publish(connection_id, fn -> BufferEvents.direct_message_closed(closed) end)
+        {:ok, closed}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def set_blocked(%Scope{user: user}, id, blocked?) when is_boolean(blocked?) do
+    assert_transaction_owner!()
+    now = DateTime.utc_now(:second)
+
+    result =
+      Repo.transaction(fn ->
+        candidate = get!(user, id)
+        ServerConnectionLock.lock_active!(candidate.server_connection_id)
         thread = get!(user, id)
         maybe_pause_block_after_lock(thread)
 
         if DirectMessageStore.archived?(thread) do
-          {:closed, thread}
+          {:closed, thread, thread.server_connection_id}
         else
           attrs =
             if blocked? do
@@ -106,17 +119,17 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
             |> Repo.delete_all()
           end
 
-          {:updated, updated}
+          {:updated, updated, updated.server_connection_id}
         end
       end)
 
     case result do
-      {:ok, {:updated, updated}} ->
-        BufferEvents.direct_message_thread(updated)
+      {:ok, {:updated, updated, connection_id}} ->
+        publish(connection_id, fn -> BufferEvents.direct_message_thread(updated) end)
         {:ok, updated}
 
-      {:ok, {:closed, closed}} ->
-        BufferEvents.direct_message_closed(closed)
+      {:ok, {:closed, closed, connection_id}} ->
+        publish(connection_id, fn -> BufferEvents.direct_message_closed(closed) end)
         {:error, :direct_message_closed}
 
       {:error, reason} ->
@@ -125,12 +138,13 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
   end
 
   def mark_read(%Scope{user: user}, id) do
+    assert_transaction_owner!()
     now = DateTime.utc_now(:second)
 
     result =
       Repo.transaction(fn ->
         candidate = get!(user, id)
-        ServerConnectionLock.lock!(candidate.server_connection_id)
+        ServerConnectionLock.lock_active!(candidate.server_connection_id)
         thread = get!(user, id)
 
         if DirectMessageStore.archived?(thread) or not is_nil(thread.closed_at) do
@@ -143,15 +157,30 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
           |> Repo.update!()
 
         DirectMessageStore.mark_notifications_read(updated.id, now)
-        updated
+        {updated, updated.server_connection_id}
       end)
 
     case result do
-      {:ok, updated} -> BufferEvents.direct_message_thread(updated)
-      _result -> :ok
-    end
+      {:ok, {updated, connection_id}} ->
+        publish(connection_id, fn -> BufferEvents.direct_message_thread(updated) end)
+        {:ok, updated}
 
-    result
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp publish(connection_id, callback) do
+    _effects =
+      ServerConnectionLock.serialize_effects(connection_id, fn _connection -> callback.() end)
+
+    :ok
+  end
+
+  defp assert_transaction_owner! do
+    if Repo.in_transaction?() do
+      raise ArgumentError, "cannot mutate direct messages inside an existing transaction"
+    end
   end
 
   defp maybe_pause_block_after_lock(thread) do

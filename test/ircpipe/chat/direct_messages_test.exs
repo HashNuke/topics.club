@@ -53,6 +53,113 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
            ]
   end
 
+  test "rejects direct-message mutations after connection deletion is marked", %{
+    user: user,
+    scope: scope,
+    connection: connection
+  } do
+    assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    assert {:error, :connection_deleting} =
+             DirectMessageLifecycle.open(user, connection, "other")
+
+    assert {:error, :connection_deleting} = DirectMessageLifecycle.close(scope, thread.id)
+
+    assert {:error, :connection_deleting} =
+             DirectMessageLifecycle.set_blocked(scope, thread.id, true)
+
+    assert {:error, :connection_deleting} = DirectMessageLifecycle.mark_read(scope, thread.id)
+
+    stored = DirectMessageLifecycle.get!(user, thread.id)
+    assert stored.closed_at == nil
+    assert stored.blocked_at == nil
+    assert stored.mutation_revision == thread.mutation_revision
+    refute_received {:direct_message_thread, _payload}
+    refute_received {:direct_message_closed, _payload}
+  end
+
+  test "rejects direct-message mutations inside an outer transaction", %{
+    user: user,
+    scope: scope,
+    connection: connection
+  } do
+    assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:error, :forced_rollback} =
+             Repo.transaction(fn ->
+               mutations = [
+                 fn -> DirectMessageLifecycle.open(user, connection, "other") end,
+                 fn -> DirectMessageLifecycle.close(scope, thread.id) end,
+                 fn -> DirectMessageLifecycle.set_blocked(scope, thread.id, true) end,
+                 fn -> DirectMessageLifecycle.mark_read(scope, thread.id) end
+               ]
+
+               Enum.each(mutations, fn mutation ->
+                 assert_raise ArgumentError,
+                              ~r/cannot mutate direct messages inside an existing transaction/,
+                              mutation
+               end)
+
+               Repo.rollback(:forced_rollback)
+             end)
+
+    stored = DirectMessageLifecycle.get!(user, thread.id)
+    assert stored.closed_at == nil
+    assert stored.blocked_at == nil
+    assert stored.mutation_revision == thread.mutation_revision
+    refute_received {:direct_message_thread, _payload}
+    refute_received {:direct_message_closed, _payload}
+  end
+
+  test "completed deletion between a DM commit and effects drops publication without raising", %{
+    user: user,
+    scope: scope,
+    connection: connection
+  } do
+    assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    flush_mailbox()
+
+    effects_ref = make_ref()
+    previous_barrier = Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+
+    Application.put_env(
+      :ircpipe,
+      :connection_effects_before_lock_barrier,
+      {self(), effects_ref}
+    )
+
+    on_exit(fn ->
+      restore_env(:connection_effects_before_lock_barrier, previous_barrier)
+    end)
+
+    supervisor = start_supervised!(Task.Supervisor)
+
+    read =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        DirectMessageLifecycle.mark_read(scope, thread.id)
+      end)
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), read.pid)
+
+    assert_receive {:connection_effects_paused, effects_pid, ^effects_ref, connection_id}, 5_000
+    assert connection_id == connection.id
+    assert {:ok, deleted} = Connections.delete(user, connection.id)
+    assert deleted.id == connection.id
+
+    send(effects_pid, {:continue_connection_effects, effects_ref})
+    assert {:ok, _updated} = Task.await(read, 5_000)
+
+    refute_received {:direct_message_thread, _payload}
+    refute_received {:direct_message_closed, _payload}
+  end
+
   test "persists outgoing messages in a durable thread and broadcasts its buffer", %{
     user: user,
     connection: connection
@@ -120,7 +227,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert read.unread_count == 0
   end
 
-  test "thread revisions preserve reopen state when a close broadcast is delayed", %{
+  test "a delayed close effect serializes a newer reopen", %{
     user: user,
     scope: scope,
     connection: connection
@@ -155,34 +262,40 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert_receive {:direct_message_closed_broadcast_paused, close_pid, thread_id, 2}
     assert thread_id == thread.id
 
-    assert {:ok, %{thread: reopened}} =
-             DirectMessageIngestion.record(
-               connection,
-               "akash",
-               "akash",
-               "newer message",
-               "message",
-               %{direction: "incoming", account: "akash-account"}
-             )
+    reopen =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        DirectMessageIngestion.record(
+          connection,
+          "akash",
+          "akash",
+          "newer message",
+          "message",
+          %{direction: "incoming", account: "akash-account"}
+        )
+      end)
 
-    assert reopened.closed_at == nil
-    assert reopened.mutation_revision == 4
-    buffer_id = "direct:#{thread.id}"
-
-    assert_receive {:direct_message_thread, %{buffer: %{buffer_id: ^buffer_id}, revision: 4}}
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), reopen.pid)
+    refute Task.yield(reopen, 100)
 
     send(close_pid, {:continue_direct_message_closed_broadcast, 2})
     assert {:ok, closed} = Task.await(close)
     assert closed.mutation_revision == 2
 
+    buffer_id = "direct:#{thread.id}"
     assert_receive {:direct_message_closed, %{buffer_id: ^buffer_id, revision: 2}}
+
+    assert {:ok, %{thread: reopened}} = Task.await(reopen)
+    assert reopened.closed_at == nil
+    assert reopened.mutation_revision == 4
+
+    assert_receive {:direct_message_thread, %{buffer: %{buffer_id: ^buffer_id}, revision: 4}}
 
     stored = DirectMessageLifecycle.get!(user, thread.id)
     assert stored.closed_at == nil
     assert stored.mutation_revision == 4
   end
 
-  test "a read returns the full newer snapshot before a delayed block broadcast", %{
+  test "a delayed block effect serializes a newer read", %{
     user: user,
     scope: scope,
     connection: connection
@@ -217,20 +330,29 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert_receive {:direct_message_thread_broadcast_paused, block_pid, thread_id, 2}
     assert thread_id == thread.id
 
-    assert {:ok, read} = DirectMessageLifecycle.mark_read(scope, thread.id)
-    assert read.mutation_revision == 3
-    assert read.blocked_at
-    buffer_id = "direct:#{thread.id}"
+    read =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        DirectMessageLifecycle.mark_read(scope, thread.id)
+      end)
 
-    assert_receive {:direct_message_thread,
-                    %{buffer: %{buffer_id: ^buffer_id, blocked: true}, revision: 3}}
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), read.pid)
+    refute Task.yield(read, 100)
 
     send(block_pid, {:continue_direct_message_thread_broadcast, 2})
     assert {:ok, blocked} = Task.await(block)
     assert blocked.mutation_revision == 2
 
+    buffer_id = "direct:#{thread.id}"
+
     assert_receive {:direct_message_thread,
                     %{buffer: %{buffer_id: ^buffer_id, blocked: true}, revision: 2}}
+
+    assert {:ok, read_thread} = Task.await(read)
+    assert read_thread.mutation_revision == 3
+    assert read_thread.blocked_at
+
+    assert_receive {:direct_message_thread,
+                    %{buffer: %{buffer_id: ^buffer_id, blocked: true}, revision: 3}}
   end
 
   test "reads reject closed threads without advancing their revision", %{
