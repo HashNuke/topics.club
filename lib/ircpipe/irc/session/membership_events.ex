@@ -44,15 +44,20 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
   def handle(:join, state, %{channel: channel, nick: nick} = payload) do
     self? = Identity.source_self?(state, payload, nick)
 
-    if self? do
-      {:ok, _membership} =
-        Chat.confirm_channel_join(
-          state.connection,
-          channel,
-          Targets.casemapping(state),
-          "connected"
-        )
-    end
+    join_confirmed? =
+      if self? do
+        case Chat.confirm_channel_join(
+               state.connection,
+               channel,
+               Targets.casemapping(state),
+               "connected"
+             ) do
+          {:ok, _membership} -> true
+          {:error, _reason} -> false
+        end
+      else
+        true
+      end
 
     Presence.diff(
       state.connection,
@@ -63,7 +68,7 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
 
     EventRecorder.channel_line(state, channel, "join", nick, "#{nick} joined #{channel}.")
 
-    if self?, do: JoinLifecycle.mark_joined(state, channel), else: state
+    if self? and join_confirmed?, do: JoinLifecycle.mark_joined(state, channel), else: state
   end
 
   def handle(:part, state, %{channel: channel, nick: nick} = payload) do
@@ -79,13 +84,16 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
     EventRecorder.channel_line(state, channel, "part", nick, "#{nick} left #{channel}.")
 
     if self? do
-      {:ok, _membership} =
-        Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state))
+      case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
+        {:ok, _membership} ->
+          %{
+            state
+            | joined_channels: MapSet.delete(state.joined_channels, Targets.key(state, channel))
+          }
 
-      %{
-        state
-        | joined_channels: MapSet.delete(state.joined_channels, Targets.key(state, channel))
-      }
+        {:error, _reason} ->
+          state
+      end
     else
       state
     end

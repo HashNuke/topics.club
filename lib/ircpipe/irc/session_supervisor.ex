@@ -3,6 +3,7 @@ defmodule Ircpipe.Irc.SessionSupervisor do
 
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Irc.Session
+  alias Ircpipe.Irc.Session.ClientLifecycle
 
   @stop_attempts 3
   @stop_timeout 5_000
@@ -34,15 +35,29 @@ defmodule Ircpipe.Irc.SessionSupervisor do
   end
 
   def stop_for_deletion(%ServerConnection{} = connection) do
-    case Session.whereis(connection) do
-      pid when is_pid(pid) ->
-        maybe_pause_stop_after_lookup(pid)
-        monitor_ref = Process.monitor(pid)
-        _result = quit_session_for_deletion(pid)
-        await_deletion_session_down(monitor_ref, pid)
+    registry_key = {connection.user_id, connection.id}
+    client = registered_client(registry_key)
 
-      nil ->
-        :ok
+    case Registry.lookup(Ircpipe.Irc.SessionRegistry, registry_key) do
+      [{pid, _value}] when is_pid(pid) ->
+        session_ref = Process.monitor(pid)
+
+        case monitor_status(session_ref, pid) do
+          :down ->
+            ClientLifecycle.stop(client)
+
+          :up ->
+            maybe_pause_stop_after_lookup(pid)
+            Process.exit(pid, :shutdown)
+
+            with :ok <- ClientLifecycle.stop(client),
+                 :ok <- await_deletion_process_down(session_ref, pid, :session_stop_timeout) do
+              :ok
+            end
+        end
+
+      [] ->
+        ClientLifecycle.stop(client)
     end
   end
 
@@ -113,12 +128,6 @@ defmodule Ircpipe.Irc.SessionSupervisor do
     :exit, exit_reason -> {:exit, exit_reason}
   end
 
-  defp quit_session_for_deletion(pid) do
-    GenServer.call(pid, :quit_for_deletion)
-  catch
-    :exit, exit_reason -> {:exit, exit_reason}
-  end
-
   defp retry_stop(connection, reason, pid, attempts_left) do
     case DynamicSupervisor.terminate_child(__MODULE__, pid) do
       :ok ->
@@ -169,19 +178,27 @@ defmodule Ircpipe.Irc.SessionSupervisor do
     end
   end
 
-  defp await_deletion_session_down(monitor_ref, pid) do
+  defp await_deletion_process_down(monitor_ref, pid, timeout_error) do
     receive do
       {:DOWN, ^monitor_ref, :process, ^pid, _reason} ->
         :ok
     after
-      @stop_timeout ->
-        Process.exit(pid, :shutdown)
+      @stop_timeout -> forget_monitor(monitor_ref, {:error, timeout_error})
+    end
+  end
 
-        receive do
-          {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
-        after
-          @stop_timeout -> forget_monitor(monitor_ref, {:error, :session_stop_timeout})
-        end
+  defp monitor_status(monitor_ref, pid) do
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :down
+    after
+      0 -> :up
+    end
+  end
+
+  defp registered_client(registry_key) do
+    case Registry.lookup(Ircpipe.Irc.ClientRegistry, registry_key) do
+      [{client, _value}] when is_pid(client) -> client
+      [] -> nil
     end
   end
 

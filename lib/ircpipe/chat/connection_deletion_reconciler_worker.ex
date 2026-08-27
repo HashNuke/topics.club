@@ -11,8 +11,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionReconcilerWorker do
   alias Ircpipe.Chat.{
     ConnectionDeletionEventBatch,
     ConnectionDeletionEventsWorker,
-    ConnectionDeletionWorker,
-    ServerConnection
+    ConnectionDeletionRequest,
+    ConnectionDeletionWorker
   }
 
   alias Ircpipe.Repo
@@ -28,9 +28,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionReconcilerWorker do
   end
 
   defp requeue_deletions do
-    ServerConnection
-    |> where([connection], connection.deleting)
-    |> select([connection], {connection.user_id, connection.id})
+    ConnectionDeletionRequest
+    |> select([request], {request.user_id, request.server_connection_id})
     |> Repo.all()
     |> Enum.each(fn {user_id, connection_id} ->
       %{user_id: user_id, connection_id: connection_id}

@@ -4,11 +4,20 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
   alias Ircpipe.Accounts.User
   alias Ircpipe.Chat
   alias Ircpipe.Chat.{CommandMessages, DirectMessageIngestion, MessageIngestion}
-  alias Ircpipe.Irc.CommandRegistry
+  alias Ircpipe.Irc.{CommandRegistry, ConnectionLock}
   alias Ircpipe.Irc.Session.{CommandLifecycle, PendingEchoes, Targets}
   alias Ircpipe.Repo
 
   def execute(state, intent, command_id, buffer_id) do
+    case ConnectionLock.run_serialized(state.connection, fn ->
+           do_execute(state, intent, command_id, buffer_id)
+         end) do
+      {:error, reason} -> {{:error, CommandLifecycle.execution_error(reason)}, state}
+      result -> result
+    end
+  end
+
+  defp do_execute(state, intent, command_id, buffer_id) do
     with :ok <- CommandLifecycle.validate_id(command_id, state),
          {:ok, client} <- fetch_registered_client(state),
          :ok <- prepare(state, intent),

@@ -59,9 +59,16 @@ defmodule Ircpipe.Irc.Session.Registration do
     if connection.casemapping == mapping do
       connection
     else
-      {:ok, updated} = Chat.update_connection_casemapping(connection, casemapping)
-      {:ok, _losers} = MembershipReconciler.reconcile(updated, casemapping)
-      updated
+      case Chat.update_connection_casemapping(connection, casemapping) do
+        {:ok, updated} ->
+          case MembershipReconciler.reconcile(updated, casemapping) do
+            {:ok, _losers} -> updated
+            {:error, _reason} -> connection
+          end
+
+        {:error, _reason} ->
+          connection
+      end
     end
   end
 

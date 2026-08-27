@@ -2,6 +2,7 @@ defmodule Ircpipe.Irc.Session.ClientOptions do
   @moduledoc false
 
   alias Ircpipe.Chat.ServerConnection
+  alias Ircpipe.Irc.Session.ClientRegistration
 
   @capabilities [
     "server-time",
@@ -23,7 +24,8 @@ defmodule Ircpipe.Irc.Session.ClientOptions do
       realname: connection.realname || connection.nickname,
       caps: @capabilities,
       events: :envelope,
-      notify: notify_pid
+      notify: notify_pid,
+      adapter: {ClientRegistration, {connection.user_id, connection.id}}
     ]
     |> maybe_put_password(connection.server_password)
     |> maybe_put_sasl(connection.sasl_username, connection.sasl_password)

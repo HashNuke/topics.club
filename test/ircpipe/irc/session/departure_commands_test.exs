@@ -71,12 +71,6 @@ defmodule Ircpipe.Irc.Session.DepartureCommandsTest do
              messages(context)
   end
 
-  test "marks deletion quits without recording a visible departure", context do
-    assert {:ok, returned} = DepartureCommands.quit_for_deletion(context.state)
-    assert returned.deleting?
-    assert messages(context) == []
-  end
-
   test "returns QUIT transport errors while preserving the visible departure contract", context do
     client = start_supervised!({Ircpipe.FailingIrcClient, :closed})
     state = %{context.state | client: client}
@@ -96,21 +90,6 @@ defmodule Ircpipe.Irc.Session.DepartureCommandsTest do
              %{kind: "system", body: "Disconnected from irc.example.test."},
              %{kind: "system", body: "Disconnected from irc.example.test."}
            ] = messages(context)
-  end
-
-  test "returns deletion QUIT errors while suppressing the visible departure", context do
-    client = start_supervised!({Ircpipe.FailingIrcClient, :closed})
-    state = %{context.state | client: client}
-
-    assert {{:error, :closed}, returned} = DepartureCommands.quit_for_deletion(state)
-    assert returned.deleting?
-    assert messages(context) == []
-
-    assert {:stop, :normal, {:error, :closed}, callback_state} =
-             Session.handle_call(:quit_for_deletion, self(), state)
-
-    assert callback_state.deleting?
-    assert messages(context) == []
   end
 
   defp messages(context) do

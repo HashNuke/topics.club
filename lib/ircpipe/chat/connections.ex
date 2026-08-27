@@ -10,6 +10,7 @@ defmodule Ircpipe.Chat.Connections do
     ConnectionDeletionEventBatch,
     ConnectionDeletionEventsWorker,
     ChannelMembership,
+    ConnectionDeletionRequest,
     ConnectionDeletionWorker,
     DirectMessageThread,
     MembershipReconciler,
@@ -173,14 +174,22 @@ defmodule Ircpipe.Chat.Connections do
 
     {:ok, id} = Ecto.Type.cast(:id, id)
 
-    with %ServerConnection{} = connection <- mark_deleting(user, id),
-         :ok <- maybe_pause_delete_after_mark(connection) do
-      case finalize_deletion(user.id, id) do
-        :ok -> {:ok, connection}
-        result -> result
+    with {:ok, {connection, _intent_job}} <- persist_deletion_intent(user, id) do
+      case mark_deleting(user.id, id) do
+        %ServerConnection{} = marked_connection ->
+          with :ok <- maybe_pause_delete_after_mark(marked_connection) do
+            case finalize_deletion(user.id, id) do
+              :ok -> {:ok, marked_connection}
+              result -> result
+            end
+          end
+
+        :already_deleted ->
+          {:ok, connection}
+
+        {:error, reason} ->
+          {:error, reason}
       end
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -194,9 +203,8 @@ defmodule Ircpipe.Chat.Connections do
       nil ->
         :ok
 
-      %ServerConnection{} = connection ->
-        with :ok <- SessionSupervisor.stop_for_deletion(connection),
-             {:ok, result} <- Repo.transaction(fn -> delete_in_transaction(user_id, id) end) do
+      %ServerConnection{} ->
+        with {:ok, result} <- Repo.transaction(fn -> delete_in_transaction(user_id, id) end) do
           case result do
             :already_deleted ->
               :ok
@@ -211,22 +219,126 @@ defmodule Ircpipe.Chat.Connections do
     end
   end
 
-  defp mark_deleting(user, id) do
-    ConnectionLock.run(user, id, fn ->
+  def resume_deletion(user_id, id) when is_integer(user_id) and is_integer(id) do
+    case connection_for_deletion(user_id, id) do
+      nil ->
+        :ok
+
+      %ServerConnection{deleting: true} ->
+        finalize_deletion(user_id, id)
+
+      %ServerConnection{} ->
+        case mark_deleting(user_id, id) do
+          %ServerConnection{} -> finalize_deletion(user_id, id)
+          :already_deleted -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp persist_deletion_intent(user, id) do
+    Repo.transaction(fn ->
       connection =
         ServerConnection
-        |> where([connection], connection.user_id == ^user.id and connection.id == ^id)
+        |> where(
+          [connection],
+          connection.user_id == ^user.id and connection.id == ^id and not connection.deleting
+        )
         |> Repo.one!()
 
-      connection
-      |> Ecto.Changeset.change(deleting: true)
-      |> Repo.update!()
-      |> tap(fn marked_connection ->
-        %{user_id: marked_connection.user_id, connection_id: marked_connection.id}
+      %ConnectionDeletionRequest{
+        user_id: user.id,
+        server_connection_id: connection.id
+      }
+      |> Repo.insert!(
+        on_conflict: :nothing,
+        conflict_target: [:server_connection_id]
+      )
+
+      job =
+        %{user_id: user.id, connection_id: id}
         |> ConnectionDeletionWorker.new()
         |> Oban.insert!()
-      end)
+
+      {connection, job}
     end)
+  end
+
+  defp mark_deleting(user_id, id) do
+    ConnectionLock.run_serialized(user_id, id, fn ->
+      connection =
+        ServerConnection
+        |> where([connection], connection.user_id == ^user_id and connection.id == ^id)
+        |> Repo.one()
+
+      case connection do
+        nil ->
+          :already_deleted
+
+        %ServerConnection{deleting: true} = connection ->
+          connection
+
+        %ServerConnection{} = connection ->
+          with :ok <- SessionSupervisor.stop_for_deletion(connection),
+               :ok <- maybe_pause_delete_after_quiesce(connection),
+               :ok <- maybe_raise_before_delete_mark(connection) do
+            ConnectionLock.run(user_id, id, fn ->
+              connection =
+                ServerConnection
+                |> where(
+                  [connection],
+                  connection.user_id == ^user_id and connection.id == ^id
+                )
+                |> Repo.one!()
+
+              connection
+              |> Ecto.Changeset.change(deleting: true)
+              |> Repo.update!()
+            end)
+          end
+      end
+    end)
+  end
+
+  defp connection_for_deletion(user_id, id) do
+    ServerConnection
+    |> where([connection], connection.user_id == ^user_id and connection.id == ^id)
+    |> Repo.one()
+  end
+
+  defp maybe_pause_delete_after_quiesce(connection) do
+    case Application.get_env(:ircpipe, :connection_delete_after_quiesce_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+        send(test_pid, {:connection_delete_quiesced, self(), barrier_ref, connection.id})
+
+        receive do
+          {:continue_quiesced_connection_delete, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
+  end
+
+  defp maybe_raise_before_delete_mark(connection) do
+    case Application.get_env(:ircpipe, :connection_before_delete_mark_exception) do
+      {test_pid, exception_ref} when is_pid(test_pid) ->
+        send(
+          test_pid,
+          {:connection_before_delete_mark_raised, self(), exception_ref, connection.id}
+        )
+
+        raise "forced pre-marker deletion exception"
+
+      _no_exception ->
+        :ok
+    end
   end
 
   defp deleting_connection(user_id, id) do

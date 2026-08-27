@@ -3,7 +3,8 @@ defmodule Ircpipe.Irc.Session.ConnectionEvents do
 
   require Logger
 
-  alias Ircpipe.Chat.ConnectionLifecycle
+  alias Ircpipe.Chat.{ConnectionLifecycle, ServerConnectionLock}
+  alias Ircpipe.Irc.ConnectionLock
 
   alias Ircpipe.Irc.Session.{
     ClientOptions,
@@ -14,26 +15,55 @@ defmodule Ircpipe.Irc.Session.ConnectionEvents do
   }
 
   def connect(state) do
-    connection = state.connection
-    EventRecorder.server_line(connection, "Connecting to #{connection.host}:#{connection.port}.")
-    update_status(connection, "connecting")
+    maybe_pause_before_connect_lock(state.connection.id)
 
-    case Ircxd.Client.start_link(ClientOptions.build(connection, self())) do
-      {:ok, client} ->
-        {:ok, %{state | client: client}}
+    case ConnectionLock.run_serialized(state.connection, fn -> connect_active(state) end) do
+      {:error, reason} when reason in [:connection_deleting, :connection_not_found] ->
+        {:stop, :normal}
 
       {:error, reason} ->
-        Logger.warning(
-          "IRC connection failed for #{connection.host}:#{connection.port}: #{inspect(reason)}"
-        )
+        {:stop, reason}
 
-        EventRecorder.server_line(
-          connection,
-          "Connection to #{connection.host}:#{connection.port} failed: #{inspect(reason)}.",
-          "error"
-        )
+      result ->
+        result
+    end
+  end
 
-        update_status(connection, "errored")
+  defp connect_active(state) do
+    connection = state.connection
+
+    with :ok <- ServerConnectionLock.ensure_active(connection.id) do
+      EventRecorder.server_line(
+        connection,
+        "Connecting to #{connection.host}:#{connection.port}."
+      )
+
+      update_status(connection, "connecting")
+
+      case Ircxd.Client.start_link(ClientOptions.build(connection, self())) do
+        {:ok, client} ->
+          maybe_suspend_client_after_start(client, connection.id)
+          {:ok, %{state | client: client}}
+
+        {:error, reason} ->
+          Logger.warning(
+            "IRC connection failed for #{connection.host}:#{connection.port}: #{inspect(reason)}"
+          )
+
+          EventRecorder.server_line(
+            connection,
+            "Connection to #{connection.host}:#{connection.port} failed: #{inspect(reason)}.",
+            "error"
+          )
+
+          update_status(connection, "errored")
+          {:stop, reason}
+      end
+    else
+      {:error, reason} when reason in [:connection_deleting, :connection_not_found] ->
+        {:stop, :normal}
+
+      {:error, reason} ->
         {:stop, reason}
     end
   end
@@ -116,5 +146,30 @@ defmodule Ircpipe.Irc.Session.ConnectionEvents do
     DBConnection.OwnershipError -> {:ok, connection}
   catch
     :exit, _reason -> {:ok, connection}
+  end
+
+  defp maybe_pause_before_connect_lock(connection_id) do
+    case Application.get_env(:ircpipe, :session_connect_before_lock_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        send(test_pid, {:session_connect_paused, self(), barrier_ref, connection_id})
+
+        receive do
+          {:continue_session_connect, ^barrier_ref} -> :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
+  end
+
+  defp maybe_suspend_client_after_start(client, connection_id) do
+    case Application.get_env(:ircpipe, :session_client_after_start_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        true = :erlang.suspend_process(client)
+        send(test_pid, {:irc_client_suspended, client, barrier_ref, connection_id})
+
+      _not_paused ->
+        :ok
+    end
   end
 end

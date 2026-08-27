@@ -111,4 +111,22 @@ defmodule Ircpipe.Chat.SystemMessagesTest do
     refute Repo.get_by(Message, body: "Cannot join channel")
     refute_receive {:buffer_system, %{body: "Cannot join channel"}}
   end
+
+  test "does not record after deletion is marked", context do
+    context.connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    assert {:error, :connection_deleting} =
+             SystemMessages.record(
+               context.connection,
+               "#elixir",
+               "join",
+               "akash",
+               "akash joined too late"
+             )
+
+    refute Repo.get_by(Message, body: "akash joined too late")
+    refute_received {:buffer_system, _event}
+  end
 end

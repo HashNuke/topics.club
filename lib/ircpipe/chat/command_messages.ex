@@ -8,7 +8,8 @@ defmodule Ircpipe.Chat.CommandMessages do
     ChannelMembership,
     Message,
     Retention,
-    ServerConnection
+    ServerConnection,
+    ServerConnectionLock
   }
 
   alias Ircpipe.Repo
@@ -19,15 +20,17 @@ defmodule Ircpipe.Chat.CommandMessages do
     user = Repo.get!(User, connection.user_id)
 
     Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
+
       {:ok, message} =
         %Message{
-          user_id: connection.user_id,
-          server_connection_id: connection.id,
+          user_id: active_connection.user_id,
+          server_connection_id: active_connection.id,
           channel_membership_id: membership && membership.id
         }
         |> Message.changeset(%{
           kind: "command",
-          nick: connection.nickname,
+          nick: active_connection.nickname,
           metadata: stringify_metadata(metadata),
           body: body,
           mentioned: false,
@@ -36,11 +39,15 @@ defmodule Ircpipe.Chat.CommandMessages do
         |> Repo.insert()
 
       Retention.prune(user)
-      message
+      {message, active_connection}
     end)
     |> case do
-      {:ok, message} ->
-        BufferEvents.command_message(message, membership, connection)
+      {:ok, {message, active_connection}} ->
+        _effects =
+          ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+            BufferEvents.command_message(message, membership, effect_connection)
+          end)
+
         {:ok, message}
 
       error ->
@@ -53,18 +60,23 @@ defmodule Ircpipe.Chat.CommandMessages do
     merged_metadata = Map.merge(message.metadata || %{}, stringify_metadata(metadata))
 
     Repo.transaction(fn ->
+      connection = ServerConnectionLock.lock_active!(message.server_connection_id)
+
       {:ok, message} =
         message
         |> Message.changeset(%{metadata: merged_metadata})
         |> Repo.update()
 
-      connection = Repo.get!(ServerConnection, message.server_connection_id)
       membership = membership_for_message(message)
       {message, membership, connection}
     end)
     |> case do
       {:ok, {message, membership, connection}} ->
-        BufferEvents.command_message(message, membership, connection)
+        _effects =
+          ServerConnectionLock.serialize_effects(connection.id, fn effect_connection ->
+            BufferEvents.command_message(message, membership, effect_connection)
+          end)
+
         {:ok, message}
 
       error ->

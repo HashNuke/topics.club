@@ -3,14 +3,33 @@ defmodule Ircpipe.Irc.Session.JoinRequests do
 
   alias Ircpipe.Accounts.User
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
-  alias Ircpipe.Irc.Session.{JoinLifecycle, Targets}
+  alias Ircpipe.Chat.{ChannelMembership, ServerConnection, ServerConnectionLock}
+  alias Ircpipe.Irc.{ConnectionLock, Session.JoinLifecycle, Session.Targets}
 
   def request(
         %{connection: %ServerConnection{user_id: user_id}} = state,
         %User{id: user_id} = user,
         channel
       ) do
+    case ConnectionLock.run_serialized(state.connection, fn ->
+           request_active(state, user, channel)
+         end) do
+      {:error, reason} -> {{:error, reason}, state}
+      result -> result
+    end
+  end
+
+  def request(state, %User{}, _channel), do: {{:error, :invalid_connection}, state}
+
+  defp request_active(state, user, channel) do
+    with :ok <- ServerConnectionLock.ensure_active(state.connection.id) do
+      do_request(state, user, channel)
+    else
+      {:error, reason} -> {{:error, reason}, state}
+    end
+  end
+
+  defp do_request(state, user, channel) do
     key = Targets.key(state, channel)
 
     if MapSet.member?(state.pending_joins, key) do
@@ -19,8 +38,6 @@ defmodule Ircpipe.Irc.Session.JoinRequests do
       persist_and_transmit(state, user, channel)
     end
   end
-
-  def request(state, %User{}, _channel), do: {{:error, :invalid_connection}, state}
 
   defp pending_reply(state, channel, key) do
     case Chat.get_channel_membership(state.connection, channel, Targets.casemapping(state)) do

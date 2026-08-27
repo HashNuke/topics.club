@@ -1,7 +1,14 @@
 defmodule Ircpipe.Chat.BufferEvents do
   @moduledoc false
 
-  alias Ircpipe.Chat.{ChannelMembership, DirectMessageThread, Message, ServerConnection}
+  alias Ircpipe.Chat.{
+    ChannelMembership,
+    DirectMessageThread,
+    Message,
+    ServerConnection,
+    ServerConnectionLock
+  }
+
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
@@ -18,7 +25,7 @@ defmodule Ircpipe.Chat.BufferEvents do
         %ChannelMembership{} = membership,
         status \\ nil
       ) do
-    ensure_after_commit!()
+    ensure_after_commit!(connection.id)
 
     Phoenix.PubSub.broadcast(
       Ircpipe.PubSub,
@@ -32,7 +39,7 @@ defmodule Ircpipe.Chat.BufferEvents do
         %ChannelMembership{} = membership,
         %ServerConnection{} = connection
       ) do
-    ensure_after_commit!()
+    ensure_after_commit!(connection.id)
     payload = Event.message(message, "channel:#{membership.id}", %{channel: membership.channel})
 
     Phoenix.PubSub.broadcast(
@@ -49,7 +56,7 @@ defmodule Ircpipe.Chat.BufferEvents do
   end
 
   def server_message(%Message{} = message, %ServerConnection{} = connection) do
-    ensure_after_commit!()
+    ensure_after_commit!(connection.id)
     event = Event.message(message, "server:#{connection.id}", %{mentioned: false})
 
     Phoenix.PubSub.broadcast(
@@ -60,7 +67,7 @@ defmodule Ircpipe.Chat.BufferEvents do
   end
 
   def direct_message_thread(%DirectMessageThread{} = thread) do
-    ensure_after_commit!()
+    ensure_after_commit!(thread.server_connection_id)
     connection = Repo.get!(ServerConnection, thread.server_connection_id)
     event = Event.direct_message_thread(thread, connection)
     maybe_pause_direct_message_thread_broadcast(thread)
@@ -73,7 +80,7 @@ defmodule Ircpipe.Chat.BufferEvents do
   end
 
   def direct_message_closed(%DirectMessageThread{} = thread) do
-    ensure_after_commit!()
+    ensure_after_commit!(thread.server_connection_id)
     maybe_pause_direct_message_closed_broadcast(thread)
 
     Phoenix.PubSub.broadcast(
@@ -84,7 +91,7 @@ defmodule Ircpipe.Chat.BufferEvents do
   end
 
   def direct_message(%Message{} = message, %DirectMessageThread{} = thread) do
-    ensure_after_commit!()
+    ensure_after_commit!(thread.server_connection_id)
 
     event =
       Event.message(message, "direct:#{thread.id}", %{
@@ -112,7 +119,8 @@ defmodule Ircpipe.Chat.BufferEvents do
       do: message(message, membership, connection)
 
   defp broadcast_payload(event_name, payload, event_builder) do
-    ensure_after_commit!()
+    connection_id = Map.fetch!(payload, :server_connection_id)
+    ensure_after_commit!(connection_id)
     user_id = Map.fetch!(payload, :user_id)
 
     event =
@@ -159,8 +167,8 @@ defmodule Ircpipe.Chat.BufferEvents do
   defp pubsub_event(%{type: "buffer:system"}), do: :buffer_system
   defp pubsub_event(_event), do: :buffer_message
 
-  defp ensure_after_commit! do
-    if Repo.in_transaction?() do
+  defp ensure_after_commit!(connection_id) do
+    if Repo.in_transaction?() and not ServerConnectionLock.effects_lock_held?(connection_id) do
       raise ArgumentError, "buffer events must be published after the transaction commits"
     end
   end

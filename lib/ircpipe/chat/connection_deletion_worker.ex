@@ -18,7 +18,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorker do
   def perform(%Oban.Job{
         args: %{"user_id" => user_id, "connection_id" => connection_id}
       }) do
-    case Connections.finalize_deletion(user_id, connection_id) do
+    case Connections.resume_deletion(user_id, connection_id) do
       :ok ->
         :ok
 

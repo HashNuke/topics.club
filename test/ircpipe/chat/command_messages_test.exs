@@ -165,4 +165,36 @@ defmodule Ircpipe.Chat.CommandMessagesTest do
     assert Repo.get!(Message, message.id).metadata["command_status"] == "sent"
     refute_receive {:buffer_system, %{id: ^message_id}}
   end
+
+  test "does not record or update commands after deletion is marked", context do
+    assert {:ok, message} =
+             CommandMessages.record(
+               context.connection,
+               "server:#{context.connection.id}",
+               "LIST",
+               %{command_id: "deleting-command", command_status: "sent"}
+             )
+
+    assert_receive {:buffer_system, %{id: message_id}}
+    assert message_id == message.id
+
+    context.connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    assert {:error, :connection_deleting} =
+             CommandMessages.record(
+               context.connection,
+               "server:#{context.connection.id}",
+               "WHOIS akash",
+               %{command_id: "never-recorded"}
+             )
+
+    assert {:error, :connection_deleting} =
+             CommandMessages.update(message, %{command_status: "completed"})
+
+    refute Repo.get_by(Message, body: "WHOIS akash")
+    assert Repo.get!(Message, message.id).metadata["command_status"] == "sent"
+    refute_received {:buffer_system, _event}
+  end
 end

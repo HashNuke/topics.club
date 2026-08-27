@@ -18,7 +18,7 @@ defmodule Ircpipe.Chat.DirectMessageSender do
   alias Ircpipe.Repo
 
   def send(
-        %ServerConnection{user_id: user_id, id: connection_id} = connection,
+        %ServerConnection{user_id: user_id, id: connection_id},
         thread_id,
         body,
         transmit
@@ -30,7 +30,7 @@ defmodule Ircpipe.Chat.DirectMessageSender do
 
     result =
       Repo.transaction(fn ->
-        ServerConnectionLock.lock!(connection_id)
+        active_connection = ServerConnectionLock.lock_active!(connection_id)
 
         thread =
           DirectMessageThread
@@ -65,7 +65,7 @@ defmodule Ircpipe.Chat.DirectMessageSender do
               }
               |> Message.changeset(%{
                 kind: "message",
-                nick: connection.nickname,
+                nick: active_connection.nickname,
                 hostmask: thread.hostmask,
                 metadata: %{
                   "direction" => "outgoing",
@@ -88,8 +88,12 @@ defmodule Ircpipe.Chat.DirectMessageSender do
 
     case result do
       {:ok, %{thread: thread, message: message} = recorded} ->
-        BufferEvents.direct_message_thread(thread)
-        BufferEvents.direct_message(message, thread)
+        _effects =
+          ServerConnectionLock.serialize_effects(connection_id, fn _active_connection ->
+            BufferEvents.direct_message_thread(thread)
+            BufferEvents.direct_message(message, thread)
+          end)
+
         {:ok, recorded}
 
       error ->

@@ -81,6 +81,41 @@ defmodule Ircpipe.Irc.ConnectionLockTest do
     assert :first_done = Task.await(first_task)
   end
 
+  test "serializes a multi-transaction operation with the deletion transaction lock" do
+    task_supervisor = start_supervised!(Task.Supervisor)
+    user_id = System.unique_integer([:positive])
+    connection_id = System.unique_integer([:positive])
+    test_pid = self()
+
+    operation_task =
+      unboxed_task(task_supervisor, fn ->
+        ConnectionLock.run_serialized(user_id, connection_id, fn ->
+          send(test_pid, {:serialized_operation_acquired, self()})
+
+          receive do
+            :release_serialized_operation -> :operation_done
+          end
+        end)
+      end)
+
+    assert_receive {:serialized_operation_acquired, operation_pid}
+
+    deletion_task =
+      unboxed_task(task_supervisor, fn ->
+        ConnectionLock.run(user_id, connection_id, fn ->
+          send(test_pid, {:deletion_lock_acquired, self()})
+          :deletion_done
+        end)
+      end)
+
+    refute_receive {:deletion_lock_acquired, _deletion_pid}, 100
+    send(operation_pid, :release_serialized_operation)
+    assert :operation_done = Task.await(operation_task)
+    assert_receive {:deletion_lock_acquired, deletion_pid}
+    assert deletion_pid == deletion_task.pid
+    assert :deletion_done = Task.await(deletion_task)
+  end
+
   test "supports nested acquisition by the same process" do
     user_id = System.unique_integer([:positive])
     connection_id = System.unique_integer([:positive])

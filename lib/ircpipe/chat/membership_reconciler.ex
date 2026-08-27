@@ -9,13 +9,16 @@ defmodule Ircpipe.Chat.MembershipReconciler do
     Message,
     Notification,
     Presence,
-    ServerConnection
+    ServerConnection,
+    ServerConnectionLock
   }
 
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
 
   def reconcile(%ServerConnection{} = connection, casemapping) do
+    assert_no_outer_transaction!()
+
     case Repo.transaction(fn -> reconcile_in_transaction(connection, casemapping) end) do
       {:ok, losers} ->
         broadcast_losers(connection, losers)
@@ -28,9 +31,10 @@ defmodule Ircpipe.Chat.MembershipReconciler do
 
   def reconcile_in_transaction(%ServerConnection{} = connection, casemapping) do
     if Repo.in_transaction?() do
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
       lock_memberships(connection)
 
-      connection
+      active_connection
       |> all_memberships()
       |> Enum.group_by(&Identifier.key(&1.channel, casemapping))
       |> Enum.flat_map(fn {_key, memberships} -> merge_equivalent(memberships) end)
@@ -40,23 +44,23 @@ defmodule Ircpipe.Chat.MembershipReconciler do
   end
 
   def broadcast_losers(%ServerConnection{} = connection, losers) when is_list(losers) do
-    Enum.each(losers, fn loser ->
-      BufferEvents.left(%{
-        user_id: connection.user_id,
-        buffer_id: "channel:#{loser.id}",
-        server_connection_id: connection.id,
-        channel_membership_id: loser.id,
-        channel: loser.channel
-      })
-    end)
+    _effects =
+      ServerConnectionLock.serialize_effects(connection.id, fn active_connection ->
+        Enum.each(losers, fn loser ->
+          BufferEvents.left(%{
+            user_id: active_connection.user_id,
+            buffer_id: "channel:#{loser.id}",
+            server_connection_id: active_connection.id,
+            channel_membership_id: loser.id,
+            channel: loser.channel
+          })
+        end)
+      end)
+
+    :ok
   end
 
   defp lock_memberships(connection) do
-    ServerConnection
-    |> where([server], server.id == ^connection.id)
-    |> lock("FOR UPDATE")
-    |> Repo.one!()
-
     ChannelMembership
     |> where([membership], membership.server_connection_id == ^connection.id)
     |> lock("FOR UPDATE")
@@ -118,4 +122,10 @@ defmodule Ircpipe.Chat.MembershipReconciler do
   defp status_rank("pending"), do: 1
   defp status_rank("left"), do: 2
   defp status_rank("error"), do: 3
+
+  defp assert_no_outer_transaction! do
+    if Repo.in_transaction?() do
+      raise ArgumentError, "cannot reconcile memberships inside an existing transaction"
+    end
+  end
 end

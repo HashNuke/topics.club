@@ -6,8 +6,11 @@ defmodule Ircpipe.Chat.DirectMessageRenamerTest do
   alias Ircpipe.Chat.{
     Connections,
     DirectMessageLifecycle,
-    DirectMessageRenamer
+    DirectMessageRenamer,
+    DirectMessageThread
   }
+
+  alias Ircpipe.Repo
 
   test "renames an existing peer while preserving its thread identity" do
     user = AccountsFixtures.user_fixture()
@@ -28,6 +31,42 @@ defmodule Ircpipe.Chat.DirectMessageRenamerTest do
     assert renamed.peer_key == "mira"
     assert renamed.account == "account-a"
     assert renamed.hostmask == "mira!a@example.test"
+  end
+
+  test "does not rename or publish after deletion is marked" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    assert {:error, :connection_deleting} =
+             DirectMessageRenamer.rename(connection, "akash", "too-late")
+
+    assert Repo.get!(DirectMessageThread, thread.id).peer_nick == "akash"
+    refute_receive {:direct_message_thread, _event}
+  end
+
+  test "rejects an outer transaction before rename or publication" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:ok, :committed} =
+             Repo.transaction(fn ->
+               assert_raise ArgumentError, ~r/existing transaction/, fn ->
+                 DirectMessageRenamer.rename(connection, "akash", "too-late")
+               end
+
+               :committed
+             end)
+
+    assert Repo.get!(DirectMessageThread, thread.id).peer_nick == "akash"
+    refute_receive {:direct_message_thread, _event}
   end
 
   defp connection_fixture(user) do

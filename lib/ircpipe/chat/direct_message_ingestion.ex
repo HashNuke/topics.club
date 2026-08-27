@@ -36,9 +36,11 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
 
     result =
       Repo.transaction(fn ->
-        ServerConnectionLock.lock!(connection.id)
+        active_connection = ServerConnectionLock.lock_active!(connection.id)
         identity_keys = PeerIdentity.keys(metadata)
-        blocked_thread = incoming? && DirectMessageStore.blocked_thread(connection, identity_keys)
+
+        blocked_thread =
+          incoming? && DirectMessageStore.blocked_thread(active_connection, identity_keys)
 
         if blocked_thread do
           %{
@@ -53,7 +55,7 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
           with {:ok, thread, archived_threads} <-
                  DirectMessageStore.ensure_thread(
                    user,
-                   connection,
+                   active_connection,
                    peer_nick,
                    metadata,
                    incoming?,
@@ -85,8 +87,8 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
 
               message =
                 %Message{
-                  user_id: connection.user_id,
-                  server_connection_id: connection.id,
+                  user_id: active_connection.user_id,
+                  server_connection_id: active_connection.id,
                   direct_message_thread_id: thread.id
                 }
                 |> Message.changeset(%{
@@ -131,7 +133,11 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
 
     case result do
       {:ok, %{dropped?: true, archived_threads: archived_threads} = recorded} ->
-        Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+        _effects =
+          ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
+            Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+          end)
+
         {:ok, Map.delete(recorded, :archived_threads)}
 
       {:ok,
@@ -141,10 +147,13 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
          notification: notification,
          archived_threads: archived_threads
        } = recorded} ->
-        Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
-        if notification, do: Delivery.enqueue(notification)
-        BufferEvents.direct_message_thread(thread)
-        BufferEvents.direct_message(message, thread)
+        _effects =
+          ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
+            Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+            if notification, do: Delivery.enqueue(notification)
+            BufferEvents.direct_message_thread(thread)
+            BufferEvents.direct_message(message, thread)
+          end)
 
         {:ok, Map.delete(recorded, :archived_threads)}
 

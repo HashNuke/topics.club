@@ -19,16 +19,18 @@ defmodule Ircpipe.Chat.DirectMessageRenamer do
         metadata \\ %{},
         casemapping \\ nil
       ) do
+    assert_no_outer_transaction!()
+
     result =
       Repo.transaction(fn ->
-        ServerConnectionLock.lock!(connection.id)
+        active_connection = ServerConnectionLock.lock_active!(connection.id)
         maybe_pause_after_lock(connection.id)
-        mapping = casemapping || stored_casemapping(connection) || :ascii
+        mapping = casemapping || stored_casemapping(active_connection) || :ascii
         old_key = Identifier.key(old_nick, mapping)
         new_key = Identifier.key(new_nick, mapping)
         identity = PeerIdentity.details(metadata)
 
-        case DirectMessageStore.find_thread(connection, identity.keys, old_key, new_key) do
+        case DirectMessageStore.find_thread(active_connection, identity.keys, old_key, new_key) do
           {nil, archived_threads} ->
             {:unchanged, archived_threads}
 
@@ -50,12 +52,20 @@ defmodule Ircpipe.Chat.DirectMessageRenamer do
 
     case result do
       {:ok, {:unchanged, archived_threads}} ->
-        Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+        _effects =
+          ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
+            Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+          end)
+
         :ok
 
       {:ok, {updated, archived_threads}} ->
-        Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
-        BufferEvents.direct_message_thread(updated)
+        _effects =
+          ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
+            Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
+            BufferEvents.direct_message_thread(updated)
+          end)
+
         {:ok, updated}
 
       {:error, changeset} ->
@@ -86,4 +96,10 @@ defmodule Ircpipe.Chat.DirectMessageRenamer do
   end
 
   defp stored_casemapping(%ServerConnection{}), do: nil
+
+  defp assert_no_outer_transaction! do
+    if Repo.in_transaction?() do
+      raise ArgumentError, "cannot rename direct messages inside an existing transaction"
+    end
+  end
 end

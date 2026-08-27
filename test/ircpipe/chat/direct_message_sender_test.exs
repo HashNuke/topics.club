@@ -88,6 +88,26 @@ defmodule Ircpipe.Chat.DirectMessageSenderTest do
     assert MessageHistory.list_buffer_messages(user, "direct:#{thread.id}") == []
   end
 
+  test "does not transmit after the connection is marked for deletion" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    test_pid = self()
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Ircpipe.Repo.update!()
+
+    assert {:error, :connection_deleting} =
+             DirectMessageSender.send(connection, thread.id, "never sent", fn peer_nick ->
+               send(test_pid, {:transmitted, peer_nick})
+               :ok
+             end)
+
+    refute_received {:transmitted, _peer_nick}
+    assert MessageHistory.list_buffer_messages(user, "direct:#{thread.id}") == []
+  end
+
   defp connection_fixture(user) do
     {:ok, connection} =
       Connections.create(user, %{

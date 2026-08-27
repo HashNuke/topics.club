@@ -3,7 +3,7 @@ defmodule Ircpipe.Chat.Presence do
 
   import Ecto.Query
 
-  alias Ircpipe.Chat.{ChannelMembership, ChannelUser, ServerConnection}
+  alias Ircpipe.Chat.{ChannelMembership, ChannelUser, ServerConnection, ServerConnectionLock}
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
@@ -17,50 +17,91 @@ defmodule Ircpipe.Chat.Presence do
   end
 
   def sync(%ServerConnection{} = connection, channel, names, casemapping \\ :rfc1459) do
-    case channel_membership(connection, channel, casemapping) do
-      %ChannelMembership{} = membership ->
-        users = Enum.map(names, &presence_user/1)
-        replace_users(membership, users)
+    assert_no_outer_transaction!()
 
-        event =
-          Event.presence_sync(%{
-            buffer_id: "channel:#{membership.id}",
-            server_connection_id: connection.id,
-            channel_membership_id: membership.id,
-            users: users
-          })
+    Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-        Phoenix.PubSub.broadcast(
-          Ircpipe.PubSub,
-          "user:#{connection.user_id}",
-          {:presence_sync, event}
-        )
+      case channel_membership(active_connection, channel, casemapping) do
+        %ChannelMembership{} = membership ->
+          users = Enum.map(names, &presence_user/1)
+          replace_users(membership, users)
 
-      nil ->
+          event =
+            Event.presence_sync(%{
+              buffer_id: "channel:#{membership.id}",
+              server_connection_id: active_connection.id,
+              channel_membership_id: membership.id,
+              users: users
+            })
+
+          {:publish, active_connection.user_id, event}
+
+        nil ->
+          :noop
+      end
+    end)
+    |> case do
+      {:ok, {:publish, user_id, event}} ->
+        _effects =
+          ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
+            Phoenix.PubSub.broadcast(
+              Ircpipe.PubSub,
+              "user:#{user_id}",
+              {:presence_sync, event}
+            )
+          end)
+
         :ok
+
+      {:ok, :noop} ->
+        :ok
+
+      error ->
+        error
     end
   end
 
   def diff(%ServerConnection{} = connection, channel, diff, casemapping \\ :rfc1459) do
-    connection
-    |> memberships(channel, casemapping)
-    |> Enum.each(fn membership ->
-      apply_diff(membership, diff)
+    assert_no_outer_transaction!()
 
-      event =
-        Event.presence_diff(%{
-          buffer_id: "channel:#{membership.id}",
-          server_connection_id: connection.id,
-          channel_membership_id: membership.id,
-          diff: diff
-        })
+    Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-      Phoenix.PubSub.broadcast(
-        Ircpipe.PubSub,
-        "user:#{connection.user_id}",
-        {:presence_diff, event}
-      )
+      events =
+        active_connection
+        |> memberships(channel, casemapping)
+        |> Enum.map(fn membership ->
+          apply_diff(membership, diff)
+
+          Event.presence_diff(%{
+            buffer_id: "channel:#{membership.id}",
+            server_connection_id: active_connection.id,
+            channel_membership_id: membership.id,
+            diff: diff
+          })
+        end)
+
+      {active_connection.user_id, events}
     end)
+    |> case do
+      {:ok, {user_id, events}} ->
+        _effects =
+          ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
+            Enum.each(events, fn event ->
+              Phoenix.PubSub.broadcast(
+                Ircpipe.PubSub,
+                "user:#{user_id}",
+                {:presence_diff, event}
+              )
+            end)
+          end)
+
+        :ok
+
+      error ->
+        error
+    end
   end
 
   def memberships(connection, channel, casemapping \\ :rfc1459)
@@ -123,23 +164,21 @@ defmodule Ircpipe.Chat.Presence do
   defp replace_users(%ChannelMembership{} = membership, users) do
     now = DateTime.utc_now(:second)
 
-    Repo.transaction(fn ->
-      from(user in ChannelUser, where: user.channel_membership_id == ^membership.id)
-      |> Repo.delete_all()
+    from(user in ChannelUser, where: user.channel_membership_id == ^membership.id)
+    |> Repo.delete_all()
 
-      entries =
-        Enum.map(users, fn user ->
-          user
-          |> user_attrs(now)
-          |> Map.merge(%{
-            channel_membership_id: membership.id,
-            inserted_at: now,
-            updated_at: now
-          })
-        end)
+    entries =
+      Enum.map(users, fn user ->
+        user
+        |> user_attrs(now)
+        |> Map.merge(%{
+          channel_membership_id: membership.id,
+          inserted_at: now,
+          updated_at: now
+        })
+      end)
 
-      if entries != [], do: Repo.insert_all(ChannelUser, entries)
-    end)
+    if entries != [], do: Repo.insert_all(ChannelUser, entries)
   end
 
   defp apply_diff(%ChannelMembership{} = membership, %{action: "join", user: user}) do
@@ -261,6 +300,12 @@ defmodule Ircpipe.Chat.Presence do
       "%" in prefixes -> "halfop"
       "+" in prefixes -> "voice"
       true -> "user"
+    end
+  end
+
+  defp assert_no_outer_transaction! do
+    if Repo.in_transaction?() do
+      raise ArgumentError, "cannot mutate presence inside an existing transaction"
     end
   end
 end

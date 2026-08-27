@@ -67,6 +67,37 @@ defmodule Ircpipe.Chat.DirectMessageIngestionTest do
     refute_received {:buffer_message, _payload}
   end
 
+  test "drops private traffic after the connection is marked for deletion" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    initial_messages = Repo.aggregate(Message, :count)
+    initial_notifications = Repo.aggregate(Notification, :count)
+    initial_jobs = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :connection_deleting} =
+             DirectMessageIngestion.record(
+               connection,
+               "akash",
+               "akash",
+               "never stored",
+               "message",
+               %{direction: "incoming"},
+               :rfc1459
+             )
+
+    assert Repo.aggregate(Message, :count) == initial_messages
+    assert Repo.aggregate(Notification, :count) == initial_notifications
+    assert Repo.aggregate(Oban.Job, :count) == initial_jobs
+    refute_received {:direct_message_thread, _payload}
+    refute_received {:buffer_message, _payload}
+  end
+
   defp connection_fixture(user) do
     {:ok, connection} =
       Connections.create(user, %{

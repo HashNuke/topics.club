@@ -2,9 +2,21 @@ defmodule Ircpipe.Irc.Session.DepartureCommands do
   @moduledoc false
 
   alias Ircpipe.Chat
-  alias Ircpipe.Irc.Session.{EventRecorder, Targets}
+  alias Ircpipe.Chat.ServerConnectionLock
+  alias Ircpipe.Irc.{ConnectionLock, Session.EventRecorder, Session.Targets}
 
   def part(state, channel, reason) do
+    serialize(state, fn -> part_active(state, channel, reason) end)
+  end
+
+  defp part_active(state, channel, reason) do
+    case ServerConnectionLock.ensure_active(state.connection.id) do
+      :ok -> do_part(state, channel, reason)
+      {:error, reason} -> {{:error, reason}, state}
+    end
+  end
+
+  defp do_part(state, channel, reason) do
     key = Targets.key(state, channel)
 
     if queued_locally?(state, key) do
@@ -15,14 +27,28 @@ defmodule Ircpipe.Irc.Session.DepartureCommands do
   end
 
   def quit(state, reason) do
+    serialize(state, fn -> quit_active(state, reason) end)
+  end
+
+  defp quit_active(state, reason) do
+    with :ok <- ServerConnectionLock.ensure_active(state.connection.id) do
+      do_quit(state, reason)
+    else
+      {:error, error} -> {{:error, error}, state}
+    end
+  end
+
+  defp do_quit(state, reason) do
     result = maybe_quit(state.client, reason)
     EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
     {normalize_result(result), state}
   end
 
-  def quit_for_deletion(state) do
-    result = maybe_quit(state.client, "connection deleted")
-    {normalize_result(result), Map.put(state, :deleting?, true)}
+  defp serialize(state, callback) do
+    case ConnectionLock.run_serialized(state.connection, callback) do
+      {:error, reason} -> {{:error, reason}, state}
+      result -> result
+    end
   end
 
   defp queued_locally?(state, key) do

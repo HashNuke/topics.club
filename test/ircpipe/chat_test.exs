@@ -256,6 +256,94 @@ defmodule Ircpipe.ChatTest do
     assert Enum.count(memberships) == 2
   end
 
+  test "membership lifecycle rejects a connection marked for deletion" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "deleting-memberships",
+        "host" => "irc.deleting-memberships.test",
+        "nickname" => "mira"
+      })
+
+    {:ok, pending_join} = Chat.request_channel_join(user, connection, "#confirm")
+    {:ok, pending_rejection} = Chat.request_channel_join(user, connection, "#reject")
+    {:ok, joined_left} = Chat.join_channel(user, connection, "#left")
+    {:ok, joined_part} = Chat.join_channel(user, connection, "#part")
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:error, :connection_deleting} =
+             Chat.update_connection_casemapping(connection, :rfc1459)
+
+    assert {:error, :connection_deleting} =
+             Chat.request_channel_join(user, connection, "#after-mark")
+
+    assert {:error, :connection_deleting} =
+             Chat.confirm_channel_join(connection, pending_join.channel)
+
+    assert {:error, :connection_deleting} =
+             Chat.reject_channel_join(connection, pending_rejection.channel, "too late")
+
+    assert {:error, :connection_deleting} =
+             Chat.confirm_channel_left(connection, joined_left.channel)
+
+    assert {:error, :connection_deleting} =
+             Chat.reject_channel_part(connection, joined_part.channel, "too late")
+
+    assert {:error, :connection_deleting} = MembershipReconciler.reconcile(connection, :rfc1459)
+
+    assert Repo.get!(ChannelMembership, pending_join.id).status == "pending"
+    assert Repo.get!(ChannelMembership, pending_rejection.id).status == "pending"
+    assert Repo.get!(ChannelMembership, joined_left.id).status == "joined"
+    assert Repo.get!(ChannelMembership, joined_part.id).last_error == nil
+    refute Chat.get_channel_membership(connection, "#after-mark")
+    refute_received {:buffer_joined, _event}
+    refute_received {:buffer_left, _event}
+  end
+
+  test "membership lifecycle rejects an outer transaction before mutation" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "outer-memberships",
+        "host" => "irc.outer-memberships.test",
+        "nickname" => "mira"
+      })
+
+    {:ok, pending} = Chat.request_channel_join(user, connection, "#pending")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    assert {:ok, :committed} =
+             Repo.transaction(fn ->
+               for callback <- [
+                     fn -> Chat.update_connection_casemapping(connection, :rfc1459) end,
+                     fn -> Chat.request_channel_join(user, connection, "#new") end,
+                     fn -> Chat.confirm_channel_join(connection, pending.channel) end,
+                     fn -> Chat.reject_channel_join(connection, pending.channel, "too late") end,
+                     fn -> Chat.confirm_channel_left(connection, pending.channel) end,
+                     fn -> Chat.reject_channel_part(connection, pending.channel, "too late") end,
+                     fn -> MembershipReconciler.reconcile(connection, :rfc1459) end
+                   ] do
+                 assert_raise ArgumentError, ~r/existing transaction/, callback
+               end
+
+               :committed
+             end)
+
+    assert Repo.get!(ChannelMembership, pending.id).status == "pending"
+    assert Repo.get!(ChannelMembership, pending.id).last_error == nil
+    refute Chat.get_channel_membership(connection, "#new")
+    assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).casemapping == nil
+    refute_received {:buffer_joined, _event}
+    refute_received {:buffer_left, _event}
+  end
+
   test "scopes channel memberships and buffer history to their owner" do
     user = AccountsFixtures.user_fixture()
     other_user = AccountsFixtures.user_fixture()

@@ -69,6 +69,38 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
     refute_received {:buffer_system, _payload}
   end
 
+  test "drops channel and server traffic after the connection is marked for deletion" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    initial_messages = Repo.aggregate(Message, :count)
+    initial_notifications = Repo.aggregate(Notification, :count)
+    initial_jobs = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :connection_deleting} =
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "mira: never stored"
+             )
+
+    assert {:error, :connection_deleting} =
+             MessageIngestion.record_server(connection, "never stored")
+
+    assert Repo.aggregate(Message, :count) == initial_messages
+    assert Repo.aggregate(Notification, :count) == initial_notifications
+    assert Repo.aggregate(Oban.Job, :count) == initial_jobs
+    refute_received {:irc_message, _payload}
+    refute_received {:buffer_system, _payload}
+  end
+
   defp connection_fixture(user) do
     {:ok, connection} =
       Connections.create(user, %{

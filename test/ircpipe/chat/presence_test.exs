@@ -108,4 +108,57 @@ defmodule Ircpipe.Chat.PresenceTest do
     assert :ok = Presence.sync(connection, "#missing", [%{nick: "akash", prefixes: []}])
     refute_receive {:presence_sync, _event}
   end
+
+  test "drops snapshots and diffs after the connection is marked for deletion", %{
+    connection: connection,
+    membership: membership
+  } do
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Ircpipe.Repo.update!()
+
+    assert {:error, :connection_deleting} =
+             Presence.sync(connection, "#elixir", [%{nick: "akash", prefixes: []}])
+
+    assert {:error, :connection_deleting} =
+             Presence.diff(connection, "#elixir", %{
+               action: "join",
+               user: %{nick: "late", role: "user", status: "online"}
+             })
+
+    assert Presence.list_users(membership) == []
+    refute_received {:presence_sync, _event}
+    refute_received {:presence_diff, _event}
+  end
+
+  test "rejects an outer transaction before mutation or publication", %{
+    connection: connection,
+    membership: membership
+  } do
+    assert {:ok, :committed} =
+             Ircpipe.Repo.transaction(fn ->
+               assert_raise ArgumentError,
+                            ~r/cannot mutate presence inside an existing transaction/,
+                            fn ->
+                              Presence.sync(connection, "#elixir", [
+                                %{nick: "akash", prefixes: []}
+                              ])
+                            end
+
+               assert_raise ArgumentError,
+                            ~r/cannot mutate presence inside an existing transaction/,
+                            fn ->
+                              Presence.diff(connection, "#elixir", %{
+                                action: "join",
+                                user: %{nick: "late", role: "user", status: "online"}
+                              })
+                            end
+
+               :committed
+             end)
+
+    assert Presence.list_users(membership) == []
+    refute_received {:presence_sync, _event}
+    refute_received {:presence_diff, _event}
+  end
 end

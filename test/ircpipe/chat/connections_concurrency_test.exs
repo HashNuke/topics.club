@@ -135,13 +135,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
     join_task =
       unboxed_task(supervisor, fn ->
         send(test_pid, {:connection_join_attempting, self(), barrier_ref})
-
-        try do
-          Chat.request_channel_join(user, connection, "#late")
-        rescue
-          Ecto.NoResultsError -> {:error, :connection_deleted}
-          Ecto.ConstraintError -> {:error, :connection_deleted}
-        end
+        Chat.request_channel_join(user, connection, "#late")
       end)
 
     assert_receive {:connection_join_attempting, _join_pid, ^barrier_ref}
@@ -151,7 +145,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
 
     assert {:ok, deleted} = Task.await(delete_task, 5_000)
     assert deleted.id == connection.id
-    assert {:error, :connection_deleted} = Task.await(join_task, 5_000)
+    assert {:error, :connection_not_found} = Task.await(join_task, 5_000)
 
     assert nil == unboxed(fn -> Repo.get(ServerConnection, connection.id) end)
   end

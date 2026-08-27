@@ -8,18 +8,23 @@ defmodule Ircpipe.Chat do
     ChannelMembership,
     ChannelUser,
     MembershipReconciler,
-    ServerConnection
+    ServerConnection,
+    ServerConnectionLock
   }
 
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
 
   def update_connection_casemapping(%ServerConnection{} = connection, casemapping) do
+    assert_no_outer_transaction!()
     mapping = Atom.to_string(casemapping)
 
-    connection
-    |> Ecto.Changeset.change(casemapping: mapping)
-    |> Repo.update()
+    Repo.transaction(fn ->
+      connection.id
+      |> ServerConnectionLock.lock_active!()
+      |> Ecto.Changeset.change(casemapping: mapping)
+      |> update_or_rollback()
+    end)
   end
 
   def request_channel_join(user, %ServerConnection{} = connection, channel),
@@ -31,13 +36,15 @@ defmodule Ircpipe.Chat do
         channel,
         casemapping
       ) do
+    assert_no_outer_transaction!()
     channel = String.trim(channel)
 
     case Repo.transaction(fn ->
-           losers = MembershipReconciler.reconcile_in_transaction(connection, casemapping)
+           active_connection = ServerConnectionLock.lock_active!(connection.id)
+           losers = MembershipReconciler.reconcile_in_transaction(active_connection, casemapping)
 
            membership =
-             case channel_membership(connection, channel, casemapping) do
+             case channel_membership(active_connection, channel, casemapping) do
                %ChannelMembership{} = membership ->
                  attrs =
                    if membership.status == "joined" do
@@ -51,7 +58,7 @@ defmodule Ircpipe.Chat do
                  |> Repo.update!()
 
                nil ->
-                 %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
+                 %ChannelMembership{user_id: user.id, server_connection_id: active_connection.id}
                  |> ChannelMembership.changeset(%{
                    channel: channel,
                    status: "pending",
@@ -60,10 +67,10 @@ defmodule Ircpipe.Chat do
                  |> Repo.insert!()
              end
 
-           {membership, losers}
+           {membership, losers, active_connection}
          end) do
-      {:ok, {membership, losers}} ->
-        MembershipReconciler.broadcast_losers(connection, losers)
+      {:ok, {membership, losers, active_connection}} ->
+        MembershipReconciler.broadcast_losers(active_connection, losers)
         {:ok, membership}
 
       {:error, reason} ->
@@ -87,41 +94,60 @@ defmodule Ircpipe.Chat do
         casemapping \\ :rfc1459,
         connection_status \\ nil
       ) do
+    assert_no_outer_transaction!()
     now = DateTime.utc_now(:second)
 
-    {result, broadcast?} =
-      case channel_membership(connection, channel, casemapping) do
-        %ChannelMembership{} = membership ->
-          result =
-            membership
-            |> ChannelMembership.changeset(%{
-              status: "joined",
-              auto_join: membership.auto_join,
-              joined_at: if(membership.status == "joined", do: membership.joined_at, else: now),
-              left_at: nil,
-              last_error: nil
-            })
-            |> Repo.update()
+    Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-          {result, membership.status != "joined"}
+      {membership, broadcast?} =
+        case channel_membership(active_connection, channel, casemapping) do
+          %ChannelMembership{} = membership ->
+            updated =
+              membership
+              |> ChannelMembership.changeset(%{
+                status: "joined",
+                auto_join: membership.auto_join,
+                joined_at: if(membership.status == "joined", do: membership.joined_at, else: now),
+                left_at: nil,
+                last_error: nil
+              })
+              |> update_or_rollback()
 
-        nil ->
-          result =
-            %ChannelMembership{user_id: connection.user_id, server_connection_id: connection.id}
-            |> ChannelMembership.changeset(%{
-              channel: channel,
-              status: "joined",
-              auto_join: false,
-              joined_at: now
-            })
-            |> Repo.insert()
+            {updated, membership.status != "joined"}
 
-          {result, true}
-      end
+          nil ->
+            inserted =
+              %ChannelMembership{
+                user_id: active_connection.user_id,
+                server_connection_id: active_connection.id
+              }
+              |> ChannelMembership.changeset(%{
+                channel: channel,
+                status: "joined",
+                auto_join: false,
+                joined_at: now
+              })
+              |> insert_or_rollback()
 
-    with {:ok, membership} <- result do
-      if broadcast?, do: BufferEvents.joined(connection, membership, connection_status)
-      {:ok, membership}
+            {inserted, true}
+        end
+
+      {membership, broadcast?, active_connection}
+    end)
+    |> case do
+      {:ok, {membership, broadcast?, active_connection}} ->
+        if broadcast? do
+          _effects =
+            ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+              BufferEvents.joined(effect_connection, membership, connection_status)
+            end)
+        end
+
+        {:ok, membership}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -131,69 +157,97 @@ defmodule Ircpipe.Chat do
         reason,
         casemapping \\ :rfc1459
       ) do
-    case channel_membership(connection, channel, casemapping) do
-      %ChannelMembership{} = membership ->
-        result =
-          membership
-          |> ChannelMembership.changeset(%{
-            status: "error",
-            auto_join: false,
-            last_error: reason_text(reason)
-          })
-          |> Repo.update()
+    assert_no_outer_transaction!()
 
-        with {:ok, rejected} <- result do
-          BufferEvents.left(%{
-            user_id: connection.user_id,
-            buffer_id: "channel:#{rejected.id}",
-            server_connection_id: connection.id,
-            channel_membership_id: rejected.id,
-            channel: rejected.channel
-          })
+    Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
 
-          {:ok, rejected}
-        end
+      case channel_membership(active_connection, channel, casemapping) do
+        %ChannelMembership{} = membership ->
+          rejected =
+            membership
+            |> ChannelMembership.changeset(%{
+              status: "error",
+              auto_join: false,
+              last_error: reason_text(reason)
+            })
+            |> update_or_rollback()
 
-      nil ->
-        {:error, :invalid_buffer}
+          {rejected, active_connection}
+
+        nil ->
+          Repo.rollback(:invalid_buffer)
+      end
+    end)
+    |> case do
+      {:ok, {rejected, active_connection}} ->
+        _effects =
+          ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+            BufferEvents.left(%{
+              user_id: effect_connection.user_id,
+              buffer_id: "channel:#{rejected.id}",
+              server_connection_id: effect_connection.id,
+              channel_membership_id: rejected.id,
+              channel: rejected.channel
+            })
+          end)
+
+        {:ok, rejected}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   def confirm_channel_left(%ServerConnection{} = connection, channel, casemapping \\ :rfc1459) do
-    case channel_membership(connection, channel, casemapping) do
-      %ChannelMembership{} = membership ->
-        result =
-          membership
-          |> ChannelMembership.changeset(%{
-            status: "left",
-            auto_join: false,
-            left_at:
-              if(membership.status == "left",
-                do: membership.left_at,
-                else: DateTime.utc_now(:second)
-              ),
-            last_error: nil
-          })
-          |> Repo.update()
+    assert_no_outer_transaction!()
 
-        with {:ok, updated} <- result do
+    Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      case channel_membership(active_connection, channel, casemapping) do
+        %ChannelMembership{} = membership ->
+          updated =
+            membership
+            |> ChannelMembership.changeset(%{
+              status: "left",
+              auto_join: false,
+              left_at:
+                if(membership.status == "left",
+                  do: membership.left_at,
+                  else: DateTime.utc_now(:second)
+                ),
+              last_error: nil
+            })
+            |> update_or_rollback()
+
           from(u in ChannelUser, where: u.channel_membership_id == ^updated.id)
           |> Repo.delete_all()
 
-          if membership.status != "left" do
-            BufferEvents.left(%{
-              user_id: connection.user_id,
-              buffer_id: "channel:#{updated.id}",
-              server_connection_id: connection.id,
-              channel_membership_id: updated.id
-            })
-          end
+          {updated, membership.status != "left", active_connection}
 
-          {:ok, updated}
+        nil ->
+          Repo.rollback(:invalid_buffer)
+      end
+    end)
+    |> case do
+      {:ok, {updated, broadcast?, active_connection}} ->
+        if broadcast? do
+          _effects =
+            ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+              BufferEvents.left(%{
+                user_id: effect_connection.user_id,
+                buffer_id: "channel:#{updated.id}",
+                server_connection_id: effect_connection.id,
+                channel_membership_id: updated.id
+              })
+            end)
         end
 
-      nil ->
-        {:error, :invalid_buffer}
+        {:ok, updated}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -203,15 +257,21 @@ defmodule Ircpipe.Chat do
         reason,
         casemapping \\ :rfc1459
       ) do
-    case channel_membership(connection, channel, casemapping, "joined") do
-      %ChannelMembership{} = membership ->
-        membership
-        |> ChannelMembership.changeset(%{last_error: reason_text(reason)})
-        |> Repo.update()
+    assert_no_outer_transaction!()
 
-      nil ->
-        {:error, :invalid_buffer}
-    end
+    Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      case channel_membership(active_connection, channel, casemapping, "joined") do
+        %ChannelMembership{} = membership ->
+          membership
+          |> ChannelMembership.changeset(%{last_error: reason_text(reason)})
+          |> update_or_rollback()
+
+        nil ->
+          Repo.rollback(:invalid_buffer)
+      end
+    end)
   end
 
   def get_membership!(%User{id: user_id}, id) do
@@ -280,4 +340,24 @@ defmodule Ircpipe.Chat do
   end
 
   defp stored_casemapping(%ServerConnection{}), do: nil
+
+  defp update_or_rollback(changeset) do
+    case Repo.update(changeset) do
+      {:ok, updated} -> updated
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp insert_or_rollback(changeset) do
+    case Repo.insert(changeset) do
+      {:ok, inserted} -> inserted
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp assert_no_outer_transaction! do
+    if Repo.in_transaction?() do
+      raise ArgumentError, "cannot mutate channel memberships inside an existing transaction"
+    end
+  end
 end

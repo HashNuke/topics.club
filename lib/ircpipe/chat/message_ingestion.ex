@@ -12,7 +12,8 @@ defmodule Ircpipe.Chat.MessageIngestion do
     Message,
     Notification,
     Retention,
-    ServerConnection
+    ServerConnection,
+    ServerConnectionLock
   }
 
   alias Ircpipe.Irc.Identifier
@@ -39,10 +40,12 @@ defmodule Ircpipe.Chat.MessageIngestion do
     mentioned = attention? and MentionDetection.mentioned?(body, connection.nickname, casemapping)
 
     Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
+
       {:ok, message} =
         %Message{
-          user_id: connection.user_id,
-          server_connection_id: connection.id,
+          user_id: active_connection.user_id,
+          server_connection_id: active_connection.id,
           channel_membership_id: membership.id
         }
         |> Message.changeset(%{
@@ -74,7 +77,7 @@ defmodule Ircpipe.Chat.MessageIngestion do
         if mentioned do
           {:ok, notification} =
             %Notification{
-              user_id: connection.user_id,
+              user_id: active_connection.user_id,
               message_id: message.id,
               channel_membership_id: membership.id
             }
@@ -85,14 +88,17 @@ defmodule Ircpipe.Chat.MessageIngestion do
         end
 
       Retention.prune(user)
-      {message, notification}
+      {message, notification, active_connection}
     end)
     |> case do
-      {:ok, {message, notification}} ->
-        if notification, do: Delivery.enqueue(notification)
-        BufferEvents.message(message, membership, connection)
+      {:ok, {message, notification, active_connection}} ->
+        _effects =
+          ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+            if notification, do: Delivery.enqueue(notification)
+            BufferEvents.message(message, membership, effect_connection)
+          end)
 
-        {:ok, %{message | channel_membership: membership, server_connection: connection}}
+        {:ok, %{message | channel_membership: membership, server_connection: active_connection}}
 
       {:error, reason} ->
         {:error, reason}
@@ -110,14 +116,16 @@ defmodule Ircpipe.Chat.MessageIngestion do
     user = Repo.get!(User, connection.user_id)
 
     Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
+
       {:ok, message} =
         %Message{
-          user_id: connection.user_id,
-          server_connection_id: connection.id
+          user_id: active_connection.user_id,
+          server_connection_id: active_connection.id
         }
         |> Message.changeset(%{
           kind: kind,
-          nick: nick || connection.host,
+          nick: nick || active_connection.host,
           service: metadata_value(metadata, :service),
           metadata: stringify_metadata(metadata),
           body: body,
@@ -128,16 +136,20 @@ defmodule Ircpipe.Chat.MessageIngestion do
 
       {1, _} =
         Repo.update_all(
-          from(c in ServerConnection, where: c.id == ^connection.id),
+          from(c in ServerConnection, where: c.id == ^active_connection.id),
           inc: [unread_count: 1]
         )
 
       Retention.prune(user)
-      message
+      {message, active_connection}
     end)
     |> case do
-      {:ok, message} ->
-        BufferEvents.server_message(message, connection)
+      {:ok, {message, active_connection}} ->
+        _effects =
+          ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+            BufferEvents.server_message(message, effect_connection)
+          end)
+
         {:ok, message}
 
       error ->

@@ -11,7 +11,8 @@ defmodule Ircpipe.Chat.SystemMessages do
     Message,
     Presence,
     Retention,
-    ServerConnection
+    ServerConnection,
+    ServerConnectionLock
   }
 
   alias Ircpipe.Irc.Identifier
@@ -35,10 +36,12 @@ defmodule Ircpipe.Chat.SystemMessages do
     user = Repo.get!(User, connection.user_id)
 
     Repo.transaction(fn ->
+      active_connection = ServerConnectionLock.lock_active!(connection.id)
+
       {:ok, message} =
         %Message{
-          user_id: connection.user_id,
-          server_connection_id: connection.id,
+          user_id: active_connection.user_id,
+          server_connection_id: active_connection.id,
           channel_membership_id: membership.id
         }
         |> Message.changeset(%{
@@ -52,11 +55,15 @@ defmodule Ircpipe.Chat.SystemMessages do
         |> Repo.insert()
 
       Retention.prune(user)
-      message
+      {message, active_connection}
     end)
     |> case do
-      {:ok, message} ->
-        BufferEvents.message(message, membership, connection)
+      {:ok, {message, active_connection}} ->
+        _effects =
+          ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+            BufferEvents.message(message, membership, effect_connection)
+          end)
+
         {:ok, message}
 
       error ->

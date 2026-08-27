@@ -4,6 +4,7 @@ defmodule Ircpipe.Chat.ConnectionLifecycleTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Repo
 
   setup do
     user = AccountsFixtures.user_fixture()
@@ -65,5 +66,52 @@ defmodule Ircpipe.Chat.ConnectionLifecycleTest do
     assert {:ok, updated} = ConnectionLifecycle.update_nickname(connection, "mira_")
     assert_receive {:server_status, %{nickname: "mira_", status: "disconnected"}}
     assert updated.status == "disconnected"
+  end
+
+  test "drops mutations and status publication after deletion is marked", %{
+    connection: connection
+  } do
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    assert {:error, :connection_deleting} =
+             ConnectionLifecycle.update_status(connection, "connected")
+
+    assert {:error, :connection_deleting} = ConnectionLifecycle.touch_connected(connection)
+
+    assert {:error, :connection_deleting} =
+             ConnectionLifecycle.update_nickname(connection, "too-late")
+
+    assert {:error, :connection_deleting} =
+             ConnectionLifecycle.broadcast_status(connection, "disconnected")
+
+    stored = Repo.get!(Ircpipe.Chat.ServerConnection, connection.id)
+    assert stored.status == "disconnected"
+    assert stored.nickname == "mira"
+    assert stored.last_connected_at == nil
+    refute_receive {:server_status, _event}
+  end
+
+  test "rejects outer transactions before mutation or publication", %{connection: connection} do
+    assert {:ok, :committed} =
+             Repo.transaction(fn ->
+               for callback <- [
+                     fn -> ConnectionLifecycle.update_status(connection, "connected") end,
+                     fn -> ConnectionLifecycle.touch_connected(connection) end,
+                     fn -> ConnectionLifecycle.update_nickname(connection, "too-late") end,
+                     fn -> ConnectionLifecycle.broadcast_status(connection, "connected") end
+                   ] do
+                 assert_raise ArgumentError, ~r/existing transaction/, callback
+               end
+
+               :committed
+             end)
+
+    stored = Repo.get!(Ircpipe.Chat.ServerConnection, connection.id)
+    assert stored.status == "disconnected"
+    assert stored.nickname == "mira"
+    assert stored.last_connected_at == nil
+    refute_receive {:server_status, _event}
   end
 end

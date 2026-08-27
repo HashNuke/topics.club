@@ -11,6 +11,8 @@ defmodule Ircpipe.Irc.SessionSystemSupervisor do
   def init(_opts) do
     children = [
       {Ircpipe.Irc.SingleNodeGuard, []},
+      {Ircpipe.Irc.ConnectionOperationLock, []},
+      {Registry, keys: :unique, name: Ircpipe.Irc.ClientRegistry},
       {Registry, keys: :unique, name: Ircpipe.Irc.SessionRegistry},
       {Ircpipe.Irc.SessionSupervisor, []},
       {Ircpipe.Irc.Bouncer, []}

@@ -4,9 +4,8 @@ defmodule Ircpipe.Irc.Session.JoinLifecycle do
   import Ecto.Query
 
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
-  alias Ircpipe.Irc.CommandRegistry
-  alias Ircpipe.Irc.Identifier
+  alias Ircpipe.Chat.{ChannelMembership, ServerConnection, ServerConnectionLock}
+  alias Ircpipe.Irc.{CommandRegistry, ConnectionLock, Identifier}
   alias Ircpipe.Irc.Session.{Identity, Targets}
   alias Ircpipe.Repo
   alias Ircxd.Client.Info
@@ -19,7 +18,26 @@ defmodule Ircpipe.Irc.Session.JoinLifecycle do
   def validate(_state, channel),
     do: CommandRegistry.validate_join_channel_syntax(channel)
 
-  def transmit(state, channel) do
+  def transmit(
+        %{connection: %ServerConnection{id: id, user_id: user_id}} = state,
+        channel
+      )
+      when is_integer(id) and is_integer(user_id) do
+    case ConnectionLock.run_serialized(state.connection, fn ->
+           with :ok <- ServerConnectionLock.ensure_active(state.connection.id) do
+             transmit_active(state, channel)
+           else
+             {:error, reason} -> {{:error, reason}, state}
+           end
+         end) do
+      {:error, reason} -> {{:error, reason}, state}
+      result -> result
+    end
+  end
+
+  def transmit(state, channel), do: transmit_active(state, channel)
+
+  defp transmit_active(state, channel) do
     key = Targets.key(state, channel)
 
     if MapSet.member?(state.joined_channels, key) do
@@ -118,6 +136,18 @@ defmodule Ircpipe.Irc.Session.JoinLifecycle do
   end
 
   def flush(state) do
+    case ConnectionLock.run_serialized(state.connection, fn ->
+           case ServerConnectionLock.ensure_active(state.connection.id) do
+             :ok -> flush_active(state)
+             {:error, _reason} -> state
+           end
+         end) do
+      {:error, _reason} -> state
+      flushed_state -> flushed_state
+    end
+  end
+
+  defp flush_active(state) do
     ChannelMembership
     |> where(
       [membership],
@@ -134,6 +164,7 @@ defmodule Ircpipe.Irc.Session.JoinLifecycle do
         current_state
       else
         with :ok <- validate(current_state, channel),
+             :ok <- ServerConnectionLock.ensure_active(current_state.connection.id),
              :ok <- Ircxd.Client.join(current_state.client, channel) do
           current_state
           |> Map.put(:pending_joins, MapSet.put(current_state.pending_joins, key))

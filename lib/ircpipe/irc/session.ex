@@ -5,7 +5,9 @@ defmodule Ircpipe.Irc.Session do
 
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
+  alias Ircpipe.Irc.Session.ChannelListCommands
   alias Ircpipe.Irc.Session.ChannelListRequest
+  alias Ircpipe.Irc.Session.ClientLifecycle
   alias Ircpipe.Irc.Session.ConnectionEvents
   alias Ircpipe.Irc.Session.DepartureCommands
   alias Ircpipe.Irc.Session.EventRecorder
@@ -374,23 +376,7 @@ defmodule Ircpipe.Irc.Session do
     {:reply, reply, state}
   end
 
-  def handle_call(:list_channels, _from, %{registered?: false} = state) do
-    {:reply, {:error, :not_connected}, state}
-  end
-
-  def handle_call(:list_channels, _from, %{channel_list_request: request} = state)
-      when not is_nil(request) do
-    {:reply, {:error, :list_in_progress}, state}
-  end
-
-  def handle_call(:list_channels, from, state) do
-    with {:ok, client} <- fetch_client(state),
-         :ok <- Ircxd.Client.list(client) do
-      {:noreply, %{state | channel_list_request: ChannelListRequest.new(from)}}
-    else
-      error -> {:reply, error, state}
-    end
-  end
+  def handle_call(:list_channels, from, state), do: ChannelListCommands.request(state, from)
 
   def handle_call({:say, channel, body}, _from, state) do
     {reply, state} = OutboundMessages.say(state, channel, body)
@@ -417,21 +403,12 @@ defmodule Ircpipe.Irc.Session do
     {:stop, :normal, reply, state}
   end
 
-  def handle_call(:quit_for_deletion, _from, state) do
-    {reply, state} = DepartureCommands.quit_for_deletion(state)
-    {:stop, :normal, reply, state}
-  end
-
   @impl true
-  def terminate(_reason, %{deleting?: true}), do: :ok
-
   def terminate(_reason, state) do
+    :ok = ClientLifecycle.stop(state.client)
     _state = ConnectionEvents.terminate(state)
     :ok
   end
-
-  defp fetch_client(%{client: nil}), do: {:error, :not_connected}
-  defp fetch_client(%{client: client}), do: {:ok, client}
 
   defp maybe_record_membership_failure(%Event{name: name, payload: payload}, state)
        when name in [:irc_error, :error],
