@@ -10,6 +10,9 @@ defmodule Ircpipe.EngineSupervisor do
   @impl true
   def init(_opts) do
     children = [
+      {Ircpipe.Engine.Marker, []},
+      {Ircpipe.Engine.OperationLock, []},
+      {Task.Supervisor, name: Ircpipe.Engine.RequestTaskSupervisor},
       {Oban, Application.fetch_env!(:ircpipe, Ircpipe.EngineOban)},
       {Ircpipe.Irc.SessionSystemSupervisor, []}
     ]
