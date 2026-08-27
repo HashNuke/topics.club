@@ -6,7 +6,7 @@ Proposed architecture with implementation tracking. Checked items are already pr
 
 ## Complexity and progress
 
-Overall complexity is **XL** with **high operational risk**. This is a staged architecture migration across process ownership, application dependencies, database compatibility, release assembly, Distributed Erlang, deployment automation, and failure recovery. It must not be attempted as a single file-move change.
+Overall complexity is **XL** with **high operational risk**. This is a staged architecture migration across process ownership, application dependencies, database compatibility, release assembly, Distributed Erlang, deployment automation, and failure recovery. Logical application boundaries must be enforced inside the monolith before files move; the later umbrella conversion should be a mechanical extraction rather than the point where dependencies are discovered.
 
 Sizing used by this document:
 
@@ -26,7 +26,10 @@ Sizing used by this document:
 - [x] A Phoenix release Dockerfile builds the combined release from the repository root.
 - [x] Production Docker Compose provides one combined application service and one persistent PostgreSQL service.
 - [x] `ircxd` is fetched from `HashNuke/ircxd` and pinned by `mix.lock` until it is published on Hex.
+- [ ] Every current module has a documented logical owner: core, shared protocol, engine, or web.
 - [ ] All web-to-IRC calls pass through `Ircpipe.EngineClient`.
+- [ ] Core and web modules have no direct dependency on engine implementation modules.
+- [ ] The combined supervision tree is divided into logical core, engine, and web supervisors.
 - [ ] The repository is an umbrella containing core, engine, and web OTP applications.
 - [ ] The three release artifacts build independently.
 - [ ] Split web and engine nodes communicate successfully in an integration environment.
@@ -37,8 +40,8 @@ Sizing used by this document:
 | Workstream | Size | Risk | Primary difficulty |
 | --- | --- | --- | --- |
 | 0. Baseline and dependency inventory | M | Medium | Finding hidden runtime coupling before moves begin |
-| 1. Engine contract inside the monolith | XL | High | Replacing every direct process call without changing behavior |
-| 2. Umbrella and ownership split | XL | High | Eliminating circular compile-time and runtime dependencies |
+| 1. Logical boundaries and engine contract inside the monolith | XL | High | Enforcing one-way dependencies and replacing direct process calls without changing behavior |
+| 2. Mechanical umbrella extraction | M | Medium | Moving already-separated code and tests without changing behavior or losing coverage |
 | 3. Release and container packaging | L | High | Producing three minimal, correctly configured artifacts |
 | 4. Distributed runtime | XL | Critical | Singleton safety, failure handling, PubSub, and protocol compatibility |
 | 5. Hosted `Ircxd.Server` | XL | High | Isolated supervision, authentication, TLS, and server persistence |
@@ -54,7 +57,7 @@ Ircpipe will support two runtime modes from one codebase:
 1. **Combined mode** runs the web application and IRC engine on one BEAM node and in one production release. This remains the default for local development, Railway, Docker Compose, and simple personal deployments.
 2. **Split mode** runs a small, long-lived IRC engine release separately from the frequently deployed web release. The two releases share PostgreSQL and communicate over Distributed Erlang.
 
-Both modes must use the same engine client API and the same message-ingestion path. Combined mode is not a second implementation: the engine client resolves to a local engine in combined mode and a clustered engine in split mode.
+Both modes must use the same engine client API and the same message-ingestion path. Combined mode is not a second implementation: the engine client resolves to a local engine in combined mode and a clustered engine in split mode. Before the repository becomes an umbrella, the monolith will use these same logical component boundaries and adapters so the physical extraction does not require a second architectural rewrite.
 
 The split is intended to avoid restarting IRC client connections and the hosted `Ircxd.Server` when only Phoenix, React, authentication, APIs, or other web-facing behavior changes. It does not require hot code upgrades or release upgrade instructions (`relup`).
 
@@ -67,6 +70,8 @@ The split is intended to avoid restarting IRC client connections and the hosted 
 - Keep the default Docker and Railway deployment as simple as it is today.
 - Keep one PostgreSQL database, one canonical Ecto schema history, and one migrations directory.
 - Use one application-level interface for IRC operations in both combined and split modes.
+- Enforce the future umbrella dependency graph while the code still runs in one OTP application.
+- Preserve existing module names during physical extraction unless a name actively misrepresents ownership.
 - Continue enforcing exactly one active IRC engine.
 
 ## Non-goals
@@ -115,8 +120,9 @@ Browser
 |                             |                                 |                             |
 | Phoenix + React + auth      |                                 | Engine API                  |
 | JSON APIs + Channels        |                                 | IRC sessions + bouncer      |
-| Engine client               |                                 | Discovery IRC clients       |
-| Repo + Vault + PubSub       |                                 | Hosted Ircxd.Server         |
+| Engine client               |                                 | Reconnect + autojoin        |
+| Discovery channel workers   |                                 | Hosted Ircxd.Server         |
+| Repo + Vault + PubSub       |                                 | IRC ingestion + state       |
 | Web-owned Oban queues       |                                 | Repo + Vault + PubSub       |
 +--------------+--------------+                                 | Engine-owned Oban queues    |
                |                                                +--------------+--------------+
@@ -129,9 +135,47 @@ Browser
 
 The first split-mode release supports one web node and one engine node. Additional web replicas may be considered separately; the engine remains a singleton until database-backed ownership leases and fencing exist.
 
+## Pre-umbrella logical boundaries
+
+The application must first behave like three cooperating OTP applications while it is still one Mix project and one BEAM node. Physical source paths do not enforce ownership: an Elixir module keeps the same name regardless of which OTP application compiles it. For example, `Ircpipe.Irc.Session` can move from `lib/ircpipe/irc/session.ex` to `apps/ircpipe_engine/lib/ircpipe/irc/session.ex` without changing its module name or its internal callers.
+
+Use the following logical ownership before creating the umbrella:
+
+| Logical component | Current/future namespaces | Allowed dependencies | Future OTP application |
+| --- | --- | --- | --- |
+| Core/data | `Ircpipe.Repo`, `Ircpipe.Vault`, accounts, schemas, shared persistence primitives | External libraries and other core modules only | `ircpipe_core` |
+| Shared protocol/contracts | Versioned request, reply, and event envelopes; pure IRC identifiers, command metadata, and validation needed by more than one role | Core and `ircxd` | `ircpipe_core` initially; split further only if justified |
+| Engine | `Ircpipe.Irc` process ownership, per-user session orchestration, ingestion, hosted server | Core and shared contracts | `ircpipe_engine` |
+| Web | `IrcpipeWeb`, browser auth, controllers, Channels, serializers, frontend, directory discovery workers, web-owned jobs | Core, shared contracts, `Ircpipe.EngineClient`, and `ircxd` for discovery | `ircpipe_web` |
+
+The required dependency direction is:
+
+```text
+ircpipe_web -------> ircpipe_core <------- ircpipe_engine
+      |
+      +----> Ircpipe.EngineClient ----> configured adapter
+                                           |          |
+                                           |          +--> RPC adapter in split mode
+                                           +-------------> local adapter in combined mode
+```
+
+The local adapter is an engine implementation and may call local sessions, registries, and supervisors. The RPC adapter may address the remote engine API by module and operation name, but it must not require engine implementation code to be included in the web release. Core persistence modules must never call into the engine to complete a database operation; `EngineClient` is the explicit adapter port for operations that require the engine.
+
+This rule requires deliberate untangling before any file move. In particular:
+
+- `IrcpipeWeb` currently calls `Ircpipe.Irc.Session`, `SessionLocator`, `SessionSupervisor`, `Commands`, and `CommandRegistry`; process-owning calls must move behind `EngineClient`, while genuinely pure shared protocol functions must be assigned to the shared boundary.
+- `Ircpipe.Chat.Connections` currently reaches into `Ircpipe.Irc.ConnectionLock` and `SessionSupervisor` during state changes and deletion. Persistence primitives must be separated from engine-owned quiescence and orchestration so core never depends on engine internals.
+- Pure identifier and casemapping behavior currently under `Ircpipe.Irc.Identifier` is used by chat persistence modules. It may retain its module name during extraction, but its logical ownership and dependency requirements must be shared rather than engine-private.
+- `Ircpipe.Discovery.ServerChannelLister` opens a short-lived `Ircxd.Client` to issue `LIST` and is driven by `Ircpipe.Discovery.Refresher`. This remains web-owned directory functionality and is distinct from the engine's long-lived per-user sessions.
+- Background jobs must have a single runtime owner. Jobs that manipulate live sessions belong to the engine role even when they use core persistence modules.
+
+The monolith should expose three logical supervisors—core, engine, and web—under the existing root application. Combined mode starts all three. Their child lists, registered names, configuration, and job ownership must already match the future child applications before the umbrella conversion begins.
+
+Boundary enforcement must be automated. CI should fail when web code references engine implementation modules, core code references engine or web modules, engine code references web modules, or a dependency cycle is introduced. The check should operate on compiler/xref information where possible, with a narrow explicit allowlist for temporary migration edges. Every temporary edge needs an owner and removal task.
+
 ## OTP application and release layout
 
-Convert the repository into an umbrella with these applications:
+After the pre-umbrella boundary gate passes, convert the repository into an umbrella with these applications:
 
 ```text
 apps/
@@ -165,7 +209,6 @@ The small, long-lived connection and ingestion runtime:
 - `Ircxd.Client` integration
 - Hosted `Ircxd.Server` and its application adapter
 - Reconnect and autojoin behavior
-- Server-channel discovery connections
 - Stable canonical message ingestion
 - Connection lifecycle and IRC-derived presence persistence
 - Post-commit internal PubSub events
@@ -184,7 +227,10 @@ Frequently changed product and presentation code:
 - Bootstrap and history queries
 - Account, settings, read-state, and notification-preference behavior
 - Web Push delivery and other web-owned background jobs
+- Directory discovery refresh and its short-lived `Ircxd.Client` channel-list workers
 - The web side of `Ircpipe.EngineClient`
+
+The web application must not depend on the local engine adapter. Combined-release configuration may select that adapter because the combined release includes the engine application; the web-only release selects the RPC adapter.
 
 ### Releases
 
@@ -196,7 +242,7 @@ Define three releases:
 | `ircpipe_web` | core + web | Frequently deployed web tier in split mode |
 | `ircpipe_engine` | core + engine | Small long-lived engine in split mode |
 
-The `ircxd` dependency belongs to `ircpipe_engine`, so it is present in the combined and engine releases but absent from the web-only release. Until `ircxd` is published on Hex, builds fetch it from the `HashNuke/ircxd` GitHub repository rather than relying on a sibling checkout.
+`ircxd` is a shared library dependency, not an ownership boundary. The engine uses it for long-lived outbound sessions and the hosted server; the web role uses it for short-lived directory channel-list workers; shared protocol primitives also use its casemapping and validation types. Both split releases therefore include `ircxd`, while only the engine release starts the user-session and hosted-server supervision trees. Until `ircxd` is published on Hex, builds fetch it from the `HashNuke/ircxd` GitHub repository rather than relying on a sibling checkout.
 
 ## Engine boundary
 
@@ -228,7 +274,7 @@ The engine is more than a socket holder, but less than a second web backend. It 
 
 Both releases use the same Ecto schemas, but behavior modules should reflect ownership. Engine ingestion modules should not call web modules, and web contexts should not access local engine registries or supervisors.
 
-The current `Ircpipe.Chat` namespace may be separated gradually. Moving a schema into `ircpipe_core` does not require moving every context that uses that schema into the core application.
+The current `Ircpipe.Chat` namespace may be separated gradually during monolith demarcation. Moving a schema into `ircpipe_core` does not require moving every context that uses that schema into the core application. By the time physical extraction begins, each context must already depend only on public APIs owned by its declared logical component.
 
 ### Desired state versus observed status
 
@@ -492,7 +538,7 @@ Complete workstreams in order unless a task explicitly says it can proceed indep
 
 ### Workstream 0: Baseline and dependency inventory
 
-Size: **M**. Risk: **Medium**. This prevents hidden coupling from being discovered only after the umbrella move.
+Size: **M**. Risk: **Medium**. This prevents hidden coupling from being discovered only after logical demarcation or the later umbrella move begins.
 
 #### Runtime and code inventory
 
@@ -526,9 +572,40 @@ Size: **M**. Risk: **Medium**. This prevents hidden coupling from being discover
 - [ ] Every current public browser payload has a regression test or deterministic fixture.
 - [ ] The combined baseline is green before workstream 1 begins.
 
-### Workstream 1: Introduce the engine boundary inside the monolith
+### Workstream 1: Demarcate logical applications and introduce the engine boundary inside the monolith
 
-Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor and must land before moving files into separate applications.
+Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. It must land and pass its boundary gate before the umbrella exists; no task in workstream 2 is allowed to compensate for an unresolved dependency edge.
+
+#### Declare module and runtime ownership
+
+- [ ] Create a checked-in ownership manifest covering every production module and assigning it to core, shared protocol/contracts, engine, or web.
+- [ ] Assign every test-support module and fixture to the component whose public behavior it supports.
+- [ ] Classify every external dependency by the logical component that uses it.
+- [ ] Classify every application environment key by logical owner and compile-time versus runtime use.
+- [ ] Classify every registered process name, Registry, supervisor, and PubSub name by logical owner.
+- [ ] Mark the intended future source and test destination for each current directory.
+- [ ] Preserve existing module names when moving them later unless a rename is independently justified and tested.
+- [ ] Record every temporary cross-boundary edge in a narrow allowlist with an owner and removal checklist item.
+- [ ] Document the allowed dependency graph in contributor guidance.
+
+#### Extract shared protocol primitives from engine internals
+
+- [ ] Identify pure IRC identifier, casemapping, command metadata, validation, request, reply, and event code needed by both web and engine.
+- [ ] Assign those pure modules to the shared boundary even when their existing module name begins with `Ircpipe.Irc`.
+- [ ] Keep PIDs, process names, Registry lookups, supervisors, sockets, and `ircxd` runtime structs out of shared contracts.
+- [ ] Treat `ircxd` as an allowed shared library dependency while keeping all Ircpipe process ownership explicit.
+- [ ] Document which core, engine, and web modules directly use `ircxd` so each child application declares its actual dependency.
+- [ ] Add focused tests proving shared protocol modules run without engine supervision.
+
+#### Enforce dependency direction in the monolith
+
+- [ ] Add an automated boundary check based on compiler/xref data where possible.
+- [ ] Fail the boundary check when `IrcpipeWeb` references engine implementation modules outside `Ircpipe.EngineClient`.
+- [ ] Fail the boundary check when a core module references an engine or web implementation module.
+- [ ] Fail the boundary check when an engine module references `IrcpipeWeb`.
+- [ ] Fail the boundary check when an application-level dependency cycle is introduced.
+- [ ] Keep any migration allowlist explicit, minimal, and shrinking; do not permit namespace-wide exceptions.
+- [ ] Run the boundary check from `mix precommit`.
 
 #### Versioned request and reply contracts
 
@@ -550,6 +627,8 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor a
 - [ ] Add an engine marker process without serializing all operations through that process.
 - [ ] Add `Ircpipe.EngineClient` as the only application-facing IRC operations interface.
 - [ ] Add the combined-mode local adapter.
+- [ ] Treat the local adapter as engine-owned implementation code rather than core or web code.
+- [ ] Define the RPC adapter module boundary without adding a compile-time dependency on engine implementation modules.
 - [ ] Configure the adapter without requiring split-mode environment variables in combined mode.
 - [ ] Normalize exits, missing processes, and session failures into stable client errors.
 - [ ] Add telemetry around operation name, duration, result, timeout, and request ID.
@@ -567,11 +646,26 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor a
 - [ ] Route direct messages through the client.
 - [ ] Route validated command intents through the client.
 - [ ] Route live server channel-list requests through the client.
-- [ ] Route discovery connections that require a live session through the engine API.
+- [ ] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
 - [ ] Remove session locator and registry lookups from REST payload formatting.
 - [ ] Remove session locator and registry lookups from Channel payload formatting.
 - [ ] Refactor deletion and reconciliation workers so they do not assume a local session registry outside the engine role.
 - [ ] Refactor any remaining context functions that combine database writes with direct local process actions.
+- [ ] Split `Ircpipe.Chat.Connections` persistence primitives from engine-owned connection quiescence and deletion orchestration.
+- [ ] Remove `Ircpipe.Chat.Connections` calls to `Ircpipe.Irc.ConnectionLock` and `SessionSupervisor`.
+- [ ] Ensure live-session deletion jobs execute only in the engine role while calling core-owned persistence APIs.
+
+#### Demarcate supervision before extraction
+
+- [ ] Add a logical core supervisor for Vault, Repo, shared PubSub, and role-neutral infrastructure.
+- [ ] Add a logical engine supervisor for the single-node guard, operation lock, registries, session supervisor, bouncer, and later hosted server.
+- [ ] Add a logical web supervisor for telemetry, directory discovery refresh, Endpoint, and web-owned runtime processes.
+- [ ] Make the existing root application start core, engine, and web supervisors in combined mode.
+- [ ] Assign every Oban queue and plugin to one logical runtime role before changing release layout.
+- [ ] Ensure shared infrastructure starts exactly once in combined mode.
+- [ ] Preserve Endpoint-last ordering in the logical web supervisor.
+- [ ] Preserve Endpoint configuration-change handling through the root application during this phase.
+- [ ] Add combined-mode supervision tests that assert the expected logical supervisor branches and critical children.
 
 #### Preserve durable connection intent
 
@@ -602,17 +696,38 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor a
 
 #### Combined-mode exit gate
 
+- [ ] Every production module and runtime child has exactly one logical owner.
+- [ ] The temporary dependency-edge allowlist is empty.
+- [ ] Automated boundary checks pass with the intended core <- web and core <- engine dependency direction.
 - [ ] No module under `IrcpipeWeb` calls an IRC session, locator, registry, or supervisor directly.
+- [ ] No core module calls an engine process, Registry, supervisor, or adapter implementation directly except through the configured `EngineClient` adapter contract.
+- [ ] No engine module references `IrcpipeWeb`.
 - [ ] No web-owned worker assumes an IRC process is local.
 - [ ] Every engine operation uses the versioned request path in combined mode.
+- [ ] The root application starts distinct logical core, engine, and web supervisor branches.
+- [ ] The ownership manifest maps cleanly to future `apps/ircpipe_core`, `apps/ircpipe_engine`, and `apps/ircpipe_web` destinations.
 - [ ] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
 - [ ] Ordinary messages still commit before broadcast and do not pass through Oban.
 - [ ] The browser protocol remains compatible.
 - [ ] `mix precommit` and a combined release smoke test pass.
+- [ ] Record the complete test count and per-component counts so the umbrella move cannot silently lose test discovery.
 
-### Workstream 2: Convert the repository into three OTP applications
+### Workstream 2: Mechanically extract the logical components into three OTP applications
 
-Size: **XL**. Risk: **High**. File movement is secondary; the real work is enforcing one-way dependencies and correct supervision ownership.
+Size: **M**. Risk: **Medium** after the workstream 1 exit gate passes. This workstream changes physical ownership and Mix configuration, not architecture or product behavior. If a move reveals a new dependency design problem, stop and resolve it in the monolith boundary model instead of adding a shortcut between child applications.
+
+#### Extraction rules
+
+- [ ] Do not begin the umbrella conversion until every workstream 1 exit-gate item passes.
+- [ ] Keep production module names unchanged during physical moves.
+- [ ] Move source modules and their focused tests as one coherent component slice.
+- [ ] Keep cross-component integration tests at the umbrella root or assign them an explicit owning application.
+- [ ] Make one ownership move at a time and run its focused tests before the next move.
+- [ ] Run the root boundary check after every component move.
+- [ ] Run root `mix precommit` after every completed ownership slice.
+- [ ] Compare discovered test counts with the recorded monolith baseline after every test-path change.
+- [ ] Do not introduce temporary child-application dependency cycles to make an intermediate move compile.
+- [ ] Do not combine module renaming or behavior changes with filesystem extraction.
 
 #### Umbrella scaffolding
 
@@ -625,6 +740,7 @@ Size: **XL**. Risk: **High**. File movement is secondary; the real work is enfor
 - [ ] Update formatter inputs for the umbrella and all child applications.
 - [ ] Update test support paths and shared fixtures without introducing cross-application test coupling.
 - [ ] Update `mix setup`, asset, test, and `mix precommit` aliases at the umbrella root.
+- [ ] Prove root `mix test` discovers all previously recorded tests before moving the next component.
 
 #### Core ownership
 
@@ -642,9 +758,8 @@ Size: **XL**. Risk: **High**. File movement is secondary; the real work is enfor
 
 - [ ] Move outbound session supervision, registries, session modules, and protocol handlers into engine.
 - [ ] Move `Ircpipe.Irc.Bouncer` into engine.
-- [ ] Move `ircxd` integration and the `ircxd` dependency into engine.
+- [ ] Declare `ircxd` in engine for long-lived outbound sessions and hosted-server integration.
 - [ ] Move connection restoration and autojoin logic into engine.
-- [ ] Move server-channel discovery connections into engine.
 - [ ] Move canonical IRC message ingestion and IRC-derived state updates into engine.
 - [ ] Move engine-owned Oban workers into engine.
 - [ ] Add the isolated hosted-server supervisor branch even if the hosted server remains disabled initially.
@@ -657,12 +772,14 @@ Size: **XL**. Risk: **High**. File movement is secondary; the real work is enfor
 - [ ] Keep browser payload serializers in web.
 - [ ] Keep bootstrap, history, read-state, settings, and notification-preference behavior in web.
 - [ ] Keep Web Push delivery and other web-owned Oban workers in web.
+- [ ] Move directory discovery refresh and `ServerChannelLister` into web and declare its direct `ircxd` dependency.
 - [ ] Configure the web side of `EngineClient` without a compile-time dependency on engine implementation modules.
 
 #### Dependency and supervision enforcement
 
 - [ ] Give each child application only the Hex/Git dependencies it uses.
-- [ ] Make web compile without `ircxd` or engine implementation modules.
+- [ ] Translate the already-green logical dependency graph into child `deps/0` declarations without adding new edges.
+- [ ] Make web compile without engine implementation modules while retaining `ircxd` for directory discovery.
 - [ ] Make engine compile without Phoenix Endpoint and frontend dependencies.
 - [ ] Check compile-connected dependency graphs for accidental cycles.
 - [ ] Start Vault, Repo, and PubSub exactly once per node.
@@ -674,11 +791,15 @@ Size: **XL**. Risk: **High**. File movement is secondary; the real work is enfor
 
 #### Umbrella exit gate
 
+- [ ] No production module was renamed solely because its file moved into a child application.
+- [ ] No product behavior or public payload changed as part of the extraction.
 - [ ] Each child application compiles and tests independently where practical.
-- [ ] The web application contains no `ircxd` dependency or engine implementation modules.
+- [ ] The web application contains no engine implementation modules or long-lived user-session ownership.
 - [ ] The engine application contains no Endpoint, router, controller, HEEx, or React assets.
 - [ ] The combined supervision tree starts shared infrastructure once.
 - [ ] The combined application behaves the same as before the umbrella conversion.
+- [ ] Root and per-component test counts match the recorded pre-umbrella expectations.
+- [ ] The boundary checker passes without new exceptions or child-application dependency cycles.
 - [ ] Root `mix precommit` passes.
 
 ### Workstream 3: Build release and container artifacts
@@ -715,9 +836,10 @@ Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a r
 #### Dependency distribution
 
 - [x] Fetch `ircxd` from `HashNuke/ircxd` and pin the resolved commit in `mix.lock`.
-- [ ] Publish `ircxd` to Hex with a version compatible with the engine application.
+- [ ] Publish `ircxd` to Hex with a version compatible with the core, engine, and web applications.
 - [ ] Replace the Git dependency with a Hex version constraint after publication.
-- [ ] Verify the web-only dependency graph does not fetch or compile `ircxd`.
+- [ ] Verify core, engine, and web declare `ircxd` wherever their code references it, with one resolved version across the umbrella.
+- [ ] Verify the web release starts only short-lived directory discovery clients and no per-user session or hosted-server listeners.
 
 #### Combined Docker image for Railway and similar platforms
 
@@ -749,7 +871,7 @@ Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a r
 
 - [ ] All three OTP releases build in CI.
 - [ ] The combined image has no split-mode configuration requirement.
-- [ ] The web release has no `ircxd`, engine supervision, or IRC listeners.
+- [ ] The web release may include `ircxd` for directory discovery but has no engine supervision, per-user IRC sessions, or hosted IRC listener.
 - [ ] The engine release has no Endpoint or frontend assets.
 - [ ] Only combined and web/migrator artifacts can run migrations.
 - [ ] Combined Docker and Compose smoke tests pass.
