@@ -6,7 +6,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.MessageIngestion
-  alias Ircpipe.Chat.{Message, MessageHistory}
+  alias Ircpipe.Chat.{CommandMessages, Message, MessageHistory}
   alias Ircpipe.Repo
 
   setup do
@@ -260,7 +260,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
         command_id = "command-#{index}"
 
         assert {:ok, message} =
-                 Chat.record_command_message(
+                 CommandMessages.record(
                    context.connection,
                    buffer_id,
                    "command #{index}",
@@ -275,7 +275,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
       end
 
     assert {:ok, _result} =
-             Chat.record_command_message(
+             CommandMessages.record(
                context.connection,
                buffer_id,
                "result row",

@@ -2,7 +2,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
   @moduledoc false
 
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.ChannelMembership
+  alias Ircpipe.Chat.{ChannelMembership, CommandMessages}
   alias Ircpipe.Irc.CommandResult
   alias Ircpipe.Irc.Session.{Identity, Targets}
   alias Ircxd.Client.{Event, Info}
@@ -155,7 +155,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
   end
 
   def update_status(pending, status, metadata) do
-    Chat.update_command_message(
+    CommandMessages.update(
       pending.invocation,
       Map.merge(metadata, %{command_status: status})
     )
@@ -345,7 +345,7 @@ defmodule Ircpipe.Irc.Session.CommandLifecycle do
         })
 
       _result =
-        Chat.record_command_message(
+        CommandMessages.record(
           state.connection,
           result_buffer_id(state, event, pending),
           formatted.body,

@@ -8,7 +8,7 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.MessageIngestion
-  alias Ircpipe.Chat.{DirectMessageThread, MessageHistory, Notification}
+  alias Ircpipe.Chat.{CommandMessages, DirectMessageThread, MessageHistory, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.IrcTestServer
@@ -1112,7 +1112,7 @@ defmodule Ircpipe.Irc.SessionTest do
     buffer_id = "server:#{connection.id}"
 
     {:ok, invocation} =
-      Chat.record_command_message(connection, buffer_id, "WHOIS mira", %{
+      CommandMessages.record(connection, buffer_id, "WHOIS mira", %{
         command_id: "whois-batch-1",
         command: "WHOIS",
         command_status: "sent"
@@ -1295,14 +1295,14 @@ defmodule Ircpipe.Irc.SessionTest do
     buffer_id = "server:#{connection.id}"
 
     {:ok, alice_invocation} =
-      Chat.record_command_message(connection, buffer_id, "WHOIS alice", %{
+      CommandMessages.record(connection, buffer_id, "WHOIS alice", %{
         command_id: "whois-alice",
         command: "WHOIS",
         command_status: "sent"
       })
 
     {:ok, bob_invocation} =
-      Chat.record_command_message(connection, buffer_id, "WHOIS bob", %{
+      CommandMessages.record(connection, buffer_id, "WHOIS bob", %{
         command_id: "whois-bob",
         command: "WHOIS",
         command_status: "sent"
@@ -1383,7 +1383,7 @@ defmodule Ircpipe.Irc.SessionTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     {:ok, invocation} =
-      Chat.record_command_message(connection, buffer_id, "JOIN #wanted", %{
+      CommandMessages.record(connection, buffer_id, "JOIN #wanted", %{
         command_id: "join-wanted-1",
         command: "JOIN",
         command_status: "sent"
@@ -1393,7 +1393,7 @@ defmodule Ircpipe.Irc.SessionTest do
     spec = Ircxd.CommandSpec.classify("JOIN", ["#wanted"], %{isupport: %{}})
 
     {:ok, nick_invocation} =
-      Chat.record_command_message(connection, buffer_id, "NICK ircpipe_", %{
+      CommandMessages.record(connection, buffer_id, "NICK ircpipe_", %{
         command_id: "nick-self-1",
         command: "NICK",
         command_status: "sent"
@@ -1555,7 +1555,7 @@ defmodule Ircpipe.Irc.SessionTest do
     buffer_id = "server:#{connection.id}"
 
     {:ok, invocation} =
-      Chat.record_command_message(connection, buffer_id, "MOTD", %{
+      CommandMessages.record(connection, buffer_id, "MOTD", %{
         command_id: "motd-1",
         command: "MOTD",
         command_status: "sent"
@@ -1623,7 +1623,7 @@ defmodule Ircpipe.Irc.SessionTest do
     buffer_id = "server:#{connection.id}"
 
     {:ok, invocation} =
-      Chat.record_command_message(connection, buffer_id, "WHO alice", %{
+      CommandMessages.record(connection, buffer_id, "WHO alice", %{
         command_id: "who-alice-1",
         command: "WHO",
         command_status: "sent"
@@ -1687,14 +1687,14 @@ defmodule Ircpipe.Irc.SessionTest do
     buffer_id = "server:#{connection.id}"
 
     {:ok, part_invocation} =
-      Chat.record_command_message(connection, buffer_id, "PART #same", %{
+      CommandMessages.record(connection, buffer_id, "PART #same", %{
         command_id: "part-same-1",
         command: "PART",
         command_status: "sent"
       })
 
     {:ok, join_invocation} =
-      Chat.record_command_message(connection, buffer_id, "JOIN #same", %{
+      CommandMessages.record(connection, buffer_id, "JOIN #same", %{
         command_id: "join-same-1",
         command: "JOIN",
         command_status: "sent"
@@ -2255,7 +2255,7 @@ defmodule Ircpipe.Irc.SessionTest do
       Map.new([{"join-a", "#a", false}, {"join-b", "#b", scenario == :labeled_461}], fn
         {command_id, target, labeled?} ->
           {:ok, invocation} =
-            Chat.record_command_message(connection, buffer_id, "JOIN #{target}", %{
+            CommandMessages.record(connection, buffer_id, "JOIN #{target}", %{
               command_id: command_id,
               command: "JOIN",
               command_status: "sent"

@@ -2,7 +2,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
   use IrcpipeWeb.ConnCase, async: false
 
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.{CommandMessages, Connections}
   alias Ircpipe.Chat.Message
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.{Session, SessionSupervisor}
@@ -124,17 +124,17 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     buffer_id = "server:#{connection.id}"
 
     {:ok, command} =
-      Chat.record_command_message(connection, buffer_id, "LIST", %{
+      CommandMessages.record(connection, buffer_id, "LIST", %{
         command_id: "list-old-1",
         command: "LIST",
         command_status: "sent"
       })
 
     {:ok, _updated} =
-      Chat.update_command_message(command, %{command_status: "completed"})
+      CommandMessages.update(command, %{command_status: "completed"})
 
     {:ok, _result} =
-      Chat.record_command_message(connection, buffer_id, "result row", %{
+      CommandMessages.record(connection, buffer_id, "result row", %{
         command_id: "list-old-1",
         command: "LIST",
         command_status: "result"

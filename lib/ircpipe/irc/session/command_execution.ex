@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
 
   alias Ircpipe.Accounts.User
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{DirectMessageIngestion, MessageIngestion}
+  alias Ircpipe.Chat.{CommandMessages, DirectMessageIngestion, MessageIngestion}
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.Session.{PendingEchoes, Targets}
   alias Ircpipe.Repo
@@ -75,7 +75,7 @@ defmodule Ircpipe.Irc.Session.CommandExecution do
       input: display
     }
 
-    case Chat.record_command_message(state.connection, buffer_id, display, metadata) do
+    case CommandMessages.record(state.connection, buffer_id, display, metadata) do
       {:ok, invocation} -> {:ok, invocation}
       {:error, reason} -> {:error, reason}
     end

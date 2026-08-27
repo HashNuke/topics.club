@@ -19,7 +19,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.StartupAuthorization
   alias Ircpipe.Irc.Session.Targets
-  alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
+  alias Ircpipe.Chat.{ChannelMembership, CommandMessages, ServerConnection}
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
   alias Ircxd.Client.{Event, Info}
@@ -570,7 +570,7 @@ defmodule Ircpipe.Irc.Session do
             )}, state}
 
         {:error, reason} ->
-          Chat.update_command_message(invocation, %{
+          CommandMessages.update(invocation, %{
             command_status: "failed",
             error: inspect(reason)
           })
