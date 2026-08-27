@@ -1,14 +1,57 @@
-# Application split plan
+# Application split plan and implementation checklist
 
 ## Status
 
-Proposed architecture and implementation plan.
+Proposed architecture with implementation tracking. Checked items are already present in the current codebase; unchecked items are required unless they are explicitly marked optional or deferred.
+
+## Complexity and progress
+
+Overall complexity is **XL** with **high operational risk**. This is a staged architecture migration across process ownership, application dependencies, database compatibility, release assembly, Distributed Erlang, deployment automation, and failure recovery. It must not be attempted as a single file-move change.
+
+Sizing used by this document:
+
+| Size | Meaning |
+| --- | --- |
+| S | Localized change with a narrow test surface |
+| M | Cross-module change contained within one subsystem |
+| L | Cross-subsystem change with release or data implications |
+| XL | Architectural change requiring staged integration and rollback planning |
+
+### Current baseline
+
+- [x] Combined mode runs as one application and one IRC engine on a single BEAM node.
+- [x] Connection intent is durable through `server_connections.desired_state` with `connected` and `paused` values.
+- [x] Connect and disconnect persist intent before starting or stopping a session.
+- [x] Session startup reloads the authoritative connection and refuses paused connections.
+- [x] A Phoenix release Dockerfile builds the combined release from the repository root.
+- [x] Production Docker Compose provides one combined application service and one persistent PostgreSQL service.
+- [x] `ircxd` is fetched from `HashNuke/ircxd` and pinned by `mix.lock` until it is published on Hex.
+- [ ] All web-to-IRC calls pass through `Ircpipe.EngineClient`.
+- [ ] The repository is an umbrella containing core, engine, and web OTP applications.
+- [ ] The three release artifacts build independently.
+- [ ] Split web and engine nodes communicate successfully in an integration environment.
+- [ ] First-party bare-host deployment and rollback automation is complete.
+
+### Workstream summary
+
+| Workstream | Size | Risk | Primary difficulty |
+| --- | --- | --- | --- |
+| 0. Baseline and dependency inventory | M | Medium | Finding hidden runtime coupling before moves begin |
+| 1. Engine contract inside the monolith | XL | High | Replacing every direct process call without changing behavior |
+| 2. Umbrella and ownership split | XL | High | Eliminating circular compile-time and runtime dependencies |
+| 3. Release and container packaging | L | High | Producing three minimal, correctly configured artifacts |
+| 4. Distributed runtime | XL | Critical | Singleton safety, failure handling, PubSub, and protocol compatibility |
+| 5. Hosted `Ircxd.Server` | XL | High | Isolated supervision, authentication, TLS, and server persistence |
+| 6. First-party deployment automation | L | High | Atomic deploys, migrations, systemd, health checks, and rollback |
+| 7. Verification and operational hardening | L | High | Exercising cross-node failures and N/N-1 compatibility |
+
+The critical path is workstreams 0 through 4, followed by 6 and 7. Workstream 5 can begin after the engine application boundary is stable and does not block the first split deployment.
 
 ## Summary
 
-Ircpipe will support two deployment modes from one codebase:
+Ircpipe will support two runtime modes from one codebase:
 
-1. **Combined mode** runs the web application and IRC engine in one BEAM release. This remains the default for local development, Railway, Docker Compose, and simple personal deployments.
+1. **Combined mode** runs the web application and IRC engine on one BEAM node and in one production release. This remains the default for local development, Railway, Docker Compose, and simple personal deployments.
 2. **Split mode** runs a small, long-lived IRC engine release separately from the frequently deployed web release. The two releases share PostgreSQL and communicate over Distributed Erlang.
 
 Both modes must use the same engine client API and the same message-ingestion path. Combined mode is not a second implementation: the engine client resolves to a local engine in combined mode and a clustered engine in split mode.
@@ -149,7 +192,7 @@ Define three releases:
 
 | Release | Applications | Intended use |
 | --- | --- | --- |
-| `ircpipe` | core + engine + web | Default Docker, Railway, development, simple self-hosting |
+| `ircpipe` | core + engine + web | Default Docker, Railway, and simple self-hosting; development uses the same combined supervision tree under Mix |
 | `ircpipe_web` | core + web | Frequently deployed web tier in split mode |
 | `ircpipe_engine` | core + engine | Small long-lived engine in split mode |
 
@@ -388,25 +431,44 @@ Requirements:
 - No Erlang node name, cookie, clustering hostname, or second health check is required.
 - The README presents combined mode first and describes split mode as an advanced production option.
 
-Railway and similar platforms can continue replacing the single combined service normally. Such a replacement reconnects IRC sessions, which is an accepted tradeoff for the simple deployment mode.
+Railway and similar platforms can continue replacing the single combined service normally. The platform runs `/app/bin/migrate` as a pre-deploy command and `/app/bin/server` as the application command. Such a replacement reconnects IRC sessions, which is an accepted tradeoff for the simple deployment mode.
 
-### Split production experience
+### Self-hosted VPS Compose experience
 
-Provide a separate advanced deployment example, such as `docker-compose.split.yml`, with:
+`docker-compose.prod.yml` is the supported self-hosted VPS package. It contains:
 
-- One PostgreSQL service
-- One `ircpipe_engine` service
-- One `ircpipe_web` service
-- A private network between web and engine
-- Stable long node names
-- A shared, deployment-specific Erlang cookie
-- Static engine-node configuration for the web release
-- Migrations run once by a one-shot task before the web release starts
-- No automatic migration command on the engine
-- Public HTTP port exposed only by the web service
-- Hosted IRC ports exposed only by the engine service when enabled
+- One combined `ircpipe` application service.
+- One PostgreSQL service that is not exposed publicly.
+- Persistent PostgreSQL storage chosen explicitly by the operator.
+- A database health check before the application starts.
+- A migration command before the combined application starts.
+- Exactly one application replica.
+- An application port intended to sit behind an operator-managed HTTPS reverse proxy.
 
-The web node should attempt a static connection to the configured engine node. DNS-based automatic clustering and horizontal engine discovery are outside the first implementation.
+Self-hosters do not need Erlang distribution, node names, an Erlang cookie, or the operational complexity of split mode.
+
+### First-party split production experience
+
+The topics.club production deployment uses bare OTP releases built from source on the destination host. It does not use Compose to manage the web and engine processes.
+
+- One shared PostgreSQL database is managed separately from the application releases.
+- The destination fetches and checks out an exact Git commit rather than deploying an unrecorded moving branch state.
+- Production dependencies and assets are built on the destination host with pinned Erlang, Elixir, Node.js, and npm versions.
+- `ircpipe_web` and `ircpipe_engine` are assembled into separate versioned directories.
+- Stable `current` symlinks select the active web and engine release directories.
+- Separate systemd units run web and engine under a dedicated unprivileged account.
+- The new web release runs migrations once before its symlink is activated.
+- Ordinary web deployments restart only `ircpipe_web`; the engine and its IRC sessions remain running.
+- Engine deployments are explicit maintenance operations and reconnect IRC sessions.
+- Rollback repoints the affected symlink to a compatible previous release and restarts that service.
+
+The two releases use stable long node names, a shared high-entropy Erlang cookie, static engine-node configuration, fixed distribution ports, and a private network path. Public HTTP is served only by the web release. Hosted IRC ports are served only by the engine release when enabled.
+
+### Optional split Compose harness
+
+An additional `docker-compose.split.yml` may be added as a development and CI integration harness. It is not the primary first-party deployment mechanism. If provided, it has one PostgreSQL service, one engine service, one web service, a one-shot migrator, private distribution networking, and no migration command on the engine.
+
+The web node attempts a static connection to the configured engine node. DNS-based automatic clustering and horizontal engine discovery are outside the first implementation.
 
 Distribution ports and EPMD must not be exposed publicly. A shared Erlang cookie grants powerful access to the cluster; use a high-entropy secret, private networking, and TLS distribution when the nodes communicate across an untrusted network.
 
@@ -424,148 +486,564 @@ The engine uses its own `RELEASE_NODE` and the same cookie. Secrets should be in
 
 Compile-time and runtime configuration must not make the combined release depend on split-mode variables.
 
-## Implementation phases
+## Implementation checklist
 
-### Phase 1: Introduce the engine boundary without changing deployment
+Complete workstreams in order unless a task explicitly says it can proceed independently. A workstream is complete only when all of its exit-gate items are checked.
 
-- Add versioned internal request, reply, and event contracts.
-- Add `Ircpipe.EngineClient` and a local engine API/marker.
-- Refactor every web call to `Session`, `SessionSupervisor`, and `SessionLocator` through `EngineClient`.
-- Refactor connection deletion and server-directory lookup through the same interface.
-- Move the existing desired-state connect/disconnect operation behind the engine boundary while preserving its write-before-process-action ordering.
-- Change engine-originated PubSub messages from browser-specific payloads to stable internal events; serialize them for the browser in `ircpipe_web`.
-- Keep the existing single application and run all tests in combined mode.
+### Workstream 0: Baseline and dependency inventory
 
-Exit criteria:
+Size: **M**. Risk: **Medium**. This prevents hidden coupling from being discovered only after the umbrella move.
 
-- No module under `IrcpipeWeb` calls an IRC registry, session, locator, or supervisor directly.
-- Combined mode behavior and browser protocol remain unchanged.
-- Ordinary messages still commit before being pushed and do not pass through Oban.
-- Paused connections remain paused across combined-app and engine restarts.
+#### Runtime and code inventory
 
-### Phase 2: Establish application ownership
+- [ ] List every `IrcpipeWeb` call to `Session`, `SessionLocator`, `SessionSupervisor`, registries, and IRC process names.
+- [ ] List every non-web context or worker that assumes an IRC process is local.
+- [ ] Trace connect, disconnect, join, part, send, command, channel-list, and deletion flows from public entry point to session process.
+- [ ] Trace inbound message, presence, membership, command-result, and connection-status flows from IRC event through commit and PubSub.
+- [ ] Inventory every PubSub topic and payload currently consumed by `IrcpipeWeb.UserChannel`.
+- [ ] Inventory every Oban queue, plugin, cron entry, and worker, and assign each one to core, web, or engine.
+- [ ] Inventory all schemas and context modules and record their intended owning application.
+- [ ] Inventory compile-time and runtime configuration and classify it as shared, web-only, engine-only, or combined-only.
+- [ ] Inventory production secrets and identify which release genuinely requires each secret.
+- [ ] Inventory supervision children, restart strategies, registries, and globally or locally registered names.
+- [ ] Record the current browser REST and Channel payloads that must remain compatible.
+- [ ] Record the current release, migration, Docker, Compose, and service startup behavior.
 
-- Create `ircpipe_core`, `ircpipe_engine`, and `ircpipe_web` OTP applications.
-- Move schemas, Repo, Vault, migrations, PubSub, and cluster contracts into core.
-- Move IRC processes, stable ingestion, discovery connections, and engine-owned workers into engine.
-- Move Phoenix and browser-facing code into web.
-- Resolve compile-time dependencies until both engine and web can compile without depending on each other.
-- Keep module renames minimal where retaining the existing `Ircpipe` namespace avoids needless churn.
+#### Baseline verification
 
-Exit criteria:
+- [x] Run the current `mix precommit` suite successfully before structural changes.
+- [x] Build the current combined Docker image from the repository root.
+- [x] Validate the current production Compose configuration.
+- [ ] Add or preserve fixtures that exercise every engine operation before routing changes begin.
+- [ ] Add regression coverage for commit-before-broadcast behavior where it is not already explicit.
+- [ ] Add regression coverage for paused connections surviving bootstrap and process restarts.
+- [ ] Decide and document the supported engine protocol compatibility window; initial target is web N with engine N-1.
 
-- The web application compiles without `ircxd` or engine implementation modules.
-- The engine application compiles without Phoenix Endpoint, controllers, HTML, or frontend assets.
-- The combined release starts core infrastructure only once.
+#### Exit gate
 
-### Phase 3: Produce the three releases
+- [ ] Every direct web-to-IRC dependency has an owner and a planned replacement operation.
+- [ ] Every background job has exactly one intended execution role.
+- [ ] Every current public browser payload has a regression test or deterministic fixture.
+- [ ] The combined baseline is green before workstream 1 begins.
 
-- Define `ircpipe`, `ircpipe_web`, and `ircpipe_engine` releases.
-- Preserve existing release migration commands for the combined and web/migrator artifacts.
-- Add release-specific Oban queue configuration.
-- Update the Dockerfile to build the combined release by default and accept an explicit release target for advanced builds.
-- Keep the existing Compose file on the combined release.
+### Workstream 1: Introduce the engine boundary inside the monolith
 
-Exit criteria:
+Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor and must land before moving files into separate applications.
 
-- Existing `docker compose` instructions remain valid.
-- The combined image requires no cluster configuration.
-- The web-only artifact does not contain `ircxd` or start IRC listeners.
-- The engine artifact does not contain frontend assets or start an HTTP endpoint unless a narrowly scoped operational endpoint is explicitly added later.
+#### Versioned request and reply contracts
 
-### Phase 4: Enable clustered split mode
+- [ ] Define the version 1 request envelope using plain maps and scalar IDs.
+- [ ] Define stable reply envelopes for successful operations.
+- [ ] Define stable error atoms for unavailable, timeout, unauthorized, not-connected, invalid-state, unsupported-version, and unsupported-operation failures.
+- [ ] Validate required request fields before dispatch.
+- [ ] Reject unknown versions and operations without crashing the engine API.
+- [ ] Prevent Ecto structs, changesets, PIDs, functions, exceptions, and `ircxd` structs from becoming public contract values.
+- [ ] Generate or validate request IDs for logging and correlation.
+- [ ] Define per-operation timeout expectations.
+- [ ] Define which operations are safe to retry and which require idempotency protection.
+- [ ] Add contract tests for valid and invalid requests, replies, and errors.
 
-- Add static web-to-engine node connection on split-mode boot.
-- Replace `SingleNodeGuard` with the engine singleton marker/guard.
-- Verify Phoenix PubSub propagation between the two nodes.
-- Implement stable node-down, timeout, and unsupported-version error handling.
-- Add the advanced split Compose/deployment example.
+#### Engine API and client
 
-Exit criteria:
+- [ ] Add the engine API module that accepts versioned requests and reloads authoritative database records.
+- [ ] Reauthorize every operation using `user_id` and `connection_id` inside the engine API.
+- [ ] Add an engine marker process without serializing all operations through that process.
+- [ ] Add `Ircpipe.EngineClient` as the only application-facing IRC operations interface.
+- [ ] Add the combined-mode local adapter.
+- [ ] Configure the adapter without requiring split-mode environment variables in combined mode.
+- [ ] Normalize exits, missing processes, and session failures into stable client errors.
+- [ ] Add telemetry around operation name, duration, result, timeout, and request ID.
+- [ ] Add local adapter tests that exercise the same request envelopes intended for split mode.
 
-- Restarting the web release leaves the engine PID and IRC session PIDs alive.
-- After web restart, the browser reloads persisted messages and receives new realtime messages.
-- Starting a second engine fails safely before opening duplicate IRC connections.
+#### Route all operations through `EngineClient`
 
-### Phase 5: Enable the hosted `Ircxd.Server`
+- [ ] Route batch live-status lookup through the client.
+- [ ] Route ensure/start connection through the client.
+- [ ] Route disconnect/stop connection through the client.
+- [ ] Route connection deletion quiescence through the client.
+- [ ] Route channel join and topic join through the client.
+- [ ] Route channel part through the client.
+- [ ] Route channel messages and actions through the client.
+- [ ] Route direct messages through the client.
+- [ ] Route validated command intents through the client.
+- [ ] Route live server channel-list requests through the client.
+- [ ] Route discovery connections that require a live session through the engine API.
+- [ ] Remove session locator and registry lookups from REST payload formatting.
+- [ ] Remove session locator and registry lookups from Channel payload formatting.
+- [ ] Refactor deletion and reconciliation workers so they do not assume a local session registry outside the engine role.
+- [ ] Refactor any remaining context functions that combine database writes with direct local process actions.
 
-- Add it under the isolated hosted-server supervisor branch.
-- Implement the production Ecto-backed server adapter.
-- Keep hosted-server domain tables distinct from per-user outbound server connections.
-- Add IRC-specific account credentials or revocable app passwords for OAuth-only users.
-- Configure listener address, TLS, limits, and exposed ports per deployment mode.
+#### Preserve durable connection intent
 
-The hosted server can be enabled after the application split; it does not block extracting outbound sessions first.
+- [x] Store `desired_state` as constrained durable data.
+- [x] Persist `paused` before stopping a connection.
+- [x] Persist `connected` before starting a connection.
+- [x] Re-read the authoritative connection during session startup and reject paused connections.
+- [ ] Move desired-state mutation and the corresponding process action behind one engine client operation.
+- [ ] Ensure join/topic operations deliberately set desired state to connected before requiring a session.
+- [ ] Define retry behavior when intent persists successfully but the process action fails.
+- [ ] Restore recent desired-connected sessions and persisted autojoins after engine startup.
+- [ ] Prove that passive browser bootstrap never changes paused intent.
 
-### Phase 6: Documentation and operational hardening
+#### Stable internal event contract
 
-- Update README with combined mode first and split mode second.
-- Document engine upgrades as ordinary stop/start deployments that reconnect IRC sessions; do not introduce `relup`.
-- Add engine and web health/telemetry signals.
-- Document backup, migration, cookie rotation, and rollback procedures.
-- Run `mix precommit` and fix all issues after implementation changes are complete.
+- [ ] Define a versioned internal event envelope with event ID, type, occurred-at value, and committed IDs/data.
+- [ ] Define message-committed events.
+- [ ] Define connection-status events.
+- [ ] Define buffer joined and left events.
+- [ ] Define presence synchronized and changed events.
+- [ ] Define direct-message-thread events.
+- [ ] Define command-result events.
+- [ ] Publish only after the transaction containing the canonical data commits.
+- [ ] Keep browser-specific field names and formatting out of engine events.
+- [ ] Convert internal events to the existing REST/Channel protocol in the web layer.
+- [ ] Preserve browser payload compatibility with deterministic tests.
+- [ ] Verify browser history reconciliation recovers events missed while the web layer is unavailable.
 
-## Test and verification plan
+#### Combined-mode exit gate
 
-### Contract tests
+- [ ] No module under `IrcpipeWeb` calls an IRC session, locator, registry, or supervisor directly.
+- [ ] No web-owned worker assumes an IRC process is local.
+- [ ] Every engine operation uses the versioned request path in combined mode.
+- [ ] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
+- [ ] Ordinary messages still commit before broadcast and do not pass through Oban.
+- [ ] The browser protocol remains compatible.
+- [ ] `mix precommit` and a combined release smoke test pass.
 
-- Every engine request and event version accepts documented fields and rejects unsupported versions.
-- Requests and replies contain no Ecto structs, PIDs, functions, or engine-private structs.
-- Newer web code handles the previous supported engine protocol version.
-- Engine errors map to stable web-facing errors.
+### Workstream 2: Convert the repository into three OTP applications
 
-### Combined-mode tests
+Size: **XL**. Risk: **High**. File movement is secondary; the real work is enforcing one-way dependencies and correct supervision ownership.
 
-- Existing controller, Channel, IRC session, retention, presence, and notification tests continue to pass.
-- `EngineClient` resolves the local engine.
-- Message ingestion commits before PubSub broadcast.
-- The browser-facing payloads remain compatible.
-- Explicit disconnect persists `paused`, explicit reconnect persists `connected`, and passive bootstrap never starts a paused connection.
+#### Umbrella scaffolding
 
-### Split-mode integration tests
+- [ ] Create an umbrella root project with shared aliases and build paths.
+- [ ] Create `apps/ircpipe_core`.
+- [ ] Create `apps/ircpipe_engine`.
+- [ ] Create `apps/ircpipe_web`.
+- [ ] Preserve the existing `Ircpipe` and `IrcpipeWeb` module namespaces where renaming adds no value.
+- [ ] Move frontend assets and Storybook under the web application while preserving existing npm commands.
+- [ ] Update formatter inputs for the umbrella and all child applications.
+- [ ] Update test support paths and shared fixtures without introducing cross-application test coupling.
+- [ ] Update `mix setup`, asset, test, and `mix precommit` aliases at the umbrella root.
 
-- Start distinct web and engine nodes against one test PostgreSQL database and local IRC test server.
-- Confirm status, connect, join, part, send, command execution, and channel listing cross the engine boundary.
-- Confirm engine PubSub events reach a user channel on the web node.
-- Stop the web node and assert the engine session process remains alive.
-- Deliver messages while the web node is unavailable, restart web, and verify bootstrap/history contains them.
-- Start a second engine and assert it cannot acquire engine ownership.
-- Restart the engine and confirm it restores desired-connected recent sessions and their autojoins without restoring paused sessions.
-- Disconnect the cluster and verify the web reports `engine_unavailable` without losing access to persisted history or account pages.
+#### Core ownership
 
-### Release and deployment tests
+- [ ] Move `Ircpipe.Repo` into core.
+- [ ] Move `Ircpipe.Vault` and encrypted Ecto types into core.
+- [ ] Move all shared Ecto schemas into core.
+- [ ] Move the canonical migrations directory into core and update repository migration paths.
+- [ ] Move PubSub naming and shared PubSub configuration into core.
+- [ ] Move versioned engine request, reply, and event definitions into core.
+- [ ] Move shared account identity needed to authorize engine requests into core.
+- [ ] Move database primitives needed by both roles into core without moving web or IRC policy indiscriminately.
+- [ ] Keep core free of dependencies on engine and web applications.
 
-- Build all three releases in CI.
-- Smoke-test the default combined Docker image with no cluster variables.
-- Smoke-test the advanced split Compose topology.
-- Verify migrations execute once and the engine does not attempt to migrate.
-- Verify only intended Oban queues execute in each release.
-- Verify an N web release can communicate with the supported N-1 engine release.
+#### Engine ownership
 
-## Initial production rollout
+- [ ] Move outbound session supervision, registries, session modules, and protocol handlers into engine.
+- [ ] Move `Ircpipe.Irc.Bouncer` into engine.
+- [ ] Move `ircxd` integration and the `ircxd` dependency into engine.
+- [ ] Move connection restoration and autojoin logic into engine.
+- [ ] Move server-channel discovery connections into engine.
+- [ ] Move canonical IRC message ingestion and IRC-derived state updates into engine.
+- [ ] Move engine-owned Oban workers into engine.
+- [ ] Add the isolated hosted-server supervisor branch even if the hosted server remains disabled initially.
+- [ ] Keep engine free of Phoenix Endpoint, controllers, HTML, authentication UI, React, and browser serialization.
 
-The first transition from combined to split mode requires one planned IRC reconnect:
+#### Web ownership
 
-1. Deploy the combined release containing the completed engine boundary and compatible schema.
-2. Verify combined mode in production.
-3. Build the initial engine and web releases from that compatible version.
-4. Stop the combined application to guarantee it releases all IRC sessions.
-5. Start the standalone engine and allow it to restore recent sessions and autojoins.
-6. Start the web release and verify cluster connectivity, PubSub, status, send, and history.
-7. Thereafter, deploy the web release independently while leaving the engine running.
+- [ ] Move Endpoint, router, controllers, Channels, socket, authentication, HTML, and mailer into web.
+- [ ] Move React, CSS, service worker, and Storybook assets into web.
+- [ ] Keep browser payload serializers in web.
+- [ ] Keep bootstrap, history, read-state, settings, and notification-preference behavior in web.
+- [ ] Keep Web Push delivery and other web-owned Oban workers in web.
+- [ ] Configure the web side of `EngineClient` without a compile-time dependency on engine implementation modules.
 
-Do not overlap the old combined engine and new standalone engine during cutover.
+#### Dependency and supervision enforcement
 
-## Rollback
+- [ ] Give each child application only the Hex/Git dependencies it uses.
+- [ ] Make web compile without `ircxd` or engine implementation modules.
+- [ ] Make engine compile without Phoenix Endpoint and frontend dependencies.
+- [ ] Check compile-connected dependency graphs for accidental cycles.
+- [ ] Start Vault, Repo, and PubSub exactly once per node.
+- [ ] Start engine supervision only in combined and engine releases.
+- [ ] Start Endpoint only in combined and web releases.
+- [ ] Start release-owned Oban queues only after Repo is available.
+- [ ] Start Endpoint last in the web supervision tree.
+- [ ] Preserve configuration-change handling for Endpoint in the web application.
 
-To return from split mode to combined mode:
+#### Umbrella exit gate
 
-1. Stop the standalone engine first.
-2. Stop the web release.
-3. Start the compatible combined release against the same database.
-4. Allow the combined engine to restore sessions.
+- [ ] Each child application compiles and tests independently where practical.
+- [ ] The web application contains no `ircxd` dependency or engine implementation modules.
+- [ ] The engine application contains no Endpoint, router, controller, HEEx, or React assets.
+- [ ] The combined supervision tree starts shared infrastructure once.
+- [ ] The combined application behaves the same as before the umbrella conversion.
+- [ ] Root `mix precommit` passes.
 
-Never start combined mode while the standalone engine is active. Additive schema changes should make rollback possible without database rollback; destructive migrations require their own coordinated plan.
+### Workstream 3: Build release and container artifacts
+
+Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a release that merely boots is not sufficient.
+
+#### Release definitions
+
+- [ ] Define `ircpipe` with core, engine, and web applications.
+- [ ] Define `ircpipe_web` with core and web applications only.
+- [ ] Define `ircpipe_engine` with core and engine applications only.
+- [ ] Set `ircpipe` as the default release for simple builds.
+- [ ] Use a traceable release version derived from the application version and source revision.
+- [ ] Generate Unix release executables required by the supported deployment hosts.
+- [ ] Add release-specific runtime configuration without a generic deployment-mode switch.
+- [ ] Ensure combined release startup requires no node, cookie, or engine-node variables.
+- [ ] Add web and combined server commands that set `PHX_SERVER=true`.
+- [ ] Add migration commands only to combined and web/migrator artifacts.
+- [ ] Keep migration execution out of engine startup and engine artifacts.
+- [ ] Make release wrappers release-name aware rather than hard-coding `ircpipe`.
+- [ ] Include digested frontend assets in combined and web releases only.
+- [ ] Build all three releases from a clean checkout.
+
+#### Release-specific background work
+
+- [ ] Define the complete combined Oban queue and plugin configuration.
+- [ ] Define web-owned notification and web-maintenance queues.
+- [ ] Define engine-owned connection and session queues.
+- [ ] Assign every cron entry to exactly one release.
+- [ ] Ensure a worker that expects a local session is enabled only in engine-capable releases.
+- [ ] Verify jobs inserted by one role can be executed by the owning role through shared PostgreSQL tables.
+- [ ] Test that duplicate queue ownership does not occur in split mode.
+
+#### Dependency distribution
+
+- [x] Fetch `ircxd` from `HashNuke/ircxd` and pin the resolved commit in `mix.lock`.
+- [ ] Publish `ircxd` to Hex with a version compatible with the engine application.
+- [ ] Replace the Git dependency with a Hex version constraint after publication.
+- [ ] Verify the web-only dependency graph does not fetch or compile `ircxd`.
+
+#### Combined Docker image for Railway and similar platforms
+
+- [x] Start from the Phoenix-generated multi-stage release Dockerfile.
+- [x] Build the current combined release from the repository root.
+- [x] Fetch the GitHub `ircxd` dependency without a sibling checkout.
+- [ ] Adapt Docker copy/cache layers to the umbrella layout.
+- [ ] Build the explicit combined `ircpipe` release.
+- [ ] Keep build-only Erlang, Elixir, Node.js, npm, and compiler tools out of the final image.
+- [ ] Run the final image as an unprivileged user.
+- [ ] Add a container health endpoint and platform health-check configuration.
+- [ ] Add Railway configuration with `/app/bin/migrate` as pre-deploy and `/app/bin/server` as start command.
+- [ ] Document required environment variables and the one-replica constraint.
+- [ ] Smoke-test the image with managed/external PostgreSQL and no cluster variables.
+
+#### Self-hosted VPS Compose package
+
+- [x] Provide a production Compose file with one combined app and one PostgreSQL service.
+- [x] Persist PostgreSQL to an explicitly configured host path.
+- [x] Wait for PostgreSQL health before starting the app.
+- [x] Run combined migrations before the app starts.
+- [ ] Adapt the Compose build to the umbrella Dockerfile.
+- [ ] Bind the application safely for use behind an HTTPS reverse proxy.
+- [ ] Document database backup and restore for the configured persistent path.
+- [ ] Document upgrade, migration failure, and application rollback procedures.
+- [ ] Validate a clean VPS installation using only the repository, Docker, Compose, and documented environment file.
+
+#### Artifact exit gate
+
+- [ ] All three OTP releases build in CI.
+- [ ] The combined image has no split-mode configuration requirement.
+- [ ] The web release has no `ircxd`, engine supervision, or IRC listeners.
+- [ ] The engine release has no Endpoint or frontend assets.
+- [ ] Only combined and web/migrator artifacts can run migrations.
+- [ ] Combined Docker and Compose smoke tests pass.
+
+### Workstream 4: Enable the distributed split runtime
+
+Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-safety cases that do not exist in combined mode.
+
+#### Distribution and network configuration
+
+- [ ] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `IRCPIPE_ENGINE_NODE` names.
+- [ ] Use stable long node names resolvable on the private network.
+- [ ] Generate and store a high-entropy deployment-specific cookie.
+- [ ] Configure fixed distribution port ranges for firewalling.
+- [ ] Keep EPMD and distribution ports off public interfaces.
+- [ ] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
+- [ ] Add static web-to-engine connection attempts during web startup.
+- [ ] Add bounded reconnect/backoff behavior after node loss.
+- [ ] Decide whether production hosts need TLS distribution based on their network trust boundary.
+- [ ] Document cookie rotation as a coordinated web-and-engine restart.
+
+#### Engine singleton and discovery
+
+- [ ] Implement the lightweight globally registered engine marker.
+- [ ] Return the owning engine node without routing all work through the marker process.
+- [ ] Replace `Ircpipe.Irc.SingleNodeGuard` with an engine-only singleton guard.
+- [ ] Permit any number of non-engine web nodes to join without stopping engine supervision.
+- [ ] Refuse engine startup before opening sessions when another marker exists.
+- [ ] Handle stale marker cleanup after an ordinary node shutdown.
+- [ ] Log and expose marker acquisition and ownership status.
+- [ ] Document that this guard is not network-partition-safe fencing.
+
+#### Remote engine calls
+
+- [ ] Add the split-mode `EngineClient` adapter.
+- [ ] Resolve the engine node through the marker and static configuration.
+- [ ] Invoke only the stable engine API entry point remotely.
+- [ ] Apply per-operation timeouts and normalize timeout exits.
+- [ ] Normalize node-down and engine-not-started failures to `:engine_unavailable`.
+- [ ] Reject unsupported request versions and operations explicitly.
+- [ ] Add protocol capability/version reporting for diagnostics.
+- [ ] Correlate remote logs using request IDs.
+- [ ] Ensure remote retries cannot duplicate non-idempotent sends.
+- [ ] Verify the engine reloads ownership and authorization data from PostgreSQL for every mutation.
+
+#### Cross-node PubSub
+
+- [ ] Start identically named PubSub instances on web and engine.
+- [ ] Verify engine broadcasts reach the web node through Distributed Erlang.
+- [ ] Verify combined mode still uses the same publish calls locally.
+- [ ] Verify web restart and resubscription do not require engine restart.
+- [ ] Verify missed events are recovered through browser bootstrap/history rather than a new raw-event journal.
+- [ ] Document the compatible rolling procedure required before any future PubSub pool-size change.
+
+#### Degraded behavior and observability
+
+- [ ] Keep login, account, settings, and persisted history available while the engine is down.
+- [ ] Return a clear degraded error for IRC mutations while the engine is unavailable.
+- [ ] Keep pending browser sends recoverable or retryable according to operation semantics.
+- [ ] Expose web-to-engine connection state in health and telemetry.
+- [ ] Expose engine marker ownership, active sessions, reconnects, and ingestion failures.
+- [ ] Add alerts for engine loss, duplicate-engine attempts, and sustained RPC timeouts.
+- [ ] Ensure web startup is not permanently blocked by temporary engine unavailability.
+
+#### Split integration harness and tests
+
+- [ ] Start distinct web and engine nodes against one test PostgreSQL database and local IRC server.
+- [ ] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
+- [ ] Confirm engine PubSub events reach a user channel on the web node.
+- [ ] Stop web and prove the engine session PID remains alive.
+- [ ] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
+- [ ] Stop engine and verify persisted web features remain available with degraded mutation errors.
+- [ ] Restart engine and restore only desired-connected recent sessions and their autojoins.
+- [ ] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
+- [ ] Simulate a request timeout and prove errors are normalized without crashing callers.
+- [ ] Verify web N operates with the supported engine N-1 protocol.
+- [ ] Add an optional split Compose harness if it materially simplifies CI and local integration testing.
+
+#### Distributed-runtime exit gate
+
+- [ ] Restarting web leaves the engine marker, hosted server, and outbound session PIDs alive.
+- [ ] Starting a second engine fails safely before session startup.
+- [ ] Cross-node calls and events pass the integration suite.
+- [ ] Engine loss produces a visible degraded state without taking down persisted web features.
+- [ ] Combined mode remains green and requires no distribution settings.
+
+### Workstream 5: Enable the hosted `Ircxd.Server`
+
+Size: **XL**. Risk: **High**. This can proceed after the engine application boundary is stable and is not required for the first outbound-client split deployment.
+
+#### Domain and adapter work
+
+- [ ] Define hosted-server domain tables separately from per-user outbound server connections.
+- [ ] Generate additive migrations for hosted server accounts, credentials, channels, membership, and policy state.
+- [ ] Implement the Ecto-backed `Ircxd.Server` application adapter.
+- [ ] Keep `ircxd` protocol structs behind the engine boundary.
+- [ ] Define durable identities for users who authenticate to the hosted IRC server.
+- [ ] Add revocable IRC-specific passwords or tokens for OAuth-only users.
+- [ ] Encrypt hosted IRC credentials at rest.
+- [ ] Add audit data for credential creation, revocation, and authentication failures.
+
+#### Supervision and isolation
+
+- [ ] Start the hosted server under `HostedIrcServerSupervisor` in the engine application.
+- [ ] Keep the hosted server outside the outbound session system's `:one_for_all` boundary.
+- [ ] Prove a hosted-server crash does not restart outbound sessions.
+- [ ] Prove an outbound registry or supervisor failure does not terminate hosted clients.
+- [ ] Define restart intensity and failure escalation for the hosted server.
+
+#### Network and abuse controls
+
+- [ ] Configure listener addresses and ports per deployment mode.
+- [ ] Configure TLS certificates, protocol versions, and renewal/reload behavior.
+- [ ] Expose hosted IRC ports only from engine-capable deployments.
+- [ ] Add connection, registration, authentication, message-rate, and resource limits.
+- [ ] Add operational logging and metrics without logging credentials or private message bodies unnecessarily.
+- [ ] Document firewall, DNS, TLS, and reverse-DNS requirements.
+
+#### Hosted-server exit gate
+
+- [ ] Hosted IRC clients remain connected across web-only deployments.
+- [ ] Hosted-server failures remain isolated from outbound sessions.
+- [ ] Authentication, authorization, TLS, limits, and persistence have integration coverage.
+- [ ] Combined and split deployment documentation covers the correct exposed ports.
+
+### Workstream 6: Build first-party bare-host deployment automation
+
+Size: **L**. Risk: **High**. The web/engine split has little operational value until ordinary web deployment is repeatable and cannot accidentally restart the engine.
+
+#### Host and directory preparation
+
+- [ ] Pin Erlang, Elixir, Node.js, and npm versions used on production build hosts.
+- [ ] Provision a dedicated unprivileged runtime user and a controlled deployment user.
+- [ ] Create source, build, release, current-symlink, and shared-data directories with documented ownership.
+- [ ] Store runtime environment files outside the source checkout with restrictive permissions.
+- [ ] Provision the shared PostgreSQL database and backup policy separately from application releases.
+- [ ] Restrict EPMD and distribution ports to the private host/network path.
+
+#### Repeatable build commands
+
+- [ ] Fetch the repository without mutating the currently running release.
+- [ ] Resolve and check out an exact requested commit.
+- [ ] Refuse deployment from a dirty or unexpected source state.
+- [ ] Acquire a deployment lock so two builds cannot race.
+- [ ] Fetch only production Mix dependencies and verify `mix.lock`.
+- [ ] Install frontend dependencies with `npm ci` for web-capable releases.
+- [ ] Build digested frontend assets for combined and web releases.
+- [ ] Assemble `ircpipe_web` into a new versioned directory.
+- [ ] Assemble `ircpipe_engine` into a new versioned directory only during an explicit engine deployment.
+- [ ] Record commit, release version, toolchain versions, and build timestamp with each artifact.
+- [ ] Keep a bounded number of prior release directories for rollback.
+
+#### systemd services and runtime configuration
+
+- [ ] Add an `ircpipe-web.service` unit using the stable web symlink.
+- [ ] Add an `ircpipe-engine.service` unit using the stable engine symlink.
+- [ ] Configure graceful SIGTERM shutdown and realistic start/stop timeouts.
+- [ ] Configure automatic restart policy without causing a rapid crash loop.
+- [ ] Configure stable `RELEASE_NODE` values for both services.
+- [ ] Configure the shared cookie and static engine node without exposing them in the repository.
+- [ ] Configure fixed distribution ports.
+- [ ] Ensure only the web service sets `PHX_SERVER=true`.
+- [ ] Ensure only the engine service receives engine-only IRC listener and credential secrets.
+- [ ] Send logs to journald and preserve request/session correlation metadata.
+
+#### Web deployment flow
+
+- [ ] Build and smoke-check the new web release before activation.
+- [ ] Run migrations from the new web release exactly once.
+- [ ] Abort before activation if migration fails.
+- [ ] Atomically repoint the web `current` symlink.
+- [ ] Restart only `ircpipe-web.service`.
+- [ ] Wait for web health and web-to-engine connectivity.
+- [ ] Automatically repoint and restart the prior web release if the new health check fails and rollback is schema-compatible.
+- [ ] Prove the engine PID and active session PIDs do not change during web deployment.
+
+#### Engine deployment flow
+
+- [ ] Require an explicit engine-deploy command or flag.
+- [ ] Confirm the target schema is compatible before engine shutdown.
+- [ ] Build and smoke-check the new engine release before activation.
+- [ ] Gracefully stop the old engine, accepting one IRC reconnect window.
+- [ ] Atomically repoint the engine `current` symlink.
+- [ ] Start the new engine and verify marker ownership.
+- [ ] Verify desired-connected session restoration and autojoins.
+- [ ] Roll back to the prior compatible engine release if startup or restoration checks fail.
+
+#### Deployment exit gate
+
+- [ ] A web-only deployment is one repeatable command and leaves engine processes running.
+- [ ] An engine deployment is explicit and cannot occur as a side effect of web deployment.
+- [ ] Migration failure leaves the previous web release selected and running.
+- [ ] Health failure triggers or clearly instructs a compatible rollback.
+- [ ] Secrets, source checkout, build output, and runtime processes have appropriate ownership and permissions.
+- [ ] The runbook has been exercised on a production-like host.
+
+### Workstream 7: Verification, compatibility, and operational hardening
+
+Size: **L**. Risk: **High**. These checks turn a working demo into a supportable production architecture.
+
+#### CI and artifact verification
+
+- [ ] Run root formatting, compilation with warnings as errors, frontend type checks, frontend tests, Storybook build, and Elixir tests.
+- [ ] Build all three releases from a clean CI checkout.
+- [ ] Inspect release contents to enforce the expected application and asset boundaries.
+- [ ] Build and smoke-test the default combined Docker image with no cluster variables.
+- [ ] Validate and smoke-test the production Compose package.
+- [ ] Run the split-node integration harness in CI.
+- [ ] Verify migrations run once and never from engine startup.
+- [ ] Verify only the intended Oban queues, plugins, and cron entries run in each release.
+
+#### Compatibility and failure testing
+
+- [ ] Verify every request/event version accepts documented fields and rejects unsupported versions.
+- [ ] Verify contracts contain no Ecto structs, PIDs, functions, exceptions, or engine-private structs.
+- [ ] Verify web N with engine N-1 for every supported operation and event.
+- [ ] Verify additive migrations work while the older engine remains online.
+- [ ] Verify a web rollback after additive migrations.
+- [ ] Verify an engine rollback while the schema remains compatible.
+- [ ] Inject web crashes, engine crashes, node disconnects, RPC timeouts, PostgreSQL outages, and IRC outages.
+- [ ] Verify no failure path starts a second active engine.
+- [ ] Verify browser history reconciliation after missed PubSub events.
+- [ ] Verify retention, unread counts, mentions, notifications, presence, and direct messages across the split boundary.
+
+#### Security and operational documentation
+
+- [ ] Threat-model Erlang cookie compromise and distribution-port exposure.
+- [ ] Verify private firewall rules from production-like hosts.
+- [ ] Verify release users cannot read secrets belonging only to the other role unless required.
+- [ ] Document PostgreSQL backup, restore, and recovery testing.
+- [ ] Document expand-and-contract migrations and destructive-change coordination.
+- [ ] Document web deployment, engine deployment, rollback, and combined-mode recovery.
+- [ ] Document cookie rotation and node-name changes.
+- [ ] Document health signals, dashboards, logs, and alerts.
+- [ ] Update README with combined Docker and Compose first, and split deployment as an advanced operator workflow.
+- [ ] Run `mix precommit` after all implementation and documentation changes.
+
+#### Final exit gate
+
+- [ ] Combined Docker/Compose remains the simple supported default.
+- [ ] First-party web deploys do not reconnect IRC clients.
+- [ ] Engine restarts restore desired-connected sessions and never restore paused sessions.
+- [ ] Split failure modes are visible, bounded, and documented.
+- [ ] Rollback procedures have been rehearsed against a production-like database copy.
+- [ ] The initial production rollout is approved with an explicit maintenance window.
+
+## Initial production rollout checklist
+
+The first transition from combined to split mode requires one planned IRC reconnect. Do not overlap the combined engine and standalone engine.
+
+- [ ] Confirm all workstream 0 through 4, 6, and 7 exit gates are complete.
+- [ ] Confirm a fresh PostgreSQL backup and tested restore path.
+- [ ] Confirm the selected combined, web, and engine artifacts come from the same compatible source version.
+- [ ] Deploy the combined release containing the engine boundary and additive schema.
+- [ ] Verify combined production behavior before cutover.
+- [ ] Build the initial standalone engine and web releases on their destination host or hosts.
+- [ ] Run required additive migrations from the new web release.
+- [ ] Stop the combined application and confirm all old engine/session processes are gone.
+- [ ] Start the standalone engine and confirm marker ownership.
+- [ ] Verify desired-connected session restoration, autojoins, ingestion, and hosted-server listeners if enabled.
+- [ ] Start the standalone web release and confirm engine connectivity.
+- [ ] Verify login, bootstrap, history, status, send, receive, PubSub, notifications, and degraded-state reporting.
+- [ ] Restart web once and prove engine and session PIDs survive.
+- [ ] Record the cutover result, versions, and rollback point.
+
+## Rollback checklists
+
+### Split web release rollback
+
+- [ ] Confirm the prior web release is compatible with the current additive schema.
+- [ ] Repoint the web symlink to the prior release.
+- [ ] Restart only the web service.
+- [ ] Verify health, engine connectivity, bootstrap, history, and send/receive.
+- [ ] Leave the engine running throughout the rollback.
+
+### Split engine release rollback
+
+- [ ] Confirm the prior engine release is compatible with the current schema and web protocol.
+- [ ] Stop the current engine cleanly.
+- [ ] Repoint the engine symlink to the prior release.
+- [ ] Start the prior engine and verify marker ownership.
+- [ ] Verify desired-connected restoration and autojoins.
+- [ ] Verify web-to-engine operations and events.
+
+### Emergency return to combined mode
+
+- [ ] Confirm the selected combined release is compatible with the current schema.
+- [ ] Stop the standalone engine first and confirm marker/session shutdown.
+- [ ] Stop the standalone web release.
+- [ ] Start the compatible combined release against the same database.
+- [ ] Verify combined engine ownership and desired-connected restoration.
+- [ ] Verify browser bootstrap, history, send, receive, and notifications.
+
+Never start combined mode while the standalone engine is active. Additive schema changes should make application rollback possible without database rollback; destructive migrations require a separate coordinated plan.
 
 ## Deferred work
 
