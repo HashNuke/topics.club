@@ -283,7 +283,9 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert message_id == message.id
 
     scope = AccountsFixtures.user_scope_fixture(user)
-    assert {:ok, closed} = DirectMessageLifecycle.close(scope, thread.id)
+
+    assert {:ok, closed} =
+             DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
 
     closed_payload = conn |> recycle() |> get(~p"/api/bootstrap") |> json_response(200)
     refute Enum.any?(closed_payload["buffers"], &(&1["buffer_id"] == buffer_id))

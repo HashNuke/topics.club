@@ -68,12 +68,19 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:error, :connection_deleting} =
              DirectMessageLifecycle.open(user, connection, "other")
 
-    assert {:error, :connection_deleting} = DirectMessageLifecycle.close(scope, thread.id)
+    assert {:error, :connection_deleting} =
+             DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
 
     assert {:error, :connection_deleting} =
-             DirectMessageLifecycle.set_blocked(scope, thread.id, true)
+             DirectMessageLifecycle.set_blocked(
+               scope,
+               thread.id,
+               true,
+               thread.mutation_revision
+             )
 
-    assert {:error, :connection_deleting} = DirectMessageLifecycle.mark_read(scope, thread.id)
+    assert {:error, :connection_deleting} =
+             DirectMessageLifecycle.mark_read(scope, thread.id, thread.mutation_revision)
 
     stored = DirectMessageLifecycle.get!(user, thread.id)
     assert stored.closed_at == nil
@@ -95,9 +102,20 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              Repo.transaction(fn ->
                mutations = [
                  fn -> DirectMessageLifecycle.open(user, connection, "other") end,
-                 fn -> DirectMessageLifecycle.close(scope, thread.id) end,
-                 fn -> DirectMessageLifecycle.set_blocked(scope, thread.id, true) end,
-                 fn -> DirectMessageLifecycle.mark_read(scope, thread.id) end
+                 fn ->
+                   DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
+                 end,
+                 fn ->
+                   DirectMessageLifecycle.set_blocked(
+                     scope,
+                     thread.id,
+                     true,
+                     thread.mutation_revision
+                   )
+                 end,
+                 fn ->
+                   DirectMessageLifecycle.mark_read(scope, thread.id, thread.mutation_revision)
+                 end
                ]
 
                Enum.each(mutations, fn mutation ->
@@ -143,7 +161,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     read =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        DirectMessageLifecycle.mark_read(scope, thread.id)
+        DirectMessageLifecycle.mark_read(scope, thread.id, thread.mutation_revision)
       end)
 
     Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), read.pid)
@@ -200,7 +218,9 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   } do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
-    assert {:ok, _thread} = DirectMessageLifecycle.close(scope, thread.id)
+
+    assert {:ok, _thread} =
+             DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
 
     assert {:ok, %{thread: reopened, message: message, notify?: true}} =
              DirectMessageIngestion.record(
@@ -223,7 +243,9 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     notification = Repo.get_by!(Notification, message_id: message.id)
     assert notification.direct_message_thread_id == thread.id
 
-    assert {:ok, read} = DirectMessageLifecycle.mark_read(scope, thread.id)
+    assert {:ok, read} =
+             DirectMessageLifecycle.mark_read(scope, thread.id, reopened.mutation_revision)
+
     assert read.unread_count == 0
   end
 
@@ -252,7 +274,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     close =
       Task.Supervisor.async_nolink(supervisor, fn ->
         receive do
-          :close_thread -> DirectMessageLifecycle.close(scope, thread.id)
+          :close_thread ->
+            DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
         end
       end)
 
@@ -320,7 +343,13 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     block =
       Task.Supervisor.async_nolink(supervisor, fn ->
         receive do
-          :block_thread -> DirectMessageLifecycle.set_blocked(scope, thread.id, true)
+          :block_thread ->
+            DirectMessageLifecycle.set_blocked(
+              scope,
+              thread.id,
+              true,
+              thread.mutation_revision
+            )
         end
       end)
 
@@ -332,7 +361,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     read =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        DirectMessageLifecycle.mark_read(scope, thread.id)
+        DirectMessageLifecycle.mark_read(scope, thread.id, 2)
       end)
 
     Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), read.pid)
@@ -361,9 +390,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     connection: connection
   } do
     assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
-    assert {:ok, closed} = DirectMessageLifecycle.close(scope, thread.id)
 
-    assert {:error, :direct_message_closed} = DirectMessageLifecycle.mark_read(scope, thread.id)
+    assert {:ok, closed} =
+             DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
+
+    assert {:error, :direct_message_closed} =
+             DirectMessageLifecycle.mark_read(scope, thread.id, closed.mutation_revision)
 
     stored = DirectMessageLifecycle.get!(user, thread.id)
     assert stored.closed_at
@@ -392,7 +424,15 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              )
 
     flush_mailbox()
-    assert {:ok, blocked} = DirectMessageLifecycle.set_blocked(scope, thread.id, true)
+
+    assert {:ok, blocked} =
+             DirectMessageLifecycle.set_blocked(
+               scope,
+               thread.id,
+               true,
+               thread.mutation_revision
+             )
+
     assert blocked.blocked_at
 
     assert DirectMessageBlockIdentity
@@ -401,7 +441,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
            |> Repo.all()
            |> Enum.sort() == ["account:akash-account", "hostmask:user@example.test"]
 
-    assert {:ok, _closed} = DirectMessageLifecycle.close(scope, thread.id)
+    assert {:ok, closed} =
+             DirectMessageLifecycle.close(scope, thread.id, blocked.mutation_revision)
 
     message_count = Repo.aggregate(Message, :count)
 
@@ -424,7 +465,15 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert renamed.closed_at
     assert renamed.unread_count == 0
     assert Repo.aggregate(Message, :count) == message_count
-    assert {:ok, unblocked} = DirectMessageLifecycle.set_blocked(scope, thread.id, false)
+
+    assert {:ok, unblocked} =
+             DirectMessageLifecycle.set_blocked(
+               scope,
+               thread.id,
+               false,
+               closed.mutation_revision
+             )
+
     refute unblocked.blocked_at
   end
 
@@ -444,8 +493,18 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              )
 
     assert thread.identity_key == "hostmask:same-user@example.test"
-    assert {:ok, _blocked} = DirectMessageLifecycle.set_blocked(scope, thread.id, true)
-    assert {:ok, _closed} = DirectMessageLifecycle.close(scope, thread.id)
+
+    assert {:ok, blocked} =
+             DirectMessageLifecycle.set_blocked(
+               scope,
+               thread.id,
+               true,
+               thread.mutation_revision
+             )
+
+    assert {:ok, _closed} =
+             DirectMessageLifecycle.close(scope, thread.id, blocked.mutation_revision)
+
     message_count = Repo.aggregate(Message, :count)
 
     assert {:ok, %{thread: same_thread, message: nil, dropped?: true}} =
@@ -482,7 +541,13 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
                }
              )
 
-    assert {:ok, _blocked} = DirectMessageLifecycle.set_blocked(scope, blocked_thread.id, true)
+    assert {:ok, _blocked} =
+             DirectMessageLifecycle.set_blocked(
+               scope,
+               blocked_thread.id,
+               true,
+               blocked_thread.mutation_revision
+             )
 
     assert {:ok, %{thread: new_thread, message: message, dropped?: false}} =
              DirectMessageIngestion.record(
@@ -687,7 +752,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     blocker =
       Task.Supervisor.async_nolink(supervisor, fn ->
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          DirectMessageLifecycle.set_blocked(scope, thread.id, true)
+          DirectMessageLifecycle.set_blocked(
+            scope,
+            thread.id,
+            true,
+            thread.mutation_revision
+          )
         end)
       end)
 
@@ -769,7 +839,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         send(test_pid, :direct_message_close_started)
 
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          DirectMessageLifecycle.close(scope, thread.id)
+          DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
         end)
       end)
 
@@ -871,7 +941,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         send(test_pid, :blocking_started)
 
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          DirectMessageLifecycle.set_blocked(scope, account_b.id, true)
+          DirectMessageLifecycle.set_blocked(
+            scope,
+            account_b.id,
+            true,
+            account_b.mutation_revision
+          )
         end)
       end)
 
@@ -881,7 +956,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     assert {:ok, renamed} = Task.await(displacement)
     assert renamed.id == account_a.id
-    assert {:error, :direct_message_closed} = Task.await(blocker)
+    assert {:error, :stale_direct_message} = Task.await(blocker)
 
     archived =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->

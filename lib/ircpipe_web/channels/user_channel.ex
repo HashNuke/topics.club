@@ -166,11 +166,20 @@ defmodule IrcpipeWeb.UserChannel do
     Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end
 
-  def handle_in("buffer:read", %{"buffer_id" => "direct:" <> thread_id}, socket) do
+  def handle_in(
+        "buffer:read",
+        %{
+          "buffer_id" => "direct:" <> thread_id,
+          "expected_revision" => expected_revision
+        },
+        socket
+      )
+      when is_integer(expected_revision) and expected_revision >= 0 do
     user = socket.assigns.current_user
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
-         {:ok, updated} <- DirectMessageLifecycle.mark_read(Scope.for_user(user), thread.id) do
+         {:ok, updated} <-
+           DirectMessageLifecycle.mark_read(Scope.for_user(user), thread.id, expected_revision) do
       Reply.ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
       {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
@@ -183,15 +192,24 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in(
         "direct_message:block",
-        %{"buffer_id" => "direct:" <> thread_id, "blocked" => blocked?},
+        %{
+          "buffer_id" => "direct:" <> thread_id,
+          "blocked" => blocked?,
+          "expected_revision" => expected_revision
+        },
         socket
       )
-      when is_boolean(blocked?) do
+      when is_boolean(blocked?) and is_integer(expected_revision) and expected_revision >= 0 do
     user = socket.assigns.current_user
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, updated} <-
-           DirectMessageLifecycle.set_blocked(Scope.for_user(user), thread.id, blocked?) do
+           DirectMessageLifecycle.set_blocked(
+             Scope.for_user(user),
+             thread.id,
+             blocked?,
+             expected_revision
+           ) do
       Reply.ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
       {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
@@ -204,13 +222,18 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in(
         "direct_message:close",
-        %{"buffer_id" => "direct:" <> thread_id},
+        %{
+          "buffer_id" => "direct:" <> thread_id,
+          "expected_revision" => expected_revision
+        },
         socket
-      ) do
+      )
+      when is_integer(expected_revision) and expected_revision >= 0 do
     user = socket.assigns.current_user
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
-         {:ok, closed} <- DirectMessageLifecycle.close(Scope.for_user(user), thread.id) do
+         {:ok, closed} <-
+           DirectMessageLifecycle.close(Scope.for_user(user), thread.id, expected_revision) do
       Reply.ok(socket, Event.direct_message_closed(closed))
     else
       {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})

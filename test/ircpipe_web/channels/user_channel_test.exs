@@ -308,7 +308,22 @@ defmodule IrcpipeWeb.UserChannelTest do
     socket = join_user_channel(user)
     buffer_id = "direct:#{thread.id}"
 
-    read_ref = push(socket, "buffer:read", %{"buffer_id" => buffer_id})
+    missing_revision_ref = push(socket, "buffer:read", %{"buffer_id" => buffer_id})
+    assert_reply missing_revision_ref, :error, %{reason: "invalid_buffer"}
+
+    stale_read_ref =
+      push(socket, "buffer:read", %{
+        "buffer_id" => buffer_id,
+        "expected_revision" => thread.mutation_revision - 1
+      })
+
+    assert_reply stale_read_ref, :error, %{reason: "stale_direct_message"}
+
+    read_ref =
+      push(socket, "buffer:read", %{
+        "buffer_id" => buffer_id,
+        "expected_revision" => thread.mutation_revision
+      })
 
     assert_reply read_ref, :ok, %{
       buffer: %{buffer_id: ^buffer_id, unread_count: 0},
@@ -318,7 +333,11 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert read_revision > thread.mutation_revision
 
     block_ref =
-      push(socket, "direct_message:block", %{"buffer_id" => buffer_id, "blocked" => true})
+      push(socket, "direct_message:block", %{
+        "buffer_id" => buffer_id,
+        "blocked" => true,
+        "expected_revision" => read_revision
+      })
 
     assert_reply block_ref, :ok, %{
       type: "direct_message:thread",
@@ -331,7 +350,11 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert connection_id == connection.id
 
     unblock_ref =
-      push(socket, "direct_message:block", %{"buffer_id" => buffer_id, "blocked" => false})
+      push(socket, "direct_message:block", %{
+        "buffer_id" => buffer_id,
+        "blocked" => false,
+        "expected_revision" => block_revision
+      })
 
     assert_reply unblock_ref, :ok, %{
       type: "direct_message:thread",
@@ -341,7 +364,11 @@ defmodule IrcpipeWeb.UserChannelTest do
       revision: unblock_revision
     }
 
-    close_ref = push(socket, "direct_message:close", %{"buffer_id" => buffer_id})
+    close_ref =
+      push(socket, "direct_message:close", %{
+        "buffer_id" => buffer_id,
+        "expected_revision" => unblock_revision
+      })
 
     assert_reply close_ref, :ok, %{
       type: "direct_message:closed",

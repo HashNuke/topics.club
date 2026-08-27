@@ -188,7 +188,13 @@ defmodule Ircpipe.Chat.ConnectionsTest do
 
     assert {:ok, open_thread} = DirectMessageLifecycle.open(user, connection, "Zed")
     assert {:ok, closed_thread} = DirectMessageLifecycle.open(user, connection, "akash")
-    assert {:ok, closed_thread} = DirectMessageLifecycle.close(scope, closed_thread.id)
+
+    assert {:ok, closed_thread} =
+             DirectMessageLifecycle.close(
+               scope,
+               closed_thread.id,
+               closed_thread.mutation_revision
+             )
 
     assert %{
              connections: [loaded],

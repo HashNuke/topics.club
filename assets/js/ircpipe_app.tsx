@@ -6,7 +6,11 @@ import {
   selectPreferredBuffer,
 } from "./active_buffer_preference.ts"
 import {createApiClient, type ApiClient} from "./api_client.ts"
-import {commandErrorMessage, type CommandError} from "./app_feedback.ts"
+import {
+  commandErrorMessage,
+  isStaleDirectMessageError,
+  type CommandError,
+} from "./app_feedback.ts"
 import {buildBootstrapState, type BootstrapPayload} from "./bootstrap_state.ts"
 import {
   initialNotificationDeviceState,
@@ -265,6 +269,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     connectionsRef,
     realtimeClientRef,
     reconcileServerBuffers,
+    refreshAuthoritativeBootstrap: () => refreshAuthoritativeBootstrapRef.current(),
     setActiveChannelId,
     setActiveServerId,
     setMessagesByChannel,
@@ -1256,9 +1261,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
     try {
       if (bufferId.startsWith("direct:")) {
+        const directMessage = connectionsRef.current
+          .flatMap((connection) => connection.channels)
+          .find((channel) => channel.id === bufferId && channel.buffer_type === "direct_message")
+
+        if (!directMessage || directMessage.buffer_type !== "direct_message") return
+
         const payload = await realtimeClientRef.current.push<DirectMessageThreadPayload>(
           "buffer:read",
-          {buffer_id: bufferId}
+          {
+            buffer_id: bufferId,
+            expected_revision: directMessage.direct_message_revision,
+          }
         )
         applyDirectMessageThread(payload)
       } else {
@@ -1267,7 +1281,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         })
         applyBufferRead(payload)
       }
-    } catch (_error) {
+    } catch (error: unknown) {
+      if (isStaleDirectMessageError(error)) refreshAuthoritativeBootstrapRef.current()
       // Keep counters as-is if the backend rejects the read marker.
     }
   }

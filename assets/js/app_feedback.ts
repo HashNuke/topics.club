@@ -6,6 +6,15 @@ export interface CommandError {
   reason?: string
 }
 
+export function isStaleDirectMessageError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "reason" in error &&
+    error.reason === "stale_direct_message"
+  )
+}
+
 export function commandErrorMessage(error: CommandError | null | undefined): string {
   if (error?.error?.message) {
     const usage = error.error.usage ? ` Usage: ${error.error.usage}` : ""

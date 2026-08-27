@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponse do
   def reason(:invalid_server), do: "invalid_server"
   def reason(:invalid_direct_message), do: "invalid_direct_message"
   def reason(:direct_message_closed), do: "direct_message_closed"
+  def reason(:stale_direct_message), do: "stale_direct_message"
   def reason(:invalid_command_args), do: "invalid_command_args"
   def reason(:invalid_connection), do: "invalid_connection"
   def reason(:not_connected), do: "not_connected"

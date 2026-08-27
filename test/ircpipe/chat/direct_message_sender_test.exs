@@ -40,7 +40,10 @@ defmodule Ircpipe.Chat.DirectMessageSenderTest do
     scope = AccountsFixtures.user_scope_fixture(user)
     connection = connection_fixture(user)
     {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
-    {:ok, _closed} = DirectMessageLifecycle.close(scope, thread.id)
+
+    {:ok, _closed} =
+      DirectMessageLifecycle.close(scope, thread.id, thread.mutation_revision)
+
     test_pid = self()
 
     assert {:error, :direct_message_closed} =

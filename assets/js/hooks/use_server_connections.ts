@@ -8,6 +8,7 @@ import {
   type SetStateAction,
 } from "react"
 import type {ApiClient} from "../api_client.ts"
+import {isStaleDirectMessageError} from "../app_feedback.ts"
 import {normalizeChannel, normalizeTopic} from "../chat_store.ts"
 import {
   channelFromBuffer,
@@ -72,6 +73,7 @@ interface ServerConnectionsOptions {
   connectionsRef: MutableRefObject<ServerConnection[]>
   realtimeClientRef: MutableRefObject<RealtimeClient | null>
   reconcileServerBuffers: (serverConnectionId: EntityId) => void
+  refreshAuthoritativeBootstrap: () => void
   setActiveChannelId: Dispatch<SetStateAction<string | null>>
   setActiveServerId: Dispatch<SetStateAction<string | null>>
   setMessagesByChannel: Dispatch<SetStateAction<MessagesByBuffer>>
@@ -90,6 +92,7 @@ export default function useServerConnections({
   connectionsRef,
   realtimeClientRef,
   reconcileServerBuffers,
+  refreshAuthoritativeBootstrap,
   setActiveChannelId,
   setActiveServerId,
   setMessagesByChannel,
@@ -312,10 +315,14 @@ export default function useServerConnections({
     try {
       const payload = await realtimeClientRef.current.push<DirectMessageClosedPayload>(
         "direct_message:close",
-        {buffer_id: channel.id}
+        {
+          buffer_id: channel.id,
+          expected_revision: channel.direct_message_revision,
+        }
       )
       applyDirectMessageClosed(payload)
-    } catch (_error) {
+    } catch (error: unknown) {
+      if (isStaleDirectMessageError(error)) refreshAuthoritativeBootstrap()
       // Keep the thread visible if the backend cannot close it.
     }
   }
@@ -326,10 +333,15 @@ export default function useServerConnections({
     try {
       const payload = await realtimeClientRef.current.push<DirectMessageThreadPayload>(
         "direct_message:block",
-        {buffer_id: channel.id, blocked}
+        {
+          buffer_id: channel.id,
+          blocked,
+          expected_revision: channel.direct_message_revision,
+        }
       )
       applyDirectMessageThread(payload)
-    } catch (_error) {
+    } catch (error: unknown) {
+      if (isStaleDirectMessageError(error)) refreshAuthoritativeBootstrap()
       // Preserve the current blocking state if the backend rejects the change.
     }
   }

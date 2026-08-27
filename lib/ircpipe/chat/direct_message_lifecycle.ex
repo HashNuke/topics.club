@@ -53,7 +53,8 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
     end
   end
 
-  def close(%Scope{user: user}, id) do
+  def close(%Scope{user: user}, id, expected_revision)
+      when is_integer(expected_revision) and expected_revision >= 0 do
     assert_transaction_owner!()
     now = DateTime.utc_now(:second)
 
@@ -62,6 +63,7 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
         candidate = get!(user, id)
         ServerConnectionLock.lock_active!(candidate.server_connection_id)
         thread = get!(user, id)
+        assert_expected_revision!(thread, expected_revision)
 
         updated =
           thread
@@ -86,7 +88,8 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
     end
   end
 
-  def set_blocked(%Scope{user: user}, id, blocked?) when is_boolean(blocked?) do
+  def set_blocked(%Scope{user: user}, id, blocked?, expected_revision)
+      when is_boolean(blocked?) and is_integer(expected_revision) and expected_revision >= 0 do
     assert_transaction_owner!()
     now = DateTime.utc_now(:second)
 
@@ -95,6 +98,7 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
         candidate = get!(user, id)
         ServerConnectionLock.lock_active!(candidate.server_connection_id)
         thread = get!(user, id)
+        assert_expected_revision!(thread, expected_revision)
         maybe_pause_block_after_lock(thread)
 
         if DirectMessageStore.archived?(thread) do
@@ -137,7 +141,8 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
     end
   end
 
-  def mark_read(%Scope{user: user}, id) do
+  def mark_read(%Scope{user: user}, id, expected_revision)
+      when is_integer(expected_revision) and expected_revision >= 0 do
     assert_transaction_owner!()
     now = DateTime.utc_now(:second)
 
@@ -146,6 +151,7 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
         candidate = get!(user, id)
         ServerConnectionLock.lock_active!(candidate.server_connection_id)
         thread = get!(user, id)
+        assert_expected_revision!(thread, expected_revision)
 
         if DirectMessageStore.archived?(thread) or not is_nil(thread.closed_at) do
           Repo.rollback(:direct_message_closed)
@@ -175,6 +181,12 @@ defmodule Ircpipe.Chat.DirectMessageLifecycle do
       ServerConnectionLock.serialize_effects(connection_id, fn _connection -> callback.() end)
 
     :ok
+  end
+
+  defp assert_expected_revision!(thread, expected_revision) do
+    if thread.mutation_revision != expected_revision do
+      Repo.rollback(:stale_direct_message)
+    end
   end
 
   defp assert_transaction_owner! do

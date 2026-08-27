@@ -8,6 +8,7 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponseTest do
     assert ErrorResponse.reason(:invalid_server) == "invalid_server"
     assert ErrorResponse.reason(:invalid_direct_message) == "invalid_direct_message"
     assert ErrorResponse.reason(:direct_message_closed) == "direct_message_closed"
+    assert ErrorResponse.reason(:stale_direct_message) == "stale_direct_message"
     assert ErrorResponse.reason(:invalid_command_args) == "invalid_command_args"
     assert ErrorResponse.reason(:invalid_connection) == "invalid_connection"
     assert ErrorResponse.reason(:not_connected) == "not_connected"
