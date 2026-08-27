@@ -5,6 +5,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.MessageIngestion
+  alias Ircpipe.Chat.ReadState
 
   alias Ircpipe.Chat.{
     ChannelMembership,
@@ -374,7 +375,7 @@ defmodule Ircpipe.ChatTest do
     MessageIngestion.record_server(connection, "Connected")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
-    assert :ok = Chat.mark_read(user, Connections.get!(user, connection.id))
+    assert :ok = ReadState.mark(user, Connections.get!(user, connection.id))
 
     assert_receive {:buffer_read,
                     %{

@@ -4,9 +4,9 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Accounts
   alias Ircpipe.Accounts.UserToken
   alias Ircpipe.Accounts.Scope
-  alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.ReadState
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
@@ -160,7 +160,7 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
 
     with {:ok, membership} <- BufferResolver.membership(user, membership_id),
-         :ok <- Chat.mark_read(user, membership) do
+         :ok <- ReadState.mark(user, membership) do
       Reply.ok(socket, %{buffer_id: "channel:#{membership.id}", unread_count: 0, mention_count: 0})
     else
       {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
@@ -171,7 +171,7 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
 
     connection = Connections.get!(user, connection_id)
-    :ok = Chat.mark_read(user, connection)
+    :ok = ReadState.mark(user, connection)
 
     Reply.ok(socket, %{buffer_id: "server:#{connection.id}", unread_count: 0, mention_count: 0})
   rescue

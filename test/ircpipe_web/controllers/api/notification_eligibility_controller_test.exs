@@ -6,6 +6,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Notification
   alias Ircpipe.Chat.MessageIngestion
+  alias Ircpipe.Chat.ReadState
   alias Ircpipe.Repo
 
   setup :register_and_log_in_user
@@ -23,7 +24,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
     assert %{"eligible" => true} = json_response(eligible, 200)
     assert ["no-store"] = get_resp_header(eligible, "cache-control")
 
-    assert :ok = Chat.mark_read(user, membership)
+    assert :ok = ReadState.mark(user, membership)
 
     ineligible =
       get(

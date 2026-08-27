@@ -10,6 +10,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.MessageIngestion
+  alias Ircpipe.Chat.ReadState
   alias Ircpipe.Chat.Notification
 
   alias Ircpipe.Notifications.{
@@ -567,7 +568,7 @@ defmodule Ircpipe.NotificationsTest do
              generation
            )
 
-    assert :ok = Chat.mark_read(scope.user, membership)
+    assert :ok = ReadState.mark(scope.user, membership)
 
     refute Delivery.eligible?(
              scope,
