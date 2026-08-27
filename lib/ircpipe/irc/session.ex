@@ -7,19 +7,12 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.ClientLifecycle
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.ConnectionEvents
-  alias Ircpipe.Irc.Session.EventPipeline
-  alias Ircpipe.Irc.Session.InboundMessageRouting
+  alias Ircpipe.Irc.Session.EventDispatcher
   alias Ircpipe.Irc.Session.Initialization
   alias Ircpipe.Irc.Session.JoinFlush
-  alias Ircpipe.Irc.Session.JoinFailureEvents
-  alias Ircpipe.Irc.Session.MembershipEvents
-  alias Ircpipe.Irc.Session.ServerEvents
-  alias Ircpipe.Irc.Session.UnhandledEvents
   alias Ircpipe.Irc.SessionLocator
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Accounts.User
-  alias Ircxd.Message
-  alias Ircxd.Client.Event
 
   def child_spec(%ServerConnection{} = connection) do
     %{
@@ -89,125 +82,9 @@ defmodule Ircpipe.Irc.Session do
     end
   end
 
-  def handle_info({:ircxd, %Event{} = event}, state) do
-    case EventPipeline.handle(state, event) do
-      {:handled, state} -> {:noreply, state}
-      {:legacy, legacy, state} -> handle_info({:ircxd, legacy}, state)
-    end
-  end
-
-  def handle_info({:ircxd, :registered}, state) do
-    {:noreply, ConnectionEvents.registered(state)}
-  end
-
-  def handle_info({:ircxd, {:connect_error, reason}}, state) do
-    {:noreply, ConnectionEvents.connect_error(state, reason)}
-  end
-
-  def handle_info({:ircxd, :disconnected}, state) do
-    {:noreply, ConnectionEvents.disconnected(state)}
-  end
-
-  def handle_info({:ircxd, {:reconnecting, _payload}}, state) do
-    {:noreply, ConnectionEvents.reconnecting(state)}
-  end
+  def handle_info({:ircxd, event}, state), do: {:noreply, EventDispatcher.dispatch(state, event)}
 
   def handle_info({:flush_pending_joins, token}, state), do: JoinFlush.handle(state, token)
-
-  def handle_info(
-        {:ircxd, {:privmsg, %{target: _target, nick: _nick, body: _body} = payload}},
-        state
-      ) do
-    {:noreply, InboundMessageRouting.privmsg(state, payload)}
-  end
-
-  def handle_info(
-        {:ircxd, {:notice, %{target: _target, nick: _nick, body: _body} = payload}},
-        state
-      ) do
-    {:noreply, InboundMessageRouting.notice(state, payload)}
-  end
-
-  def handle_info({:ircxd, {event, %{text: _text} = payload}}, state)
-      when event in [
-             :welcome,
-             :your_host,
-             :server_created,
-             :motd_start,
-             :motd,
-             :motd_end,
-             :motd_missing
-           ],
-      do: {:noreply, ServerEvents.handle(event, state, payload)}
-
-  def handle_info({:ircxd, {:server_info, payload}}, state) do
-    {:noreply, ServerEvents.handle(:server_info, state, payload)}
-  end
-
-  def handle_info({:ircxd, {:names, %{channel: _channel, names: _names} = payload}}, state),
-    do: {:noreply, MembershipEvents.handle(:names, state, payload)}
-
-  def handle_info({:ircxd, {:names_end, %{channel: _channel} = payload}}, state),
-    do: {:noreply, MembershipEvents.handle(:names_end, state, payload)}
-
-  def handle_info({:ircxd, {:join, %{channel: _channel, nick: _nick} = payload}}, state),
-    do: {:noreply, MembershipEvents.handle(:join, state, payload)}
-
-  def handle_info({:ircxd, {:part, %{channel: _channel, nick: _nick} = payload}}, state),
-    do: {:noreply, MembershipEvents.handle(:part, state, payload)}
-
-  def handle_info({:ircxd, {:quit, %{nick: _nick} = payload}}, state),
-    do: {:noreply, MembershipEvents.handle(:quit, state, payload)}
-
-  def handle_info(
-        {:ircxd, {:nick, %{old_nick: _old_nick, new_nick: _new_nick} = payload}},
-        state
-      ),
-      do: {:noreply, MembershipEvents.handle(:nick, state, payload)}
-
-  def handle_info({:ircxd, {:away, %{nick: _nick} = payload}}, state),
-    do: {:noreply, MembershipEvents.handle(:away, state, payload)}
-
-  def handle_info({:ircxd, {:mode, %{target: _target} = payload}}, state),
-    do: {:noreply, MembershipEvents.handle(:mode, state, payload)}
-
-  def handle_info(
-        {:ircxd, {:kick, %{channel: _channel, nick: _nick, target_nick: _target_nick} = payload}},
-        state
-      ),
-      do: {:noreply, MembershipEvents.handle(:kick, state, payload)}
-
-  def handle_info(
-        {:ircxd, {:topic, %{channel: _channel, nick: _nick, topic: _topic} = payload}},
-        state
-      ),
-      do: {:noreply, MembershipEvents.handle(:topic, state, payload)}
-
-  def handle_info({:ircxd, {:irc_error, payload}}, state) do
-    {:noreply, JoinFailureEvents.irc_error(state, payload)}
-  end
-
-  def handle_info(
-        {:ircxd, {:standard_reply, %{type: :fail, command: "JOIN"} = payload}},
-        state
-      ) do
-    {:noreply, JoinFailureEvents.standard_reply(state, payload)}
-  end
-
-  def handle_info({:ircxd, {:nick_in_use, payload}}, state) do
-    {:noreply, ServerEvents.handle(:nick_in_use, state, payload)}
-  end
-
-  def handle_info(
-        {:ircxd, {event_name, _payload} = event},
-        state
-      )
-      when event_name in [:list_start, :list_entry, :list_end] do
-    case ChannelListEvents.handle_irc(state, event) do
-      {:handled, state} -> {:noreply, state}
-      :unhandled -> {:noreply, UnhandledEvents.handle(state, event)}
-    end
-  end
 
   def handle_info({:channel_list_timeout, ref}, state),
     do: {:noreply, ChannelListEvents.timeout(state, ref)}
@@ -218,18 +95,6 @@ defmodule Ircpipe.Irc.Session do
 
   def handle_info({:command_grace_timeout, command_id}, state) do
     {:noreply, CommandLifecycle.grace_timeout(state, command_id)}
-  end
-
-  def handle_info(
-        {:ircxd, {:raw, %Message{command: command} = message}},
-        state
-      )
-      when byte_size(command) == 3 do
-    {:noreply, ServerEvents.handle(:raw, state, message)}
-  end
-
-  def handle_info({:ircxd, event}, state) do
-    {:noreply, UnhandledEvents.handle(state, event)}
   end
 
   @impl true
