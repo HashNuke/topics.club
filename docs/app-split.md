@@ -582,7 +582,7 @@ Size: **M**. Risk: **Medium**. This prevents hidden coupling from being discover
 - [ ] Inventory all schemas and context modules and record their intended owning application.
 - [ ] Inventory compile-time and runtime configuration and classify it as shared, web-only, engine-only, or combined-only.
 - [ ] Inventory production secrets and identify which release genuinely requires each secret.
-- [x] Inventory supervision children, restart strategies, registries, and globally or locally registered names.
+- [ ] Inventory supervision children, restart strategies, registries, and globally or locally registered names.
 - [ ] Record the current browser REST and Channel payloads that must remain compatible.
 - [ ] Record the current release, migration, Docker, Compose, and service startup behavior.
 
