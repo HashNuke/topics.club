@@ -159,9 +159,18 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
 
     connection = Connections.get!(user, connection_id)
-    :ok = ReadState.mark(user, connection)
 
-    Reply.ok(socket, %{buffer_id: "server:#{connection.id}", unread_count: 0, mention_count: 0})
+    case ReadState.mark(user, connection) do
+      :ok ->
+        Reply.ok(socket, %{
+          buffer_id: "server:#{connection.id}",
+          unread_count: 0,
+          mention_count: 0
+        })
+
+      {:error, reason} ->
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
+    end
   rescue
     Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
   end

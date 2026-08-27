@@ -32,8 +32,21 @@ defmodule IrcpipeWeb.Api.ChannelController do
   def mark_read(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
     membership = MembershipLookup.get!(user, id)
-    :ok = ReadState.mark(user, membership)
-    json(conn, %{ok: true})
+
+    case ReadState.mark(user, membership) do
+      :ok ->
+        json(conn, %{ok: true})
+
+      {:error, :connection_deleting} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: "connection_deleting"})
+
+      {:error, _reason} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "invalid_buffer"})
+    end
   end
 
   def leave(conn, %{"id" => id}) do

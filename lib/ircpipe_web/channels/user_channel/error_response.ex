@@ -6,6 +6,7 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponse do
   def reason(:stale_direct_message), do: "stale_direct_message"
   def reason(:invalid_command_args), do: "invalid_command_args"
   def reason(:invalid_connection), do: "invalid_connection"
+  def reason(:connection_deleting), do: "connection_deleting"
   def reason(:not_connected), do: "not_connected"
   def reason(:list_in_progress), do: "list_in_progress"
   def reason(:list_timeout), do: "list_timeout"

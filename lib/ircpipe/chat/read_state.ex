@@ -53,6 +53,7 @@ defmodule Ircpipe.Chat.ReadState do
 
   def mark(%User{id: user_id}, %ServerConnection{user_id: user_id} = connection) do
     assert_transaction_owner!()
+    maybe_pause_before_server_lock(connection.id)
     now = DateTime.utc_now(:second)
 
     Repo.transaction(fn ->
@@ -93,6 +94,26 @@ defmodule Ircpipe.Chat.ReadState do
   end
 
   defp publish_read({:error, reason}), do: {:error, reason}
+
+  defp maybe_pause_before_server_lock(connection_id) do
+    case Application.get_env(:ircpipe, :read_state_before_server_lock_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+        send(test_pid, {:read_state_server_lock_paused, self(), barrier_ref, connection_id})
+
+        receive do
+          {:continue_read_state_server_lock, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
+  end
 
   defp assert_transaction_owner! do
     if Repo.in_transaction?() do

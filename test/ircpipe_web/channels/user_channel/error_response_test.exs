@@ -11,6 +11,7 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponseTest do
     assert ErrorResponse.reason(:stale_direct_message) == "stale_direct_message"
     assert ErrorResponse.reason(:invalid_command_args) == "invalid_command_args"
     assert ErrorResponse.reason(:invalid_connection) == "invalid_connection"
+    assert ErrorResponse.reason(:connection_deleting) == "connection_deleting"
     assert ErrorResponse.reason(:not_connected) == "not_connected"
     assert ErrorResponse.reason(:list_in_progress) == "list_in_progress"
     assert ErrorResponse.reason(:list_timeout) == "list_timeout"

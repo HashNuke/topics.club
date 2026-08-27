@@ -717,6 +717,75 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert Connections.get!(user, connection.id).unread_count == 0
   end
 
+  test "rejects marking a channel read while its connection is deleting" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "deleting",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    socket = join_user_channel(user)
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Ircpipe.Repo.update!()
+
+    ref = push(socket, "buffer:read", %{"buffer_id" => "channel:#{membership.id}"})
+
+    assert_reply ref, :error, %{reason: "connection_deleting"}
+  end
+
+  test "survives a connection deletion between resolving and marking a server read" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "read-race",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    socket = join_user_channel(user)
+    channel_ref = Process.monitor(socket.channel_pid)
+    barrier_ref = make_ref()
+    previous_barrier = Application.get_env(:ircpipe, :read_state_before_server_lock_barrier)
+
+    Application.put_env(
+      :ircpipe,
+      :read_state_before_server_lock_barrier,
+      {self(), barrier_ref}
+    )
+
+    on_exit(fn ->
+      restore_env(:read_state_before_server_lock_barrier, previous_barrier)
+    end)
+
+    ref = push(socket, "buffer:read", %{"buffer_id" => "server:#{connection.id}"})
+
+    assert_receive {:read_state_server_lock_paused, channel_pid, ^barrier_ref, connection_id},
+                   5_000
+
+    assert channel_pid == socket.channel_pid
+    assert connection_id == connection.id
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Ircpipe.Repo.update!()
+
+    send(channel_pid, {:continue_read_state_server_lock, barrier_ref})
+
+    assert_reply ref, :error, %{reason: "connection_deleting"}
+    refute_receive {:DOWN, ^channel_ref, :process, ^channel_pid, _reason}
+  end
+
   test "pushes server status broadcasts over the user channel" do
     user = AccountsFixtures.user_fixture()
 
@@ -1435,4 +1504,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       session_socket_id: UserSocket.id_for_session_token(token)
     })
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 end
