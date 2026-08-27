@@ -12,9 +12,9 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.ConnectionLock
   alias Ircpipe.Irc.EventFormatting
-  alias Ircpipe.Irc.Identifier
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.Identity
+  alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Targets
@@ -25,7 +25,6 @@ defmodule Ircpipe.Irc.Session do
   alias Ircxd.Client.{Event, Info}
 
   @channel_list_timeout 10_000
-  @isupport_settle_timeout 100
 
   def child_spec(%ServerConnection{} = connection) do
     %{
@@ -235,7 +234,7 @@ defmodule Ircpipe.Irc.Session do
      |> Map.put(:connection, updated)
      |> Map.put(:registered?, true)
      |> refresh_client_info()
-     |> schedule_join_flush()}
+     |> JoinLifecycle.schedule_flush()}
   end
 
   def handle_info({:ircxd, {:connect_error, reason}}, state) do
@@ -274,7 +273,7 @@ defmodule Ircpipe.Irc.Session do
          registration_boundary_reached?: false,
          join_validation_ready?: false,
          joins_flushed?: false,
-         join_flush_timer: cancel_join_flush_timer(state),
+         join_flush_timer: JoinLifecycle.cancel_flush(state),
          sent_joins: MapSet.new(),
          joined_channels: MapSet.new()
      }}
@@ -291,7 +290,7 @@ defmodule Ircpipe.Irc.Session do
       |> Map.put(:client_info, info)
       |> Map.put(:join_validation_ready?, true)
       |> Map.put(:join_flush_timer, nil)
-      |> flush_pending_joins()
+      |> JoinLifecycle.flush()
 
     {:noreply, state}
   rescue
@@ -405,7 +404,7 @@ defmodule Ircpipe.Irc.Session do
     state =
       if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
            Identity.listed?(names, state.connection.nickname) do
-        mark_channel_joined(state, channel)
+        JoinLifecycle.mark_joined(state, channel)
       else
         state
       end
@@ -425,7 +424,7 @@ defmodule Ircpipe.Irc.Session do
     state =
       state
       |> Map.put(:names_buffers, Map.delete(names_buffers, normalized))
-      |> maybe_mark_channel_joined_from_names(channel, names)
+      |> JoinLifecycle.mark_joined_from_names(channel, names)
 
     {:noreply, state}
   end
@@ -454,7 +453,7 @@ defmodule Ircpipe.Irc.Session do
 
     state =
       if self? do
-        mark_channel_joined(state, channel)
+        JoinLifecycle.mark_joined(state, channel)
       else
         state
       end
@@ -750,11 +749,11 @@ defmodule Ircpipe.Irc.Session do
 
   @impl true
   def handle_call({:join, channel}, _from, state) do
-    with :ok <- validate_native_join(state, channel) do
+    with :ok <- JoinLifecycle.validate(state, channel) do
       if MapSet.member?(state.pending_joins, Targets.key(state, channel)) do
         {:reply, :ok, state}
       else
-        {reply, state} = transmit_join(state, channel)
+        {reply, state} = JoinLifecycle.transmit(state, channel)
         reply = if reply in [:sent, :queued], do: :ok, else: reply
         {:reply, reply, state}
       end
@@ -780,7 +779,7 @@ defmodule Ircpipe.Irc.Session do
           {:reply, {:error, :already_pending}, state}
       end
     else
-      with :ok <- validate_native_join(state, channel),
+      with :ok <- JoinLifecycle.validate(state, channel),
            {:ok, membership} <-
              Chat.request_channel_join(
                user,
@@ -788,7 +787,7 @@ defmodule Ircpipe.Irc.Session do
                channel,
                Targets.casemapping(state)
              ) do
-        {reply, state} = transmit_join(state, membership.channel)
+        {reply, state} = JoinLifecycle.transmit(state, membership.channel)
 
         case reply do
           status when status in [:sent, :queued] ->
@@ -1151,44 +1150,6 @@ defmodule Ircpipe.Irc.Session do
 
   defp maybe_record_membership_failure(%Event{}, _state), do: :ok
 
-  defp validate_native_join(%{client_info: %Info{} = info, isupport_received?: true}, channel),
-    do: CommandRegistry.validate_join_channel(channel, info)
-
-  defp validate_native_join(_state, channel),
-    do: CommandRegistry.validate_join_channel_syntax(channel)
-
-  defp transmit_join(state, channel) do
-    key = Targets.key(state, channel)
-
-    if MapSet.member?(state.joined_channels, key) do
-      {:sent, state}
-    else
-      result =
-        case state do
-          %{client: client, registered?: true, join_validation_ready?: true}
-          when not is_nil(client) ->
-            Ircxd.Client.join(client, channel)
-
-          _state ->
-            :queued
-        end
-
-      case normalize_result(result) do
-        :ok ->
-          {:sent,
-           state
-           |> Map.put(:pending_joins, MapSet.put(state.pending_joins, key))
-           |> Map.put(:sent_joins, MapSet.put(Map.get(state, :sent_joins, MapSet.new()), key))}
-
-        :queued ->
-          {:queued, %{state | pending_joins: MapSet.put(state.pending_joins, key)}}
-
-        error ->
-          {error, state}
-      end
-    end
-  end
-
   defp prepare_managed_command(
          state,
          %{disposition: :managed, message: %{command: "JOIN", params: [channels | _rest]}}
@@ -1410,32 +1371,6 @@ defmodule Ircpipe.Irc.Session do
     end
   end
 
-  defp mark_channel_joined(state, channel) do
-    normalized = Targets.key(state, channel)
-
-    state
-    |> Map.put(
-      :pending_joins,
-      MapSet.delete(Map.get(state, :pending_joins, MapSet.new()), normalized)
-    )
-    |> Map.put(
-      :joined_channels,
-      MapSet.put(Map.get(state, :joined_channels, MapSet.new()), normalized)
-    )
-    |> Map.put(:sent_joins, MapSet.delete(Map.get(state, :sent_joins, MapSet.new()), normalized))
-  end
-
-  defp maybe_mark_channel_joined_from_names(state, channel, names) do
-    normalized = Targets.key(state, channel)
-
-    if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
-         Identity.listed?(names, state.connection.nickname) do
-      mark_channel_joined(state, channel)
-    else
-      state
-    end
-  end
-
   defp remember_pending_echo(state, target, body, kind) do
     pending_echoes =
       PendingEchoes.remember(
@@ -1635,40 +1570,9 @@ defmodule Ircpipe.Irc.Session do
 
   defp refresh_client_info(%{client: client} = state) do
     info = Ircxd.Client.connection_info(client)
-    connection = state.connection
-    mapping = Targets.casemapping(state)
-    joined_channels = rekey_channels(state.joined_channels, mapping)
-
-    pending_joins =
-      connection
-      |> persisted_channels(mapping)
-      |> MapSet.difference(joined_channels)
-
-    state
-    |> Map.put(:connection, connection)
-    |> Map.put(:client_info, info)
-    |> Map.put(:pending_joins, pending_joins)
-    |> Map.put(:joined_channels, joined_channels)
+    JoinLifecycle.restore(state, info)
   catch
     :exit, _reason -> Map.put(state, :client_info, nil)
-  end
-
-  defp schedule_join_flush(%{registered?: true, join_validation_ready?: false} = state) do
-    _ = cancel_join_flush_timer(state)
-    token = make_ref()
-    timer = Process.send_after(self(), {:flush_pending_joins, token}, @isupport_settle_timeout)
-    %{state | join_flush_timer: {timer, token}}
-  end
-
-  defp schedule_join_flush(state), do: state
-
-  defp cancel_join_flush_timer(state) do
-    case Map.get(state, :join_flush_timer) do
-      {timer, _token} -> Process.cancel_timer(timer)
-      _timer -> :ok
-    end
-
-    nil
   end
 
   defp persist_casemapping(connection, casemapping) do
@@ -1690,89 +1594,18 @@ defmodule Ircpipe.Irc.Session do
     state
     |> Map.put(:connection, connection)
     |> Map.put(:active_casemapping, mapping)
-    |> rekey_runtime_channels(mapping)
+    |> JoinLifecycle.rekey(mapping)
     |> Map.put(:isupport_received?, true)
     |> Map.put(:join_validation_ready?, true)
-    |> Map.put(:join_flush_timer, cancel_join_flush_timer(state))
-    |> flush_pending_joins()
+    |> Map.put(:join_flush_timer, JoinLifecycle.cancel_flush(state))
+    |> JoinLifecycle.flush()
   end
 
   defp finalize_registration_support(state) do
     state
     |> Map.put(:join_validation_ready?, true)
-    |> Map.put(:join_flush_timer, cancel_join_flush_timer(state))
-    |> flush_pending_joins()
-  end
-
-  defp rekey_runtime_channels(state, mapping) do
-    state
-    |> Map.update(:pending_joins, MapSet.new(), &rekey_channels(&1, mapping))
-    |> Map.update(:joined_channels, MapSet.new(), &rekey_channels(&1, mapping))
-    |> Map.update(:sent_joins, MapSet.new(), &rekey_channels(&1, mapping))
-  end
-
-  defp flush_pending_joins(state) do
-    ChannelMembership
-    |> where(
-      [membership],
-      membership.server_connection_id == ^state.connection.id and membership.auto_join and
-        membership.status in ["pending", "joined"]
-    )
-    |> Repo.all()
-    |> Enum.reduce(state, fn membership, current_state ->
-      channel = membership.channel
-      key = Targets.key(current_state, channel)
-
-      if MapSet.member?(current_state.joined_channels, key) or
-           MapSet.member?(Map.get(current_state, :sent_joins, MapSet.new()), key) do
-        current_state
-      else
-        with :ok <- validate_native_join(current_state, channel),
-             :ok <- Ircxd.Client.join(current_state.client, channel) do
-          current_state
-          |> Map.put(:pending_joins, MapSet.put(current_state.pending_joins, key))
-          |> Map.put(
-            :sent_joins,
-            MapSet.put(Map.get(current_state, :sent_joins, MapSet.new()), key)
-          )
-        else
-          {:error, reason} ->
-            if current_state.isupport_received? do
-              Chat.reject_channel_join(
-                current_state.connection,
-                channel,
-                reason,
-                Targets.casemapping(current_state)
-              )
-
-              %{current_state | pending_joins: MapSet.delete(current_state.pending_joins, key)}
-            else
-              current_state
-            end
-        end
-      end
-    end)
-    |> Map.put(:joins_flushed?, true)
-  end
-
-  defp rekey_channels(channels, casemapping) do
-    channels
-    |> Enum.map(&Identifier.key(&1, casemapping))
-    |> MapSet.new()
-  end
-
-  defp persisted_channels(connection, casemapping \\ :rfc1459)
-
-  defp persisted_channels(%ServerConnection{} = connection, casemapping) do
-    ChannelMembership
-    |> where(
-      [membership],
-      membership.server_connection_id == ^connection.id and membership.auto_join and
-        membership.status in ["pending", "joined"]
-    )
-    |> Repo.all()
-    |> Enum.map(&Identifier.key(&1.channel, casemapping))
-    |> MapSet.new()
+    |> Map.put(:join_flush_timer, JoinLifecycle.cancel_flush(state))
+    |> JoinLifecycle.flush()
   end
 
   defp present?(value), do: is_binary(value) and value != ""
@@ -1781,7 +1614,7 @@ defmodule Ircpipe.Irc.Session do
     ConnectionLock.run(requested_connection, fn ->
       case authoritative_connection(requested_connection) do
         %ServerConnection{} = connection ->
-          pending_channels = persisted_channels(connection)
+          pending_channels = JoinLifecycle.persisted_channels(connection)
           maybe_pause_start_after_lookup(connection)
           {connection, pending_channels}
 
