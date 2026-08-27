@@ -1,32 +1,54 @@
 import React from "react"
 import AppMark from "./app_mark.tsx"
-import AuthPrompt from "./auth_prompt.tsx"
-import TopicGrid from "./topic_grid.tsx"
-import type {CurrentUser, Topic} from "../types.ts"
+import DiscoveryChannelCard from "./discovery_channel_card.tsx"
+import type {CurrentUser, ServerChannel} from "../types.ts"
 
 interface LandingPageProps {
   currentUser?: CurrentUser | null
-  topics: Topic[]
-  developerOauth: boolean
-  selectedTopic?: Topic | null
-  onSelectTopic: (topic: Topic) => void
-  onCloseAuth: () => void
+  featuredChannels: ServerChannel[]
+  loading?: boolean
 }
 
-export default function LandingPage({currentUser, topics, developerOauth, selectedTopic, onSelectTopic, onCloseAuth}: LandingPageProps) {
-  return <main className="min-h-screen bg-[#090b10] text-slate-100">
-    <section className="mx-auto grid min-h-screen max-w-7xl content-center gap-8 px-5 py-8 lg:grid-cols-[0.9fr_1.1fr]">
-      <div className="self-center">
-        <div className="mb-8 flex items-center gap-3"><AppMark /><span className="text-xl font-semibold tracking-tight">topics.club</span></div>
-        <h1 className="mt-4 max-w-xl text-5xl font-semibold leading-[1.02] tracking-tight text-white sm:text-6xl">Community chat</h1>
-        <p className="mt-5 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">IRC, made easy</p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <a className="rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-cyan-950 transition hover:bg-cyan-100" href="/chat">Open chat</a>
-          {!currentUser && developerOauth && <a className="rounded-md border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300 hover:text-white" href="/auth/developer">Developer OAuth</a>}
+export default function LandingPage({currentUser, featuredChannels, loading = false}: LandingPageProps) {
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-[var(--app-canvas)] text-slate-100">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_50%_-12%,rgba(181,167,255,0.16),transparent_58%)]" />
+      <header className="relative mx-auto flex h-20 max-w-6xl items-center justify-between px-5 sm:px-7">
+        <a href="/" className="group rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70" aria-label="topics.club home">
+          <AppMark />
+        </a>
+        {currentUser ? (
+          <a className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-cyan-950 shadow-lg shadow-black/15 transition duration-200 hover:-translate-y-px hover:bg-cyan-100" href="/chat">Open chat</a>
+        ) : (
+          <a className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-cyan-950 shadow-lg shadow-black/15 transition duration-200 hover:-translate-y-px hover:bg-cyan-100 hover:shadow-xl" href="/auth/google">Continue with Google</a>
+        )}
+      </header>
+
+      <section aria-labelledby="featured-channels-heading" className="relative mx-auto max-w-6xl px-5 pb-16 pt-16 sm:px-7 sm:pb-24 sm:pt-24">
+        <div className="max-w-2xl">
+          <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
+            <span className="hero-globe-alt size-3.5" aria-hidden="true" />
+            Across IRC
+          </div>
+          <h1 id="featured-channels-heading" className="text-3xl font-semibold tracking-[-0.045em] text-white min-[360px]:text-4xl sm:text-5xl">Featured channels</h1>
+          <p className="mt-4 max-w-xl text-sm leading-6 text-slate-400 sm:text-base">A handful of IRC communities, ready when you are.</p>
         </div>
-      </div>
-      <section aria-label="Suggested topics" className="self-center"><h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Start here</h2><TopicGrid topics={topics} onSelectTopic={onSelectTopic} /></section>
-    </section>
-    {selectedTopic && <AuthPrompt developerOauth={developerOauth} topic={selectedTopic} onClose={onCloseAuth} />}
-  </main>
+
+        {loading ? (
+          <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading featured channels" role="status">
+            {Array.from({length: 6}, (_, index) => <div key={index} className="h-40 animate-pulse rounded-2xl border border-white/6 bg-white/3" />)}
+          </div>
+        ) : featuredChannels.length > 0 ? (
+          <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {featuredChannels.map((serverChannel) => <DiscoveryChannelCard key={serverChannel.id} serverChannel={serverChannel} />)}
+          </div>
+        ) : (
+          <div className="mt-10 rounded-2xl border border-dashed border-white/10 px-6 py-14 text-center">
+            <p className="text-sm font-semibold text-slate-300">Featured channels are being refreshed</p>
+            <p className="mt-1 text-xs text-slate-600">Check back in a little while.</p>
+          </div>
+        )}
+      </section>
+    </main>
+  )
 }

@@ -30,7 +30,7 @@ export default function ChannelDirectoryPane({directory, onJoinChannel, onRefres
   }
 
   return (
-    <section id="channel-directory" className="min-h-0 flex-1 overflow-y-auto bg-[#090b10] px-4 py-5 sm:px-6 sm:py-7">
+    <section id="channel-directory" className="min-h-0 flex-1 overflow-y-auto bg-[var(--app-canvas)] px-4 py-5 sm:px-6 sm:py-7">
       <div className="mx-auto max-w-5xl">
         <ChannelDirectoryHeader
           loading={directory?.status === "loading"}

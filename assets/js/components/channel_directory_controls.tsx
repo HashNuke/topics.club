@@ -13,7 +13,7 @@ export default function ChannelDirectoryControls({manualChannel, onJoinManualCha
     <div className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_minmax(18rem,0.55fr)]">
       <label className="block" htmlFor="channel-directory-search">
         <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Search this server</span>
-        <span className="flex h-11 items-center gap-2 rounded-md border border-slate-700 bg-[#111620] px-3 transition focus-within:border-cyan-300/70 focus-within:ring-2 focus-within:ring-cyan-300/10">
+        <span className="flex h-11 items-center gap-2 rounded-md border border-slate-700 bg-[var(--app-panel)] px-3 transition focus-within:border-cyan-300/70 focus-within:ring-2 focus-within:ring-cyan-300/10">
           <span className="hero-magnifying-glass size-4 text-slate-500" aria-hidden="true" />
           <input
             id="channel-directory-search"
@@ -30,7 +30,7 @@ export default function ChannelDirectoryControls({manualChannel, onJoinManualCha
         <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="channel-directory-manual">
           Know the channel name?
         </label>
-        <div className="flex h-11 overflow-hidden rounded-md border border-slate-700 bg-[#111620] transition focus-within:border-cyan-300/70 focus-within:ring-2 focus-within:ring-cyan-300/10">
+        <div className="flex h-11 overflow-hidden rounded-md border border-slate-700 bg-[var(--app-panel)] transition focus-within:border-cyan-300/70 focus-within:ring-2 focus-within:ring-cyan-300/10">
           <input
             id="channel-directory-manual"
             className="min-w-0 flex-1 border-0 bg-transparent px-3 text-sm text-white outline-none placeholder:text-slate-600"

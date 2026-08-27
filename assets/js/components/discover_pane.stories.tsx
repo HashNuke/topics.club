@@ -10,7 +10,7 @@ const serverChannels: ServerChannel[] = [
   {id: 4, name: "#gentoo", topic: "Gentoo Linux users and developers", user_count: 318, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true, refreshed_at: "2026-08-26T02:00:00Z"},
 ]
 
-const meta = {title: "Discover/DiscoverPane", component: DiscoverPane, parameters: {layout: "fullscreen"}, decorators: [(Story) => <div className="flex h-[46rem] bg-[#090b10]"><Story /></div>], args: {activeServer, serverChannels, onJoinServerChannel: () => {}, onJoinThisServer: () => {}}} satisfies Meta<typeof DiscoverPane>
+const meta = {title: "Discover/DiscoverPane", component: DiscoverPane, parameters: {layout: "fullscreen"}, decorators: [(Story) => <div className="flex h-[46rem] bg-[var(--app-canvas)]"><Story /></div>], args: {activeServer, serverChannels, onJoinServerChannel: () => {}, onJoinThisServer: () => {}}} satisfies Meta<typeof DiscoverPane>
 export default meta
 type Story = StoryObj<typeof meta>
 
@@ -19,4 +19,4 @@ export const ThisServer: Story = {args: {initialTab: "server"}}
 export const Loading: Story = {args: {serverChannels: [], loading: true}}
 export const EmptyCatalog: Story = {args: {serverChannels: []}}
 export const NoActiveServer: Story = {args: {activeServer: undefined, initialTab: "server"}}
-export const Mobile: Story = {decorators: [(Story) => <div className="flex h-[46rem] w-[390px] bg-[#090b10]"><Story /></div>]}
+export const Mobile: Story = {decorators: [(Story) => <div className="flex h-[46rem] w-[390px] bg-[var(--app-canvas)]"><Story /></div>]}

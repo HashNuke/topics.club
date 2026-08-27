@@ -4,11 +4,12 @@ export default function AppMark({small = false}: {small?: boolean}) {
   return (
     <span
       className={[
-        "grid place-items-center rounded-md bg-cyan-300 font-black text-cyan-950",
-        small ? "size-7 text-xs" : "size-9 text-sm",
+        "inline-flex items-baseline whitespace-nowrap font-semibold tracking-[-0.045em] text-slate-100",
+        "transition-colors duration-200 group-hover:text-white",
+        small ? "text-[0.95rem]" : "text-xl",
       ].join(" ")}
     >
-      #
+      <span>topics</span><span className="text-cyan-300">.club</span>
     </span>
   )
 }

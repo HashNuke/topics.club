@@ -9,6 +9,34 @@ defmodule IrcpipeWeb.Api.DiscoveryControllerTest do
 
   setup :register_and_log_in_user
 
+  test "returns curated featured channels without requiring authentication" do
+    now = ~U[2026-08-26 12:00:00Z]
+    {:ok, [network]} = Discovery.sync_networks([network_entry()], now)
+
+    {:ok, 4} =
+      Discovery.replace_server_channels(
+        network,
+        [
+          %{name: "#linux", topic: "Linux discussion", user_count: 1_800},
+          %{name: "#python", topic: "Python discussion", user_count: 1_200},
+          %{name: "#ruby", topic: "Ruby discussion", user_count: 420},
+          %{name: "#popular", topic: "Popular fallback", user_count: 2_400}
+        ],
+        now
+      )
+
+    conn = get(build_conn(), ~p"/api/discovery/featured_channels")
+
+    assert %{"server_channels" => server_channels} = json_response(conn, 200)
+
+    assert Enum.map(server_channels, & &1["name"]) == [
+             "#ruby",
+             "#python",
+             "#linux",
+             "#popular"
+           ]
+  end
+
   test "returns the complete cached catalog ordered by users", %{conn: conn} do
     now = ~U[2026-08-26 12:00:00Z]
     {:ok, [network]} = Discovery.sync_networks([network_entry()], now)

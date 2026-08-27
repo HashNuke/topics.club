@@ -33,12 +33,12 @@ export interface SidebarConnectionProps {
 export default function SidebarConnection(props: SidebarConnectionProps) {
   const {activeChannel, activeServer, connection, idNamespace = "sidebar", notificationDeviceState, notificationSavingIds, onCloseDirectMessage, onDisconnectServer, onEditServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onToggleServerNotifications, view} = props
   return (
-    <section className="mb-5">
+    <section className="mb-3.5">
       <div className={[
-        "mb-2 flex w-full items-center gap-1 rounded-md pr-1 text-xs font-semibold uppercase tracking-[0.16em] transition",
-        activeServer?.id === connection.id && view === "server" ? "bg-slate-800 text-cyan-200" : "text-slate-500 hover:bg-slate-800/70 hover:text-slate-300",
+        "mb-1 flex w-full items-center gap-0.5 rounded-lg pr-0.5 text-[11px] font-semibold uppercase tracking-[0.13em] transition duration-200",
+        activeServer?.id === connection.id && view === "server" ? "bg-cyan-300/10 text-cyan-200" : "text-slate-500 hover:bg-white/5 hover:text-slate-300",
       ].join(" ")}>
-        <button className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left" onClick={() => onSelectServer(connection)} type="button">
+        <button className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1.5 text-left" onClick={() => onSelectServer(connection)} type="button">
           <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
           <span className="truncate">{connection.name}</span>
         </button>
@@ -52,7 +52,7 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
         />
         <button
           id={`${idNamespace}-browse-channels-${connection.server_connection_id}`}
-          className="grid size-7 shrink-0 place-items-center rounded text-slate-500 transition hover:bg-slate-700 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-slate-500 transition hover:bg-white/7 hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
           onClick={() => onOpenChannelDirectory?.(connection)}
           aria-label={`Browse channels on ${connection.name}`}
           type="button"
@@ -61,13 +61,13 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
         </button>
         <ServerActionMenu server={connection} onDisconnect={() => onDisconnectServer?.(connection)} onEdit={() => onEditServer(connection)} onLeave={() => onLeaveServer(connection)} onReconnect={() => onReconnectServer?.(connection)} />
       </div>
-      <div className="space-y-1">
+      <div className="space-y-0.5">
         {connection.channels.map((channel) => (
           <div key={channel.id} className={[
-            "group flex w-full items-center gap-1 rounded-md border pr-1 text-sm outline-none transition focus-within:border-cyan-300/50",
-            activeChannel?.id === channel.id ? "border border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-transparent text-white/75 hover:bg-slate-800/80 hover:text-white",
+            "group flex w-full items-center gap-0.5 rounded-lg border pr-0.5 text-[13px] outline-none transition duration-200 focus-within:border-cyan-300/50",
+            activeChannel?.id === channel.id ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100 shadow-[inset_2px_0_0_var(--color-cyan-300)]" : "border-transparent text-slate-300 hover:bg-white/5 hover:text-white",
           ].join(" ")}>
-            <button className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left" onClick={() => onSelectChannel(channel)} type="button">
+            <button className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left" onClick={() => onSelectChannel(channel)} type="button">
               {channel.buffer_type === "direct_message" && (
                 <span className="hero-user size-3.5 shrink-0 text-slate-500" aria-hidden="true" />
               )}

@@ -20,6 +20,7 @@ defmodule IrcpipeWeb.AuthController do
     case Accounts.get_or_register_oauth_user(auth) do
       {:ok, user} ->
         conn
+        |> put_session(:user_return_to, get_session(conn, :user_return_to) || ~p"/chat")
         |> put_flash(:info, "Signed in with #{provider_name(auth.provider)}.")
         |> UserAuth.log_in_user(user, params)
 

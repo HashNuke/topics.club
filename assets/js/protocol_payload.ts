@@ -17,6 +17,7 @@ import type {
   NotificationPreferencePayload,
   NotificationPreferenceEventPayload,
   ServerDeletedPayload,
+  ServerChannel,
   ServerStatus,
   ServerStatusPayload,
   TopicInput,
@@ -420,6 +421,25 @@ export function validTopicInput(value: unknown): value is TopicInput {
       Number(value.server_port) > 0 &&
       Number(value.server_port) <= 65_535 &&
       typeof value.use_tls === "boolean"
+  )
+}
+
+export function validServerChannel(value: unknown): value is ServerChannel {
+  return Boolean(
+    record(value) &&
+      validEntityId(value.id) &&
+      nonemptyString(value.name) &&
+      (value.topic === undefined || value.topic === null || typeof value.topic === "string") &&
+      Number.isSafeInteger(value.user_count) &&
+      Number(value.user_count) >= 0 &&
+      validEntityId(value.network_id) &&
+      nonemptyString(value.network_name) &&
+      nonemptyString(value.server_host) &&
+      Number.isSafeInteger(value.server_port) &&
+      Number(value.server_port) > 0 &&
+      Number(value.server_port) <= 65_535 &&
+      typeof value.use_tls === "boolean" &&
+      (value.refreshed_at === undefined || value.refreshed_at === null || validIsoTimestamp(value.refreshed_at))
   )
 }
 

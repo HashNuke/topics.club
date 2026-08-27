@@ -45,6 +45,7 @@ import {
   validEntityId,
   validNotificationPreferencePayload,
   validNotificationPreferenceResponse,
+  validServerChannel,
   validTopicInput,
 } from "./protocol_payload.ts"
 import {requestedTopicId, topicForRequestedId} from "./topic_navigation.ts"
@@ -58,7 +59,6 @@ import type {
   AppView,
   Channel,
   DirectMessageBufferRecord,
-  ChannelDirectory,
   ChatMessage,
   CommandCatalogEntry,
   CurrentUser,
@@ -148,7 +148,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   const mode = appMode || (currentUser ? "chat" : "landing")
   const [topics, setTopics] = useState<Topic[]>([])
   const [topicsLoaded, setTopicsLoaded] = useState(false)
-  const [authTopic, setAuthTopic] = useState<Topic | null>(null)
+  const [featuredChannels, setFeaturedChannels] = useState<ServerChannel[]>([])
+  const [featuredChannelsLoading, setFeaturedChannelsLoading] = useState(mode === "landing")
   const [view, setView] = useState<AppView>("chat")
   const [notificationDeviceState, setNotificationDeviceState] = useState<NotificationDeviceState>(initialNotificationDeviceState())
   const [notificationSavingIds, setNotificationSavingIds] = useState<Set<string>>(new Set())
@@ -289,8 +290,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   })
 
   const {
-    applyChannelDirectory,
-    beginChannelDirectoryRequest,
     cancelChannelDirectory,
     channelDirectory,
     joinDirectoryChannel,
@@ -434,6 +433,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }, [])
 
   useEffect(() => {
+    if (mode === "landing") return
+
     apiClient
       .topics()
       .then(({topics}) => {
@@ -448,7 +449,35 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         setTopics([])
         setTopicsLoaded(true)
       })
-  }, [apiClient])
+  }, [apiClient, mode])
+
+  useEffect(() => {
+    if (mode !== "landing") return
+
+    let active = true
+    setFeaturedChannelsLoading(true)
+
+    apiClient
+      .featuredChannels()
+      .then(({server_channels}) => {
+        if (!active) return
+        if (!Array.isArray(server_channels) || !server_channels.every(validServerChannel)) {
+          throw new Error("invalid featured channels payload")
+        }
+
+        setFeaturedChannels(server_channels)
+      })
+      .catch(() => {
+        if (active) setFeaturedChannels([])
+      })
+      .finally(() => {
+        if (active) setFeaturedChannelsLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [apiClient, mode])
 
   useEffect(() => {
     if (!currentUser || mode === "landing" || !topicsLoaded || !requestedTopicIdRef.current) return
@@ -538,10 +567,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       return
     }
 
-    if (!currentUser) {
-      setAuthTopic(topic)
-      return
-    }
+    if (!currentUser) return
 
     joinTopic(topic)
   }
@@ -560,14 +586,18 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
         return
       }
 
-      const directoryRequestId = body.toLowerCase() === "/list" ? beginChannelDirectoryRequest() : null
+      if (body.toLowerCase() === "/list") {
+        setComposerError(null)
+        setDraft("")
+        await openChannelDirectory(activeChannel?.connection || activeServer)
+        return
+      }
+
       const commandId = globalThis.crypto?.randomUUID?.() || `command-${Date.now()}`
       setComposerError(null)
 
       try {
-        const reply = await realtimeClientRef.current.push<{
-          directory?: ChannelDirectory
-        } | (DirectMessageThreadPayload & {message: unknown})>("command:run", {
+        const reply = await realtimeClientRef.current.push<DirectMessageThreadPayload & {message: unknown}>("command:run", {
           command_id: commandId,
           input: body,
           buffer_id: bufferId,
@@ -578,9 +608,6 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
           if (!expectedBody || !openDirectMessage(reply, reply.message, expectedBody)) {
             throw new Error("invalid_direct_message_reply")
           }
-        }
-        if ("directory" in reply && reply.directory) {
-          applyChannelDirectory(reply.directory, directoryRequestId ?? undefined)
         }
         setDraft("")
       } catch (error: unknown) {
@@ -1071,6 +1098,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       setActiveChannelId(preferredBuffer.activeChannelId)
       setActiveServerId(preferredBuffer.activeServerId)
       setView(preferredBuffer.view)
+    } else if (state.connections.length === 0) {
+      setActiveChannelId(null)
+      setActiveServerId(null)
+      setView("discover")
     } else {
       if (state.activeChannelId) setActiveChannelId(state.activeChannelId)
       if (state.activeServerId) setActiveServerId(state.activeServerId)
@@ -1146,11 +1177,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return (
       <LandingPage
         currentUser={currentUser}
-        topics={topics}
-        developerOauth={developerOauth}
-        selectedTopic={authTopic}
-        onSelectTopic={selectTopic}
-        onCloseAuth={() => setAuthTopic(null)}
+        featuredChannels={featuredChannels}
+        loading={featuredChannelsLoading}
       />
     )
   }
@@ -1159,11 +1187,8 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     return (
       <LandingPage
         currentUser={null}
-        topics={topics}
-        developerOauth={developerOauth}
-        selectedTopic={authTopic}
-        onSelectTopic={selectTopic}
-        onCloseAuth={() => setAuthTopic(null)}
+        featuredChannels={featuredChannels}
+        loading={featuredChannelsLoading}
       />
     )
   }

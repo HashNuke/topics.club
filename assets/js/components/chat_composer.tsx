@@ -114,7 +114,7 @@ export default function ChatComposer({
 
   return (
     <form
-      className="relative border-t border-slate-800/80 bg-[#0f131b] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:p-4"
+      className="relative border-t border-slate-800/80 bg-[var(--app-sidebar)] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:p-4"
       onSubmit={onSendMessage}
     >
       {error && (
@@ -129,7 +129,7 @@ export default function ChatComposer({
             id={suggestionListId}
             aria-label="Slash command suggestions"
             style={{maxHeight: suggestionMaxHeight}}
-            className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-slate-700 bg-[#121722] p-1 shadow-2xl shadow-black/40"
+            className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-slate-700 bg-[var(--app-panel)] p-1 shadow-2xl shadow-black/40"
           >
             {suggestions.map((command, index) => (
               <button

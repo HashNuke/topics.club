@@ -50,6 +50,7 @@ defmodule IrcpipeWeb.Router do
   scope "/api", IrcpipeWeb.Api do
     pipe_through :api
 
+    get "/discovery/featured_channels", DiscoveryController, :featured
     get "/topics", TopicController, :index
   end
 

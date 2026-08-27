@@ -10,6 +10,11 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
     json(conn, %{server_channels: Enum.map(server_channels, &server_channel_json/1)})
   end
 
+  def featured(conn, _params) do
+    server_channels = Discovery.list_featured_server_channels()
+    json(conn, %{server_channels: Enum.map(server_channels, &server_channel_json/1)})
+  end
+
   def join(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
     server_channel = Discovery.get_server_channel!(id)

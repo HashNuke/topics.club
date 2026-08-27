@@ -134,6 +134,12 @@ export default function useChannelDirectory({
       ) return
       applyChannelDirectory(reply.directory, requestId)
     } catch (error: unknown) {
+      if (
+        requestId !== requestRef.current ||
+        viewRef.current !== "directory" ||
+        activeServerIdRef.current !== server.id
+      ) return
+
       setChannelDirectory((current) =>
         current.serverId === server.id
           ? {

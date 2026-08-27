@@ -1,4 +1,5 @@
 import React from "react"
+import {InlineLoader} from "generative-loaders"
 import type {ChannelDirectoryEntry} from "../types.ts"
 import type {ChannelDirectoryState} from "../hooks/use_channel_directory.ts"
 
@@ -12,17 +13,25 @@ interface ChannelDirectoryResultsProps {
 export default function ChannelDirectoryResults({channels, directory, onJoinChannel, serverName}: ChannelDirectoryResultsProps) {
   if (directory?.status === "loading") {
     return (
-      <div className="overflow-hidden rounded-lg border border-slate-800 bg-[#10151e]" aria-label={`Loading channels from ${serverName || "the server"}`} aria-live="polite" role="status">
-        <span className="sr-only">Asking {serverName || "the server"} for its public channels.</span>
-        {[0, 1, 2].map((row) => (
-          <div key={row} className="grid animate-pulse gap-3 border-b border-slate-800/90 px-4 py-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_5rem]">
-            <div>
-              <div className="h-3 w-28 rounded bg-slate-700/80" />
-              <div className="mt-3 h-2.5 w-3/5 rounded bg-slate-800" />
-            </div>
-            <div className="h-9 rounded-md bg-slate-800" />
+      <div
+        className="overflow-hidden rounded-lg border border-cyan-300/15 bg-[var(--app-panel)]"
+        aria-label={`Loading channels from ${serverName || "the server"}`}
+        aria-live="polite"
+        role="status"
+      >
+        <div className="flex min-h-48 items-center justify-center px-5 py-10 text-center">
+          <div className="max-w-md">
+            <span className="mx-auto inline-flex size-11 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/8 text-cyan-200 shadow-[0_0_28px_rgba(103,232,249,0.08)]">
+              <InlineLoader variant="signal" size="1.35rem" color="currentColor" />
+            </span>
+            <p className="mt-4 text-sm font-semibold text-slate-100">
+              Asking {serverName || "the server"} for its channel list
+            </p>
+            <p className="mt-1.5 text-sm leading-6 text-slate-400">
+              Large IRC networks can take a few seconds to send the complete list. You can keep browsing as soon as it arrives.
+            </p>
           </div>
-        ))}
+        </div>
       </div>
     )
   }
@@ -40,7 +49,7 @@ export default function ChannelDirectoryResults({channels, directory, onJoinChan
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-800 bg-[#10151e]">
+    <div className="overflow-hidden rounded-lg border border-slate-800 bg-[var(--app-panel)]">
       <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" aria-live="polite" role="status">
         <span>{channels.length} {channels.length === 1 ? "channel" : "channels"}</span>
         <span>Join a channel</span>

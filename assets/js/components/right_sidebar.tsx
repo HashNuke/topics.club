@@ -24,7 +24,7 @@ export default function RightSidebar({activeChannel, users, mobile = false, onSe
 
   return (
     <aside className={[
-      "min-h-0 border-l border-slate-800/80 bg-[#0f131b]",
+      "min-h-0 border-l border-slate-800/80 bg-[var(--app-sidebar)]",
       mobile ? "block min-h-0 flex-1 border-l-0" : "hidden lg:block",
     ].join(" ")} aria-label="People here">
       <div className="border-b border-slate-800/80 px-4 py-4">
@@ -51,7 +51,7 @@ function DirectMessagePeerSidebar({activeChannel, mobile, onSetBlocked}: {active
 
   return (
     <aside className={[
-      "min-h-0 border-l border-slate-800/80 bg-[#0f131b]",
+      "min-h-0 border-l border-slate-800/80 bg-[var(--app-sidebar)]",
       mobile ? "block min-h-0 flex-1 border-l-0" : "hidden lg:block",
     ].join(" ")} aria-label={`About ${activeChannel.channel}`}>
       <div className="border-b border-slate-800/80 px-4 py-4">

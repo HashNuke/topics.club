@@ -101,7 +101,9 @@ describe("sidebar action menus", () => {
 
     const sidebar = screen.getByTestId("scrolling-sidebar")
     expect(sidebar).not.toContainElement(screen.getByRole("menu"))
-    expect(document.body).toContainElement(screen.getByRole("menu"))
+    const menu = screen.getByRole("menu")
+    expect(document.body).toContainElement(menu)
+    expect(menu).toHaveClass("z-[60]")
   })
 
   test("does not steal focus again when an open menu rerenders", async () => {

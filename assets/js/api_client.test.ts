@@ -48,6 +48,18 @@ describe("api client", () => {
     )
   })
 
+  test("loads public featured channels from the discovery catalog", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({server_channels: []})})
+    const api = createApiClient({fetchImpl})
+
+    await expect(api.featuredChannels()).resolves.toEqual({server_channels: []})
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/discovery/featured_channels",
+      expect.objectContaining({credentials: "same-origin"})
+    )
+  })
+
   test("updates a server connection", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({connection: {id: 42}})})
     const api = createApiClient({csrfToken: "csrf", fetchImpl})

@@ -48,7 +48,7 @@ export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin}:
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
-      <form aria-label="Join another server" className="w-full max-w-md rounded-lg border border-slate-700 bg-[#101620] p-5 shadow-2xl" onSubmit={submit} role="dialog">
+      <form aria-label="Join another server" className="w-full max-w-md rounded-lg border border-slate-700 bg-[var(--app-panel)] p-5 shadow-2xl" onSubmit={submit} role="dialog">
         <DialogHeader title="Join another server" description="Specify connection details to connect to a new server." onClose={onClose} />
         <div className="mt-5 space-y-3">
           <LabeledInput id="server-host" label="Server" value={form.host} onChange={(host) => setForm({...form, host})} />
@@ -90,7 +90,7 @@ export function EditServerDialog({onClose, onSave, server}: {onClose: () => void
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
-      <form aria-label="Edit server" className="w-full max-w-md rounded-lg border border-slate-700 bg-[#101620] p-5 shadow-2xl" onSubmit={submit} role="dialog">
+      <form aria-label="Edit server" className="w-full max-w-md rounded-lg border border-slate-700 bg-[var(--app-panel)] p-5 shadow-2xl" onSubmit={submit} role="dialog">
         <DialogHeader title="Edit connection" description="Update the server details used for this connection." onClose={onClose} />
         <div className="mt-5 space-y-3">
           <LabeledInput id="edit-server-host" label="Server" value={form.host} onChange={(host) => setForm({...form, host})} />
@@ -109,7 +109,7 @@ export function EditServerDialog({onClose, onSave, server}: {onClose: () => void
 export function LeaveServerDialog({onClose, onConfirm, server}: {onClose: () => void; onConfirm: () => void; server: ServerConnection}) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
-      <section aria-label="Leave server" className="w-full max-w-sm rounded-lg border border-rose-900/70 bg-[#101620] p-5 shadow-2xl" role="dialog">
+      <section aria-label="Leave server" className="w-full max-w-sm rounded-lg border border-rose-900/70 bg-[var(--app-panel)] p-5 shadow-2xl" role="dialog">
         <DialogHeader title="Leave server" description={`Remove ${server.name} and its joined topics from this account.`} onClose={onClose} />
         <div className="mt-5 flex gap-3">
           <button type="button" className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300" onClick={onClose}>Cancel</button>

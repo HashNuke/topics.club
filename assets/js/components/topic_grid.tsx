@@ -8,7 +8,7 @@ interface TopicCardProps {
 
 export function TopicCard({onSelectTopic, topic}: TopicCardProps) {
   return (
-    <button className="group rounded-lg border border-slate-800 bg-[#121722] p-3 text-left transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-[#161d2a]" onClick={() => onSelectTopic(topic)} type="button">
+    <button className="group rounded-lg border border-slate-800 bg-[var(--app-panel)] p-3 text-left transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-[var(--app-panel-hover)]" onClick={() => onSelectTopic(topic)} type="button">
       <div className="break-words text-lg font-semibold tracking-tight text-white">{topic.channel}</div>
       <div className="mt-0.5 truncate text-xs text-slate-500">on {topic.server_host}</div>
       <p className="mt-3 min-h-10 text-sm leading-5 text-slate-400">{topic.description}</p>

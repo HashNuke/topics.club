@@ -2,6 +2,8 @@
    https://tailwindcss.com/docs/configuration */
 
 @import "tailwindcss" source(none);
+@import "generative-loaders/styles.css";
+@import "./theme.css";
 @source "../css";
 @source "../js";
 @source "../../lib/ircpipe_web";
@@ -26,18 +28,18 @@
   default: false;
   prefersdark: true;
   color-scheme: "dark";
-  --color-base-100: oklch(30.33% 0.016 252.42);
-  --color-base-200: oklch(25.26% 0.014 253.1);
-  --color-base-300: oklch(20.15% 0.012 254.09);
-  --color-base-content: oklch(97.807% 0.029 256.847);
-  --color-primary: oklch(58% 0.233 277.117);
-  --color-primary-content: oklch(96% 0.018 272.314);
-  --color-secondary: oklch(58% 0.233 277.117);
-  --color-secondary-content: oklch(96% 0.018 272.314);
-  --color-accent: oklch(60% 0.25 292.717);
-  --color-accent-content: oklch(96% 0.016 293.756);
-  --color-neutral: oklch(37% 0.044 257.287);
-  --color-neutral-content: oklch(98% 0.003 247.858);
+  --color-base-100: #16161f;
+  --color-base-200: #111119;
+  --color-base-300: #0b0b11;
+  --color-base-content: #f4f2f7;
+  --color-primary: #b5a7ff;
+  --color-primary-content: #201a46;
+  --color-secondary: #d2caff;
+  --color-secondary-content: #201a46;
+  --color-accent: #79d9b4;
+  --color-accent-content: #102e26;
+  --color-neutral: #3a384b;
+  --color-neutral-content: #f4f2f7;
   --color-info: oklch(58% 0.158 241.966);
   --color-info-content: oklch(97% 0.013 236.62);
   --color-success: oklch(60% 0.118 184.704);
@@ -103,3 +105,25 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+html {
+  background: var(--app-canvas);
+}
+
+body {
+  min-width: 320px;
+  background: var(--app-canvas);
+  color: var(--color-slate-100);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-cyan-300) 28%, transparent);
+  color: white;
+}
+
+.app-scrollbar {
+  scrollbar-color: color-mix(in srgb, var(--color-slate-500) 38%, transparent) transparent;
+  scrollbar-width: thin;
+}

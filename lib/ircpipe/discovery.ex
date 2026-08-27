@@ -6,6 +6,7 @@ defmodule Ircpipe.Discovery do
 
   @channel_refresh_seconds :timer.hours(24) |> div(1_000)
   @network_refresh_seconds :timer.hours(24 * 7) |> div(1_000)
+  @featured_channel_names ~w(#ruby #python #linux #rust #javascript #ubuntu)
 
   def sync_networks(entries, refreshed_at) when is_list(entries) do
     Repo.transaction(fn ->
@@ -74,17 +75,50 @@ defmodule Ircpipe.Discovery do
     end)
   end
 
-  def list_popular_server_channels do
+  def list_popular_server_channels(opts \\ []) do
+    limit = Keyword.get(opts, :limit)
+
     ServerChannel
-    |> join(:inner, [server_channel], network in assoc(server_channel, :network))
-    |> where([_server_channel, network], network.active)
+    |> active_server_channels_query()
     |> order_by([server_channel, network],
       desc: server_channel.user_count,
       asc: network.rank,
       asc: server_channel.name
     )
-    |> preload([_server_channel, network], network: network)
+    |> maybe_limit(limit)
     |> Repo.all()
+  end
+
+  def list_featured_server_channels(limit \\ 6) when is_integer(limit) and limit > 0 do
+    candidates =
+      ServerChannel
+      |> active_server_channels_query()
+      |> where(
+        [server_channel, _network],
+        fragment("lower(?)", server_channel.name) in ^@featured_channel_names
+      )
+      |> order_by([server_channel, network],
+        desc: server_channel.user_count,
+        asc: network.rank
+      )
+      |> Repo.all()
+
+    featured =
+      Enum.flat_map(@featured_channel_names, fn name ->
+        case Enum.find(candidates, &(String.downcase(&1.name) == name)) do
+          nil -> []
+          channel -> [channel]
+        end
+      end)
+
+    selected_names = MapSet.new(featured, &String.downcase(&1.name))
+
+    fallback =
+      list_popular_server_channels(limit: limit * 4)
+      |> Enum.reject(&MapSet.member?(selected_names, String.downcase(&1.name)))
+      |> Enum.uniq_by(&String.downcase(&1.name))
+
+    Enum.take(featured ++ fallback, limit)
   end
 
   def get_server_channel!(id) do
@@ -129,6 +163,16 @@ defmodule Ircpipe.Discovery do
     |> Ecto.Changeset.change(last_refresh_error: inspect(reason))
     |> Repo.update()
   end
+
+  defp active_server_channels_query(query) do
+    query
+    |> join(:inner, [server_channel], network in assoc(server_channel, :network))
+    |> where([_server_channel, network], network.active)
+    |> preload([_server_channel, network], network: network)
+  end
+
+  defp maybe_limit(query, nil), do: query
+  defp maybe_limit(query, limit), do: limit(query, ^limit)
 
   defp sanitize_irc_text(nil), do: nil
   defp sanitize_irc_text(value) when is_binary(value), do: String.replace_invalid(value, "�")

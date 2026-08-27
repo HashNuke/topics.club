@@ -41,7 +41,7 @@ export default function TopBar({activeChannel, activeServer, connectionHealth, n
   const copy = topBarCopyFor({activeChannel, activeServer, view})
   const subtitleRepeatsDesktopContext = copy.context !== null && copy.subtitle === copy.context
   return (
-    <header className="flex h-14 items-center justify-between border-b border-slate-800/80 bg-[#0d1118] px-4">
+    <header className="flex h-14 items-center justify-between border-b border-white/6 bg-[var(--app-header)] px-4">
       <div className="flex min-w-0 items-center gap-3">
         <button className="grid size-9 place-items-center rounded-md border border-slate-700 text-slate-300 transition hover:border-cyan-300 hover:text-white lg:hidden" onClick={onOpenMobileMenu} aria-label="Show channels" type="button"><span className="hero-bars-3 size-5" aria-hidden="true" /></button>
         <div className="min-w-0">

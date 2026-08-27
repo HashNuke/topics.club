@@ -45,7 +45,7 @@ export default function NotificationBell({compact = false, id, loading = false, 
             state.kind === "enabled" ? "hero-bell" : state.kind === "disabled" || unavailable ? "hero-bell-slash" : "hero-bell-alert",
             compact ? "size-3.5" : "size-4",
           ].join(" ")} aria-hidden="true" />}
-        {state.kind === "available" && !loading && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-cyan-300 ring-2 ring-[#0d1118]" aria-hidden="true" />}
+        {state.kind === "available" && !loading && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-cyan-300 ring-2 ring-[var(--app-header)]" aria-hidden="true" />}
         {unavailable && !loading && <span className="hero-lock-closed absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-slate-950 text-slate-500" aria-hidden="true" />}
       </button>
       <span

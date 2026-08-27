@@ -1,0 +1,47 @@
+@theme {
+  --color-slate-50: #fbfaff;
+  --color-slate-100: #f4f2f7;
+  --color-slate-200: #e4e1e9;
+  --color-slate-300: #cec9d6;
+  --color-slate-400: #aaa5b7;
+  --color-slate-500: #837e92;
+  --color-slate-600: #5c586d;
+  --color-slate-700: #3a384b;
+  --color-slate-800: #252433;
+  --color-slate-900: #171720;
+  --color-slate-950: #0d0d13;
+
+  --color-cyan-100: #e9e5ff;
+  --color-cyan-200: #d2caff;
+  --color-cyan-300: #b5a7ff;
+  --color-cyan-400: #9b88ff;
+  --color-cyan-950: #201a46;
+
+  --color-emerald-200: #a9ead0;
+  --color-emerald-300: #79d9b4;
+  --color-emerald-400: #54c79d;
+  --color-emerald-950: #102e26;
+
+  --color-amber-50: #fff9e9;
+  --color-amber-100: #ffedbd;
+  --color-amber-200: #fbd98a;
+  --color-amber-300: #f2bd58;
+  --color-amber-950: #432b0c;
+
+  --color-rose-100: #ffe4e8;
+  --color-rose-200: #ffc6d0;
+  --color-rose-300: #f49aaa;
+  --color-rose-400: #ed7288;
+  --color-rose-900: #702637;
+  --color-rose-950: #421622;
+}
+
+:root {
+  --app-canvas: #0b0b11;
+  --app-sidebar: #111119;
+  --app-header: #0f0f16;
+  --app-panel: #16161f;
+  --app-panel-hover: #1b1a27;
+  --app-input: #0d0d14;
+  color-scheme: dark;
+}

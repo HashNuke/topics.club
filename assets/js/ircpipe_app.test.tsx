@@ -10,6 +10,12 @@ const topicFixtures = [
   {id: 103, name: "#linux", description: "Daily Linux discussion and troubleshooting.", server_host: "127.0.0.1", server_port: 6669, use_tls: false, channel: "#linux"},
 ]
 
+const featuredChannelFixtures = [
+  {id: 201, name: "#ruby", topic: "Ruby, Rails, gems, and the wider ecosystem.", user_count: 420, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true},
+  {id: 202, name: "#python", topic: "Python help, packaging, and community projects.", user_count: 1200, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true},
+  {id: 203, name: "#linux", topic: "Linux help, news, and daily driver talk.", user_count: 1800, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true},
+]
+
 const systemMessageKinds = new Set([
   "system",
   "command",
@@ -208,9 +214,14 @@ function canonicalPresenceDiff(diff, overrides = {}) {
 }
 
 function mockTopicsFetch() {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue({
-    ok: true,
-    json: async () => ({topics: topicFixtures}),
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input)
+    return {
+      ok: true,
+      json: async () => path === "/api/discovery/featured_channels"
+        ? {server_channels: featuredChannelFixtures}
+        : {topics: topicFixtures},
+    } as Response
   })
 }
 
@@ -878,26 +889,30 @@ describe("IrcpipeApp UI prototype", () => {
     )
   })
 
-  test("shows topic-first landing cards with channel and server labels", async () => {
+  test("shows featured discovery channels and one Google sign-in action", async () => {
     mockTopicsFetch()
 
     render(<IrcpipeApp currentUser={null} developerOauth={true} />)
 
-    expect(await screen.findByRole("heading", {name: "Community chat"})).toBeInTheDocument()
-    expect(await screen.findByRole("button", {name: /#elixir/i})).toHaveTextContent("on 127.0.0.1")
-    expect(screen.getByRole("link", {name: "Open chat"})).toHaveAttribute("href", "/chat")
-    expect(screen.getByRole("link", {name: "Developer OAuth"})).toHaveAttribute("href", "/auth/developer")
+    expect(await screen.findByRole("heading", {name: "Featured channels"})).toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "#ruby"})).toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "#python"})).toBeInTheDocument()
+    expect(screen.getByRole("heading", {name: "#linux"})).toBeInTheDocument()
+    expect(screen.getByRole("link", {name: "Continue with Google"})).toHaveAttribute("href", "/auth/google")
+    expect(screen.queryByRole("button", {name: /join/i})).not.toBeInTheDocument()
   })
 
-  test("rejects a malformed public topics response", async () => {
+  test("rejects a malformed public featured-channel response", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       json: async () => ({
-        topics: [{
+        server_channels: [{
           id: 101,
           name: "#broken",
-          channel: "#broken",
-          description: 42,
+          topic: 42,
+          user_count: 10,
+          network_id: 1,
+          network_name: "Example IRC",
           server_host: "irc.example.test",
           server_port: 6697,
           use_tls: true,
@@ -911,45 +926,29 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByText("#broken")).not.toBeInTheDocument()
   })
 
-  test("discards noncanonical presentation fields from public topics", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        topics: [{
-          id: 101,
-          name: "#safe",
-          channel: "#safe",
-          description: "Safe topic",
-          server_host: "irc.example.test",
-          server_port: 6697,
-          use_tls: true,
-          members: {},
-          vibe: {},
-        }],
+  test("opens Discover after bootstrap when a signed-in user has no IRC connections", async () => {
+    const apiClient = {
+      topics: vi.fn().mockResolvedValue({topics: []}),
+      bootstrap: vi.fn().mockResolvedValue({
+        user: {id: 1, email: "mira@example.com"},
+        push: {configured: false, vapid_public_key: null, session_generation: "empty-account", session_installation_id: null, session_registration_confirmed: false},
+        direct_message_tombstones: [],
+        connections: [],
+        buffers: [],
+        messages_by_buffer: {},
+        message_cursors_by_buffer: {},
+        users_by_buffer: {},
+        command_catalog: [],
+        topics: [],
       }),
-    })
+      discoveryServerChannels: vi.fn().mockResolvedValue({server_channels: featuredChannelFixtures}),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
 
-    render(<IrcpipeApp currentUser={null} developerOauth={true} />)
+    render(<IrcpipeApp apiClient={apiClient as any} currentUser={{id: 1, email: "mira@example.com"}} developerOauth={true} />)
 
-    const topic = await screen.findByRole("button", {name: /#safe/i})
-    expect(topic).toHaveTextContent("many online")
-  })
-
-  test("asks unauthenticated users to sign in before joining a topic", async () => {
-    const user = userEvent.setup()
-    mockTopicsFetch()
-
-    render(<IrcpipeApp currentUser={null} developerOauth={true} />)
-
-    await user.click(await screen.findByRole("button", {name: /#phoenix/i}))
-
-    const dialog = screen.getByRole("dialog", {name: "Sign in to join"})
-
-    expect(within(dialog).getByRole("heading", {name: "Sign in to join"})).toBeInTheDocument()
-    expect(within(dialog).getByRole("link", {name: "Developer OAuth"})).toHaveAttribute(
-      "href",
-      "/auth/developer?topic=102"
-    )
+    expect(await screen.findByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
+    expect(apiClient.discoveryServerChannels).toHaveBeenCalledOnce()
   })
 
   test("opens discover and joins a backend topic in the app shell", async () => {
@@ -4547,12 +4546,12 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.getByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
   })
 
-  test("does not reopen a directory after navigating away from a pending /list command", async () => {
+  test("does not reopen a directory after navigating away from a pending /list request", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
-    let resolveCommand
+    let resolveList
     const push = vi.fn((event) => {
-      if (event === "command:run") return new Promise((resolve) => { resolveCommand = resolve })
+      if (event === "server:list") return new Promise((resolve) => { resolveList = resolve })
       return Promise.resolve({ok: true})
     })
     const client = fakeRealtimeClient(push)
@@ -4573,10 +4572,10 @@ describe("IrcpipeApp UI prototype", () => {
     realtimeHandlers.onJoinOk()
     await user.type(screen.getByLabelText("Message composer"), "/list")
     await user.click(screen.getByRole("button", {name: "Send"}))
+    expect(screen.getByRole("status", {name: /Loading channels from local/i})).toBeInTheDocument()
     await user.click(screen.getByRole("button", {name: "local"}))
 
-    resolveCommand({
-      command: {name: "list", args: []},
+    resolveList({
       directory: {
         server_connection_id: 42,
         server_name: "local",
@@ -4592,18 +4591,9 @@ describe("IrcpipeApp UI prototype", () => {
   test("opens the active server directory from the /list command", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
+    let resolveList
     const push = vi.fn((event) => {
-      if (event === "command:run") {
-        return Promise.resolve({
-          command: {name: "list", args: []},
-          directory: {
-            server_connection_id: 42,
-            server_name: "local",
-            server_host: "127.0.0.1",
-            channels: [{channel: "#elixir", users: 42, topic: "Phoenix, OTP, and releases"}],
-          },
-        })
-      }
+      if (event === "server:list") return new Promise((resolve) => { resolveList = resolve })
 
       return Promise.resolve({ok: true})
     })
@@ -4627,12 +4617,22 @@ describe("IrcpipeApp UI prototype", () => {
     await user.type(screen.getByLabelText("Message composer"), "/list")
     await user.click(screen.getByRole("button", {name: "Send"}))
 
-    expect(push).toHaveBeenCalledWith(
-      "command:run",
-      expect.objectContaining({command_id: expect.any(String), input: "/list", buffer_id: "channel:7"})
-    )
-    expect(await screen.findByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
-    expect(screen.getByText("#elixir")).toBeInTheDocument()
+    expect(push).toHaveBeenCalledWith("server:list", {server_connection_id: 42})
+    expect(screen.getByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
+    expect(screen.getByRole("status", {name: /Loading channels from local/i})).toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "Refresh list"})).toBeDisabled()
+    expect(screen.queryByLabelText("Message composer")).not.toBeInTheDocument()
+
+    resolveList({
+      directory: {
+        server_connection_id: 42,
+        server_name: "local",
+        server_host: "127.0.0.1",
+        channels: [{channel: "#elixir", users: 42, topic: "Phoenix, OTP, and releases"}],
+      },
+    })
+
+    expect(await screen.findByText("#elixir")).toBeInTheDocument()
   })
 
   test("shows slash command suggestions from the chat composer", async () => {
@@ -4771,7 +4771,7 @@ describe("IrcpipeApp UI prototype", () => {
       />
     )
 
-    expect(await screen.findByRole("heading", {name: "Community chat"})).toBeInTheDocument()
+    expect(await screen.findByRole("heading", {name: "Featured channels"})).toBeInTheDocument()
     expect(screen.getByRole("link", {name: "Open chat"})).toHaveAttribute("href", "/chat")
     expect(screen.queryByRole("navigation", {name: "Joined topics"})).not.toBeInTheDocument()
   })

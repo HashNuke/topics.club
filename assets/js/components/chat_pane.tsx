@@ -34,7 +34,7 @@ export function ChatPane({activeChannel, commandCatalog, composerError, connecti
   const sendDisabled = isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
+    <section className="flex min-h-0 flex-1 flex-col bg-[var(--app-canvas)]">
       <div id="chat-scrollback" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-4xl space-y-1">
           <MessageTimeline loading={messagesLoading} messages={visibleMessages} onMentionNick={onMentionNick} onRetryMessage={onRetryMessage} />

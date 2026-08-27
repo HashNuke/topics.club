@@ -1,4 +1,6 @@
 @import "tailwindcss" source(none);
+@import "generative-loaders/styles.css";
+@import "./theme.css";
 @source "../js";
 
 @plugin "../vendor/heroicons";
@@ -7,5 +9,8 @@
 
 html,
 body {
-  background: #090b10;
+  background: var(--app-canvas);
+  color: var(--color-slate-100);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }

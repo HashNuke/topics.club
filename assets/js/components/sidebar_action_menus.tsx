@@ -126,7 +126,7 @@ function ActionMenu({ariaLabel, buttonClass, items}: {ariaLabel: string; buttonC
             style={floatingStyles}
             role="menu"
             aria-label={`${ariaLabel} menu`}
-            className="z-40 w-44 rounded-lg border border-slate-700 bg-[#121722] p-1 text-sm normal-case tracking-normal shadow-2xl shadow-black/40"
+            className="z-[60] w-44 rounded-lg border border-slate-700 bg-[var(--app-panel)] p-1 text-sm normal-case tracking-normal shadow-2xl shadow-black/40"
             onKeyDown={handleMenuKeyDown}
           >
             {items.map((item, index) => (
@@ -183,7 +183,7 @@ export function DirectMessageActionMenu({channel, onClose}: {channel: Channel; o
   return (
     <ActionMenu
       ariaLabel={`Private message actions for ${channel.channel}`}
-      buttonClass="grid size-7 place-items-center rounded-md text-slate-500 opacity-0 transition hover:bg-slate-700 hover:text-white focus:opacity-100 group-hover:opacity-100"
+      buttonClass="grid size-7 place-items-center rounded-md text-slate-500 opacity-100 transition hover:bg-slate-700 hover:text-white lg:opacity-0 lg:focus:opacity-100 lg:group-hover:opacity-100"
       items={[{label: "Close", action: onClose, danger: true}]}
     />
   )

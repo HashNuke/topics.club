@@ -81,8 +81,8 @@ export default function AppShell(props: AppShellProps) {
   const [mobileUsersOpen, setMobileUsersOpen] = useState(Boolean(props.initialMobileUsersOpen))
   const showsUserSidebar = props.view === "chat"
 
-  return <main className="min-h-dvh overflow-hidden bg-[#0a0d12] text-slate-100">
-    <div className={["grid h-dvh grid-cols-1", showsUserSidebar ? "lg:grid-cols-[260px_minmax(0,1fr)_220px]" : "lg:grid-cols-[260px_minmax(0,1fr)]"].join(" ")}>
+  return <main className="min-h-dvh overflow-hidden bg-[var(--app-canvas)] text-slate-100">
+    <div className={["grid h-dvh grid-cols-1", showsUserSidebar ? "lg:grid-cols-[232px_minmax(0,1fr)_220px] xl:grid-cols-[240px_minmax(0,1fr)_220px]" : "lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]"].join(" ")}>
       <LeftSidebar {...props} />
       <section className="flex min-h-0 min-w-0 flex-col">
         <TopBar {...props} showsUserSidebar={showsUserSidebar} onOpenMobileMenu={() => setMobileMenuOpen(true)} onOpenMobileUsers={() => setMobileUsersOpen(true)} />

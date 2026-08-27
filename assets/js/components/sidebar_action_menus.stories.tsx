@@ -30,7 +30,7 @@ function OpenScrollingSidebarStory() {
   }, [])
 
   return (
-    <div ref={sidebarRef} className="h-32 w-56 overflow-y-auto rounded-md border border-slate-800 bg-[#0f131b] p-3">
+    <div ref={sidebarRef} className="h-32 w-56 overflow-y-auto rounded-md border border-slate-800 bg-[var(--app-sidebar)] p-3">
       <div className="h-48 pt-20">
         <ChannelActionMenu channel={{id: "channel:1", buffer_type: "channel", channel_membership_id: 1, channel: "#elixir", mention_notifications_enabled: true, notification_preference_revision: 0}} onCopyChannel={() => {}} onLeaveChannel={() => {}} onMarkRead={() => {}} />
       </div>

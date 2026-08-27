@@ -3,7 +3,7 @@ import NotificationBell from "./notification_bell.tsx"
 export default {
   title: "Notifications/NotificationBell",
   component: NotificationBell,
-  decorators: [(Story: React.ComponentType) => <div className="flex min-h-32 min-w-80 items-start justify-end bg-[#0d1118] p-8"><Story /></div>],
+  decorators: [(Story: React.ComponentType) => <div className="flex min-h-32 min-w-80 items-start justify-end bg-[var(--app-header)] p-8"><Story /></div>],
   args: {id: "story-notification-bell", scopeLabel: "#elixir", onToggle: () => {}},
 }
 

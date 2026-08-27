@@ -4,7 +4,7 @@ export function MobileDrawer({children, onClose, side}: {children: ReactNode; on
   return (
     <div className="fixed inset-0 z-50 lg:hidden">
       <button className="absolute inset-0 bg-black/70" onClick={onClose} aria-label="Close sidebar" type="button" />
-      <div className={["absolute top-0 flex h-full w-[min(20rem,88vw)] flex-col bg-[#0f131b] shadow-2xl", side === "right" ? "right-0" : "left-0"].join(" ")}>
+      <div className={["absolute top-0 flex h-full w-[min(20rem,88vw)] flex-col bg-[var(--app-sidebar)] shadow-2xl shadow-black/50", side === "right" ? "right-0" : "left-0"].join(" ")}>
         {children}
       </div>
     </div>

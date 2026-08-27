@@ -1,4 +1,5 @@
 import React, {useMemo, useState} from "react"
+import DiscoveryChannelCard from "./discovery_channel_card.tsx"
 import type {ServerChannel, ServerConnection} from "../types.ts"
 
 type DiscoverTab = "all" | "server"
@@ -34,29 +35,6 @@ function refreshedLabel(serverChannels: ServerChannel[]): string | null {
   return `Updated ${date.toLocaleDateString(undefined, {month: "short", day: "numeric"})}`
 }
 
-function ChannelCard({serverChannel, joining, onJoin}: {serverChannel: ServerChannel; joining: boolean; onJoin: () => void}) {
-  return (
-    <article data-testid="discover-channel" className="group flex min-h-44 flex-col rounded-2xl border border-white/8 bg-[#111722] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.18)] transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/45 hover:bg-[#141c29]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate text-lg font-semibold tracking-tight text-white">{serverChannel.name}</h3>
-          <p className="mt-1 truncate text-xs font-medium text-slate-500">{serverChannel.network_name} · {serverChannel.server_host}</p>
-        </div>
-        <div className="shrink-0 rounded-full border border-emerald-300/15 bg-emerald-300/8 px-2.5 py-1 text-xs font-semibold tabular-nums text-emerald-200">
-          {formatUsers(serverChannel.user_count)} online
-        </div>
-      </div>
-      <p className="mt-4 line-clamp-2 min-h-10 text-sm leading-5 text-slate-400">{serverChannel.topic || "A public IRC channel open for conversation."}</p>
-      <div className="mt-auto flex items-end justify-between gap-3 pt-4">
-        <span className="text-[11px] text-slate-600">{serverChannel.use_tls ? "Secure connection" : `Port ${serverChannel.server_port}`}</span>
-        <button type="button" disabled={joining} aria-label={`Join ${serverChannel.name} on ${serverChannel.network_name}`} onClick={onJoin} className="rounded-lg bg-cyan-300 px-3 py-2 text-xs font-bold text-cyan-950 transition hover:bg-cyan-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-wait disabled:opacity-60">
-          {joining ? "Joining…" : "Join channel"}
-        </button>
-      </div>
-    </article>
-  )
-}
-
 export default function DiscoverPane({activeServer, serverChannels, error, initialTab = "all", joiningServerChannelId, loading = false, onJoinServerChannel, onJoinThisServer, pageSize = 12}: DiscoverPaneProps) {
   const [tab, setTab] = useState<DiscoverTab>(initialTab === "server" && !activeServer ? "all" : initialTab)
   const [page, setPage] = useState(1)
@@ -88,15 +66,15 @@ export default function DiscoverPane({activeServer, serverChannels, error, initi
   }
 
   return (
-    <section className="relative min-h-0 flex-1 overflow-y-auto bg-[#090b10] px-4 py-6 sm:px-7 sm:py-8">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_28%_0%,rgba(34,211,238,0.09),transparent_55%)]" />
+    <section className="relative min-h-0 flex-1 overflow-y-auto bg-[var(--app-canvas)] px-4 py-6 sm:px-7 sm:py-8">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_28%_0%,rgba(181,167,255,0.1),transparent_55%)]" />
       <div className="relative mx-auto max-w-6xl">
         <header className="max-w-2xl">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
-            <span className="size-1.5 rounded-full bg-cyan-300" /> Live IRC directory
+            <span className="hero-globe-alt size-3.5" aria-hidden="true" /> IRC directory
           </div>
           <h1 className="text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">Find your next conversation.</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-400 sm:text-base">Browse public channels ranked by the people already talking, or jump straight into a channel on your current server.</p>
+          <p className="mt-3 text-sm leading-6 text-slate-400 sm:text-base">Browse public channels ordered by recent directory activity, or jump straight into a channel on your current server.</p>
         </header>
 
         <div className="mt-7 flex border-b border-white/8" role="tablist" aria-label="Discover channels">
@@ -108,7 +86,7 @@ export default function DiscoverPane({activeServer, serverChannels, error, initi
           <form role="form" aria-label={`Join a channel on ${serverLabel || "this server"}`} onSubmit={submitManualChannel} className="mt-6 rounded-2xl border border-white/8 bg-white/[0.025] p-4 sm:flex sm:items-end sm:gap-3 sm:p-5">
             <label className="block min-w-0 flex-1 text-xs font-semibold text-slate-300">
               Channel name
-              <input value={manualChannel} disabled={!activeServer} onChange={(event) => setManualChannel(event.target.value)} placeholder="#channel" className="mt-2 w-full rounded-xl border border-white/10 bg-[#0c111a] px-3.5 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-50" />
+              <input value={manualChannel} disabled={!activeServer} onChange={(event) => setManualChannel(event.target.value)} placeholder="#channel" className="mt-2 w-full rounded-xl border border-white/10 bg-[var(--app-input)] px-3.5 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-50" />
             </label>
             <button type="submit" disabled={!activeServer || !manualChannel.trim()} className="mt-3 w-full rounded-xl bg-cyan-300 px-5 py-3 text-sm font-bold text-cyan-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-40 sm:mt-0 sm:w-auto">Join channel</button>
           </form>
@@ -127,7 +105,7 @@ export default function DiscoverPane({activeServer, serverChannels, error, initi
           <div aria-label="Loading channel directory" className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{Array.from({length: 6}, (_, index) => <div key={index} className="h-44 animate-pulse rounded-2xl border border-white/6 bg-white/[0.035]" />)}</div>
         ) : paginatedChannels.length ? (
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {paginatedChannels.map((serverChannel) => <ChannelCard key={serverChannel.id} serverChannel={serverChannel} joining={String(joiningServerChannelId) === String(serverChannel.id)} onJoin={() => onJoinServerChannel(serverChannel)} />)}
+            {paginatedChannels.map((serverChannel) => <DiscoveryChannelCard key={serverChannel.id} serverChannel={serverChannel} joining={String(joiningServerChannelId) === String(serverChannel.id)} onJoin={() => onJoinServerChannel(serverChannel)} />)}
           </div>
         ) : (
           <div className="mt-5 rounded-2xl border border-dashed border-white/10 px-6 py-14 text-center">

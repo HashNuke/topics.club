@@ -35,7 +35,7 @@ defmodule IrcpipeWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="border-b border-slate-800 bg-[#0d1118] px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
+    <header class="border-b border-slate-800 bg-[var(--app-header)] px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
       <div class="mx-auto flex max-w-5xl items-center justify-between gap-4">
         <a href="/" class="text-base font-semibold tracking-tight">topics.club</a>
         <nav class="flex items-center gap-2 text-sm text-slate-300" aria-label="Account">
@@ -56,7 +56,7 @@ defmodule IrcpipeWeb.Layouts do
       </div>
     </header>
 
-    <main class="min-h-[calc(100vh-65px)] bg-[#0a0d12] px-4 py-12 text-slate-100 sm:px-6 lg:px-8">
+    <main class="min-h-[calc(100vh-65px)] bg-[var(--app-canvas)] px-4 py-12 text-slate-100 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-2xl space-y-4">
         {render_slot(@inner_block)}
       </div>

@@ -33,10 +33,10 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
   if (!server) return null
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-[#090b10]">
+    <section className="flex min-h-0 flex-1 flex-col bg-[var(--app-canvas)]">
       <div id="server-scrollback" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-4 rounded-lg border border-slate-800 bg-[#121722] p-4">
+          <div className="mb-4 rounded-lg border border-slate-800 bg-[var(--app-panel)] p-4">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Server buffer</div>
             <h2 className="mt-2 text-xl font-semibold tracking-tight">{server.host}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">

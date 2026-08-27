@@ -60,6 +60,7 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch}: ApiCl
     bootstrap: () => request<BootstrapPayload>("/api/bootstrap"),
     activity: () => request<Record<string, unknown>>("/api/activity", {method: "POST", body: JSON.stringify({})}),
     topics: () => request<{topics: TopicInput[]}>("/api/topics"),
+    featuredChannels: () => request<{server_channels: ServerChannel[]}>("/api/discovery/featured_channels"),
     joinTopic: (topicId: EntityId) => request<{connection: BackendConnection; buffer: ChannelBufferRecord; topic?: TopicInput}>(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
     discoveryServerChannels: () => request<{server_channels: ServerChannel[]}>("/api/discovery/server_channels"),
     joinDiscoveryServerChannel: (serverChannelId: EntityId) => request<JoinedTopicPayload>(`/api/discovery/server_channels/${serverChannelId}/join`, {method: "POST", body: JSON.stringify({})}),
