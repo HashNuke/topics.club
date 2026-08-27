@@ -6,7 +6,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ircpipe.Accounts.User
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat.{ChannelJoinRequest, Connections, ServerConnection}
+  alias Ircpipe.Chat.{ChannelJoinRequest, ConnectionEndpoint, Connections, ServerConnection}
   alias Ircpipe.Repo
 
   test "concurrent endpoint discovery serializes equivalent port representations" do
@@ -42,7 +42,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
             :ok = Sandbox.checkout(Repo, sandbox: false)
 
             try do
-              Connections.create_or_get(user, %{
+              ConnectionEndpoint.create_or_get(user, %{
                 "name" => "discovery-#{attempt}",
                 "host" => " IRC.Concurrent.Test ",
                 "port" => port
