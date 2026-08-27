@@ -10,6 +10,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MessageHistory
@@ -289,7 +290,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       })
 
     assert {:ok, %{thread: thread}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -372,7 +373,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       })
 
     assert {:ok, %{thread: original}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "alpha",
                "alpha",
@@ -382,7 +383,7 @@ defmodule IrcpipeWeb.UserChannelTest do
              )
 
     assert {:ok, %{thread: displaced}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "beta",
                "beta",

@@ -8,6 +8,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
+  alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageSender
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MembershipReconciler
@@ -1311,7 +1312,7 @@ defmodule Ircpipe.Irc.Session do
 
               direct_messages
             else
-              case Chat.record_direct_message(
+              case DirectMessageIngestion.record(
                      current_state.connection,
                      target,
                      current_state.connection.nickname,
@@ -1514,7 +1515,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp record_direct_received_line(connection, peer_nick, nick, body, kind, metadata, casemapping) do
-    Chat.record_direct_message(connection, peer_nick, nick, body, kind, metadata, casemapping)
+    DirectMessageIngestion.record(connection, peer_nick, nick, body, kind, metadata, casemapping)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}

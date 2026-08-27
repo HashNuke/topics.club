@@ -7,6 +7,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.Notification
 
@@ -393,7 +394,7 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     assert {:ok, %{thread: thread, message: message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -428,7 +429,7 @@ defmodule Ircpipe.NotificationsTest do
     message_count = Repo.aggregate(Ircpipe.Chat.Message, :count)
 
     assert {:ok, %{message: nil, notify?: false, dropped?: true}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash_",
                "akash_",
@@ -458,7 +459,7 @@ defmodule Ircpipe.NotificationsTest do
     mention_notification = mention_notification(connection, membership)
 
     assert {:ok, %{message: direct_message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -632,7 +633,7 @@ defmodule Ircpipe.NotificationsTest do
     generation = UserToken.session_token_fingerprint(session_token)
 
     assert {:ok, %{thread: thread, message: close_message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -660,7 +661,7 @@ defmodule Ircpipe.NotificationsTest do
            )
 
     assert {:ok, %{thread: reopened, message: block_message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -711,7 +712,7 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     assert {:ok, %{thread: thread, message: first}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -727,7 +728,7 @@ defmodule Ircpipe.NotificationsTest do
              Delivery.deliver(first_notification.id)
 
     assert {:ok, %{message: second}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -759,7 +760,7 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     assert {:ok, %{thread: thread, message: message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",

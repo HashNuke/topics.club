@@ -5,6 +5,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.{Session, SessionSupervisor}
@@ -247,7 +248,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
       })
 
     assert {:ok, %{thread: thread, message: message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",

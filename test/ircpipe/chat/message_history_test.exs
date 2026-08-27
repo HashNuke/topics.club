@@ -4,6 +4,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.{Message, MessageHistory}
   alias Ircpipe.Repo
 
@@ -185,7 +186,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
     assert {:ok, _server_message} = Chat.record_server_message(context.connection, "server body")
 
     assert {:ok, %{thread: thread}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                context.connection,
                "akash",
                "akash",

@@ -5,6 +5,7 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.{DirectMessageThread, MessageHistory, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
@@ -286,7 +287,7 @@ defmodule Ircpipe.Irc.SessionTest do
     body = "private message delayed past the pending cap"
 
     assert {:ok, %{thread: original_thread}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "mira",

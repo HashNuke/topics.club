@@ -4,6 +4,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.DirectMessageSender
@@ -58,7 +59,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, %{thread: thread, message: message, notify?: false}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                connection.nickname,
@@ -94,7 +95,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:ok, _thread} = DirectMessageLifecycle.close(scope, thread.id)
 
     assert {:ok, %{thread: reopened, message: message, notify?: true}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -154,7 +155,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert thread_id == thread.id
 
     assert {:ok, %{thread: reopened}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -254,7 +255,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, %{thread: thread}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                "akash",
@@ -282,7 +283,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     message_count = Repo.aggregate(Message, :count)
 
     assert {:ok, %{thread: renamed, message: nil, notify?: false, dropped?: true}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash_",
                "akash_",
@@ -310,7 +311,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     connection: connection
   } do
     assert {:ok, %{thread: thread}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "guest",
                "guest",
@@ -325,7 +326,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     message_count = Repo.aggregate(Message, :count)
 
     assert {:ok, %{thread: same_thread, message: nil, dropped?: true}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "renamed",
                "renamed",
@@ -345,7 +346,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     connection: connection
   } do
     assert {:ok, %{thread: blocked_thread}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "guest",
                "guest",
@@ -361,7 +362,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:ok, _blocked} = DirectMessageLifecycle.set_blocked(scope, blocked_thread.id, true)
 
     assert {:ok, %{thread: new_thread, message: message, dropped?: false}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "guest",
                "guest",
@@ -384,7 +385,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     connection: connection
   } do
     assert {:ok, %{thread: original}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "guest",
                "guest",
@@ -394,7 +395,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              )
 
     assert {:ok, %{thread: identified}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "renamed",
                "renamed",
@@ -418,7 +419,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, %{thread: account_a}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "alpha",
                "alpha",
@@ -428,7 +429,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              )
 
     assert {:ok, %{thread: account_b}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "beta",
                "beta",
@@ -468,7 +469,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              Delivery.deliver(delayed_notification.id)
 
     assert {:ok, %{thread: same_a, message: message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "beta",
                "beta",
@@ -488,7 +489,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     Chat.record_server_message(connection, "server line")
 
     assert {:ok, %{message: direct_message}} =
-             Chat.record_direct_message(
+             DirectMessageIngestion.record(
                connection,
                "akash",
                connection.nickname,
@@ -535,7 +536,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         connection = connection_fixture(user, "concurrent-block")
 
         {:ok, %{thread: thread}} =
-          Chat.record_direct_message(
+          DirectMessageIngestion.record(
             connection,
             "guest",
             "guest",
@@ -575,7 +576,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         send(test_pid, :ingestion_started)
 
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Chat.record_direct_message(
+          DirectMessageIngestion.record(
             connection,
             "renamed",
             "renamed",
@@ -693,7 +694,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         connection = connection_fixture(user, "concurrent-displacement")
 
         {:ok, %{thread: account_a}} =
-          Chat.record_direct_message(
+          DirectMessageIngestion.record(
             connection,
             "alpha",
             "alpha",
@@ -703,7 +704,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
           )
 
         {:ok, %{thread: account_b}} =
-          Chat.record_direct_message(
+          DirectMessageIngestion.record(
             connection,
             "beta",
             "beta",
