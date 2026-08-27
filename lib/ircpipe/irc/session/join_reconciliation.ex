@@ -2,6 +2,7 @@ defmodule Ircpipe.Irc.Session.JoinReconciliation do
   @moduledoc false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.Session.{CommandLifecycle, Targets}
   alias Ircxd.Client.Event
 
@@ -324,7 +325,7 @@ defmodule Ircpipe.Irc.Session.JoinReconciliation do
   end
 
   defp record_server_error(connection, body) do
-    Chat.record_server_message(connection, body, "error")
+    MessageIngestion.record_server(connection, body, "error")
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}

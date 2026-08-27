@@ -1,8 +1,8 @@
 defmodule Ircpipe.Irc.Session.InboundMessageRouting do
   @moduledoc false
 
-  alias Ircpipe.Chat
   alias Ircpipe.Chat.DirectMessageIngestion
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.EventFormatting
 
   alias Ircpipe.Irc.Session.{
@@ -66,7 +66,7 @@ defmodule Ircpipe.Irc.Session.InboundMessageRouting do
       |> Map.merge(%{direction: "outgoing", peer_nick: target, target: target})
 
     if channel = Targets.channel(state, target) do
-      Chat.record_inbound_message(
+      MessageIngestion.record_channel(
         state.connection,
         channel,
         nick,
@@ -95,7 +95,7 @@ defmodule Ircpipe.Irc.Session.InboundMessageRouting do
       |> Map.merge(%{direction: "incoming", peer_nick: nick, target: target})
 
     if channel = Targets.channel(state, target) do
-      Chat.record_inbound_message(
+      MessageIngestion.record_channel(
         state.connection,
         channel,
         nick,
@@ -136,7 +136,7 @@ defmodule Ircpipe.Irc.Session.InboundMessageRouting do
   end
 
   defp record_server_received_line(connection, body, kind, nick, metadata) do
-    Chat.record_server_message(connection, body, kind, nick, metadata)
+    MessageIngestion.record_server(connection, body, kind, nick, metadata)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}

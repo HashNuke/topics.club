@@ -7,6 +7,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
@@ -36,12 +37,12 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     {:ok, direct_message_thread} = DirectMessageLifecycle.open(user, connection, "Zed")
     {:ok, archived_membership} = Chat.join_channel(user, connection, "#archive")
-    Chat.record_inbound_message(connection, "#archive", "akash", "retained archive")
+    MessageIngestion.record_channel(connection, "#archive", "akash", "retained archive")
     {:ok, _archived_membership} = Chat.confirm_channel_left(connection, "#archive")
-    {:ok, server_message} = Chat.record_server_message(connection, "Connected to local")
+    {:ok, server_message} = MessageIngestion.record_server(connection, "Connected to local")
 
     {:ok, channel_message} =
-      Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
+      MessageIngestion.record_channel(connection, "#elixir", "akash", "hello mira")
 
     Presence.sync(connection, "#elixir", [
       %{nick: "mira", prefixes: ["@"], raw_source: "mira!user@example.test"},

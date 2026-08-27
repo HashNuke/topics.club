@@ -9,6 +9,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.Notification
 
   alias Ircpipe.Notifications.{
@@ -364,7 +365,12 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     assert {:ok, message} =
-             Chat.record_inbound_message(connection, membership.channel, "akash", "hello mira")
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "hello mira"
+             )
 
     notification = Repo.get_by!(Notification, message_id: message.id)
 
@@ -694,7 +700,12 @@ defmodule Ircpipe.NotificationsTest do
     membership: membership
   } do
     assert {:ok, message} =
-             Chat.record_inbound_message(connection, membership.channel, "akash", "hello room")
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "hello room"
+             )
 
     refute Repo.get_by(Notification, message_id: message.id)
     assert {:cancel, :notification_not_found} = Delivery.deliver(-1)
@@ -910,7 +921,7 @@ defmodule Ircpipe.NotificationsTest do
     membership: membership
   } do
     assert {:ok, message} =
-             Chat.record_inbound_message(
+             MessageIngestion.record_channel(
                connection,
                membership.channel,
                connection.nickname,
@@ -931,7 +942,7 @@ defmodule Ircpipe.NotificationsTest do
     membership: membership
   } do
     assert {:ok, substring} =
-             Chat.record_inbound_message(
+             MessageIngestion.record_channel(
                connection,
                membership.channel,
                "akash",
@@ -944,7 +955,7 @@ defmodule Ircpipe.NotificationsTest do
     refute substring.mentioned
 
     assert {:ok, punctuated} =
-             Chat.record_inbound_message(
+             MessageIngestion.record_channel(
                connection,
                membership.channel,
                "akash",
@@ -959,7 +970,7 @@ defmodule Ircpipe.NotificationsTest do
     bracket_connection = %{connection | nickname: "nick["}
 
     assert {:ok, mapped} =
-             Chat.record_inbound_message(
+             MessageIngestion.record_channel(
                bracket_connection,
                membership.channel,
                "akash",
@@ -988,12 +999,22 @@ defmodule Ircpipe.NotificationsTest do
     on_exit(fn -> restore_env(WebPush, previous_config) end)
 
     assert {:ok, ordinary} =
-             Chat.record_inbound_message(connection, membership.channel, "akash", "hello room")
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "hello room"
+             )
 
     refute_enqueued(worker: PushWorker)
 
     assert {:ok, mention} =
-             Chat.record_inbound_message(connection, membership.channel, "akash", "hello mira")
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "hello mira"
+             )
 
     notification = Repo.get_by!(Notification, message_id: mention.id)
     refute ordinary.mentioned
@@ -1035,7 +1056,7 @@ defmodule Ircpipe.NotificationsTest do
 
   defp mention_notification(connection, membership) do
     {:ok, message} =
-      Chat.record_inbound_message(connection, membership.channel, "akash", "mira: ping")
+      MessageIngestion.record_channel(connection, membership.channel, "akash", "mira: ping")
 
     Repo.get_by!(Notification, message_id: message.id)
   end

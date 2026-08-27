@@ -5,6 +5,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Notification
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Repo
 
   setup :register_and_log_in_user
@@ -86,7 +87,7 @@ defmodule IrcpipeWeb.Api.NotificationEligibilityControllerTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
-    {:ok, message} = Chat.record_inbound_message(connection, "#elixir", "akash", "mira: ping")
+    {:ok, message} = MessageIngestion.record_channel(connection, "#elixir", "akash", "mira: ping")
 
     {membership, Repo.get_by!(Notification, message_id: message.id)}
   end

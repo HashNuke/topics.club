@@ -7,6 +7,7 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
   alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.{DirectMessageThread, MessageHistory, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.Irc.Session.PendingEchoes
@@ -134,7 +135,7 @@ defmodule Ircpipe.Irc.SessionTest do
 
     {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
 
-    Chat.record_inbound_message(connection, "#pipe", "mira", "hello from app")
+    MessageIngestion.record_channel(connection, "#pipe", "mira", "hello from app")
 
     state = %{
       connection: connection,
@@ -177,7 +178,7 @@ defmodule Ircpipe.Irc.SessionTest do
     connection = connection |> Ecto.Changeset.change(casemapping: "rfc1459") |> Repo.update!()
     {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
 
-    Chat.record_inbound_message(
+    MessageIngestion.record_channel(
       connection,
       "#pipe",
       "nick[",
@@ -229,7 +230,7 @@ defmodule Ircpipe.Irc.SessionTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
     body = "message delayed past the pending cap"
 
-    Chat.record_inbound_message(
+    MessageIngestion.record_channel(
       connection,
       "#pipe",
       "mira",
@@ -642,7 +643,7 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:presence_diff,
                     %{diff: %{action: "nick", old_nick: "mira", new_nick: "mira_"}}}
 
-    Chat.record_inbound_message(updated_state.connection, "#pipe", "mira_", "after nick")
+    MessageIngestion.record_channel(updated_state.connection, "#pipe", "mira_", "after nick")
 
     assert Enum.any?(
              MessageHistory.list_messages(user, membership.id),

@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.Message
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
@@ -108,7 +109,7 @@ defmodule IrcpipeWeb.Api.MessageControllerTest do
     user: user
   } do
     {connection, _membership} = joined_channel(user)
-    Chat.record_server_message(connection, "Connected to local")
+    MessageIngestion.record_server(connection, "Connected to local")
 
     conn = get(conn, ~p"/api/buffer_messages?buffer_id=server:#{connection.id}")
 

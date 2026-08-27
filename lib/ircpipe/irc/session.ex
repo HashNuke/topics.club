@@ -12,6 +12,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat.DirectMessageSender
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MembershipReconciler
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.ConnectionLock
   alias Ircpipe.Irc.EventFormatting
@@ -862,7 +863,7 @@ defmodule Ircpipe.Irc.Session do
     with :ok <- CommandRegistry.validate_chat_message(body),
          {:ok, client} <- fetch_joined_client(state, channel),
          :ok <- Ircxd.Client.privmsg(client, channel, body) do
-      Chat.record_inbound_message(
+      MessageIngestion.record_channel(
         state.connection,
         channel,
         state.connection.nickname,
@@ -881,7 +882,7 @@ defmodule Ircpipe.Irc.Session do
   def handle_call({:action, channel, body}, _from, state) do
     with {:ok, client} <- fetch_joined_client(state, channel),
          :ok <- Ircxd.Client.privmsg(client, channel, <<1, "ACTION ", body::binary, 1>>) do
-      Chat.record_inbound_message(
+      MessageIngestion.record_channel(
         state.connection,
         channel,
         state.connection.nickname,
@@ -1010,7 +1011,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   defp record_server_line(connection, body, kind \\ "system", metadata \\ %{}) do
-    Chat.record_server_message(connection, body, kind, nil, metadata)
+    MessageIngestion.record_server(connection, body, kind, nil, metadata)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}
@@ -1268,7 +1269,7 @@ defmodule Ircpipe.Irc.Session do
 
           direct_messages =
             if channel = Targets.channel(current_state, target) do
-              Chat.record_inbound_message(
+              MessageIngestion.record_channel(
                 current_state.connection,
                 channel,
                 current_state.connection.nickname,

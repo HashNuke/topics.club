@@ -8,6 +8,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.DirectMessageSender
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, MessageHistory, Notification}
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Notifications.Delivery
@@ -486,7 +487,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     user: user,
     connection: connection
   } do
-    Chat.record_server_message(connection, "server line")
+    MessageIngestion.record_server(connection, "server line")
 
     assert {:ok, %{message: direct_message}} =
              DirectMessageIngestion.record(

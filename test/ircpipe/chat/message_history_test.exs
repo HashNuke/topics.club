@@ -5,6 +5,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.{Message, MessageHistory}
   alias Ircpipe.Repo
 
@@ -28,7 +29,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
   test "lists the newest channel messages in chronological order within the limit", context do
     for body <- ["one", "two", "three"] do
       assert {:ok, _message} =
-               Chat.record_inbound_message(
+               MessageIngestion.record_channel(
                  context.connection,
                  context.membership.channel,
                  "akash",
@@ -44,7 +45,7 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
 
   test "scopes buffer history to its owner", context do
     assert {:ok, _message} =
-             Chat.record_inbound_message(
+             MessageIngestion.record_channel(
                context.connection,
                context.membership.channel,
                "akash",
@@ -176,14 +177,15 @@ defmodule Ircpipe.Chat.MessageHistoryTest do
 
   test "keeps channel, server, and direct-message histories isolated", context do
     assert {:ok, _channel_message} =
-             Chat.record_inbound_message(
+             MessageIngestion.record_channel(
                context.connection,
                context.membership.channel,
                "akash",
                "channel body"
              )
 
-    assert {:ok, _server_message} = Chat.record_server_message(context.connection, "server body")
+    assert {:ok, _server_message} =
+             MessageIngestion.record_server(context.connection, "server body")
 
     assert {:ok, %{thread: thread}} =
              DirectMessageIngestion.record(

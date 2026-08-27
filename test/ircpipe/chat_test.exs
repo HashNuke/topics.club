@@ -4,6 +4,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.MessageIngestion
 
   alias Ircpipe.Chat.{
     ChannelMembership,
@@ -76,7 +77,7 @@ defmodule Ircpipe.ChatTest do
     {:ok, duplicate_confirmation} = Chat.confirm_channel_join(connection, "#elixir")
     assert duplicate_confirmation.joined_at == joined.joined_at
 
-    Chat.record_inbound_message(connection, "#elixir", "akash", "history survives")
+    MessageIngestion.record_channel(connection, "#elixir", "akash", "history survives")
 
     {:ok, left} = Chat.confirm_channel_left(connection, "#elixir")
     assert left.id == pending.id
@@ -170,7 +171,7 @@ defmodule Ircpipe.ChatTest do
       |> Repo.insert!()
     end
 
-    Chat.record_inbound_message(
+    MessageIngestion.record_channel(
       connection,
       "#[Ops]",
       "mira",
@@ -180,7 +181,7 @@ defmodule Ircpipe.ChatTest do
       :ascii
     )
 
-    Chat.record_inbound_message(
+    MessageIngestion.record_channel(
       connection,
       "#" <> "{ops}",
       "mira",
@@ -267,7 +268,7 @@ defmodule Ircpipe.ChatTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
-    Chat.record_inbound_message(connection, "#elixir", "akash", "scoped")
+    MessageIngestion.record_channel(connection, "#elixir", "akash", "scoped")
 
     assert Chat.get_membership!(user, membership.id).id == membership.id
     assert Chat.get_membership_by_channel!(user, connection, "#elixir").id == membership.id
@@ -315,7 +316,7 @@ defmodule Ircpipe.ChatTest do
       })
       |> Repo.insert!()
 
-    Chat.record_inbound_message(connection, "#elixir", "akash", "new")
+    MessageIngestion.record_channel(connection, "#elixir", "akash", "new")
 
     assert is_nil(Repo.get(Message, expired.id))
     assert [%Message{body: "new"}] = MessageHistory.list_messages(user, membership.id)
@@ -336,7 +337,7 @@ defmodule Ircpipe.ChatTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, %Message{channel_membership_id: nil, kind: "system", body: "Connected"}} =
-             Chat.record_server_message(connection, "Connected")
+             MessageIngestion.record_server(connection, "Connected")
 
     assert_receive {:buffer_system,
                     %{
@@ -370,7 +371,7 @@ defmodule Ircpipe.ChatTest do
         "nickname" => "mira"
       })
 
-    Chat.record_server_message(connection, "Connected")
+    MessageIngestion.record_server(connection, "Connected")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert :ok = Chat.mark_read(user, Connections.get!(user, connection.id))
@@ -408,7 +409,7 @@ defmodule Ircpipe.ChatTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, %Message{kind: "error", body: "Connection failed"}} =
-             Chat.record_server_message(connection, "Connection failed", "error")
+             MessageIngestion.record_server(connection, "Connection failed", "error")
 
     assert_receive {:buffer_error,
                     %{
@@ -520,7 +521,7 @@ defmodule Ircpipe.ChatTest do
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
-    Chat.record_inbound_message(connection, "#elixir", "akash", "hello", "message", %{
+    MessageIngestion.record_channel(connection, "#elixir", "akash", "hello", "message", %{
       hostmask: "akash!user@example.test",
       sender_role: "voice"
     })

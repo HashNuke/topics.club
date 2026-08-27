@@ -14,6 +14,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MessageHistory
+  alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.IrcTestServer
@@ -618,7 +619,7 @@ defmodule IrcpipeWeb.UserChannelTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
-    Chat.record_inbound_message(connection, "#elixir", "akash", "hello mira")
+    MessageIngestion.record_channel(connection, "#elixir", "akash", "hello mira")
     socket = join_user_channel(user)
 
     ref = push(socket, "buffer:read", %{"buffer_id" => "channel:#{membership.id}"})
@@ -661,7 +662,7 @@ defmodule IrcpipeWeb.UserChannelTest do
         "nickname" => "mira"
       })
 
-    Chat.record_server_message(connection, "Connected")
+    MessageIngestion.record_server(connection, "Connected")
     socket = join_user_channel(user)
 
     ref = push(socket, "buffer:read", %{"buffer_id" => "server:#{connection.id}"})
@@ -756,9 +757,15 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     join_user_channel(user)
 
-    Chat.record_server_message(connection, "NickServ: identify please", "notice", "NickServ", %{
-      service: "NickServ"
-    })
+    MessageIngestion.record_server(
+      connection,
+      "NickServ: identify please",
+      "notice",
+      "NickServ",
+      %{
+        service: "NickServ"
+      }
+    )
 
     assert_push "buffer:message", %{
       type: "buffer:message",
@@ -791,7 +798,7 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     join_user_channel(user)
 
-    Chat.record_server_message(connection, "Connection failed", "error")
+    MessageIngestion.record_server(connection, "Connection failed", "error")
 
     assert_push "buffer:error", %{
       type: "buffer:error",
@@ -821,7 +828,7 @@ defmodule IrcpipeWeb.UserChannelTest do
 
     join_user_channel(user)
 
-    Chat.record_server_message(connection, "Connected to local", "system")
+    MessageIngestion.record_server(connection, "Connected to local", "system")
 
     assert_push "buffer:system", %{
       type: "buffer:system",
