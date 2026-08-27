@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.UserChannel.BufferResolverTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.ChannelPartLifecycle
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias IrcpipeWeb.UserChannel.BufferResolver
@@ -59,7 +60,8 @@ defmodule IrcpipeWeb.UserChannel.BufferResolverTest do
 
     assert {:error, :invalid_buffer} = BufferResolver.connection(context.user, "bogus:1")
 
-    {:ok, _left} = Chat.confirm_channel_left(context.connection, context.membership.channel)
+    {:ok, _left} =
+      ChannelPartLifecycle.confirm(context.connection, context.membership.channel)
 
     assert {:error, :invalid_buffer} =
              BufferResolver.membership(context.user, Integer.to_string(context.membership.id))

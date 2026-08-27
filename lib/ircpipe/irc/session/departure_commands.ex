@@ -1,7 +1,7 @@
 defmodule Ircpipe.Irc.Session.DepartureCommands do
   @moduledoc false
 
-  alias Ircpipe.Chat
+  alias Ircpipe.Chat.ChannelPartLifecycle
   alias Ircpipe.Chat.ServerConnectionLock
   alias Ircpipe.Irc.{ConnectionLock, Session.EventRecorder, Session.Targets}
 
@@ -58,7 +58,7 @@ defmodule Ircpipe.Irc.Session.DepartureCommands do
   end
 
   defp cancel_queued_part(state, channel, key) do
-    case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
+    case ChannelPartLifecycle.confirm(state.connection, channel, Targets.casemapping(state)) do
       {:ok, _membership} ->
         {:ok, %{state | pending_joins: MapSet.delete(state.pending_joins, key)}}
 

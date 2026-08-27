@@ -2,6 +2,7 @@ defmodule Ircpipe.Irc.Session.JoinReconciliation do
   @moduledoc false
 
   alias Ircpipe.Chat
+  alias Ircpipe.Chat.ChannelPartLifecycle
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.Session.{CommandLifecycle, CommandTargetCorrelation, Targets}
   alias Ircxd.Client.Event
@@ -39,7 +40,7 @@ defmodule Ircpipe.Irc.Session.JoinReconciliation do
   def reconcile_legacy_error(state, %{code: "442", target: target} = payload)
       when is_binary(target) do
     if Targets.channel?(state, target) do
-      Chat.reject_channel_part(
+      ChannelPartLifecycle.reject(
         state.connection,
         target,
         Map.get(payload, :reason) || "442",

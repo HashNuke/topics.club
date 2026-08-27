@@ -1,13 +1,10 @@
 defmodule Ircpipe.Chat do
-  import Ecto.Query
-
   alias Ircpipe.Accounts.User
 
   alias Ircpipe.Chat.{
     BufferEvents,
     ChannelJoinRequest,
     ChannelMembership,
-    ChannelUser,
     MembershipLookup,
     ServerConnection,
     ServerConnectionLock
@@ -130,94 +127,6 @@ defmodule Ircpipe.Chat do
 
       {:error, reason} ->
         {:error, reason}
-    end
-  end
-
-  def confirm_channel_left(%ServerConnection{} = connection, channel, casemapping \\ :rfc1459) do
-    assert_no_outer_transaction!()
-
-    Repo.transaction(fn ->
-      active_connection = ServerConnectionLock.lock_active!(connection.id)
-
-      case MembershipLookup.find_by_channel(active_connection, channel, casemapping) do
-        %ChannelMembership{} = membership ->
-          updated =
-            membership
-            |> ChannelMembership.changeset(%{
-              status: "left",
-              auto_join: false,
-              left_at:
-                if(membership.status == "left",
-                  do: membership.left_at,
-                  else: DateTime.utc_now(:second)
-                ),
-              last_error: nil
-            })
-            |> update_or_rollback()
-
-          from(u in ChannelUser, where: u.channel_membership_id == ^updated.id)
-          |> Repo.delete_all()
-
-          {updated, membership.status != "left", active_connection}
-
-        nil ->
-          Repo.rollback(:invalid_buffer)
-      end
-    end)
-    |> case do
-      {:ok, {updated, broadcast?, active_connection}} ->
-        if broadcast? do
-          _effects =
-            ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
-              BufferEvents.left(%{
-                user_id: effect_connection.user_id,
-                buffer_id: "channel:#{updated.id}",
-                server_connection_id: effect_connection.id,
-                channel_membership_id: updated.id
-              })
-            end)
-        end
-
-        {:ok, updated}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  def reject_channel_part(
-        %ServerConnection{} = connection,
-        channel,
-        reason,
-        casemapping \\ :rfc1459
-      ) do
-    assert_no_outer_transaction!()
-
-    Repo.transaction(fn ->
-      active_connection = ServerConnectionLock.lock_active!(connection.id)
-
-      case MembershipLookup.find_by_channel(active_connection, channel, casemapping, "joined") do
-        %ChannelMembership{} = membership ->
-          membership
-          |> ChannelMembership.changeset(%{last_error: reason_text(reason)})
-          |> update_or_rollback()
-
-        nil ->
-          Repo.rollback(:invalid_buffer)
-      end
-    end)
-  end
-
-  def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
-    if membership.user_id == user_id do
-      connection = Repo.get!(ServerConnection, membership.server_connection_id)
-
-      case confirm_channel_left(connection, membership.channel) do
-        {:ok, _membership} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      {:error, :invalid_buffer}
     end
   end
 

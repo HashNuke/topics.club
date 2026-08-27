@@ -2,7 +2,14 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
   @moduledoc false
 
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{ConnectionLifecycle, DirectMessageRenamer, Presence}
+
+  alias Ircpipe.Chat.{
+    ChannelPartLifecycle,
+    ConnectionLifecycle,
+    DirectMessageRenamer,
+    Presence
+  }
+
   alias Ircpipe.Irc.EventFormatting
 
   alias Ircpipe.Irc.Session.{
@@ -84,7 +91,7 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
     EventRecorder.channel_line(state, channel, "part", nick, "#{nick} left #{channel}.")
 
     if self? do
-      case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
+      case ChannelPartLifecycle.confirm(state.connection, channel, Targets.casemapping(state)) do
         {:ok, _membership} ->
           %{
             state
@@ -215,7 +222,7 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
     )
 
     if target_self? do
-      case Chat.confirm_channel_left(state.connection, channel, Targets.casemapping(state)) do
+      case ChannelPartLifecycle.confirm(state.connection, channel, Targets.casemapping(state)) do
         {:ok, _membership} ->
           %{
             state

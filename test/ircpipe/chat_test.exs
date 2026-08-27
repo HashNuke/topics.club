@@ -10,6 +10,7 @@ defmodule Ircpipe.ChatTest do
   alias Ircpipe.Chat.{
     ChannelJoinRequest,
     ChannelMembership,
+    ChannelPartLifecycle,
     ChannelUser,
     ConnectionCasemapping,
     MembershipLookup,
@@ -84,14 +85,14 @@ defmodule Ircpipe.ChatTest do
 
     MessageIngestion.record_channel(connection, "#elixir", "akash", "history survives")
 
-    {:ok, left} = Chat.confirm_channel_left(connection, "#elixir")
+    {:ok, left} = ChannelPartLifecycle.confirm(connection, "#elixir")
     assert left.id == pending.id
     assert left.status == "left"
     refute left.auto_join
     assert left.left_at
     assert [%Message{body: "history survives"}] = MessageHistory.list_messages(user, left.id)
 
-    {:ok, duplicate_left} = Chat.confirm_channel_left(connection, "#elixir")
+    {:ok, duplicate_left} = ChannelPartLifecycle.confirm(connection, "#elixir")
     assert duplicate_left.left_at == left.left_at
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
@@ -372,10 +373,10 @@ defmodule Ircpipe.ChatTest do
              Chat.reject_channel_join(connection, pending_rejection.channel, "too late")
 
     assert {:error, :connection_deleting} =
-             Chat.confirm_channel_left(connection, joined_left.channel)
+             ChannelPartLifecycle.confirm(connection, joined_left.channel)
 
     assert {:error, :connection_deleting} =
-             Chat.reject_channel_part(connection, joined_part.channel, "too late")
+             ChannelPartLifecycle.reject(connection, joined_part.channel, "too late")
 
     assert {:error, :connection_deleting} = MembershipReconciler.reconcile(connection, :rfc1459)
 
@@ -408,8 +409,10 @@ defmodule Ircpipe.ChatTest do
                      fn -> ChannelJoinRequest.request(user, connection, "#new") end,
                      fn -> Chat.confirm_channel_join(connection, pending.channel) end,
                      fn -> Chat.reject_channel_join(connection, pending.channel, "too late") end,
-                     fn -> Chat.confirm_channel_left(connection, pending.channel) end,
-                     fn -> Chat.reject_channel_part(connection, pending.channel, "too late") end,
+                     fn -> ChannelPartLifecycle.confirm(connection, pending.channel) end,
+                     fn ->
+                       ChannelPartLifecycle.reject(connection, pending.channel, "too late")
+                     end,
                      fn -> MembershipReconciler.reconcile(connection, :rfc1459) end
                    ] do
                  assert_raise ArgumentError, ~r/existing transaction/, callback

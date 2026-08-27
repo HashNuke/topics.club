@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.ChannelJoinRequest
+  alias Ircpipe.Chat.ChannelPartLifecycle
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageIngestion
@@ -39,7 +40,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     {:ok, direct_message_thread} = DirectMessageLifecycle.open(user, connection, "Zed")
     {:ok, archived_membership} = Chat.join_channel(user, connection, "#archive")
     MessageIngestion.record_channel(connection, "#archive", "akash", "retained archive")
-    {:ok, _archived_membership} = Chat.confirm_channel_left(connection, "#archive")
+    {:ok, _archived_membership} = ChannelPartLifecycle.confirm(connection, "#archive")
     {:ok, server_message} = MessageIngestion.record_server(connection, "Connected to local")
 
     {:ok, channel_message} =
