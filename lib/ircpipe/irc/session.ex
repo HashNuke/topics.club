@@ -8,6 +8,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
+  alias Ircpipe.Chat.DirectMessageSender
   alias Ircpipe.Chat.MembershipReconciler
   alias Ircpipe.Irc.CommandRegistry
   alias Ircpipe.Irc.ConnectionLock
@@ -929,7 +930,7 @@ defmodule Ircpipe.Irc.Session do
   def handle_call({:privmsg_thread, thread_id, body}, _from, state) do
     with {:ok, client} <- fetch_client(state),
          {:ok, %{thread: thread, message: message}} <-
-           Chat.send_direct_message_thread(
+           DirectMessageSender.send(
              state.connection,
              thread_id,
              body,

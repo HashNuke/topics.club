@@ -5,6 +5,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
+  alias Ircpipe.Chat.DirectMessageSender
   alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, MessageHistory, Notification}
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Notifications.Delivery
@@ -627,7 +628,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     sender =
       Task.Supervisor.async_nolink(supervisor, fn ->
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Chat.send_direct_message_thread(connection, thread.id, "serialized hello", fn target ->
+          DirectMessageSender.send(connection, thread.id, "serialized hello", fn target ->
             send(test_pid, {:direct_message_transmitted, target})
             :ok
           end)

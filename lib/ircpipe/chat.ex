@@ -8,7 +8,6 @@ defmodule Ircpipe.Chat do
     ChannelMembership,
     ChannelUser,
     DirectMessageStore,
-    DirectMessageThread,
     MembershipReconciler,
     Message,
     MentionDetection,
@@ -23,98 +22,6 @@ defmodule Ircpipe.Chat do
   alias Ircpipe.Notifications.Delivery
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Repo
-
-  def send_direct_message_thread(
-        %ServerConnection{user_id: user_id, id: connection_id} = connection,
-        thread_id,
-        body,
-        transmit
-      )
-      when is_function(transmit, 1) do
-    result =
-      Repo.transaction(fn ->
-        ServerConnectionLock.lock!(connection_id)
-
-        thread =
-          DirectMessageThread
-          |> where(
-            [thread],
-            thread.id == ^thread_id and thread.user_id == ^user_id and
-              thread.server_connection_id == ^connection_id
-          )
-          |> Repo.one()
-
-        cond do
-          is_nil(thread) ->
-            Repo.rollback(:invalid_direct_message)
-
-          DirectMessageStore.archived?(thread) or not is_nil(thread.closed_at) ->
-            Repo.rollback(:direct_message_closed)
-
-          true ->
-            case transmit.(thread.peer_nick) do
-              :ok -> :ok
-              {:error, reason} -> Repo.rollback(reason)
-              error -> Repo.rollback(error)
-            end
-
-            maybe_pause_direct_message_send(thread)
-
-            metadata = %{
-              direction: "outgoing",
-              peer_nick: thread.peer_nick,
-              target: thread.peer_nick,
-              account: thread.account,
-              hostmask: thread.hostmask
-            }
-
-            message =
-              %Message{
-                user_id: user_id,
-                server_connection_id: connection_id,
-                direct_message_thread_id: thread.id
-              }
-              |> Message.changeset(%{
-                kind: "message",
-                nick: connection.nickname,
-                hostmask: thread.hostmask,
-                metadata: stringify_metadata(metadata),
-                body: body,
-                mentioned: false,
-                occurred_at: DateTime.utc_now(:second)
-              })
-              |> Repo.insert!()
-
-            Retention.prune(Repo.get!(User, user_id))
-
-            %{thread: thread, message: message}
-        end
-      end)
-
-    case result do
-      {:ok, %{thread: thread, message: message} = recorded} ->
-        BufferEvents.direct_message_thread(thread)
-        BufferEvents.direct_message(message, thread)
-        {:ok, recorded}
-
-      error ->
-        error
-    end
-  end
-
-  defp maybe_pause_direct_message_send(thread) do
-    case Application.get_env(:ircpipe, :pause_direct_message_send) do
-      pid when is_pid(pid) ->
-        send(pid, {:direct_message_send_paused, self(), thread.id})
-
-        receive do
-          {:continue_direct_message_send, thread_id} when thread_id == thread.id -> :ok
-        end
-
-      _other ->
-        :ok
-    end
-  end
 
   def rename_direct_message_peer(
         %ServerConnection{} = connection,
