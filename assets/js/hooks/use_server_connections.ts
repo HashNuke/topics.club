@@ -18,6 +18,7 @@ import {
   planServerRemoval,
   removeChannel,
   updateBufferRead,
+  updateChannelUnread,
   updateConnectionDetails,
   updateServerStatus,
   upsertDirectMessage,
@@ -30,6 +31,7 @@ import {
   validBufferLeftPayload,
   validBufferReadPayload,
   validChannelMembership,
+  validChatMessage,
   validDirectMessageClosedPayload,
   validDirectMessageThreadPayload,
   validDirectMessageTombstone,
@@ -97,6 +99,7 @@ interface ServerConnectionsOptions {
   setUsersByChannel: Dispatch<SetStateAction<UsersByBuffer>>
   setView: Dispatch<SetStateAction<AppView>>
   topics: Topic[]
+  viewRef: MutableRefObject<AppView>
 }
 
 export default function useServerConnections({
@@ -116,6 +119,7 @@ export default function useServerConnections({
   setUsersByChannel,
   setView,
   topics,
+  viewRef,
 }: ServerConnectionsOptions) {
   const [connections, setConnectionsState] = useState<ServerConnection[]>([])
   const rejectedBufferIdsRef = useRef(new Set<string>())
@@ -291,6 +295,19 @@ export default function useServerConnections({
     const ownerId = bufferServerConnectionId(connectionsRef.current, payload.buffer_id)
     if (ownerId === null || String(ownerId) !== String(payload.server_connection_id)) return
     setConnections((current) => updateBufferRead(current, payload))
+  }
+
+  function applyChannelUnread(message: ChatMessage): void {
+    if (!validChatMessage(message) || !message.buffer_id.startsWith("channel:")) return
+    if (message.unread_count === undefined || message.mention_count === undefined) return
+    if (viewRef.current === "chat" && activeChannelIdRef.current === message.buffer_id) return
+
+    const ownerId = bufferServerConnectionId(connectionsRef.current, message.buffer_id)
+    if (ownerId === null || String(ownerId) !== String(message.server_connection_id)) return
+
+    setConnections((current) =>
+      updateChannelUnread(current, message.buffer_id, message.unread_count!, message.mention_count!)
+    )
   }
 
   function applyDirectMessageThread(payload: DirectMessageThreadPayload): boolean {
@@ -534,6 +551,7 @@ export default function useServerConnections({
     applyAuthoritativeJoinedTopic,
     applyBufferLeft,
     applyBufferRead,
+    applyChannelUnread,
     applyDirectMessageClosed,
     applyDirectMessageThread,
     applyJoinedChannel,

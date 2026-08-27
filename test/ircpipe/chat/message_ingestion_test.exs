@@ -10,6 +10,7 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
     user = AccountsFixtures.user_fixture()
     connection = connection_fixture(user)
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, channel_message} =
              MessageIngestion.record_channel(
@@ -21,6 +22,8 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
 
     assert channel_message.mentioned
     assert channel_message.channel_membership_id == membership.id
+
+    assert_receive {:buffer_message, %{unread_count: 1, mention_count: 1}}
 
     assert Repo.get_by!(Notification, message_id: channel_message.id).channel_membership_id ==
              membership.id

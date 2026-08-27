@@ -64,17 +64,22 @@ defmodule Ircpipe.Chat.MessageIngestion do
         })
         |> Repo.insert()
 
-      if attention? do
-        counters = [inc: [unread_count: 1]]
+      membership =
+        if attention? do
+          counters = [inc: [unread_count: 1]]
 
-        counters =
-          if mentioned,
-            do: Keyword.update!(counters, :inc, &([mention_count: 1] ++ &1)),
-            else: counters
+          counters =
+            if mentioned,
+              do: Keyword.update!(counters, :inc, &([mention_count: 1] ++ &1)),
+              else: counters
 
-        {1, _} =
-          Repo.update_all(from(m in ChannelMembership, where: m.id == ^membership.id), counters)
-      end
+          {1, _} =
+            Repo.update_all(from(m in ChannelMembership, where: m.id == ^membership.id), counters)
+
+          Repo.get!(ChannelMembership, membership.id)
+        else
+          membership
+        end
 
       notification =
         if mentioned do
@@ -98,7 +103,14 @@ defmodule Ircpipe.Chat.MessageIngestion do
         _effects =
           ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
             if notification, do: Delivery.enqueue(notification)
-            BufferEvents.message(message, membership, effect_connection)
+
+            case Repo.get(ChannelMembership, membership.id) do
+              %ChannelMembership{} = current_membership ->
+                BufferEvents.attention_message(message, current_membership, effect_connection)
+
+              nil ->
+                :ok
+            end
           end)
 
         {:ok, %{message | channel_membership: membership, server_connection: active_connection}}

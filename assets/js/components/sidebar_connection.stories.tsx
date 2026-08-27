@@ -25,5 +25,6 @@ export default {
 export const ActiveChannel = {}
 export const ActiveDirectMessage = {args: {activeChannel: connection.channels[0]}}
 export const DirectMessageRead = {args: {connection: {...connection, channels: connection.channels.map((item) => item.id === "direct:3" ? {...item, unread_count: 0} : item)}}}
+export const ChannelUnread = {args: {connection: {...connection, channels: connection.channels.map((item) => item.id === "channel:2" ? {...item, unread_count: 4} : item)}}}
 export const ActiveServer = {args: {activeChannel: null, view: "server"}}
 export const NoChannels = {args: {connection: {...connection, channels: []}}}

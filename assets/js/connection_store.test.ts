@@ -7,6 +7,7 @@ import {
   removeChannel,
   sortConversationBuffers,
   updateBufferRead,
+  updateChannelUnread,
   updateConnectionDetails,
   updateServerStatus,
   upsertDirectMessage,
@@ -43,6 +44,13 @@ describe("connection store", () => {
 
     expect(read[0]).toMatchObject({status: "errored", nickname: "mira_"})
     expect(read[0].channels[0]).toMatchObject({unread_count: 0, mention_count: 0})
+  })
+
+  test("applies authoritative unread counters only to channel buffers", () => {
+    const unread = updateChannelUnread([server], "channel:2", 8, 3)
+    const direct = updateChannelUnread(unread, "direct:9", 20, 10)
+
+    expect(direct[0].channels[0]).toMatchObject({unread_count: 8, mention_count: 3})
   })
 
   test("updates connection details and plans channel and server removal", () => {

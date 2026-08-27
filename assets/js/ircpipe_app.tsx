@@ -244,6 +244,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     applyAuthoritativeJoinedTopic,
     applyBufferLeft,
     applyBufferRead,
+    applyChannelUnread,
     applyDirectMessageClosed,
     applyDirectMessageThread,
     applyJoinedChannel,
@@ -279,6 +280,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
     setUsersByChannel,
     setView,
     topics,
+    viewRef,
   })
 
   const {
@@ -302,7 +304,10 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
 
   const {connectionHealth, retryRealtimeConnection} = useRealtimeConnection({
     handlers: {
-      onBufferMessage: (payload) => applyOrQueueRealtimeEvent(() => applyRealtimeMessage(payload)),
+      onBufferMessage: (payload) => applyOrQueueRealtimeEvent(() => {
+        applyRealtimeMessage(payload)
+        applyChannelUnread(payload)
+      }),
       onBufferJoined: (payload) => applyOrQueueRealtimeEvent(() => {
         applyAuthoritativeJoinedTopic(payload)
         selectPendingNotificationBuffer()
@@ -1202,6 +1207,7 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
       onSelectChannel={(channel: Channel) => {
         cancelChannelDirectory()
         viewRef.current = "chat"
+        activeChannelIdRef.current = channel.id
         activeServerIdRef.current = channel.connection?.id || activeServerId
         setActiveServerId(channel.connection?.id || activeServerId)
         setActiveChannelId(channel.id)

@@ -86,14 +86,43 @@ defmodule Ircpipe.Chat.ReadState do
 
   defp publish_read({:ok, payload}) do
     _effects =
-      ServerConnectionLock.serialize_effects(payload.server_connection_id, fn _connection ->
-        BufferEvents.read(payload)
+      ServerConnectionLock.serialize_effects(payload.server_connection_id, fn connection ->
+        case current_read_payload(payload, connection) do
+          nil -> :ok
+          current_payload -> BufferEvents.read(current_payload)
+        end
       end)
 
     :ok
   end
 
   defp publish_read({:error, reason}), do: {:error, reason}
+
+  defp current_read_payload(%{channel_membership_id: nil} = payload, connection) do
+    if connection.user_id == payload.user_id do
+      Map.merge(payload, %{
+        unread_count: connection.unread_count,
+        mention_count: connection.mention_count
+      })
+    end
+  end
+
+  defp current_read_payload(payload, connection) do
+    case Repo.get_by(ChannelMembership,
+           id: payload.channel_membership_id,
+           user_id: payload.user_id,
+           server_connection_id: connection.id
+         ) do
+      %ChannelMembership{} = membership ->
+        Map.merge(payload, %{
+          unread_count: membership.unread_count,
+          mention_count: membership.mention_count
+        })
+
+      nil ->
+        nil
+    end
+  end
 
   defp maybe_pause_before_server_lock(connection_id) do
     case Application.get_env(:ircpipe, :read_state_before_server_lock_barrier) do

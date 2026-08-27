@@ -210,6 +210,28 @@ export function updateBufferRead(connections: ServerConnection[], payload: Buffe
   })
 }
 
+export function updateChannelUnread(
+  connections: ServerConnection[],
+  bufferId: string,
+  unreadCount: number,
+  mentionCount: number
+): ServerConnection[] {
+  if (!bufferId.startsWith("channel:")) return connections
+
+  return connections.map((connection) => ({
+    ...connection,
+    channels: connection.channels.map((channel) =>
+      channel.id === bufferId
+        ? {
+            ...channel,
+            unread_count: unreadCount,
+            mention_count: mentionCount,
+          }
+        : channel
+    ),
+  }))
+}
+
 export function removeChannel(connections: ServerConnection[], channelId: string): ServerConnection[] {
   return connections.map((connection) => ({
     ...connection,

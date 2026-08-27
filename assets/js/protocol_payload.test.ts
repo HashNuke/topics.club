@@ -1,9 +1,11 @@
 import {describe, expect, test} from "vitest"
 import {
+  canonicalChatMessage,
   validBufferId,
   validBufferLeftPayload,
   validBufferReadPayload,
   validBufferRecord,
+  validChatMessage,
   validDirectMessageThreadPayload,
   validEntityId,
   validJoinedTopicPayload,
@@ -17,6 +19,34 @@ import {
 const occurredAt = "2026-08-27T00:00:00Z"
 
 describe("protocol payload primitives", () => {
+  test("keeps paired authoritative unread counters on channel messages", () => {
+    const message = {
+      type: "buffer:message",
+      version: 1,
+      id: 9,
+      event_id: "message:9",
+      buffer_id: "channel:7",
+      server_connection_id: 42,
+      channel_membership_id: 7,
+      direct_message_thread_id: null,
+      occurred_at: occurredAt,
+      nick: "akash",
+      hostmask: null,
+      sender_role: null,
+      service: null,
+      body: "hello",
+      kind: "message",
+      mentioned: true,
+      unread_count: 4,
+      mention_count: 2,
+      metadata: {},
+    }
+
+    expect(validChatMessage(message)).toBe(true)
+    expect(canonicalChatMessage(message)).toMatchObject({unread_count: 4, mention_count: 2})
+    expect(validChatMessage({...message, mention_count: undefined})).toBe(false)
+  })
+
   test("bounds entity and buffer IDs to PostgreSQL signed bigint", () => {
     expect(validEntityId("9223372036854775807")).toBe(true)
     expect(validEntityId("9223372036854775808")).toBe(false)
@@ -108,6 +138,9 @@ describe("protocol payload primitives", () => {
 
     expect(validBufferRecord(channel)).toBe(true)
     expect(validBufferRecord({...channel, direct_message_thread_id: 8})).toBe(false)
+    expect(validBufferReadPayload({...read, unread_count: 2, mention_count: 1})).toBe(true)
+    expect(validBufferReadPayload({...read, unread_count: Number.MAX_SAFE_INTEGER + 1})).toBe(false)
+    expect(validBufferReadPayload({...read, mention_count: -1})).toBe(false)
     expect(validBufferReadPayload({...read, direct_message_thread_id: 8})).toBe(false)
     expect(validBufferLeftPayload({...left, direct_message_thread_id: 8})).toBe(false)
   })

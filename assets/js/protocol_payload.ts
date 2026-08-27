@@ -77,6 +77,7 @@ export function validChatMessage(value: unknown): value is ChatMessage {
     typeof value.kind !== "string" ||
     !messageKinds.has(value.kind) ||
     typeof value.mentioned !== "boolean" ||
+    !validOptionalUnreadCounters(value) ||
     !validIsoTimestamp(value.occurred_at) ||
     (value.peer_nick !== undefined && !nonemptyString(value.peer_nick)) ||
     (value.channel !== undefined && !nonemptyString(value.channel)) ||
@@ -121,9 +122,25 @@ export function canonicalChatMessage(value: unknown): ChatMessage | null {
     ...(value.channel === undefined ? {} : {channel: value.channel}),
     kind: value.kind,
     mentioned: value.mentioned,
+    ...(value.unread_count === undefined ? {} : {unread_count: value.unread_count}),
+    ...(value.mention_count === undefined ? {} : {mention_count: value.mention_count}),
     metadata: {...value.metadata},
     ...(value.blocked === undefined ? {} : {blocked: value.blocked}),
   }
+}
+
+function validOptionalUnreadCounters(value: Record<string, unknown>): boolean {
+  if (value.unread_count === undefined && value.mention_count === undefined) return true
+
+  return validUnreadCounters(value)
+}
+
+function validUnreadCounters(value: Record<string, unknown>): boolean {
+  return validUnreadCounter(value.unread_count) && validUnreadCounter(value.mention_count)
+}
+
+function validUnreadCounter(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0
 }
 
 export function validMessagesByBuffer(
@@ -145,8 +162,7 @@ export function validBufferReadPayload(value: unknown): value is BufferReadPaylo
     versionedEnvelope(value, "buffer:read") &&
       validTimestampedEventId(value.event_id, `buffer_read:${value.buffer_id}`) &&
       validBufferReadOrLeftOwner(value) &&
-      value.unread_count === 0 &&
-      value.mention_count === 0
+      validUnreadCounters(value)
   )
 }
 

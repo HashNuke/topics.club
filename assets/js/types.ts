@@ -36,6 +36,8 @@ export interface ChatMessage {
   channel?: string
   kind: string
   mentioned: boolean
+  unread_count?: number
+  mention_count?: number
   metadata: CommandMetadata
   blocked?: boolean
   [key: string]: unknown
@@ -221,8 +223,8 @@ export interface BufferReadPayload {
   buffer_id: string
   server_connection_id: EntityId
   channel_membership_id: EntityId | null
-  unread_count: 0
-  mention_count: 0
+  unread_count: number
+  mention_count: number
 }
 
 export interface ServerStatusPayload {

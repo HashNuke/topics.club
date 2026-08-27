@@ -2133,7 +2133,7 @@ describe("IrcpipeApp UI prototype", () => {
     expect(screen.queryByText("wrong owner message")).not.toBeInTheDocument()
     expect(screen.queryByText("intruder")).not.toBeInTheDocument()
     expect(screen.getByRole("heading", {name: "#testing"})).toBeInTheDocument()
-    expect(screen.getByText("3")).toBeInTheDocument()
+    expect(screen.getByLabelText("4 unread messages in #testing")).toBeInTheDocument()
   })
 
   test("reconciles messages newer than the bootstrap cursor", async () => {
@@ -3676,6 +3676,232 @@ describe("IrcpipeApp UI prototype", () => {
     }))
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"}))
+  })
+
+  test("marks an incoming message read when it arrives in the active channel", async () => {
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    const push = vi.fn().mockResolvedValue({})
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    await user.click(await within(nav).findByText("#zulu"))
+    expect(await screen.findByRole("heading", {name: "#zulu"})).toBeInTheDocument()
+    push.mockClear()
+
+    act(() => realtimeHandlers.onBufferMessage(canonicalMessage({
+      id: 304,
+      buffer_id: "channel:4",
+      server_connection_id: 1,
+      channel_membership_id: 4,
+      direct_message_thread_id: null,
+      nick: "Zed",
+      body: "message in the channel being read",
+      mentioned: false,
+      unread_count: 1,
+      mention_count: 0,
+      occurred_at: "2026-08-26T10:00:00Z",
+    })))
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:4"}))
+  })
+
+  test("counts ordinary messages in inactive channels and clears the count when read", async () => {
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    const push = vi.fn().mockResolvedValue({})
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    await user.click(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("#alpha"))
+
+    act(() => realtimeHandlers.onBufferMessage(canonicalMessage({
+      id: 304,
+      buffer_id: "channel:4",
+      server_connection_id: 1,
+      channel_membership_id: 4,
+      direct_message_thread_id: null,
+      nick: "Zed",
+      body: "ordinary unread channel message",
+      mentioned: false,
+      unread_count: 1,
+      mention_count: 0,
+      occurred_at: "2026-08-26T10:00:00Z",
+    })))
+
+    expect(screen.getByLabelText("1 unread message in #zulu")).toBeInTheDocument()
+    await user.click(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("#zulu"))
+    await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:4"}))
+    act(() => realtimeHandlers.onBufferRead(canonicalBufferRead("channel:4", {
+      server_connection_id: 1,
+      channel_membership_id: 4,
+    })))
+    expect(screen.queryByLabelText("1 unread message in #zulu")).not.toBeInTheDocument()
+  })
+
+  test("does not count command updates or repeated channel message events", async () => {
+    const apiClient = directMessageApiClient()
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(vi.fn().mockResolvedValue({}))
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    const message = canonicalMessage({
+      id: 701,
+      buffer_id: "channel:4",
+      server_connection_id: 1,
+      channel_membership_id: 4,
+      nick: "akash",
+      body: "one persisted unread",
+      unread_count: 1,
+      mention_count: 0,
+    })
+    act(() => {
+      realtimeHandlers.onBufferMessage(message)
+      realtimeHandlers.onBufferMessage(message)
+      realtimeHandlers.onBufferMessage(canonicalMessage({
+        id: 702,
+        buffer_id: "channel:4",
+        server_connection_id: 1,
+        channel_membership_id: 4,
+        kind: "command",
+        body: "WHOIS akash",
+        metadata: {command_id: "whois-unread", command_status: "sent"},
+      }))
+      realtimeHandlers.onBufferMessage(canonicalMessage({
+        id: 702,
+        buffer_id: "channel:4",
+        server_connection_id: 1,
+        channel_membership_id: 4,
+        kind: "command",
+        body: "WHOIS akash",
+        metadata: {command_id: "whois-unread", command_status: "completed"},
+      }))
+    })
+
+    expect(screen.getByLabelText("1 unread message in #zulu")).toBeInTheDocument()
+    expect(screen.queryByLabelText("2 unread messages in #zulu")).not.toBeInTheDocument()
+  })
+
+  test("does not inflate authoritative unread counts when replaying an event after bootstrap", async () => {
+    const seedClient = directMessageApiClient()
+    const initial = await seedClient.bootstrap()
+    const refreshed = structuredClone(initial)
+    const zulu = refreshed.buffers.find((buffer) => buffer.buffer_id === "channel:4")
+    zulu.unread_count = 1
+    zulu.mention_count = 0
+    let resolveRefresh
+    const refresh = new Promise((resolve) => { resolveRefresh = resolve })
+    const apiClient = {
+      ...seedClient,
+      bootstrap: vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(refresh),
+      bufferMessages: vi.fn().mockResolvedValue({messages: []}),
+    }
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(vi.fn().mockResolvedValue({}))
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    act(() => realtimeHandlers.onJoinOk())
+    act(() => realtimeHandlers.onBufferMessage(canonicalMessage({
+      id: 703,
+      buffer_id: "channel:4",
+      server_connection_id: 1,
+      channel_membership_id: 4,
+      nick: "akash",
+      body: "queued during refresh",
+      unread_count: 1,
+      mention_count: 0,
+    })))
+    await act(async () => resolveRefresh(refreshed))
+
+    expect(await screen.findByLabelText("1 unread message in #zulu")).toBeInTheDocument()
+    expect(screen.queryByLabelText("2 unread messages in #zulu")).not.toBeInTheDocument()
+  })
+
+  test("transfers active-buffer ownership before handling messages from the channel just left", async () => {
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    const push = vi.fn().mockResolvedValue({})
+    let realtimeHandlers
+
+    render(
+      <IrcpipeApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    await user.click(await within(nav).findByText("#zulu"))
+    expect(await screen.findByRole("heading", {name: "#zulu"})).toBeInTheDocument()
+
+    act(() => {
+      fireEvent.click(within(nav).getByText("#alpha"))
+      realtimeHandlers.onBufferMessage(canonicalMessage({
+        id: 704,
+        buffer_id: "channel:4",
+        server_connection_id: 1,
+        channel_membership_id: 4,
+        nick: "akash",
+        body: "arrived while switching channels",
+        unread_count: 1,
+        mention_count: 0,
+      }))
+    })
+
+    expect(screen.getByRole("heading", {name: "#alpha"})).toBeInTheDocument()
+    expect(screen.getByLabelText("1 unread message in #zulu")).toBeInTheDocument()
+    expect(push).not.toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:4"})
   })
 
   test("uses the server action menu for reconnect and disconnect actions", async () => {

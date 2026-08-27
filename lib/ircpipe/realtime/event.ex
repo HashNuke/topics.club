@@ -145,6 +145,8 @@ defmodule Ircpipe.Realtime.Event do
   def buffer_read(payload) do
     occurred_at = DateTime.utc_now(:second)
     payload = Map.new(payload)
+    unread_count = Map.get(payload, :unread_count) || Map.get(payload, "unread_count") || 0
+    mention_count = Map.get(payload, :mention_count) || Map.get(payload, "mention_count") || 0
 
     Map.merge(payload, %{
       type: "buffer:read",
@@ -152,8 +154,8 @@ defmodule Ircpipe.Realtime.Event do
       event_id:
         "buffer_read:#{Map.get(payload, :buffer_id) || Map.get(payload, "buffer_id")}:#{DateTime.to_unix(occurred_at, :microsecond)}",
       occurred_at: occurred_at,
-      unread_count: 0,
-      mention_count: 0
+      unread_count: unread_count,
+      mention_count: mention_count
     })
   end
 

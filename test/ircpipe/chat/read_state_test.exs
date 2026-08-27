@@ -36,6 +36,94 @@ defmodule Ircpipe.Chat.ReadStateTest do
     assert persisted_connection.last_read_at
   end
 
+  test "a delayed message publication cannot restore counters after a newer read" do
+    supervisor = start_supervised!(Task.Supervisor)
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, membership} = Ircpipe.Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    effects_ref = make_ref()
+    previous_barrier = Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+
+    Application.put_env(
+      :ircpipe,
+      :connection_effects_before_lock_barrier,
+      {self(), effects_ref}
+    )
+
+    on_exit(fn ->
+      restore_env(:connection_effects_before_lock_barrier, previous_barrier)
+    end)
+
+    ingestion =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        MessageIngestion.record_channel(connection, membership.channel, "akash", "mira: ping")
+      end)
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), ingestion.pid)
+
+    assert_receive {:connection_effects_paused, effects_pid, ^effects_ref, connection_id}, 5_000
+    assert connection_id == connection.id
+    assert Repo.reload!(membership).unread_count == 1
+
+    Application.delete_env(:ircpipe, :connection_effects_before_lock_barrier)
+    assert :ok = ReadState.mark(user, Repo.reload!(membership))
+    assert_receive {:buffer_read, %{unread_count: 0, mention_count: 0}}
+
+    send(effects_pid, {:continue_connection_effects, effects_ref})
+    assert {:ok, _message} = Task.await(ingestion, 5_000)
+    assert_receive {:buffer_message, %{unread_count: 0, mention_count: 0}}
+  end
+
+  test "a delayed read publication cannot clear counters from a newer message" do
+    supervisor = start_supervised!(Task.Supervisor)
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, membership} = Ircpipe.Chat.join_channel(user, connection, "#elixir")
+
+    {:ok, _message} =
+      MessageIngestion.record_channel(connection, membership.channel, "akash", "first")
+
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    effects_ref = make_ref()
+    previous_barrier = Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+
+    Application.put_env(
+      :ircpipe,
+      :connection_effects_before_lock_barrier,
+      {self(), effects_ref}
+    )
+
+    on_exit(fn ->
+      restore_env(:connection_effects_before_lock_barrier, previous_barrier)
+    end)
+
+    read =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        ReadState.mark(user, Repo.reload!(membership))
+      end)
+
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), read.pid)
+
+    assert_receive {:connection_effects_paused, effects_pid, ^effects_ref, connection_id}, 5_000
+    assert connection_id == connection.id
+    assert Repo.reload!(membership).unread_count == 0
+
+    Application.delete_env(:ircpipe, :connection_effects_before_lock_barrier)
+
+    assert {:ok, _message} =
+             MessageIngestion.record_channel(connection, membership.channel, "akash", "newer")
+
+    assert_receive {:buffer_message, %{unread_count: 1, mention_count: 0}}
+
+    send(effects_pid, {:continue_connection_effects, effects_ref})
+    assert :ok = Task.await(read, 5_000)
+    assert Repo.reload!(membership).unread_count == 1
+    assert_receive {:buffer_read, %{unread_count: 1, mention_count: 0}}
+  end
+
   test "rejects buffers owned by another user" do
     owner = AccountsFixtures.user_fixture()
     other_user = AccountsFixtures.user_fixture()

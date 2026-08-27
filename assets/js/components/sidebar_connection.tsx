@@ -72,13 +72,7 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
                 <span className="hero-user size-3.5 shrink-0 text-slate-500" aria-hidden="true" />
               )}
               <span className="min-w-0 flex-1 truncate">{channel.channel}</span>
-              {channel.buffer_type === "direct_message" && (channel.unread_count || 0) > 0 ? (
-                <span className="min-w-5 rounded-full bg-rose-400 px-1.5 text-center text-xs font-semibold text-rose-950" aria-label={`${channel.unread_count} unread ${channel.unread_count === 1 ? "message" : "messages"} from ${channel.channel}`}>
-                  {channel.unread_count}
-                </span>
-              ) : (channel.mention_count || 0) > 0 ? (
-                <span className="rounded-full bg-rose-400 px-1.5 text-xs font-semibold text-rose-950">{channel.mention_count}</span>
-              ) : null}
+              <UnreadBadge channel={channel} />
             </button>
             {channel.buffer_type === "direct_message" ? (
               <DirectMessageActionMenu
@@ -92,5 +86,34 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
         ))}
       </div>
     </section>
+  )
+}
+
+function UnreadBadge({channel}: {channel: Channel}) {
+  const unreadCount = channel.unread_count || 0
+  const mentionCount = channel.mention_count || 0
+
+  if (unreadCount > 0) {
+    const location = channel.buffer_type === "direct_message" ? "from" : "in"
+
+    return (
+      <span
+        className="min-w-5 rounded-full bg-rose-400 px-1.5 text-center text-xs font-semibold text-rose-950"
+        aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"} ${location} ${channel.channel}`}
+      >
+        {unreadCount}
+      </span>
+    )
+  }
+
+  if (mentionCount === 0) return null
+
+  return (
+    <span
+      className="min-w-5 rounded-full bg-rose-400 px-1.5 text-center text-xs font-semibold text-rose-950"
+      aria-label={`${mentionCount} unread ${mentionCount === 1 ? "mention" : "mentions"} in ${channel.channel}`}
+    >
+      {mentionCount}
+    </span>
   )
 }

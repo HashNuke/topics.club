@@ -49,6 +49,27 @@ defmodule Ircpipe.Chat.BufferEvents do
     )
   end
 
+  def attention_message(
+        %Message{} = message,
+        %ChannelMembership{} = membership,
+        %ServerConnection{} = connection
+      ) do
+    ensure_after_commit!(connection.id)
+
+    payload =
+      Event.message(message, "channel:#{membership.id}", %{
+        channel: membership.channel,
+        unread_count: membership.unread_count,
+        mention_count: membership.mention_count
+      })
+
+    Phoenix.PubSub.broadcast(
+      Ircpipe.PubSub,
+      "user:#{connection.user_id}",
+      {pubsub_event(payload), payload}
+    )
+  end
+
   def server_message(%Message{} = message, %ServerConnection{} = connection) do
     ensure_after_commit!(connection.id)
     event = Event.message(message, "server:#{connection.id}", %{mentioned: false})

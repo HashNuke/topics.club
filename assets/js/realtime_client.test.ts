@@ -455,6 +455,26 @@ describe("realtime client", () => {
     expect(handlers.onNotificationPreference).toHaveBeenCalledWith(preference)
   })
 
+  test("forwards authoritative nonzero counters from a delayed read event", () => {
+    const onBufferRead = vi.fn()
+    const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers: {onBufferRead}})
+    const read = {
+      type: "buffer:read",
+      version: 1,
+      event_id: "buffer_read:channel:7:2",
+      occurred_at: occurredAt,
+      buffer_id: "channel:7",
+      server_connection_id: 42,
+      channel_membership_id: 7,
+      unread_count: 2,
+      mention_count: 1,
+    }
+
+    client.channel.handlers["buffer:read"](read)
+
+    expect(onBufferRead).toHaveBeenCalledWith(read)
+  })
+
   test("wraps channel pushes in ok/error/timeout promises", async () => {
     const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7})
 
