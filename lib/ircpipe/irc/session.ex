@@ -1,8 +1,6 @@
 defmodule Ircpipe.Irc.Session do
   use GenServer
 
-  require Logger
-
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
   alias Ircpipe.Irc.Session.ChannelListCommands
@@ -20,6 +18,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.OutboundMessages
   alias Ircpipe.Irc.Session.Registration
   alias Ircpipe.Irc.Session.ServerEvents
+  alias Ircpipe.Irc.Session.UnhandledEvents
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
@@ -309,19 +308,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, event}, state) do
-    event_name = legacy_event_name(event)
-    now = System.monotonic_time(:second)
-    ignored_event_logs = Map.get(state, :ignored_event_logs, %{})
-
-    state =
-      if now - Map.get(ignored_event_logs, event_name, now - 61) >= 60 do
-        Logger.debug("Ignoring unhandled ircxd event #{event_name}")
-        Map.put(state, :ignored_event_logs, Map.put(ignored_event_logs, event_name, now))
-      else
-        state
-      end
-
-    {:noreply, state}
+    {:noreply, UnhandledEvents.handle(state, event)}
   end
 
   @impl true
@@ -383,8 +370,4 @@ defmodule Ircpipe.Irc.Session do
        do: EventRecorder.irc_error(state, payload)
 
   defp maybe_record_membership_failure(%Event{}, _state), do: :ok
-
-  defp legacy_event_name(name) when is_atom(name), do: Atom.to_string(name)
-  defp legacy_event_name(event) when is_tuple(event), do: event |> elem(0) |> to_string()
-  defp legacy_event_name(_event), do: "unknown"
 end
