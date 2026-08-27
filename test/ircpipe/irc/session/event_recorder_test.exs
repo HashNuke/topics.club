@@ -3,7 +3,7 @@ defmodule Ircpipe.Irc.Session.EventRecorderTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.{Connections, MessageHistory}
+  alias Ircpipe.Chat.{Connections, MessageHistory, SystemMessages}
   alias Ircpipe.Irc.Session.EventRecorder
 
   test "records IRC errors in an existing channel buffer" do
@@ -43,7 +43,7 @@ defmodule Ircpipe.Irc.Session.EventRecorderTest do
     connection = connection_fixture(user)
 
     assert_raise Ecto.NoResultsError, fn ->
-      Chat.record_channel_system_message(
+      SystemMessages.record(
         connection,
         "#missing",
         "error",

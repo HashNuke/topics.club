@@ -1,8 +1,7 @@
 defmodule IrcpipeWeb.UserChannel.MessageHandler do
   @moduledoc false
 
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.MessageHistory
+  alias Ircpipe.Chat.{MessageHistory, SystemMessages}
   alias Ircpipe.Irc.Session
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
@@ -28,7 +27,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
           })
 
         {:error, reason} ->
-          Chat.record_channel_system_message(
+          SystemMessages.record(
             membership.server_connection,
             membership.channel,
             "error",

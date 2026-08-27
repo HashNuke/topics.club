@@ -14,7 +14,8 @@ defmodule Ircpipe.ChatTest do
     Message,
     MessageHistory,
     Presence,
-    Retention
+    Retention,
+    SystemMessages
   }
 
   alias Ircpipe.Repo
@@ -442,7 +443,7 @@ defmodule Ircpipe.ChatTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, _message} =
-             Chat.record_channel_system_message(
+             SystemMessages.record(
                connection,
                "#elixir",
                "join",

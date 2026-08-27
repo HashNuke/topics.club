@@ -1,8 +1,7 @@
 defmodule Ircpipe.Irc.Session.EventRecorder do
   @moduledoc false
 
-  alias Ircpipe.Chat
-  alias Ircpipe.Chat.MessageIngestion
+  alias Ircpipe.Chat.{MessageIngestion, SystemMessages}
   alias Ircpipe.Irc.Session.Targets
 
   def server_line(connection, body, kind \\ "system", metadata \\ %{}) do
@@ -18,7 +17,7 @@ defmodule Ircpipe.Irc.Session.EventRecorder do
   end
 
   def channel_line(state, channel, kind, nick, body) do
-    Chat.record_channel_system_message(
+    SystemMessages.record(
       state.connection,
       channel,
       kind,
@@ -38,7 +37,7 @@ defmodule Ircpipe.Irc.Session.EventRecorder do
   end
 
   def present_nick_line(connection, kind, nick, body_fun) do
-    Chat.record_channel_system_message_for_present_nick(connection, kind, nick, body_fun)
+    SystemMessages.record_for_present_nick(connection, kind, nick, body_fun)
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}
@@ -50,7 +49,7 @@ defmodule Ircpipe.Irc.Session.EventRecorder do
   end
 
   def present_nick_line(connection, kind, present_nick, message_nick, body_fun) do
-    Chat.record_channel_system_message_for_present_nick(
+    SystemMessages.record_for_present_nick(
       connection,
       kind,
       present_nick,
@@ -69,7 +68,7 @@ defmodule Ircpipe.Irc.Session.EventRecorder do
 
   def irc_error(state, %{target: target} = payload) when is_binary(target) do
     if channel = Targets.channel(state, target) do
-      Chat.record_channel_system_message(
+      SystemMessages.record(
         state.connection,
         channel,
         "error",

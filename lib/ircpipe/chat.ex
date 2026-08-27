@@ -8,9 +8,6 @@ defmodule Ircpipe.Chat do
     ChannelMembership,
     ChannelUser,
     MembershipReconciler,
-    Message,
-    Presence,
-    Retention,
     ServerConnection
   }
 
@@ -244,99 +241,6 @@ defmodule Ircpipe.Chat do
     end
   end
 
-  def record_channel_system_message(
-        %ServerConnection{} = connection,
-        channel,
-        kind,
-        nick,
-        body,
-        metadata \\ %{},
-        casemapping \\ :rfc1459
-      ) do
-    membership =
-      case channel_membership(connection, channel, casemapping) do
-        %ChannelMembership{} = membership -> membership
-        nil -> raise Ecto.NoResultsError, queryable: ChannelMembership
-      end
-
-    user = Repo.get!(User, connection.user_id)
-
-    Repo.transaction(fn ->
-      {:ok, message} =
-        %Message{
-          user_id: connection.user_id,
-          server_connection_id: connection.id,
-          channel_membership_id: membership.id
-        }
-        |> Message.changeset(%{
-          kind: kind,
-          nick: nick,
-          metadata: stringify_metadata(metadata),
-          body: body,
-          mentioned: false,
-          occurred_at: DateTime.utc_now(:second)
-        })
-        |> Repo.insert()
-
-      Retention.prune(user)
-      message
-    end)
-    |> case do
-      {:ok, message} ->
-        BufferEvents.message(message, membership, connection)
-        {:ok, message}
-
-      error ->
-        error
-    end
-  end
-
-  def record_channel_system_message_all(%ServerConnection{} = connection, kind, nick, body_fun)
-      when is_function(body_fun, 1) do
-    connection
-    |> Presence.memberships(nil)
-    |> Enum.each(fn membership ->
-      record_channel_system_message(
-        connection,
-        membership.channel,
-        kind,
-        nick,
-        body_fun.(membership)
-      )
-    end)
-  end
-
-  def record_channel_system_message_for_present_nick(
-        %ServerConnection{} = connection,
-        kind,
-        nick,
-        body_fun
-      )
-      when is_binary(nick) and is_function(body_fun, 1) do
-    record_channel_system_message_for_present_nick(connection, kind, nick, nick, body_fun)
-  end
-
-  def record_channel_system_message_for_present_nick(
-        %ServerConnection{} = connection,
-        kind,
-        present_nick,
-        message_nick,
-        body_fun
-      )
-      when is_binary(present_nick) and is_function(body_fun, 1) do
-    connection
-    |> Presence.memberships_with_nick(present_nick)
-    |> Enum.each(fn membership ->
-      record_channel_system_message(
-        connection,
-        membership.channel,
-        kind,
-        message_nick,
-        body_fun.(membership)
-      )
-    end)
-  end
-
   def leave_channel(%User{id: user_id}, %ChannelMembership{} = membership) do
     if membership.user_id == user_id do
       connection = Repo.get!(ServerConnection, membership.server_connection_id)
@@ -349,12 +253,6 @@ defmodule Ircpipe.Chat do
       {:error, :invalid_buffer}
     end
   end
-
-  defp stringify_metadata(metadata) when is_map(metadata) do
-    Map.new(metadata, fn {key, value} -> {to_string(key), value} end)
-  end
-
-  defp stringify_metadata(_metadata), do: %{}
 
   defp reason_text(reason) when is_binary(reason), do: reason
   defp reason_text(reason), do: inspect(reason)
