@@ -1,8 +1,8 @@
 services:
   app:
     build:
-      context: ..
-      dockerfile: ircpipe/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy

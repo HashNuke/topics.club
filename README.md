@@ -104,12 +104,12 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d --build
 The app container waits for Postgres, runs migrations, and then starts Phoenix on
 container port `4000`. Set `IRCPIPE_PORT` to choose the host port.
 
-Because `ircpipe` currently depends on the sibling `../ircxd` package, the
-Dockerfile is built with the parent directory as context. Compose handles this
-automatically. For a manual image build, run this from the parent directory:
+The Docker build uses this repository as its build context and fetches the
+`ircxd` dependency from GitHub. For a manual image build, run this from the
+repository root:
 
 ```bash
-docker build -f ircpipe/Dockerfile .
+docker build .
 ```
 
 ### Self-hosted auth

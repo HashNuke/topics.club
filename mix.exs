@@ -66,7 +66,7 @@ defmodule Ircpipe.MixProject do
       {:gen_smtp, "~> 1.3"},
       {:floki, "~> 0.38.4"},
       {:req, "~> 0.5"},
-      {:ircxd, path: "../ircxd"},
+      {:ircxd, github: "HashNuke/ircxd", branch: "main"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},

@@ -20,13 +20,6 @@ ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}"
 
 FROM ${BUILDER_IMAGE} AS builder
 
-# This Dockerfile expects the parent directory as build context because ircpipe
-# depends on the sibling ../ircxd package:
-#
-#   docker build -f Dockerfile ..
-#
-# `docker compose up` uses that context automatically.
-
 # install build dependencies
 RUN apt-get update \
   && apt-get install -y --no-install-recommends build-essential git npm \
@@ -43,38 +36,37 @@ RUN mix local.hex --force \
 ENV MIX_ENV="prod"
 
 # install mix dependencies
-COPY ircpipe/mix.exs ircpipe/mix.lock ./
-COPY ircxd ../ircxd
+COPY mix.exs mix.lock ./
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 
 # copy compile-time config files before we compile dependencies
 # to ensure any relevant config change will trigger the dependencies
 # to be re-compiled.
-COPY ircpipe/config/config.exs ircpipe/config/${MIX_ENV}.exs config/
+COPY config/config.exs config/${MIX_ENV}.exs config/
 RUN mix deps.compile
 
 RUN mix assets.setup
 
-COPY ircpipe/assets/package.json ircpipe/assets/package-lock.json assets/
+COPY assets/package.json assets/package-lock.json assets/
 RUN npm ci --prefix assets --omit=dev
 
-COPY ircpipe/priv priv
+COPY priv priv
 
-COPY ircpipe/lib lib
+COPY lib lib
 
 # Compile the release
 RUN mix compile
 
-COPY ircpipe/assets assets
+COPY assets assets
 
 # compile assets
 RUN mix assets.deploy
 
 # Changes to config/runtime.exs don't require recompiling the code
-COPY ircpipe/config/runtime.exs config/
+COPY config/runtime.exs config/
 
-COPY ircpipe/rel rel
+COPY rel rel
 RUN mix release
 
 # start a new build stage so that the final image will only contain

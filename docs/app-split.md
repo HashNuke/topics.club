@@ -153,7 +153,7 @@ Define three releases:
 | `ircpipe_web` | core + web | Frequently deployed web tier in split mode |
 | `ircpipe_engine` | core + engine | Small long-lived engine in split mode |
 
-The `ircxd` dependency belongs to `ircpipe_engine`, so it is present in the combined and engine releases but absent from the web-only release.
+The `ircxd` dependency belongs to `ircpipe_engine`, so it is present in the combined and engine releases but absent from the web-only release. Until `ircxd` is published on Hex, builds fetch it from the `HashNuke/ircxd` GitHub repository rather than relying on a sibling checkout.
 
 ## Engine boundary
 
