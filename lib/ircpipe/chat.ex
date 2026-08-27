@@ -253,7 +253,11 @@ defmodule Ircpipe.Chat do
         metadata \\ %{},
         casemapping \\ :rfc1459
       ) do
-    membership = channel_membership(connection, channel, casemapping)
+    membership =
+      case channel_membership(connection, channel, casemapping) do
+        %ChannelMembership{} = membership -> membership
+        nil -> raise Ecto.NoResultsError, queryable: ChannelMembership
+      end
 
     user = Repo.get!(User, connection.user_id)
 

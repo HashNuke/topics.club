@@ -13,6 +13,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
+  alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.Identity
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.JoinLifecycle
@@ -148,7 +149,7 @@ defmodule Ircpipe.Irc.Session do
   @impl true
   def handle_info(:connect, state) do
     connection = state.connection
-    record_server_line(connection, "Connecting to #{connection.host}:#{connection.port}.")
+    EventRecorder.server_line(connection, "Connecting to #{connection.host}:#{connection.port}.")
     update_status(connection, "connecting")
 
     opts = [
@@ -194,7 +195,7 @@ defmodule Ircpipe.Irc.Session do
           "IRC connection failed for #{connection.host}:#{connection.port}: #{inspect(reason)}"
         )
 
-        record_server_line(
+        EventRecorder.server_line(
           connection,
           "Connection to #{connection.host}:#{connection.port} failed: #{inspect(reason)}.",
           "error"
@@ -229,7 +230,7 @@ defmodule Ircpipe.Irc.Session do
 
   def handle_info({:ircxd, :registered}, state) do
     {:ok, updated} = update_status(state.connection, "connected")
-    record_server_line(updated, "Connected to #{updated.host}.")
+    EventRecorder.server_line(updated, "Connected to #{updated.host}.")
 
     {:noreply,
      state
@@ -242,7 +243,7 @@ defmodule Ircpipe.Irc.Session do
   def handle_info({:ircxd, {:connect_error, reason}}, state) do
     Logger.warning("IRC connection error for #{state.connection.host}: #{inspect(reason)}")
 
-    record_server_line(
+    EventRecorder.server_line(
       state.connection,
       "Connection error for #{state.connection.host}: #{inspect(reason)}.",
       "error"
@@ -253,13 +254,13 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, :disconnected}, state) do
-    record_server_line(state.connection, "Disconnected from #{state.connection.host}.")
+    EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
     update_status(state.connection, "disconnected")
     {:noreply, CommandLifecycle.fail_all(state, "Connection closed before completion.")}
   end
 
   def handle_info({:ircxd, {:reconnecting, _payload}}, state) do
-    record_server_line(
+    EventRecorder.server_line(
       state.connection,
       "Reconnecting to #{state.connection.host}:#{state.connection.port}."
     )
@@ -319,22 +320,22 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:welcome, %{text: text}}}, state) do
-    record_server_line(state.connection, text)
+    EventRecorder.server_line(state.connection, text)
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:your_host, %{text: text}}}, state) do
-    record_server_line(state.connection, text)
+    EventRecorder.server_line(state.connection, text)
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:server_created, %{text: text}}}, state) do
-    record_server_line(state.connection, text)
+    EventRecorder.server_line(state.connection, text)
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:server_info, payload}}, state) do
-    record_server_line(
+    EventRecorder.server_line(
       state.connection,
       "#{payload.server} #{payload.version} user modes #{payload.user_modes} channel modes #{payload.channel_modes}",
       "notice"
@@ -344,22 +345,22 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:motd_start, %{text: text}}}, state) do
-    record_server_line(state.connection, text, "notice")
+    EventRecorder.server_line(state.connection, text, "notice")
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:motd, %{text: text}}}, state) do
-    record_server_line(state.connection, text, "notice")
+    EventRecorder.server_line(state.connection, text, "notice")
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:motd_end, %{text: text}}}, state) do
-    record_server_line(state.connection, text, "notice")
+    EventRecorder.server_line(state.connection, text, "notice")
     {:noreply, state}
   end
 
   def handle_info({:ircxd, {:motd_missing, %{text: text}}}, state) do
-    record_server_line(state.connection, text, "notice")
+    EventRecorder.server_line(state.connection, text, "notice")
     {:noreply, state}
   end
 
@@ -418,7 +419,7 @@ defmodule Ircpipe.Irc.Session do
       Targets.casemapping(state)
     )
 
-    record_channel_line(state, channel, "join", nick, "#{nick} joined #{channel}.")
+    EventRecorder.channel_line(state, channel, "join", nick, "#{nick} joined #{channel}.")
 
     state =
       if self? do
@@ -440,7 +441,7 @@ defmodule Ircpipe.Irc.Session do
       Targets.casemapping(state)
     )
 
-    record_channel_line(state, channel, "part", nick, "#{nick} left #{channel}.")
+    EventRecorder.channel_line(state, channel, "part", nick, "#{nick} left #{channel}.")
 
     state =
       if self? do
@@ -459,7 +460,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:quit, %{nick: nick}}}, state) do
-    record_channel_line_for_present_nick(state.connection, "quit", nick, fn _membership ->
+    EventRecorder.present_nick_line(state.connection, "quit", nick, fn _membership ->
       "#{nick} quit."
     end)
 
@@ -473,7 +474,7 @@ defmodule Ircpipe.Irc.Session do
       ) do
     self? = Identity.source_self?(state, payload, old_nick)
 
-    record_channel_line_for_present_nick(
+    EventRecorder.present_nick_line(
       state.connection,
       "nick",
       old_nick,
@@ -535,7 +536,7 @@ defmodule Ircpipe.Irc.Session do
         )
       )
 
-      record_channel_line(
+      EventRecorder.channel_line(
         state,
         target,
         "mode",
@@ -543,7 +544,7 @@ defmodule Ircpipe.Irc.Session do
         EventFormatting.mode_body(payload)
       )
     else
-      record_server_line(state.connection, EventFormatting.mode_body(payload), "mode")
+      EventRecorder.server_line(state.connection, EventFormatting.mode_body(payload), "mode")
     end
 
     {:noreply, state}
@@ -562,7 +563,7 @@ defmodule Ircpipe.Irc.Session do
       Targets.casemapping(state)
     )
 
-    record_channel_line(
+    EventRecorder.channel_line(
       state,
       channel,
       "kick",
@@ -590,7 +591,7 @@ defmodule Ircpipe.Irc.Session do
   end
 
   def handle_info({:ircxd, {:topic, %{channel: channel, nick: nick, topic: topic}}}, state) do
-    record_channel_line(
+    EventRecorder.channel_line(
       state,
       channel,
       "topic",
@@ -603,7 +604,7 @@ defmodule Ircpipe.Irc.Session do
 
   def handle_info({:ircxd, {:irc_error, payload}}, state) do
     state = JoinReconciliation.reconcile_legacy_error(state, payload)
-    record_irc_error(state, payload)
+    EventRecorder.irc_error(state, payload)
     {:noreply, state}
   end
 
@@ -615,7 +616,7 @@ defmodule Ircpipe.Irc.Session do
     state = JoinReconciliation.reconcile_standard_failure(state, payload)
 
     unless pending? do
-      record_server_line(
+      EventRecorder.server_line(
         state.connection,
         Map.get(payload, :description) || "JOIN failed.",
         "error"
@@ -627,7 +628,7 @@ defmodule Ircpipe.Irc.Session do
 
   def handle_info({:ircxd, {:nick_in_use, payload}}, state) do
     reason = Map.get(payload, :reason) || "That nickname is already in use."
-    record_server_line(state.connection, reason, "error")
+    EventRecorder.server_line(state.connection, reason, "error")
     {:noreply, state}
   end
 
@@ -689,7 +690,7 @@ defmodule Ircpipe.Irc.Session do
     if String.match?(command, ~r/^\d{3}$/) do
       description = List.last(params) || "No description provided."
 
-      record_server_line(
+      EventRecorder.server_line(
         state.connection,
         "IRC reply #{command}: #{description}",
         "notice",
@@ -963,7 +964,7 @@ defmodule Ircpipe.Irc.Session do
         client -> Ircxd.Client.quit(client, reason)
       end
 
-    record_server_line(state.connection, "Disconnected from #{state.connection.host}.")
+    EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
     {:stop, :normal, normalize_result(result), state}
   end
 
@@ -1008,106 +1009,6 @@ defmodule Ircpipe.Irc.Session do
     :exit, _reason -> {:ok, connection}
   end
 
-  defp record_server_line(connection, body, kind \\ "system", metadata \\ %{}) do
-    MessageIngestion.record_server(connection, body, kind, nil, metadata)
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
-  end
-
-  defp record_channel_line(state, channel, kind, nick, body) do
-    Chat.record_channel_system_message(
-      state.connection,
-      channel,
-      kind,
-      nick,
-      body,
-      %{},
-      Targets.casemapping(state)
-    )
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
-  end
-
-  defp record_channel_line_for_present_nick(connection, kind, nick, body_fun) do
-    Chat.record_channel_system_message_for_present_nick(connection, kind, nick, body_fun)
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
-  end
-
-  defp record_channel_line_for_present_nick(
-         connection,
-         kind,
-         present_nick,
-         message_nick,
-         body_fun
-       ) do
-    Chat.record_channel_system_message_for_present_nick(
-      connection,
-      kind,
-      present_nick,
-      message_nick,
-      body_fun
-    )
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
-  end
-
-  defp record_irc_error(state, %{target: target} = payload) when is_binary(target) do
-    if channel = Targets.channel(state, target) do
-      Chat.record_channel_system_message(
-        state.connection,
-        channel,
-        "error",
-        nil,
-        irc_error_body(payload),
-        %{},
-        Targets.casemapping(state)
-      )
-    else
-      record_server_line(state.connection, irc_error_body(payload), "error")
-    end
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> record_server_line(state.connection, irc_error_body(payload), "error")
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
-  end
-
-  defp record_irc_error(state, payload) do
-    record_server_line(state.connection, irc_error_body(payload), "error")
-  end
-
-  defp irc_error_body(%{reason: reason}) when is_binary(reason), do: reason
-  defp irc_error_body(%{code: code}), do: "IRC error #{code}."
-  defp irc_error_body(_payload), do: "IRC error."
-
   defp fetch_client(%{client: nil}), do: {:error, :not_connected}
   defp fetch_client(%{client: client}), do: {:ok, client}
 
@@ -1116,7 +1017,7 @@ defmodule Ircpipe.Irc.Session do
 
   defp maybe_record_membership_failure(%Event{name: name, payload: payload}, state)
        when name in [:irc_error, :error],
-       do: record_irc_error(state, payload)
+       do: EventRecorder.irc_error(state, payload)
 
   defp maybe_record_membership_failure(%Event{}, _state), do: :ok
 
