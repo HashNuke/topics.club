@@ -144,7 +144,7 @@ Use the following logical ownership before creating the umbrella:
 | Logical component | Current/future namespaces | Allowed dependencies | Future OTP application |
 | --- | --- | --- | --- |
 | Core/data | `Ircpipe.Repo`, `Ircpipe.Vault`, shared identity/data schemas, migration modules, and persistence primitives | External libraries and other core modules only | `ircpipe_core` |
-| Shared protocol/contracts | Versioned request, reply, and event envelopes; pure IRC identifiers, command metadata, and validation needed by more than one role | Standard library and `ircxd`; never Repo, Ecto schemas, or another Ircpipe component | `ircpipe_core` initially; split further only if justified |
+| Shared protocol/contracts | Versioned request, reply, and event envelopes; pure IRC identifiers, command metadata, and validation needed by more than one role | Standard library, `:telemetry`, and `ircxd`; never Repo, Ecto schemas, or another Ircpipe component | `ircpipe_core` initially; split further only if justified |
 | Engine | `Ircpipe.Irc` process ownership, per-user session orchestration, ingestion, hosted server | Core and shared contracts | `ircpipe_engine` |
 | Web | `IrcpipeWeb`, browser auth, controllers, Channels, serializers, frontend, directory discovery workers, web-owned jobs | Core, shared contracts, `Ircpipe.EngineClient`, and `ircxd` for discovery | `ircpipe_web` |
 
@@ -351,11 +351,11 @@ Cluster requests use a versioned envelope and plain terms:
 ```elixir
 %{
   version: 1,
-  operation: :send_message,
+  operation: :send_channel_message,
   request_id: "uuid",
   user_id: 123,
   connection_id: 456,
-  payload: %{buffer_id: "channel:789", body: "hello"}
+  payload: %{membership_id: 789, kind: "message", body: "hello"}
 }
 ```
 
@@ -371,11 +371,34 @@ Do not send these values across the cluster boundary:
 
 Replies use versioned plain maps and stable error atoms. Unknown request versions or operations return explicit unsupported errors rather than crashing the engine.
 
+The checked-in version 1 contract currently defines these operations and expectations:
+
+| Operation | Default timeout | Automatic retry policy |
+| --- | ---: | --- |
+| Batch connection status | 5 seconds | Safe |
+| Connection info | 5 seconds | Safe |
+| Ensure/start connection | 15 seconds | Safe |
+| Disconnect connection | 10 seconds | Safe |
+| Quiesce for deletion | 10 seconds | Safe |
+| Request channel join | 15 seconds | Safe |
+| Part channel | 10 seconds | Unsafe |
+| Send channel message/action | 10 seconds | Unsafe |
+| Send direct message | 10 seconds | Unsafe |
+| Execute validated command line | 15 seconds | Unsafe |
+| Fetch live channel list | 12 seconds | Safe |
+
+“Safe” means the operation is designed to tolerate a retry after an unavailable/timeout result; callers still use bounded attempts and the same request ID. Message, command, and part operations are unsafe because an ambiguous timeout can follow successful IRC transmission or persistence. The client does not retry automatically in this phase—it exposes the classification in telemetry for the later RPC policy.
+
+`Ircpipe.EngineClient` builds and validates envelopes, invokes the configured adapter dynamically, validates the versioned reply, and returns plain success data or a stable error map. Combined mode selects the engine-owned local adapter without any split-mode environment variables. The web-owned RPC adapter resolves the global engine marker and calls the engine API using a runtime-resolved module name, so it has no compile-time dependency on engine implementation modules.
+
+The engine API reloads the user, connection, membership, or direct-message thread needed by each operation and rechecks ownership before touching a local session. Ecto schemas, `Ircxd.Client.Info`, `MapSet` values, and timestamps are converted to plain maps, lists, and ISO 8601 strings before a reply crosses the adapter boundary. Local requests execute under an engine-owned task supervisor so the same per-operation timeout applies in combined mode without routing all work through the marker process.
+
 ### Initial operations
 
 The first version of the engine API must cover every current direct web-to-engine call:
 
 - Batch connection status
+- Current connection info needed by shared IRC validation
 - Ensure/start connection
 - Disconnect connection
 - Quiesce connection for deletion
@@ -383,7 +406,7 @@ The first version of the engine API must cover every current direct web-to-engin
 - Part channel
 - Send channel message or action
 - Send direct message
-- Execute a validated IRC command intent
+- Execute and revalidate a plain IRC command line inside the engine
 - Fetch the live server channel list
 
 `Ircpipe.EngineClient` maps node-down, timeout, and engine-not-started failures into stable application errors such as `:engine_unavailable` and `:not_connected`.
@@ -471,6 +494,8 @@ The monolith currently uses this engine branch:
 
 ```text
 Ircpipe.EngineSupervisor (:one_for_one)
+  Engine.Marker (global singleton identity only)
+  Engine.RequestTaskSupervisor
   Ircpipe.EngineOban
   Ircpipe.Irc.SessionSystemSupervisor (:one_for_all)
     SingleNodeGuard
@@ -481,7 +506,7 @@ Ircpipe.EngineSupervisor (:one_for_one)
     Bouncer
 ```
 
-The future engine marker and hosted server supervisor will be siblings of `SessionSystemSupervisor`. `Ircxd.Server` must not be placed inside the outbound session subsystem's current `:one_for_all` boundary. A hosted-server failure must not restart every outbound client session, and an outbound registry failure must not terminate all hosted IRC clients.
+The future hosted server supervisor will also be a sibling of `SessionSystemSupervisor`. `Ircxd.Server` must not be placed inside the outbound session subsystem's current `:one_for_all` boundary. A hosted-server failure must not restart every outbound client session, and an outbound registry failure must not terminate all hosted IRC clients.
 
 ### Web supervision
 
@@ -641,30 +666,30 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 #### Versioned request and reply contracts
 
-- [ ] Define the version 1 request envelope using plain maps and scalar IDs.
-- [ ] Define stable reply envelopes for successful operations.
-- [ ] Define stable error atoms for unavailable, timeout, unauthorized, not-connected, invalid-state, unsupported-version, and unsupported-operation failures.
-- [ ] Validate required request fields before dispatch.
-- [ ] Reject unknown versions and operations without crashing the engine API.
-- [ ] Prevent Ecto structs, changesets, PIDs, functions, exceptions, and `ircxd` structs from becoming public contract values.
-- [ ] Generate or validate request IDs for logging and correlation.
-- [ ] Define per-operation timeout expectations.
-- [ ] Define which operations are safe to retry and which require idempotency protection.
-- [ ] Add contract tests for valid and invalid requests, replies, and errors.
+- [x] Define the version 1 request envelope using plain maps and scalar IDs.
+- [x] Define stable reply envelopes for successful operations.
+- [x] Define stable error atoms for unavailable, timeout, unauthorized, not-connected, invalid-state, unsupported-version, and unsupported-operation failures.
+- [x] Validate required request fields before dispatch.
+- [x] Reject unknown versions and operations without crashing the engine API.
+- [x] Prevent Ecto structs, changesets, PIDs, functions, exceptions, and `ircxd` structs from becoming public contract values.
+- [x] Generate or validate request IDs for logging and correlation.
+- [x] Define per-operation timeout expectations.
+- [x] Define which operations are safe to retry and which require idempotency protection.
+- [x] Add contract tests for valid and invalid requests, replies, and errors.
 
 #### Engine API and client
 
-- [ ] Add the engine API module that accepts versioned requests and reloads authoritative database records.
-- [ ] Reauthorize every operation using `user_id` and `connection_id` inside the engine API.
-- [ ] Add an engine marker process without serializing all operations through that process.
+- [x] Add the engine API module that accepts versioned requests and reloads authoritative database records.
+- [x] Reauthorize every operation using `user_id` and `connection_id` inside the engine API.
+- [x] Add an engine marker process without serializing all operations through that process.
 - [ ] Add `Ircpipe.EngineClient` as the only application-facing IRC operations interface.
-- [ ] Add the combined-mode local adapter.
-- [ ] Treat the local adapter as engine-owned implementation code rather than core or web code.
-- [ ] Define the RPC adapter module boundary without adding a compile-time dependency on engine implementation modules.
-- [ ] Configure the adapter without requiring split-mode environment variables in combined mode.
-- [ ] Normalize exits, missing processes, and session failures into stable client errors.
-- [ ] Add telemetry around operation name, duration, result, timeout, and request ID.
-- [ ] Add local adapter tests that exercise the same request envelopes intended for split mode.
+- [x] Add the combined-mode local adapter.
+- [x] Treat the local adapter as engine-owned implementation code rather than core or web code.
+- [x] Define the RPC adapter module boundary without adding a compile-time dependency on engine implementation modules.
+- [x] Configure the adapter without requiring split-mode environment variables in combined mode.
+- [x] Normalize exits, missing processes, and session failures into stable client errors.
+- [x] Add telemetry around operation name, duration, result, timeout, and request ID.
+- [x] Add local adapter tests that exercise the same request envelopes intended for split mode.
 
 #### Route all operations through `EngineClient`
 

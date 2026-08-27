@@ -48,6 +48,7 @@
         "lib/ircpipe/irc/**/*.ex",
         "test/support/closed_irc_session.ex",
         "test/support/crashing_irc_session.ex",
+        "test/support/blocked_engine_api.ex",
         "test/support/failing_irc_client.ex",
         "test/support/irc_test_server.ex",
         "test/support/restarting_irc_session.ex"

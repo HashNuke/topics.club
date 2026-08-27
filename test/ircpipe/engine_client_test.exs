@@ -8,6 +8,7 @@ defmodule Ircpipe.EngineClientTest do
     previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
     previous_test_pid = Application.get_env(:ircpipe, :engine_client_test_pid)
     previous_test_reply = Application.get_env(:ircpipe, :engine_client_test_reply)
+    previous_local_api_module = Application.get_env(:ircpipe, :engine_local_api_module)
 
     Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
     Application.put_env(:ircpipe, :engine_client_test_pid, self())
@@ -17,6 +18,7 @@ defmodule Ircpipe.EngineClientTest do
       restore_env(:engine_client_adapter, previous_adapter)
       restore_env(:engine_client_test_pid, previous_test_pid)
       restore_env(:engine_client_test_reply, previous_test_reply)
+      restore_env(:engine_local_api_module, previous_local_api_module)
     end)
 
     :ok
@@ -83,6 +85,14 @@ defmodule Ircpipe.EngineClientTest do
     assert current_node == node()
 
     assert direct_child_pid(Ircpipe.EngineSupervisor, Ircpipe.Engine.Marker) == marker
+  end
+
+  test "the local adapter enforces the operation timeout" do
+    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.Engine.LocalAdapter)
+    Application.put_env(:ircpipe, :engine_local_api_module, Ircpipe.BlockedEngineAPI)
+
+    assert {:error, %{code: :timeout, details: %{}}} =
+             EngineClient.connection_info(1, 2, timeout: 10)
   end
 
   defp direct_child_pid(supervisor, child_id) do
