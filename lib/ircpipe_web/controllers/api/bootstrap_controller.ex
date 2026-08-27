@@ -11,6 +11,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   alias Ircpipe.Notifications.PushRegistrations
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
+  alias IrcpipeWeb.Api.BootstrapBuffers
 
   @message_limit 150
 
@@ -37,8 +38,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
     Enum.each(connections, &start_session/1)
 
-    buffers = Enum.flat_map(connections, &connection_buffers/1)
-    active_buffer_id = active_buffer_id(buffers)
+    buffers = Enum.flat_map(connections, &BootstrapBuffers.for_connection/1)
+    active_buffer_id = BootstrapBuffers.active_id(buffers)
 
     payload = %{
       user: user_json(user),
@@ -71,7 +72,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   end
 
   defp connection_json(connection) do
-    memberships = visible_memberships(connection)
+    memberships = BootstrapBuffers.visible_memberships(connection)
 
     %{
       id: connection.id,
@@ -90,89 +91,22 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     }
   end
 
-  defp connection_buffers(connection) do
-    [
-      %{
-        buffer_id: server_buffer_id(connection),
-        buffer_type: "server",
-        server_connection_id: connection.id,
-        channel_membership_id: nil,
-        title: connection.host,
-        subtitle: connection.name,
-        status: Session.status(connection),
-        unread_count: connection.unread_count,
-        mention_count: connection.mention_count,
-        mention_notifications_enabled: connection.mention_notifications_enabled,
-        notification_preference_revision: connection.notification_preference_revision
-      }
-      | Enum.map(connection.direct_message_threads, &direct_message_buffer(&1, connection)) ++
-          Enum.map(visible_memberships(connection), &channel_buffer(&1, connection))
-    ]
-  end
-
-  defp direct_message_buffer(thread, connection) do
-    %{
-      buffer_id: direct_message_buffer_id(thread),
-      buffer_type: "direct_message",
-      server_connection_id: connection.id,
-      channel_membership_id: nil,
-      direct_message_thread_id: thread.id,
-      direct_message_revision: thread.mutation_revision,
-      title: thread.peer_nick,
-      subtitle: "on #{connection.host}",
-      status: Session.status(connection),
-      unread_count: thread.unread_count,
-      mention_count: 0,
-      peer_nick: thread.peer_nick,
-      account: thread.account,
-      hostmask: thread.hostmask,
-      blocked: not is_nil(thread.blocked_at),
-      closed_at: thread.closed_at
-    }
-  end
-
-  defp channel_buffer(membership, connection) do
-    %{
-      buffer_id: channel_buffer_id(membership),
-      buffer_type: "channel",
-      server_connection_id: connection.id,
-      channel_membership_id: membership.id,
-      title: membership.channel,
-      subtitle: "on #{connection.host}",
-      status: Session.status(connection),
-      membership_status: membership.status,
-      unread_count: membership.unread_count,
-      mention_count: membership.mention_count,
-      mention_notifications_enabled: membership.mention_notifications_enabled,
-      notification_preference_revision: membership.notification_preference_revision
-    }
-  end
-
-  defp active_buffer_id(buffers) do
-    channel_buffer =
-      Enum.find(buffers, &(&1.buffer_type == "channel" and &1.membership_status == "joined")) ||
-        Enum.find(buffers, &(&1.buffer_type == "channel"))
-
-    buffer = channel_buffer || List.first(buffers)
-    buffer && buffer.buffer_id
-  end
-
   defp messages_by_buffer(user, connections) do
     channel_messages =
       connections
-      |> Enum.flat_map(&visible_memberships/1)
+      |> Enum.flat_map(&BootstrapBuffers.visible_memberships/1)
       |> Map.new(fn membership ->
         messages =
           user
           |> MessageHistory.list_messages(membership.id, @message_limit)
           |> Enum.map(&message_json(&1, membership))
 
-        {channel_buffer_id(membership), messages}
+        {BootstrapBuffers.channel_id(membership), messages}
       end)
 
     server_messages =
       Map.new(connections, fn connection ->
-        buffer_id = server_buffer_id(connection)
+        buffer_id = BootstrapBuffers.server_id(connection)
 
         messages =
           user
@@ -186,7 +120,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       connections
       |> Enum.flat_map(& &1.direct_message_threads)
       |> Map.new(fn thread ->
-        buffer_id = direct_message_buffer_id(thread)
+        buffer_id = BootstrapBuffers.direct_message_id(thread)
 
         messages =
           user
@@ -209,17 +143,17 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   end
 
   defp server_message_json(message, connection) do
-    Event.message(message, server_buffer_id(connection), %{mentioned: false})
+    Event.message(message, BootstrapBuffers.server_id(connection), %{mentioned: false})
   end
 
   defp message_json(message, membership) do
-    Event.message(message, channel_buffer_id(membership))
+    Event.message(message, BootstrapBuffers.channel_id(membership))
   end
 
   defp users_by_buffer(connections) do
     connections
-    |> Enum.flat_map(&visible_memberships/1)
-    |> Map.new(&{channel_buffer_id(&1), Presence.list_users(&1)})
+    |> Enum.flat_map(&BootstrapBuffers.visible_memberships/1)
+    |> Map.new(&{BootstrapBuffers.channel_id(&1), Presence.list_users(&1)})
   end
 
   defp topic_json(topic) do
@@ -232,14 +166,6 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       use_tls: topic.use_tls,
       channel: topic.channel
     }
-  end
-
-  defp server_buffer_id(connection), do: "server:#{connection.id}"
-  defp channel_buffer_id(membership), do: "channel:#{membership.id}"
-  defp direct_message_buffer_id(thread), do: "direct:#{thread.id}"
-
-  defp visible_memberships(connection) do
-    Enum.filter(connection.channel_memberships, &(&1.status in ["pending", "joined"]))
   end
 
   defp start_session(connection) do
