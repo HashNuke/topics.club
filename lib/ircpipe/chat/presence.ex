@@ -3,7 +3,14 @@ defmodule Ircpipe.Chat.Presence do
 
   import Ecto.Query
 
-  alias Ircpipe.Chat.{ChannelMembership, ChannelUser, ServerConnection, ServerConnectionLock}
+  alias Ircpipe.Chat.{
+    ChannelMembership,
+    ChannelUser,
+    PresenceDiff,
+    ServerConnection,
+    ServerConnectionLock
+  }
+
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
@@ -70,7 +77,7 @@ defmodule Ircpipe.Chat.Presence do
 
   def diff(%ServerConnection{} = connection, channel, diff, casemapping) do
     assert_no_outer_transaction!()
-    canonical_diff = canonical_diff(diff, casemapping)
+    canonical_diff = PresenceDiff.canonicalize(diff, casemapping)
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
@@ -335,27 +342,6 @@ defmodule Ircpipe.Chat.Presence do
   defp value(metadata, key) do
     Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
   end
-
-  defp canonical_diff(%{action: "join", user: user} = diff, casemapping) do
-    put_in(diff, [:user, :nick_key], Identifier.key(value(user, :nick), casemapping))
-  end
-
-  defp canonical_diff(%{action: action, nick: nick} = diff, casemapping)
-       when action in ["part", "quit", "away", "role"] and is_binary(nick) do
-    Map.put(diff, :nick_key, Identifier.key(nick, casemapping))
-  end
-
-  defp canonical_diff(
-         %{action: "nick", old_nick: old_nick, new_nick: new_nick} = diff,
-         casemapping
-       )
-       when is_binary(old_nick) and is_binary(new_nick) do
-    diff
-    |> Map.put(:old_nick_key, Identifier.key(old_nick, casemapping))
-    |> Map.put(:new_nick_key, Identifier.key(new_nick, casemapping))
-  end
-
-  defp canonical_diff(diff, _casemapping), do: diff
 
   defp channel_membership(connection, channel, casemapping, status \\ nil) do
     query =
