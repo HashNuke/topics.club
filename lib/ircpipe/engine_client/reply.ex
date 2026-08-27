@@ -73,8 +73,8 @@ defmodule Ircpipe.EngineClient.Reply do
   defp base(request, status) do
     %{
       version: Contract.version(),
-      operation: request_value(request, :operation),
-      request_id: request_value(request, :request_id),
+      operation: safe_operation(request),
+      request_id: safe_request_id(request),
       status: status
     }
   end
@@ -86,8 +86,14 @@ defmodule Ircpipe.EngineClient.Reply do
       reply.request_id == Map.get(request, :request_id)
   end
 
-  defp request_value(request, key) when is_map(request), do: Map.get(request, key)
-  defp request_value(_request, _key), do: nil
+  defp safe_operation(%{operation: operation}) when is_atom(operation), do: operation
+  defp safe_operation(_request), do: nil
+
+  defp safe_request_id(%{request_id: request_id}) do
+    if Contract.valid_request_id?(request_id), do: request_id
+  end
+
+  defp safe_request_id(_request), do: nil
 
   defp invalid_response, do: {:error, %{code: :invalid_response, details: %{}}}
 end

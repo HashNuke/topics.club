@@ -160,6 +160,12 @@ defmodule Ircpipe.EngineClient.Contract do
 
   def plain_term?(_value), do: false
 
+  def valid_request_id?(request_id) when is_binary(request_id) do
+    byte_size(request_id) in 1..128 and String.match?(request_id, @request_id_pattern)
+  end
+
+  def valid_request_id?(_request_id), do: false
+
   defp validate_known_operation(request, metadata) do
     payload = Map.get(request, :payload)
 
@@ -199,12 +205,6 @@ defmodule Ircpipe.EngineClient.Contract do
 
   defp valid_type?(_value, {:list, _type}), do: false
   defp valid_type?(value, {:one_of, values}), do: value in values
-
-  defp valid_request_id?(request_id) when is_binary(request_id) do
-    byte_size(request_id) in 1..128 and String.match?(request_id, @request_id_pattern)
-  end
-
-  defp valid_request_id?(_request_id), do: false
 
   defp valid_connection_id?(connection_id, true), do: positive_integer?(connection_id)
   defp valid_connection_id?(nil, false), do: true

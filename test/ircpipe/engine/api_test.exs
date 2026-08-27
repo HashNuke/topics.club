@@ -60,6 +60,21 @@ defmodule Ircpipe.Engine.APITest do
 
     assert %{status: :error, error: :invalid_request, operation: nil, request_id: nil} =
              API.dispatch(self())
+
+    hostile_version = %{version: 2, operation: self(), request_id: self()}
+    hostile_operation = %{version: 1, operation: self(), request_id: self()}
+
+    for {hostile_request, expected_error} <- [
+          {hostile_version, :unsupported_version},
+          {hostile_operation, :unsupported_operation}
+        ] do
+      reply = API.dispatch(hostile_request)
+
+      assert reply.error == expected_error
+      assert reply.operation == nil
+      assert reply.request_id == nil
+      assert Contract.plain_term?(reply)
+    end
   end
 
   test "the local adapter exercises the same envelope and returns plain status data", %{
