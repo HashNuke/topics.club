@@ -14,6 +14,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
   alias Ircpipe.Irc.Session.ChannelListRequest
+  alias Ircpipe.Irc.Session.ClientOptions
   alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.Identity
   alias Ircpipe.Irc.Session.InboundMessageRouting
@@ -151,41 +152,7 @@ defmodule Ircpipe.Irc.Session do
     EventRecorder.server_line(connection, "Connecting to #{connection.host}:#{connection.port}.")
     update_status(connection, "connecting")
 
-    opts = [
-      host: connection.host,
-      port: connection.port,
-      tls: connection.use_tls,
-      nick: connection.nickname,
-      username: connection.username || connection.nickname,
-      realname: connection.realname || connection.nickname,
-      caps: [
-        "server-time",
-        "echo-message",
-        "multi-prefix",
-        "userhost-in-names",
-        "message-tags",
-        "batch",
-        "labeled-response"
-      ],
-      events: :envelope,
-      notify: self()
-    ]
-
-    opts =
-      if present?(connection.server_password) do
-        Keyword.put(opts, :password, connection.server_password)
-      else
-        opts
-      end
-
-    opts =
-      if present?(connection.sasl_username) and present?(connection.sasl_password) do
-        Keyword.put(opts, :sasl, {:plain, connection.sasl_username, connection.sasl_password})
-      else
-        opts
-      end
-
-    case Ircxd.Client.start_link(opts) do
+    case Ircxd.Client.start_link(ClientOptions.build(connection, self())) do
       {:ok, client} ->
         {:noreply, %{state | client: client}}
 
@@ -1033,8 +1000,6 @@ defmodule Ircpipe.Irc.Session do
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error
-
-  defp present?(value), do: is_binary(value) and value != ""
 
   defp legacy_event_name(name) when is_atom(name), do: Atom.to_string(name)
   defp legacy_event_name(event) when is_tuple(event), do: event |> elem(0) |> to_string()
