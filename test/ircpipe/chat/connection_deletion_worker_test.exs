@@ -255,7 +255,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
       )
 
     assert %{discard: 1, failure: 0, snoozed: 0, success: 0} =
-             Oban.drain_queue(queue: :connection_deletions, with_limit: 1)
+             Oban.drain_queue(Ircpipe.EngineOban,
+               queue: :connection_deletions,
+               with_limit: 1
+             )
 
     assert_receive {:connection_final_delete_raised, _pid, ^exception_ref, ^connection_id}
     assert Repo.get!(Oban.Job, job.id).state == "discarded"
@@ -343,7 +346,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
       )
 
     assert %{discard: 1, failure: 0, snoozed: 0, success: 0} =
-             Oban.drain_queue(queue: :connection_deletions, with_limit: 1)
+             Oban.drain_queue(Ircpipe.EngineOban,
+               queue: :connection_deletions,
+               with_limit: 1
+             )
 
     assert_receive {:connection_before_delete_mark_raised, _pid, ^exception_ref, ^connection_id}
     assert Repo.get!(Oban.Job, job.id).state == "discarded"

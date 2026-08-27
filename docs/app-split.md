@@ -442,6 +442,17 @@ Engine ingestion may insert a notification job into an Oban queue that the web r
 
 No queue may be enabled on a node where its worker assumes a local IRC registry unless the worker has first been refactored through `Ircpipe.EngineClient`.
 
+The combined monolith now runs two named Oban instances so queue execution already follows the future release boundary:
+
+| Instance owner | Queue/plugin | Workers or purpose |
+| --- | --- | --- |
+| Engine | `connection_deletions` queue | `ConnectionDeletionWorker`, `ConnectionDeletionEventsWorker`, and `ConnectionDeletionReconcilerWorker` |
+| Engine | Cron | Enqueues `ConnectionDeletionReconcilerWorker` once per minute |
+| Web | `notifications` queue | `PushWorker` |
+| Web | `Oban.Plugins.Pruner` | Prunes the shared jobs table exactly once in combined mode |
+
+Core owns no Oban instance. Job insertion names the intended runtime instance explicitly; therefore a combined node cannot accidentally dispatch a job through an unowned default Oban process.
+
 ## Supervision
 
 ### Core supervision
@@ -451,26 +462,30 @@ Each node starts its own core infrastructure:
 - Vault
 - Repo
 - Phoenix PubSub
-- Shared telemetry needed by that release
+
+The combined monolith starts these once under `Ircpipe.CoreSupervisor` before either role-specific branch.
 
 ### Engine supervision
 
-The hosted IRC server must be isolated from outbound sessions:
+The monolith currently uses this engine branch:
 
 ```text
-IrcpipeEngine.Supervisor (:one_for_one)
-  EngineMarker
-  ConnectionOperationLock
-  OutboundSessionSystemSupervisor
-  DiscoveryRefresher (when enabled)
-  HostedIrcServerSupervisor
+Ircpipe.EngineSupervisor (:one_for_one)
+  Ircpipe.EngineOban
+  Ircpipe.Irc.SessionSystemSupervisor (:one_for_all)
+    SingleNodeGuard
+    ConnectionOperationLock
+    ClientRegistry
+    SessionRegistry
+    SessionSupervisor
+    Bouncer
 ```
 
-`Ircxd.Server` must not be placed inside the outbound session subsystem's current `:one_for_all` boundary. A hosted-server failure must not restart every outbound client session, and an outbound registry failure must not terminate all hosted IRC clients.
+The future engine marker and hosted server supervisor will be siblings of `SessionSystemSupervisor`. `Ircxd.Server` must not be placed inside the outbound session subsystem's current `:one_for_all` boundary. A hosted-server failure must not restart every outbound client session, and an outbound registry failure must not terminate all hosted IRC clients.
 
 ### Web supervision
 
-The web release starts Phoenix Endpoint last, after Repo, PubSub, and the engine client monitor are available. Engine unavailability must put IRC mutations into a clear degraded state; it must not prevent the web application from serving login, settings, or persisted history.
+The monolith currently starts `IrcpipeWeb.Telemetry`, the named web Oban instance, optional `Ircpipe.Discovery.Refresher`, and then `IrcpipeWeb.Endpoint` under `IrcpipeWeb.Supervisor`. Endpoint remains the final web child. The web release starts the same branch after Repo, PubSub, and the engine client monitor are available. Engine unavailability must put IRC mutations into a clear degraded state; it must not prevent the web application from serving login, settings, or persisted history.
 
 ## Deployment experience
 
@@ -563,11 +578,11 @@ Size: **M**. Risk: **Medium**. This prevents hidden coupling from being discover
 - [ ] Trace connect, disconnect, join, part, send, command, channel-list, and deletion flows from public entry point to session process.
 - [ ] Trace inbound message, presence, membership, command-result, and connection-status flows from IRC event through commit and PubSub.
 - [ ] Inventory every PubSub topic and payload currently consumed by `IrcpipeWeb.UserChannel`.
-- [ ] Inventory every Oban queue, plugin, cron entry, and worker, and assign each one to core, web, or engine.
+- [x] Inventory every Oban queue, plugin, cron entry, and worker, and assign each one to core, web, or engine.
 - [ ] Inventory all schemas and context modules and record their intended owning application.
 - [ ] Inventory compile-time and runtime configuration and classify it as shared, web-only, engine-only, or combined-only.
 - [ ] Inventory production secrets and identify which release genuinely requires each secret.
-- [ ] Inventory supervision children, restart strategies, registries, and globally or locally registered names.
+- [x] Inventory supervision children, restart strategies, registries, and globally or locally registered names.
 - [ ] Record the current browser REST and Channel payloads that must remain compatible.
 - [ ] Record the current release, migration, Docker, Compose, and service startup behavior.
 
@@ -674,15 +689,15 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 #### Demarcate supervision before extraction
 
-- [ ] Add a logical core supervisor for Vault, Repo, shared PubSub, and role-neutral infrastructure.
-- [ ] Add a logical engine supervisor for the single-node guard, operation lock, registries, session supervisor, bouncer, and later hosted server.
-- [ ] Add a logical web supervisor for telemetry, directory discovery refresh, Endpoint, and web-owned runtime processes.
-- [ ] Make the existing root application start core, engine, and web supervisors in combined mode.
-- [ ] Assign every Oban queue and plugin to one logical runtime role before changing release layout.
-- [ ] Ensure shared infrastructure starts exactly once in combined mode.
-- [ ] Preserve Endpoint-last ordering in the logical web supervisor.
-- [ ] Preserve Endpoint configuration-change handling through the root application during this phase.
-- [ ] Add combined-mode supervision tests that assert the expected logical supervisor branches and critical children.
+- [x] Add a logical core supervisor for Vault, Repo, shared PubSub, and role-neutral infrastructure.
+- [x] Add a logical engine supervisor for the single-node guard, operation lock, registries, session supervisor, bouncer, and later hosted server.
+- [x] Add a logical web supervisor for telemetry, directory discovery refresh, Endpoint, and web-owned runtime processes.
+- [x] Make the existing root application start core, engine, and web supervisors in combined mode.
+- [x] Assign every Oban queue and plugin to one logical runtime role before changing release layout.
+- [x] Ensure shared infrastructure starts exactly once in combined mode.
+- [x] Preserve Endpoint-last ordering in the logical web supervisor.
+- [x] Preserve Endpoint configuration-change handling through the root application during this phase.
+- [x] Add combined-mode supervision tests that assert the expected logical supervisor branches and critical children.
 
 #### Preserve durable connection intent
 

@@ -34,7 +34,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionReconcilerWorker do
     |> Enum.each(fn {user_id, connection_id} ->
       %{user_id: user_id, connection_id: connection_id}
       |> ConnectionDeletionWorker.new()
-      |> Oban.insert!()
+      |> then(&Oban.insert!(Ircpipe.EngineOban, &1))
     end)
   end
 
@@ -45,7 +45,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionReconcilerWorker do
     |> Enum.each(fn event_batch_id ->
       %{event_batch_id: event_batch_id}
       |> ConnectionDeletionEventsWorker.new()
-      |> Oban.insert!()
+      |> then(&Oban.insert!(Ircpipe.EngineOban, &1))
     end)
   end
 end

@@ -93,7 +93,7 @@ defmodule Ircpipe.Chat.Connections do
             {deleted, event_batch, event_job} ->
               maybe_pause_delete_after_commit(event_batch)
               :ok = ConnectionDeletionEventsWorker.dispatch(event_batch.id)
-              :ok = Oban.cancel_job(event_job)
+              :ok = Oban.cancel_job(Ircpipe.EngineOban, event_job)
               {:ok, deleted}
           end
         end
@@ -158,7 +158,7 @@ defmodule Ircpipe.Chat.Connections do
       job =
         %{user_id: user.id, connection_id: id}
         |> ConnectionDeletionWorker.new()
-        |> Oban.insert!()
+        |> then(&Oban.insert!(Ircpipe.EngineOban, &1))
 
       {connection, job}
     end)
@@ -298,7 +298,7 @@ defmodule Ircpipe.Chat.Connections do
         event_job =
           %{event_batch_id: event_batch.id}
           |> ConnectionDeletionEventsWorker.new(scheduled_in: {1, :minute})
-          |> Oban.insert!()
+          |> then(&Oban.insert!(Ircpipe.EngineOban, &1))
 
         {deleted, event_batch, event_job}
 

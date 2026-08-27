@@ -26,15 +26,22 @@ config :ircpipe,
   irc_bouncer_enabled: true,
   discovery_refresh_enabled: config_env() == :dev
 
-config :ircpipe, Oban,
+config :ircpipe, Ircpipe.EngineOban,
+  name: Ircpipe.EngineOban,
   repo: Ircpipe.Repo,
-  queues: [notifications: 5, connection_deletions: 2],
-  plugins: [Oban.Plugins.Pruner],
+  queues: [connection_deletions: 2],
+  plugins: [],
   cron: [
     crontab: [
       {"* * * * *", Ircpipe.Chat.ConnectionDeletionReconcilerWorker}
     ]
   ]
+
+config :ircpipe, IrcpipeWeb.Oban,
+  name: IrcpipeWeb.Oban,
+  repo: Ircpipe.Repo,
+  queues: [notifications: 5],
+  plugins: [Oban.Plugins.Pruner]
 
 # Configure the endpoint
 config :ircpipe, IrcpipeWeb.Endpoint,

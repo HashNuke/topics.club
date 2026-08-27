@@ -47,7 +47,7 @@ defmodule Ircpipe.Notifications.Delivery do
     if WebPush.configured?() do
       %{"notification_id" => notification_id}
       |> PushWorker.new()
-      |> Oban.insert()
+      |> then(&Oban.insert(IrcpipeWeb.Oban, &1))
     else
       {:ok, :push_not_configured}
     end
