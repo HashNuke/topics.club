@@ -75,9 +75,57 @@ export const WithDraft = {
   },
 }
 
+export const FiveLineDraft = {
+  args: {
+    draft: "First line\nSecond line\nThird line\nFourth line\nFifth line",
+  },
+}
+
 export const CommandSuggestions = {
   args: {
     draft: "/",
+  },
+}
+
+export const SmallViewportCommandSuggestions = {
+  decorators: [
+    (Story: React.ComponentType) => (
+      <div className="flex h-dvh w-full items-end overflow-hidden">
+        <Story />
+      </div>
+    ),
+  ],
+  parameters: {viewport: {defaultViewport: "mobile1"}},
+  args: {
+    commandCatalog: [
+      ...commandCatalog,
+      ...Array.from({length: 18}, (_, index) => ({
+        name: `/command${index + 1}`,
+        usage: `/command${index + 1} value`,
+        description: `Example command ${index + 1}`,
+        required_permission: "user",
+        contexts: ["channel"],
+        availability: "enabled",
+        examples: [],
+      } satisfies CommandCatalogEntry)),
+    ],
+    draft: "/",
+    inputId: "storybook-small-viewport-composer",
+  },
+}
+
+export const SmallViewportExpandedCommandSuggestions = {
+  decorators: [
+    (Story: React.ComponentType) => (
+      <div className="flex h-dvh w-full items-end overflow-hidden [&_textarea]:!min-h-[8.5rem]">
+        <Story />
+      </div>
+    ),
+  ],
+  parameters: {viewport: {defaultViewport: "mobile1"}},
+  args: {
+    draft: "/",
+    inputId: "storybook-expanded-command-composer",
   },
 }
 
