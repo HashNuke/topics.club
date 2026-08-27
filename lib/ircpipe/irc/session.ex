@@ -12,7 +12,7 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.EventRecorder
   alias Ircpipe.Irc.Session.InboundMessageRouting
   alias Ircpipe.Irc.Session.Initialization
-  alias Ircpipe.Irc.Session.JoinLifecycle
+  alias Ircpipe.Irc.Session.JoinFlush
   alias Ircpipe.Irc.Session.JoinRequests
   alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.MembershipEvents
@@ -145,28 +145,7 @@ defmodule Ircpipe.Irc.Session do
     {:noreply, ConnectionEvents.reconnecting(state)}
   end
 
-  def handle_info(
-        {:flush_pending_joins, token},
-        %{join_flush_timer: {_timer, token}, registered?: true} = state
-      ) do
-    info = Ircxd.Client.connection_info(state.client)
-
-    state =
-      state
-      |> Map.put(:client_info, info)
-      |> Map.put(:join_validation_ready?, true)
-      |> Map.put(:join_flush_timer, nil)
-      |> JoinLifecycle.flush()
-
-    {:noreply, state}
-  rescue
-    Ecto.NoResultsError -> {:stop, :normal, state}
-    Ecto.StaleEntryError -> {:stop, :normal, state}
-  catch
-    :exit, _reason -> {:noreply, %{state | join_flush_timer: nil}}
-  end
-
-  def handle_info({:flush_pending_joins, _token}, state), do: {:noreply, state}
+  def handle_info({:flush_pending_joins, token}, state), do: JoinFlush.handle(state, token)
 
   def handle_info(
         {:ircxd, {:privmsg, %{target: _target, nick: _nick, body: _body} = payload}},
