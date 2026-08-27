@@ -143,7 +143,7 @@ export function upsertDirectMessage(
           )
         : [...item.channels, directMessage]
 
-      return {...item, status: connection.status || item.status, channels: sortConversationBuffers(conversations)}
+      return {...item, channels: sortConversationBuffers(conversations)}
     })
   }
 

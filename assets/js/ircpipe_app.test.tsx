@@ -1010,7 +1010,7 @@ describe("IrcpipeApp UI prototype", () => {
   test("adds incoming private-message threads without stealing focus", async () => {
     mockBootstrapFetch()
     const push = vi.fn().mockResolvedValue(directThreadPayload({
-      connection: {id: 42, name: "local", host: "127.0.0.1", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      connection: {id: 42, name: "local", host: "127.0.0.1", status: "connecting", mention_notifications_enabled: true, notification_preference_revision: 0},
       buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 2, title: "akash", subtitle: "on 127.0.0.1", unread_count: 0, blocked: false},
       revision: 2,
     }))
@@ -1029,8 +1029,11 @@ describe("IrcpipeApp UI prototype", () => {
     )
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    await act(async () => realtimeHandlers.onJoinOk())
+    expect(screen.getByRole("button", {name: "Send"})).toBeEnabled()
+
     realtimeHandlers.onDirectMessageThread(directThreadPayload({
-      connection: {id: 42, name: "local", host: "127.0.0.1", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      connection: {id: 42, name: "local", host: "127.0.0.1", status: "connecting", mention_notifications_enabled: true, notification_preference_revision: 0},
       buffer: {buffer_id: "direct:12", buffer_type: "direct_message", server_connection_id: 42, direct_message_thread_id: 12, direct_message_revision: 1, title: "akash", subtitle: "on 127.0.0.1", unread_count: 1, blocked: false},
       revision: 1,
     }))
@@ -1049,10 +1052,17 @@ describe("IrcpipeApp UI prototype", () => {
     await userEvent.click(within(nav).getByText("akash"))
     expect(await screen.findByRole("heading", {name: "akash"})).toBeInTheDocument()
     expect(screen.getByText("incoming DM")).toBeInTheDocument()
+    expect(screen.queryByText("Reconnecting...")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "Send"})).toBeEnabled()
     await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {
       buffer_id: "direct:12",
       expected_revision: 1,
     }))
+
+    await userEvent.click(within(nav).getByText("#testing"))
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    expect(screen.queryByText("Reconnecting...")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "Send"})).toBeEnabled()
   })
 
   test("opens a notification DM after its authoritative thread arrives", async () => {

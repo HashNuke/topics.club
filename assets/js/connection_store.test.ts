@@ -95,4 +95,30 @@ describe("connection store", () => {
       {id: "direct:1", channel: "Akash", buffer_type: "direct_message"},
     ]).map((item) => item.id)).toEqual(["direct:1", "direct:2", "channel:3", "channel:4"])
   })
+
+  test("does not let a direct-message snapshot overwrite canonical server status", () => {
+    const direct = directMessageFromBuffer({
+      buffer_id: "direct:9",
+      buffer_type: "direct_message",
+      server_connection_id: 1,
+      direct_message_thread_id: 9,
+      direct_message_revision: 1,
+      title: "Akash",
+      subtitle: "on 127.0.0.1",
+      unread_count: 1,
+      mention_count: 0,
+      blocked: false,
+      account: null,
+      hostmask: null,
+      closed_at: null,
+    })
+
+    const updated = upsertDirectMessage(
+      [server],
+      {id: 1, name: "local", host: "127.0.0.1", status: "connecting"},
+      direct
+    )
+
+    expect(updated[0].status).toBe("connected")
+  })
 })
