@@ -10,6 +10,7 @@ import type {
   PresenceSyncPayload,
   ServerStatusPayload,
 } from "./types.ts"
+import {validPresenceDiffPayload, validPresenceSyncPayload} from "./presence_payload.ts"
 
 export type RealtimePayload = Record<string, unknown>
 
@@ -106,8 +107,12 @@ export function createRealtimeClient({
   channel.on("direct_message:thread", (payload) => handlers.onDirectMessageThread?.(payload as unknown as DirectMessageThreadPayload))
   channel.on("direct_message:closed", (payload) => handlers.onDirectMessageClosed?.(payload as unknown as DirectMessageClosedPayload))
   channel.on("server:status", (payload) => handlers.onServerStatus?.(payload as unknown as ServerStatusPayload))
-  channel.on("presence:sync", (payload) => handlers.onPresenceSync?.(payload as unknown as PresenceSyncPayload))
-  channel.on("presence:diff", (payload) => handlers.onPresenceDiff?.(payload as unknown as PresenceDiffPayload))
+  channel.on("presence:sync", (payload) => {
+    if (validPresenceSyncPayload(payload)) handlers.onPresenceSync?.(payload)
+  })
+  channel.on("presence:diff", (payload) => {
+    if (validPresenceDiffPayload(payload)) handlers.onPresenceDiff?.(payload)
+  })
   channel.on("notification:preference", (payload) => handlers.onNotificationPreference?.(payload as unknown as NotificationPreferencePayload))
 
   function connect() {

@@ -41,11 +41,18 @@ defmodule Ircpipe.Irc.Session.IdentityTest do
   test "detects the current nickname across supported NAMES entry shapes" do
     names = [%{nick: "ALICE"}, %{"nick" => "Bob"}, "Mira", %{invalid: "entry"}]
 
-    assert Identity.listed?(names, "alice")
-    assert Identity.listed?(names, "BOB")
-    assert Identity.listed?(names, "mira")
-    refute Identity.listed?(names, "carol")
-    refute Identity.listed?(nil, "mira")
+    assert Identity.listed?(names, "alice", :ascii)
+    assert Identity.listed?(names, "BOB", :ascii)
+    assert Identity.listed?(names, "mira", :ascii)
+    refute Identity.listed?(names, "carol", :ascii)
+    refute Identity.listed?(nil, "mira", :ascii)
+  end
+
+  test "detects listed nicknames with the negotiated IRC casemapping" do
+    assert Identity.listed?([%{nick: "[Mira]"}], "{mira}", :rfc1459)
+    assert Identity.listed?([%{nick: "mi^ra"}], "MI~RA", :rfc1459)
+    refute Identity.listed?([%{nick: "[Mira]"}], "{mira}", :ascii)
+    refute Identity.listed?([%{nick: "mi^ra"}], "MI~RA", :strict_rfc1459)
   end
 
   defp negotiated_state(current_nick, casemapping) do

@@ -889,10 +889,15 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Presence.sync(connection, "#elixir", [
-      %{nick: "mira", prefixes: ["@"]},
-      %{nick: "akash", prefixes: []}
-    ])
+    Presence.sync(
+      connection,
+      "#elixir",
+      [
+        %{nick: "mira", prefixes: ["@"]},
+        %{nick: "akash", prefixes: []}
+      ],
+      :rfc1459
+    )
 
     assert_push "presence:sync", %{
       type: "presence:sync",
@@ -900,8 +905,8 @@ defmodule IrcpipeWeb.UserChannelTest do
       event_id: "presence_sync:channel:" <> _,
       buffer_id: buffer_id,
       users: [
-        %{nick: "mira", role: "op", status: "online"},
-        %{nick: "akash", role: "user", status: "online"}
+        %{nick: "mira", nick_key: "mira", role: "op", status: "online"},
+        %{nick: "akash", nick_key: "akash", role: "user", status: "online"}
       ]
     }
 
@@ -923,17 +928,54 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Presence.diff(connection, "#elixir", %{
-      action: "join",
-      user: %{nick: "akash", role: "user", status: "online"}
-    })
+    Presence.diff(
+      connection,
+      "#elixir",
+      %{action: "join", user: %{nick: "akash", role: "user", status: "online"}},
+      :rfc1459
+    )
 
     assert_push "presence:diff", %{
       type: "presence:diff",
       version: 1,
       event_id: "presence_diff:channel:" <> _,
       buffer_id: buffer_id,
-      diff: %{action: "join", user: %{nick: "akash", role: "user", status: "online"}}
+      diff: %{
+        action: "join",
+        user: %{nick: "akash", nick_key: "akash", role: "user", status: "online"}
+      }
+    }
+
+    assert buffer_id == "channel:#{membership.id}"
+  end
+
+  test "pushes an authoritative presence snapshot after casemapping reconciliation" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "presence reconciliation",
+        "host" => "irc.presence-reconciliation.test",
+        "nickname" => "mira"
+      })
+
+    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, membership} = Chat.join_channel(user, connection, "#room")
+
+    :ok =
+      Presence.sync(
+        connection,
+        "#room",
+        [%{nick: "[Mira]", prefixes: []}, %{nick: "{mira}", prefixes: ["@"]}],
+        :ascii
+      )
+
+    join_user_channel(user)
+    assert {:ok, _connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+
+    assert_push "presence:sync", %{
+      buffer_id: buffer_id,
+      users: [%{nick: "{mira}", nick_key: "{mira}", role: "op"}]
     }
 
     assert buffer_id == "channel:#{membership.id}"
@@ -954,18 +996,19 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Presence.diff(connection, "#elixir", %{
-      action: "away",
-      nick: "akash",
-      status: "away"
-    })
+    Presence.diff(
+      connection,
+      "#elixir",
+      %{action: "away", nick: "akash", status: "away"},
+      :rfc1459
+    )
 
     assert_push "presence:diff", %{
       type: "presence:diff",
       version: 1,
       event_id: "presence_diff:channel:" <> _,
       buffer_id: buffer_id,
-      diff: %{action: "away", nick: "akash", status: "away"}
+      diff: %{action: "away", nick: "akash", nick_key: "akash", status: "away"}
     }
 
     assert buffer_id == "channel:#{membership.id}"
@@ -986,18 +1029,19 @@ defmodule IrcpipeWeb.UserChannelTest do
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
     join_user_channel(user)
 
-    Presence.diff(connection, "#elixir", %{
-      action: "role",
-      nick: "akash",
-      role: "op"
-    })
+    Presence.diff(
+      connection,
+      "#elixir",
+      %{action: "role", nick: "akash", role: "op"},
+      :rfc1459
+    )
 
     assert_push "presence:diff", %{
       type: "presence:diff",
       version: 1,
       event_id: "presence_diff:channel:" <> _,
       buffer_id: buffer_id,
-      diff: %{action: "role", nick: "akash", role: "op"}
+      diff: %{action: "role", nick: "akash", nick_key: "akash", role: "op"}
     }
 
     assert buffer_id == "channel:#{membership.id}"

@@ -4,6 +4,7 @@ import type {ComponentProps} from "react"
 
 const users = Array.from({length: 13}, (_, index) => ({
   nick: `member_${index + 1}`,
+  nick_key: `member_${index + 1}`,
   role: "user",
   status: index === 4 ? "away" : "online",
 }))
@@ -33,9 +34,9 @@ export const Moderators = {
   args: {
     label: "Mods",
     users: [
-      {nick: "mira", role: "owner", status: "online"},
-      {nick: "akash", role: "op", status: "online"},
-      {nick: "lena", role: "halfop", status: "away"},
+      {nick: "mira", nick_key: "mira", role: "owner", status: "online"},
+      {nick: "akash", nick_key: "akash", role: "op", status: "online"},
+      {nick: "lena", nick_key: "lena", role: "halfop", status: "away"},
     ],
   },
 }

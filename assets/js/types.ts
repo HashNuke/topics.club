@@ -38,20 +38,24 @@ export interface ChatMessage {
 
 export interface ChatUser {
   nick: string
+  nick_key: string
   role?: string
   status?: string
   [key: string]: unknown
 }
 
-export interface PresenceDiff {
-  action?: "join" | "part" | "quit" | "nick" | "away" | "role"
-  user?: ChatUser
-  nick?: string
-  old_nick?: string
-  new_nick?: string
-  status?: string
-  role?: string
-}
+export type PresenceDiff =
+  | {action: "join"; user: ChatUser}
+  | {action: "part" | "quit"; nick: string; nick_key: string}
+  | {
+      action: "nick"
+      old_nick: string
+      old_nick_key: string
+      new_nick: string
+      new_nick_key: string
+    }
+  | {action: "away"; nick: string; nick_key: string; status: string}
+  | {action: "role"; nick: string; nick_key: string; role: string}
 
 export interface Topic {
   id: EntityId
@@ -249,13 +253,25 @@ export interface DirectMessageTombstone {
 }
 
 export interface PresenceSyncPayload {
+  type: "presence:sync"
+  version: 1
+  event_id: string
+  occurred_at: string
   buffer_id: string
-  users?: ChatUser[]
+  server_connection_id: EntityId
+  channel_membership_id: EntityId
+  users: ChatUser[]
 }
 
 export interface PresenceDiffPayload {
+  type: "presence:diff"
+  version: 1
+  event_id: string
+  occurred_at: string
   buffer_id: string
-  diff?: PresenceDiff
+  server_connection_id: EntityId
+  channel_membership_id: EntityId
+  diff: PresenceDiff
 }
 
 export interface PushConfig {

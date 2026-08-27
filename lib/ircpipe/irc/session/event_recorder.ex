@@ -36,8 +36,14 @@ defmodule Ircpipe.Irc.Session.EventRecorder do
     :exit, _reason -> {:ok, nil}
   end
 
-  def present_nick_line(connection, kind, nick, body_fun) do
-    SystemMessages.record_for_present_nick(connection, kind, nick, body_fun)
+  def present_nick_line(state, kind, nick, body_fun) do
+    SystemMessages.record_for_present_nick(
+      state.connection,
+      kind,
+      nick,
+      body_fun,
+      Targets.casemapping(state)
+    )
   rescue
     DBConnection.ConnectionError -> {:ok, nil}
     Ecto.ConstraintError -> {:ok, nil}
@@ -48,13 +54,14 @@ defmodule Ircpipe.Irc.Session.EventRecorder do
     :exit, _reason -> {:ok, nil}
   end
 
-  def present_nick_line(connection, kind, present_nick, message_nick, body_fun) do
+  def present_nick_line(state, kind, present_nick, message_nick, body_fun) do
     SystemMessages.record_for_present_nick(
-      connection,
+      state.connection,
       kind,
       present_nick,
       message_nick,
-      body_fun
+      body_fun,
+      Targets.casemapping(state)
     )
   rescue
     DBConnection.ConnectionError -> {:ok, nil}

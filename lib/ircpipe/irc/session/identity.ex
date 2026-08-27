@@ -30,22 +30,22 @@ defmodule Ircpipe.Irc.Session.Identity do
 
   def self?(_state, _nick), do: false
 
-  def listed?(names, nick) when is_list(names) do
+  def listed?(names, nick, casemapping) when is_list(names) do
     Enum.any?(names, fn
-      %{nick: listed_nick} -> same_nick?(listed_nick, nick)
-      %{"nick" => listed_nick} -> same_nick?(listed_nick, nick)
-      listed_nick when is_binary(listed_nick) -> same_nick?(listed_nick, nick)
+      %{nick: listed_nick} -> same_nick?(listed_nick, nick, casemapping)
+      %{"nick" => listed_nick} -> same_nick?(listed_nick, nick, casemapping)
+      listed_nick when is_binary(listed_nick) -> same_nick?(listed_nick, nick, casemapping)
       _other -> false
     end)
   end
 
-  def listed?(_names, _nick), do: false
+  def listed?(_names, _nick, _casemapping), do: false
 
-  defp same_nick?(left, right) when is_binary(left) and is_binary(right) do
-    String.downcase(left) == String.downcase(right)
+  defp same_nick?(left, right, casemapping) when is_binary(left) and is_binary(right) do
+    Casemapping.normalize(left, casemapping) == Casemapping.normalize(right, casemapping)
   end
 
-  defp same_nick?(_left, _right), do: false
+  defp same_nick?(_left, _right, _casemapping), do: false
 
   defp stored_casemapping(%ServerConnection{casemapping: "rfc1459"}), do: :rfc1459
   defp stored_casemapping(%ServerConnection{casemapping: "strict_rfc1459"}), do: :strict_rfc1459

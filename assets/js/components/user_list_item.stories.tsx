@@ -5,24 +5,31 @@ export default {
   component: UserListItem,
   decorators: [(Story: React.ComponentType) => <div className="w-64 max-w-full"><Story /></div>],
   args: {
-    user: {nick: "mira", role: "user", status: "online"},
+    user: {nick: "mira", nick_key: "mira", role: "user", status: "online"},
   },
 }
 
 export const Online = {}
 
 export const Away = {
-  args: {user: {nick: "akash", role: "user", status: "away"}},
+  args: {user: {nick: "akash", nick_key: "akash", role: "user", status: "away"}},
 }
 
 export const Moderator = {
-  args: {user: {nick: "lena", role: "op", status: "online"}},
+  args: {user: {nick: "lena", nick_key: "lena", role: "op", status: "online"}},
 }
 
 export const Voiced = {
-  args: {user: {nick: "robin", role: "voice", status: "online"}},
+  args: {user: {nick: "robin", nick_key: "robin", role: "voice", status: "online"}},
 }
 
 export const LongNickname = {
-  args: {user: {nick: "a_very_long_irc_nickname_that_truncates", role: "halfop", status: "online"}},
+  args: {
+    user: {
+      nick: "a_very_long_irc_nickname_that_truncates",
+      nick_key: "a_very_long_irc_nickname_that_truncates",
+      role: "halfop",
+      status: "online",
+    },
+  },
 }

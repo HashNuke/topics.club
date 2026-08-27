@@ -9,6 +9,7 @@ defmodule Ircpipe.Chat do
     ChannelMembership,
     ChannelUser,
     MembershipLookup,
+    MembershipReconciler,
     ServerConnection,
     ServerConnectionLock
   }
@@ -20,11 +21,32 @@ defmodule Ircpipe.Chat do
     mapping = Atom.to_string(casemapping)
 
     Repo.transaction(fn ->
-      connection.id
-      |> ServerConnectionLock.lock_active!()
-      |> Ecto.Changeset.change(casemapping: mapping)
-      |> update_or_rollback()
+      updated_connection =
+        connection.id
+        |> ServerConnectionLock.lock_active!()
+        |> Ecto.Changeset.change(casemapping: mapping)
+        |> update_or_rollback()
+
+      losers = MembershipReconciler.reconcile_in_transaction(updated_connection, casemapping)
+
+      presence_sync_events =
+        MembershipReconciler.presence_sync_events_in_transaction(updated_connection)
+
+      {updated_connection, losers, presence_sync_events}
     end)
+    |> case do
+      {:ok, {updated_connection, losers, presence_sync_events}} ->
+        MembershipReconciler.broadcast_casemapping_change(
+          updated_connection,
+          losers,
+          presence_sync_events
+        )
+
+        {:ok, updated_connection}
+
+      error ->
+        error
+    end
   end
 
   def join_channel(%User{} = user, %ServerConnection{} = connection, channel) do

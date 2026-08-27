@@ -103,6 +103,19 @@ function receiver(responses = {}) {
   }
 }
 
+function presenceEnvelope(type, payload = {}) {
+  return {
+    type,
+    version: 1,
+    event_id: `${type}:channel:7:1`,
+    occurred_at: "2026-08-27T00:00:00Z",
+    buffer_id: "channel:7",
+    server_connection_id: 42,
+    channel_membership_id: 7,
+    ...payload,
+  }
+}
+
 describe("realtime client", () => {
   test("connects one socket to the authenticated user channel", () => {
     const onMessage = vi.fn()
@@ -149,6 +162,51 @@ describe("realtime client", () => {
     client.channel.handlers["buffer:joined"]({buffer: {buffer_id: "channel:8"}})
 
     expect(onBufferJoined).toHaveBeenCalledWith({buffer: {buffer_id: "channel:8"}})
+  })
+
+  test("forwards only canonical presence payloads", () => {
+    const handlers = {onPresenceSync: vi.fn(), onPresenceDiff: vi.fn()}
+    const client = createRealtimeClient({SocketClass: FakeSocket, userId: 7, handlers})
+
+    const sync = presenceEnvelope("presence:sync", {
+      users: [{nick: "[Mira]", nick_key: "{mira}", role: "op", status: "online"}],
+    })
+
+    const diff = presenceEnvelope("presence:diff", {
+      diff: {
+        action: "nick",
+        old_nick: "[Mira]",
+        old_nick_key: "{mira}",
+        new_nick: "Other",
+        new_nick_key: "other",
+      },
+    })
+
+    client.channel.handlers["presence:sync"](sync)
+    client.channel.handlers["presence:diff"](diff)
+    client.channel.handlers["presence:sync"](
+      presenceEnvelope("presence:sync", {users: [{nick: "missing-key"}]})
+    )
+    client.channel.handlers["presence:sync"](
+      presenceEnvelope("presence:sync", {
+        users: [
+          {nick: "[Mira]", nick_key: "{mira}"},
+          {nick: "{MIRA}", nick_key: "{mira}"},
+        ],
+      })
+    )
+    client.channel.handlers["presence:sync"](
+      presenceEnvelope("presence:sync", {buffer_id: "channel:8", users: []})
+    )
+    client.channel.handlers["presence:sync"]({buffer_id: "channel:7", users: []})
+    client.channel.handlers["presence:diff"](
+      presenceEnvelope("presence:diff", {diff: {action: "part", nick: "Mira"}})
+    )
+
+    expect(handlers.onPresenceSync).toHaveBeenCalledOnce()
+    expect(handlers.onPresenceSync).toHaveBeenCalledWith(sync)
+    expect(handlers.onPresenceDiff).toHaveBeenCalledOnce()
+    expect(handlers.onPresenceDiff).toHaveBeenCalledWith(diff)
   })
 
   test("forwards direct-message lifecycle events", () => {

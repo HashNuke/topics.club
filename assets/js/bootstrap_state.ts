@@ -1,5 +1,6 @@
 import {normalizeMessage, normalizeTopic} from "./chat_store.ts"
 import {channelFromBuffer, directMessageFromBuffer, sortConversationBuffers} from "./connection_store.ts"
+import {validPresenceUsersByBuffer} from "./presence_payload.ts"
 import type {
   AppView,
   BackendConnection,
@@ -30,7 +31,7 @@ export interface BootstrapPayload {
   messages_by_buffer?: MessagesByBuffer
   push: PushConfig
   topics?: TopicInput[]
-  users_by_buffer?: Record<string, ChatUser[]>
+  users_by_buffer: Record<string, ChatUser[]>
 }
 
 export interface BootstrapState {
@@ -54,7 +55,8 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     !bootstrap?.buffers ||
     !bootstrap?.connections ||
     !Array.isArray(bootstrap.direct_message_tombstones) ||
-    !validPushConfig(bootstrap.push)
+    !validPushConfig(bootstrap.push) ||
+    !validPresenceUsersByBuffer(bootstrap.users_by_buffer)
   ) return null
 
   if (
@@ -62,6 +64,21 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     !bootstrap.buffers.every(validBufferRecord) ||
     !bootstrap.direct_message_tombstones.every(validDirectMessageTombstone)
   ) return null
+
+  const channelBufferIds = new Set(
+    bootstrap.buffers
+      .filter((buffer) => buffer.buffer_type === "channel")
+      .map((buffer) => buffer.buffer_id)
+  )
+
+  const presenceBufferIds = Object.keys(bootstrap.users_by_buffer)
+
+  if (
+    presenceBufferIds.length !== channelBufferIds.size ||
+    presenceBufferIds.some((bufferId) => !channelBufferIds.has(bufferId))
+  ) {
+    return null
+  }
 
   const buffers = bootstrap.buffers
   const tombstoneRevisions = new Map(
@@ -157,7 +174,7 @@ export function buildBootstrapState(bootstrap?: BootstrapPayload | null): Bootst
     messagesByServer,
     push: bootstrap.push,
     topics: bootstrap.topics?.length ? bootstrap.topics.map(normalizeTopic) : null,
-    usersByChannel: bootstrap.users_by_buffer || {},
+    usersByChannel: bootstrap.users_by_buffer,
     view,
   }
 }

@@ -1,5 +1,6 @@
 import {describe, expect, test} from "vitest"
 import {
+  applyUserDiff,
   appendTimelineMessage,
   chatReducer,
   emptyChatState,
@@ -36,7 +37,7 @@ const bootstrap = {
   ],
   active_buffer_id: "channel:2",
   messages_by_buffer: {"channel:2": [{id: 10, body: "hello", buffer_id: "channel:2"}]},
-  users_by_buffer: {"channel:2": [{nick: "mira", role: "op"}]},
+  users_by_buffer: {"channel:2": [{nick: "mira", nick_key: "mira", role: "op"}]},
 }
 
 describe("chat store", () => {
@@ -83,7 +84,7 @@ describe("chat store", () => {
     const synced = chatReducer(read, {
       type: "presence:sync",
       buffer_id: "channel:2",
-      users: [{nick: "akash", role: "user"}],
+      users: [{nick: "akash", nick_key: "akash", role: "user"}],
     })
 
     expect(synced.unreadByBuffer["channel:2"]).toEqual({unread_count: 0, mention_count: 0})
@@ -91,32 +92,85 @@ describe("chat store", () => {
       unread_count: 0,
       mention_count: 0,
     })
-    expect(synced.usersByBuffer["channel:2"]).toEqual([{nick: "akash", role: "user"}])
+    expect(synced.usersByBuffer["channel:2"]).toEqual([
+      {nick: "akash", nick_key: "akash", role: "user"},
+    ])
   })
 
   test("applies presence diffs through the reducer", () => {
     const joined = chatReducer(hydrateBootstrap(bootstrap), {
       type: "presence:diff",
       buffer_id: "channel:2",
-      diff: {action: "join", user: {nick: "akash", role: "user"}},
+      diff: {action: "join", user: {nick: "akash", nick_key: "akash", role: "user"}},
     })
     const renamed = chatReducer(joined, {
       type: "presence:diff",
       buffer_id: "channel:2",
-      diff: {action: "nick", old_nick: "mira", new_nick: "mira_"},
+      diff: {
+        action: "nick",
+        old_nick: "mira",
+        old_nick_key: "mira",
+        new_nick: "mira_",
+        new_nick_key: "mira_",
+      },
     })
     const promoted = chatReducer(renamed, {
       type: "presence:diff",
       buffer_id: "channel:2",
-      diff: {action: "role", nick: "akash", role: "voice"},
+      diff: {action: "role", nick: "akash", nick_key: "akash", role: "voice"},
     })
     const parted = chatReducer(promoted, {
       type: "presence:diff",
       buffer_id: "channel:2",
-      diff: {action: "part", nick: "mira_"},
+      diff: {action: "part", nick: "mira_", nick_key: "mira_"},
     })
 
-    expect(parted.usersByBuffer["channel:2"]).toEqual([{nick: "akash", role: "voice"}])
+    expect(parted.usersByBuffer["channel:2"]).toEqual([
+      {nick: "akash", nick_key: "akash", role: "voice"},
+    ])
+  })
+
+  test("applies presence diffs by canonical IRC nick key", () => {
+    const users = [
+      {nick: "{mira}", nick_key: "{mira}", role: "user"},
+      {nick: "mi^ra", nick_key: "mi^ra", role: "user"},
+      {nick: "mi~ra", nick_key: "mi~ra", role: "user"},
+    ]
+
+    const joined = applyUserDiff(users, {
+      action: "join",
+      user: {nick: "[MIRA]", nick_key: "{mira}", role: "op"},
+    })
+
+    expect(joined).toHaveLength(3)
+    expect(joined[0]).toMatchObject({nick: "[MIRA]", nick_key: "{mira}", role: "op"})
+
+    const away = applyUserDiff(joined, {
+      action: "away",
+      nick: "[mira]",
+      nick_key: "{mira}",
+      status: "away",
+    })
+
+    expect(away[0]).toMatchObject({nick: "[MIRA]", nick_key: "{mira}", status: "away"})
+
+    const renamed = applyUserDiff(away, {
+      action: "nick",
+      old_nick: "[mira]",
+      old_nick_key: "{mira}",
+      new_nick: "Other",
+      new_nick_key: "other",
+    })
+
+    expect(renamed[0]).toMatchObject({nick: "Other", nick_key: "other"})
+
+    const parted = applyUserDiff(renamed, {
+      action: "part",
+      nick: "OTHER",
+      nick_key: "other",
+    })
+
+    expect(parted.map((user) => user.nick_key)).toEqual(["mi^ra", "mi~ra"])
   })
 
   test("tracks connection health and server status", () => {

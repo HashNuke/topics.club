@@ -20,7 +20,7 @@ export default function UserGroup({expanded = false, label, onExpand, users}: Us
         <span>{users.length}</span>
       </div>
       <div className="space-y-1">
-        {visibleUsers.map((user) => <UserListItem key={user.nick} user={user} />)}
+        {visibleUsers.map((user) => <UserListItem key={user.nick_key} user={user} />)}
         {hiddenCount > 0 && (
           <button
             className="w-full rounded-md px-2 py-1.5 text-left text-xs font-semibold text-cyan-200 transition hover:bg-slate-800/70 hover:text-white"

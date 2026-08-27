@@ -207,7 +207,9 @@ defmodule Ircpipe.Irc.Session.OutboundMessagesTest do
 
     if channel do
       assert_receive {:irc_server_line, "JOIN " <> ^channel}
-      assert_receive {:presence_sync, %{buffer_id: "channel:" <> _membership_id}}
+
+      assert_receive {:presence_sync,
+                      %{buffer_id: "channel:" <> _membership_id, users: [_first_user | _users]}}
     end
 
     state = :sys.get_state(SessionLocator.via(connection))

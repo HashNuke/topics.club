@@ -88,7 +88,7 @@ defmodule Ircpipe.Irc.Session.JoinLifecycle do
     normalized = Targets.key(state, channel)
 
     if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
-         Identity.listed?(names, state.connection.nickname) do
+         Identity.listed?(names, state.connection.nickname, Targets.casemapping(state)) do
       mark_joined(state, channel)
     else
       state

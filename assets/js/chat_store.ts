@@ -38,8 +38,8 @@ type ChatAction =
   | {type: "bootstrap:loaded"; bootstrap: BootstrapPayload}
   | {type: "buffer:message"; message: ChatMessage}
   | {type: "buffer:read"; buffer_id: string}
-  | {type: "presence:sync"; buffer_id: string; users?: ChatUser[]}
-  | {type: "presence:diff"; buffer_id: string; diff?: PresenceDiff}
+  | {type: "presence:sync"; buffer_id: string; users: ChatUser[]}
+  | {type: "presence:diff"; buffer_id: string; diff: PresenceDiff}
   | {type: "server:status"; server_connection_id: string | number; status: string}
   | {type: "connection:health"; status: ConnectionHealth}
 
@@ -66,7 +66,7 @@ export function chatReducer(state: ChatState = emptyChatState, action: ChatActio
     case "presence:sync":
       return {
         ...state,
-        usersByBuffer: {...state.usersByBuffer, [action.buffer_id]: action.users || []},
+        usersByBuffer: {...state.usersByBuffer, [action.buffer_id]: action.users},
       }
     case "presence:diff":
       return {
@@ -159,33 +159,39 @@ function applyServerStatus(
   }
 }
 
-export function applyUserDiff(users: ChatUser[], diff?: PresenceDiff): ChatUser[] {
-  if (!diff) return users
+export function applyUserDiff(users: ChatUser[], diff: PresenceDiff): ChatUser[] {
+  switch (diff.action) {
+    case "join": {
+      const joinedUser = diff.user
 
-  if (diff.action === "join" && diff.user?.nick) {
-    const joinedUser = diff.user
-    if (users.some((user) => user.nick === joinedUser.nick)) return users
-    return [...users, joinedUser]
+      if (users.some((user) => user.nick_key === joinedUser.nick_key)) {
+        return users.map((user) => (user.nick_key === joinedUser.nick_key ? joinedUser : user))
+      }
+
+      return [...users, joinedUser]
+    }
+
+    case "part":
+    case "quit":
+      return users.filter((user) => user.nick_key !== diff.nick_key)
+
+    case "nick":
+      return users.map((user) =>
+        user.nick_key === diff.old_nick_key
+          ? {...user, nick: diff.new_nick, nick_key: diff.new_nick_key}
+          : user
+      )
+
+    case "away":
+      return users.map((user) =>
+        user.nick_key === diff.nick_key ? {...user, status: diff.status} : user
+      )
+
+    case "role":
+      return users.map((user) =>
+        user.nick_key === diff.nick_key ? {...user, role: diff.role} : user
+      )
   }
-
-  if ((diff.action === "part" || diff.action === "quit") && diff.nick) {
-    return users.filter((user) => user.nick !== diff.nick)
-  }
-
-  if (diff.action === "nick" && diff.old_nick && diff.new_nick) {
-    const {old_nick: oldNick, new_nick: newNick} = diff
-    return users.map((user) => (user.nick === oldNick ? {...user, nick: newNick} : user))
-  }
-
-  if (diff.action === "away" && diff.nick && diff.status) {
-    return users.map((user) => (user.nick === diff.nick ? {...user, status: diff.status} : user))
-  }
-
-  if (diff.action === "role" && diff.nick && diff.role) {
-    return users.map((user) => (user.nick === diff.nick ? {...user, role: diff.role} : user))
-  }
-
-  return users
 }
 
 export function normalizeTopic(topic: TopicInput): Topic {

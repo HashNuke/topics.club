@@ -2,7 +2,6 @@ defmodule Ircpipe.Irc.Session.Registration do
   @moduledoc false
 
   alias Ircpipe.Chat
-  alias Ircpipe.Chat.MembershipReconciler
   alias Ircpipe.Irc.Session.JoinLifecycle
   alias Ircxd.Client.Info
 
@@ -61,10 +60,7 @@ defmodule Ircpipe.Irc.Session.Registration do
     else
       case Chat.update_connection_casemapping(connection, casemapping) do
         {:ok, updated} ->
-          case MembershipReconciler.reconcile(updated, casemapping) do
-            {:ok, _losers} -> updated
-            {:error, _reason} -> connection
-          end
+          updated
 
         {:error, _reason} ->
           connection

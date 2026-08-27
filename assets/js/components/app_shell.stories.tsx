@@ -4,7 +4,7 @@ const channel = {id: "channel:1", channel: "#elixir", topic: "Phoenix and OTP he
 const server = {id: "server:1", server_connection_id: 1, name: "Example IRC", host: "irc.example.net", port: 6697, status: "connected", channels: [channel]}
 const topics = [{id: "elixir", channel: "#elixir", server_host: "irc.example.net", description: "Phoenix and OTP help.", members: 426}]
 const messages = [{id: "message:1", nick: "mira", body: "Welcome to the full app shell preview.", kind: "message", occurredAt: "2026-08-25T15:00:00Z"}]
-const users = [{nick: "mira", role: "op", status: "online"}, {nick: "akash", role: "user", status: "online"}]
+const users = [{nick: "mira", nick_key: "mira", role: "op", status: "online"}, {nick: "akash", nick_key: "akash", role: "user", status: "online"}]
 const noop = () => {}
 const directMessage = {id: "direct:8", buffer_type: "direct_message", direct_message_thread_id: 8, channel: "akash", topic: "on irc.example.net", unread_count: 2, account: "akash-account", blocked: false, connection: {name: "Example IRC", host: "irc.example.net", status: "connected"}}
 const directServer = {...server, channels: [directMessage, channel]}

@@ -16,7 +16,7 @@ defmodule Ircpipe.Chat.Presence do
     |> Enum.map(&user_json/1)
   end
 
-  def sync(%ServerConnection{} = connection, channel, names, casemapping \\ :rfc1459) do
+  def sync(%ServerConnection{} = connection, channel, names, casemapping) do
     assert_no_outer_transaction!()
 
     Repo.transaction(fn ->
@@ -24,7 +24,13 @@ defmodule Ircpipe.Chat.Presence do
 
       case channel_membership(active_connection, channel, casemapping) do
         %ChannelMembership{} = membership ->
-          users = Enum.map(names, &presence_user/1)
+          users =
+            names
+            |> Enum.map(&presence_user(&1, casemapping))
+            |> Enum.reverse()
+            |> Enum.uniq_by(& &1.nick_key)
+            |> Enum.reverse()
+
           replace_users(membership, users)
 
           event =
@@ -62,8 +68,9 @@ defmodule Ircpipe.Chat.Presence do
     end
   end
 
-  def diff(%ServerConnection{} = connection, channel, diff, casemapping \\ :rfc1459) do
+  def diff(%ServerConnection{} = connection, channel, diff, casemapping) do
     assert_no_outer_transaction!()
+    canonical_diff = canonical_diff(diff, casemapping)
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
@@ -72,13 +79,13 @@ defmodule Ircpipe.Chat.Presence do
         active_connection
         |> memberships(channel, casemapping)
         |> Enum.map(fn membership ->
-          apply_diff(membership, diff)
+          apply_diff(membership, canonical_diff)
 
           Event.presence_diff(%{
             buffer_id: "channel:#{membership.id}",
             server_connection_id: active_connection.id,
             channel_membership_id: membership.id,
-            diff: diff
+            diff: canonical_diff
           })
         end)
 
@@ -104,7 +111,7 @@ defmodule Ircpipe.Chat.Presence do
     end
   end
 
-  def memberships(connection, channel, casemapping \\ :rfc1459)
+  def memberships(connection, channel, casemapping)
 
   def memberships(%ServerConnection{} = connection, nil, _casemapping) do
     ChannelMembership
@@ -122,7 +129,9 @@ defmodule Ircpipe.Chat.Presence do
     end
   end
 
-  def memberships_with_nick(%ServerConnection{} = connection, nick) do
+  def memberships_with_nick(%ServerConnection{} = connection, nick, casemapping) do
+    nick_key = Identifier.key(nick, casemapping)
+
     ChannelMembership
     |> join(:inner, [membership], user in ChannelUser,
       on: user.channel_membership_id == membership.id
@@ -130,7 +139,7 @@ defmodule Ircpipe.Chat.Presence do
     |> where(
       [membership, user],
       membership.server_connection_id == ^connection.id and membership.status == "joined" and
-        fragment("lower(?)", user.nick) == fragment("lower(?)", ^nick)
+        user.nick_key == ^nick_key
     )
     |> Repo.all()
   end
@@ -141,9 +150,48 @@ defmodule Ircpipe.Chat.Presence do
     |> Enum.each(&upsert_user(destination, &1))
   end
 
-  defp presence_user(name) do
+  def rekey_users(%ServerConnection{} = connection, casemapping) do
+    unless Repo.in_transaction?() do
+      raise ArgumentError, "presence rekeying requires a database transaction"
+    end
+
+    ChannelUser
+    |> join(:inner, [user], membership in ChannelMembership,
+      on: membership.id == user.channel_membership_id
+    )
+    |> where([_user, membership], membership.server_connection_id == ^connection.id)
+    |> order_by([user], asc: user.id)
+    |> Repo.all()
+    |> Enum.group_by(fn user ->
+      {user.channel_membership_id, Identifier.key(user.nick, casemapping)}
+    end)
+    |> Enum.each(fn {{_membership_id, nick_key}, equivalent_users} ->
+      winner =
+        Enum.max_by(equivalent_users, fn user ->
+          {DateTime.to_unix(user.last_observed_at, :microsecond), user.id}
+        end)
+
+      loser_ids = equivalent_users |> Enum.reject(&(&1.id == winner.id)) |> Enum.map(& &1.id)
+
+      if loser_ids != [] do
+        from(user in ChannelUser, where: user.id in ^loser_ids)
+        |> Repo.delete_all()
+      end
+
+      if winner.nick_key != nick_key do
+        winner
+        |> Ecto.Changeset.change(nick_key: nick_key)
+        |> Repo.update!()
+      end
+    end)
+
+    :ok
+  end
+
+  defp presence_user(name, casemapping) do
     %{
       nick: name.nick,
+      nick_key: Identifier.key(name.nick, casemapping),
       role: role_for_prefixes(Map.get(name, :prefixes, [])),
       status: "online",
       hostmask: Map.get(name, :raw_source),
@@ -154,6 +202,7 @@ defmodule Ircpipe.Chat.Presence do
   defp user_json(%ChannelUser{} = user) do
     %{
       nick: user.nick,
+      nick_key: user.nick_key,
       role: user.role,
       status: user.status,
       hostmask: user.hostmask,
@@ -185,46 +234,54 @@ defmodule Ircpipe.Chat.Presence do
     upsert_user(membership, user)
   end
 
-  defp apply_diff(%ChannelMembership{} = membership, %{action: action, nick: nick})
-       when action in ["part", "quit"] and is_binary(nick) do
+  defp apply_diff(%ChannelMembership{} = membership, %{action: action, nick_key: nick_key})
+       when action in ["part", "quit"] and is_binary(nick_key) do
     from(
       user in ChannelUser,
-      where: user.channel_membership_id == ^membership.id and user.nick == ^nick
+      where: user.channel_membership_id == ^membership.id and user.nick_key == ^nick_key
     )
     |> Repo.delete_all()
   end
 
   defp apply_diff(%ChannelMembership{} = membership, %{
          action: "nick",
-         old_nick: old_nick,
-         new_nick: new_nick
+         old_nick_key: old_nick_key,
+         new_nick: new_nick,
+         new_nick_key: new_nick_key
        })
-       when is_binary(old_nick) and is_binary(new_nick) do
+       when is_binary(old_nick_key) and is_binary(new_nick) and is_binary(new_nick_key) do
     now = DateTime.utc_now(:second)
 
     from(
       user in ChannelUser,
-      where: user.channel_membership_id == ^membership.id and user.nick == ^old_nick
+      where: user.channel_membership_id == ^membership.id and user.nick_key == ^old_nick_key
     )
-    |> Repo.update_all(set: [nick: new_nick, last_observed_at: now, updated_at: now])
+    |> Repo.update_all(
+      set: [
+        nick: new_nick,
+        nick_key: new_nick_key,
+        last_observed_at: now,
+        updated_at: now
+      ]
+    )
   end
 
   defp apply_diff(%ChannelMembership{} = membership, %{
          action: "away",
-         nick: nick,
+         nick_key: nick_key,
          status: status
        })
-       when is_binary(nick) and is_binary(status) do
-    update_user(membership, nick, %{status: status})
+       when is_binary(nick_key) and is_binary(status) do
+    update_user(membership, nick_key, %{status: status})
   end
 
   defp apply_diff(%ChannelMembership{} = membership, %{
          action: "role",
-         nick: nick,
+         nick_key: nick_key,
          role: role
        })
-       when is_binary(nick) and is_binary(role) do
-    update_user(membership, nick, %{role: role})
+       when is_binary(nick_key) and is_binary(role) do
+    update_user(membership, nick_key, %{role: role})
   end
 
   defp apply_diff(_membership, _diff), do: :ok
@@ -242,12 +299,12 @@ defmodule Ircpipe.Chat.Presence do
       })
 
     Repo.insert_all(ChannelUser, [attrs],
-      on_conflict: {:replace, [:role, :status, :hostmask, :last_observed_at, :updated_at]},
-      conflict_target: [:channel_membership_id, :nick]
+      on_conflict: {:replace, [:nick, :role, :status, :hostmask, :last_observed_at, :updated_at]},
+      conflict_target: [:channel_membership_id, :nick_key]
     )
   end
 
-  defp update_user(%ChannelMembership{} = membership, nick, attrs) do
+  defp update_user(%ChannelMembership{} = membership, nick_key, attrs) do
     now = DateTime.utc_now(:second)
 
     updates =
@@ -259,7 +316,7 @@ defmodule Ircpipe.Chat.Presence do
 
     from(
       user in ChannelUser,
-      where: user.channel_membership_id == ^membership.id and user.nick == ^nick
+      where: user.channel_membership_id == ^membership.id and user.nick_key == ^nick_key
     )
     |> Repo.update_all(set: updates)
   end
@@ -267,6 +324,7 @@ defmodule Ircpipe.Chat.Presence do
   defp user_attrs(user, observed_at) do
     %{
       nick: value(user, :nick),
+      nick_key: value(user, :nick_key),
       role: value(user, :role) || "user",
       status: value(user, :status) || "online",
       hostmask: value(user, :hostmask),
@@ -277,6 +335,27 @@ defmodule Ircpipe.Chat.Presence do
   defp value(metadata, key) do
     Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
   end
+
+  defp canonical_diff(%{action: "join", user: user} = diff, casemapping) do
+    put_in(diff, [:user, :nick_key], Identifier.key(value(user, :nick), casemapping))
+  end
+
+  defp canonical_diff(%{action: action, nick: nick} = diff, casemapping)
+       when action in ["part", "quit", "away", "role"] and is_binary(nick) do
+    Map.put(diff, :nick_key, Identifier.key(nick, casemapping))
+  end
+
+  defp canonical_diff(
+         %{action: "nick", old_nick: old_nick, new_nick: new_nick} = diff,
+         casemapping
+       )
+       when is_binary(old_nick) and is_binary(new_nick) do
+    diff
+    |> Map.put(:old_nick_key, Identifier.key(old_nick, casemapping))
+    |> Map.put(:new_nick_key, Identifier.key(new_nick, casemapping))
+  end
+
+  defp canonical_diff(diff, _casemapping), do: diff
 
   defp channel_membership(connection, channel, casemapping, status \\ nil) do
     query =

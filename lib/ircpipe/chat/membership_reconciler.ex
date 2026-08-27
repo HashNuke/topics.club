@@ -14,6 +14,7 @@ defmodule Ircpipe.Chat.MembershipReconciler do
   }
 
   alias Ircpipe.Irc.Identifier
+  alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
   def reconcile(%ServerConnection{} = connection, casemapping) do
@@ -33,6 +34,7 @@ defmodule Ircpipe.Chat.MembershipReconciler do
     if Repo.in_transaction?() do
       active_connection = ServerConnectionLock.lock_active!(connection.id)
       lock_memberships(connection)
+      Presence.rekey_users(active_connection, casemapping)
 
       active_connection
       |> all_memberships()
@@ -54,6 +56,54 @@ defmodule Ircpipe.Chat.MembershipReconciler do
             channel_membership_id: loser.id,
             channel: loser.channel
           })
+        end)
+      end)
+
+    :ok
+  end
+
+  def presence_sync_events_in_transaction(%ServerConnection{} = connection) do
+    unless Repo.in_transaction?() do
+      raise ArgumentError, "presence snapshots require a database transaction"
+    end
+
+    connection
+    |> all_memberships()
+    |> Enum.filter(&(&1.status == "joined"))
+    |> Enum.map(fn membership ->
+      Event.presence_sync(%{
+        buffer_id: "channel:#{membership.id}",
+        server_connection_id: connection.id,
+        channel_membership_id: membership.id,
+        users: Presence.list_users(membership)
+      })
+    end)
+  end
+
+  def broadcast_casemapping_change(
+        %ServerConnection{} = connection,
+        losers,
+        presence_sync_events
+      )
+      when is_list(losers) and is_list(presence_sync_events) do
+    _effects =
+      ServerConnectionLock.serialize_effects(connection.id, fn active_connection ->
+        Enum.each(losers, fn loser ->
+          BufferEvents.left(%{
+            user_id: active_connection.user_id,
+            buffer_id: "channel:#{loser.id}",
+            server_connection_id: active_connection.id,
+            channel_membership_id: loser.id,
+            channel: loser.channel
+          })
+        end)
+
+        Enum.each(presence_sync_events, fn event ->
+          Phoenix.PubSub.broadcast(
+            Ircpipe.PubSub,
+            "user:#{active_connection.user_id}",
+            {:presence_sync, event}
+          )
         end)
       end)
 

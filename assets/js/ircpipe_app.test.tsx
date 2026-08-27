@@ -67,6 +67,34 @@ function directClosedPayload(threadId, revision, overrides = {}) {
   }
 }
 
+function canonicalPresenceSync(users, overrides = {}) {
+  return {
+    type: "presence:sync",
+    version: 1,
+    event_id: "presence_sync:channel:7:1",
+    occurred_at: "2026-08-27T00:00:00Z",
+    buffer_id: "channel:7",
+    server_connection_id: 42,
+    channel_membership_id: 7,
+    users,
+    ...overrides,
+  }
+}
+
+function canonicalPresenceDiff(diff, overrides = {}) {
+  return {
+    type: "presence:diff",
+    version: 1,
+    event_id: "presence_diff:channel:7:1",
+    occurred_at: "2026-08-27T00:00:00Z",
+    buffer_id: "channel:7",
+    server_connection_id: 42,
+    channel_membership_id: 7,
+    diff,
+    ...overrides,
+  }
+}
+
 function mockTopicsFetch() {
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
     ok: true,
@@ -558,7 +586,7 @@ function directMessageApiClient() {
         "direct:9": [{id: 31, buffer_id: "direct:9", nick: "Zed", body: "private hello"}],
       },
       message_cursors_by_buffer: {},
-      users_by_buffer: {},
+      users_by_buffer: {"channel:3": [], "channel:4": []},
       command_catalog: [{name: "/msg", contexts: ["channel"]}],
     }),
   }
@@ -2318,13 +2346,12 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onPresenceSync({
-      buffer_id: "channel:7",
-      users: [
-        {nick: "mira", role: "op", status: "online"},
-        {nick: "akash", role: "user", status: "online"},
-      ],
-    })
+    realtimeHandlers.onPresenceSync(
+      canonicalPresenceSync([
+        {nick: "mira", nick_key: "mira", role: "op", status: "online"},
+        {nick: "akash", nick_key: "akash", role: "user", status: "online"},
+      ])
+    )
 
     const people = screen.getByRole("complementary", {name: "People here"})
     await waitFor(() => expect(within(people).getByText("akash")).toBeInTheDocument())
@@ -2349,37 +2376,62 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onPresenceSync({
-      buffer_id: "channel:7",
-      users: [{nick: "mira", role: "op", status: "online"}],
-    })
-    realtimeHandlers.onPresenceDiff({
-      buffer_id: "channel:7",
-      diff: {action: "join", user: {nick: "akash", role: "user", status: "online"}},
-    })
+    realtimeHandlers.onPresenceSync(
+      canonicalPresenceSync([{nick: "mira", nick_key: "mira", role: "op", status: "online"}])
+    )
+
+    realtimeHandlers.onPresenceSync(
+      canonicalPresenceSync([{nick: "malformed", role: "user", status: "online"}])
+    )
+    realtimeHandlers.onPresenceDiff(canonicalPresenceDiff({action: "part", nick: "mira"}))
+
+    realtimeHandlers.onPresenceDiff(
+      canonicalPresenceDiff({
+        action: "join",
+        user: {nick: "akash", nick_key: "akash", role: "user", status: "online"},
+      })
+    )
 
     const people = screen.getByRole("complementary", {name: "People here"})
     await waitFor(() => expect(within(people).getByText("akash")).toBeInTheDocument())
 
-    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "away", nick: "akash", status: "away"}})
+    realtimeHandlers.onPresenceDiff(
+      canonicalPresenceDiff({action: "away", nick: "akash", nick_key: "akash", status: "away"})
+    )
     await waitFor(() => expect(within(people).getByText("Away")).toBeInTheDocument())
     expect(within(people).getByText("akash")).toBeInTheDocument()
 
-    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "away", nick: "akash", status: "online"}})
+    realtimeHandlers.onPresenceDiff(
+      canonicalPresenceDiff({action: "away", nick: "akash", nick_key: "akash", status: "online"})
+    )
     await waitFor(() => expect(within(people).queryByText("Away")).not.toBeInTheDocument())
 
-    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "role", nick: "akash", role: "op"}})
+    realtimeHandlers.onPresenceDiff(
+      canonicalPresenceDiff({action: "role", nick: "akash", nick_key: "akash", role: "op"})
+    )
     await waitFor(() => expect(within(people).getByText("Mods")).toBeInTheDocument())
     await waitFor(() => expect(within(people).getAllByText("mod")).toHaveLength(2))
     expect(within(people).getByText("akash")).toBeInTheDocument()
 
-    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "role", nick: "akash", role: "user"}})
+    realtimeHandlers.onPresenceDiff(
+      canonicalPresenceDiff({action: "role", nick: "akash", nick_key: "akash", role: "user"})
+    )
     await waitFor(() => expect(within(people).getAllByText("mod")).toHaveLength(1))
 
-    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "nick", old_nick: "akash", new_nick: "ak"}})
+    realtimeHandlers.onPresenceDiff(
+      canonicalPresenceDiff({
+        action: "nick",
+        old_nick: "akash",
+        old_nick_key: "akash",
+        new_nick: "ak",
+        new_nick_key: "ak",
+      })
+    )
     await waitFor(() => expect(within(people).getByText("ak")).toBeInTheDocument())
 
-    realtimeHandlers.onPresenceDiff({buffer_id: "channel:7", diff: {action: "part", nick: "ak"}})
+    realtimeHandlers.onPresenceDiff(
+      canonicalPresenceDiff({action: "part", nick: "ak", nick_key: "ak"})
+    )
     await waitFor(() => expect(within(people).queryByText("ak")).not.toBeInTheDocument())
   })
 
@@ -2576,6 +2628,7 @@ describe("IrcpipeApp UI prototype", () => {
     const client = fakeRealtimeClient(vi.fn())
     const manyUsers = Array.from({length: 12}, (_, index) => ({
       nick: `user${index + 1}`,
+      nick_key: `user${index + 1}`,
       role: "user",
       status: "online",
     }))
@@ -2593,7 +2646,7 @@ describe("IrcpipeApp UI prototype", () => {
 
     expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
 
-    realtimeHandlers.onPresenceSync({buffer_id: "channel:7", users: manyUsers})
+    realtimeHandlers.onPresenceSync(canonicalPresenceSync(manyUsers))
 
     const people = screen.getByRole("complementary", {name: "People here"})
     await waitFor(() => expect(within(people).getByText("user10")).toBeInTheDocument())

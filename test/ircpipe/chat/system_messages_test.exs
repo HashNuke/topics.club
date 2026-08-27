@@ -67,19 +67,20 @@ defmodule Ircpipe.Chat.SystemMessagesTest do
   end
 
   test "records only in joined channels where a nick is present", context do
-    Presence.sync(context.connection, "#elixir", [%{nick: "Akash", prefixes: []}])
-    Presence.sync(context.connection, "#phoenix", [%{nick: "Other", prefixes: []}])
+    Presence.sync(context.connection, "#elixir", [%{nick: "[Akash]", prefixes: []}], :rfc1459)
+    Presence.sync(context.connection, "#phoenix", [%{nick: "Other", prefixes: []}], :rfc1459)
 
     assert :ok =
              SystemMessages.record_for_present_nick(
                context.connection,
                "nick",
-               "akash",
+               "{akash}",
                "Akash_",
-               fn membership -> "Akash is now Akash_ in #{membership.channel}." end
+               fn membership -> "[Akash] is now Akash_ in #{membership.channel}." end,
+               :rfc1459
              )
 
-    assert [%{nick: "Akash_", body: "Akash is now Akash_ in #elixir."}] =
+    assert [%{nick: "Akash_", body: "[Akash] is now Akash_ in #elixir."}] =
              MessageHistory.list_buffer_messages(
                context.user,
                "channel:#{context.elixir.id}"

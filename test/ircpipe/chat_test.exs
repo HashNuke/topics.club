@@ -170,8 +170,13 @@ defmodule Ircpipe.ChatTest do
            %{nick: "second-only", role: "voice", status: "away", hostmask: "second!host"}},
           {second, %{nick: "shared", role: "voice", status: "away", hostmask: "second!host"}}
         ] do
+      attrs =
+        attrs
+        |> Map.put(:nick_key, Ircpipe.Irc.Identifier.key(attrs.nick, :rfc1459))
+        |> Map.put(:last_observed_at, observed_at)
+
       %ChannelUser{channel_membership_id: membership.id}
-      |> ChannelUser.changeset(Map.put(attrs, :last_observed_at, observed_at))
+      |> ChannelUser.changeset(attrs)
       |> Repo.insert!()
     end
 
@@ -256,6 +261,80 @@ defmodule Ircpipe.ChatTest do
     assert {:ok, []} = MembershipReconciler.reconcile(ascii_connection, :ascii)
     assert [%{channel_memberships: memberships}] = Connections.list(user)
     assert Enum.count(memberships) == 2
+  end
+
+  test "changing casemapping atomically rekeys and deduplicates stored presence" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "presence-casemapping",
+        "host" => "irc.presence-casemapping.test",
+        "nickname" => "mira"
+      })
+
+    {:ok, connection} = Chat.update_connection_casemapping(connection, :ascii)
+    {:ok, membership} = Chat.join_channel(user, connection, "#room")
+
+    :ok =
+      Presence.sync(
+        connection,
+        "#room",
+        [%{nick: "[Mira]", prefixes: []}, %{nick: "{mira}", prefixes: ["@"]}],
+        :ascii
+      )
+
+    assert Presence.list_users(membership) |> Enum.map(& &1.nick_key) |> Enum.sort() ==
+             ["[mira]", "{mira}"]
+
+    assert {:ok, rfc_connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+    assert rfc_connection.casemapping == "rfc1459"
+
+    assert [%{nick: "{mira}", nick_key: "{mira}", role: "op"}] =
+             Presence.list_users(membership)
+
+    assert :ok =
+             Presence.diff(
+               rfc_connection,
+               "#room",
+               %{action: "away", nick: "[MIRA]", status: "away"},
+               :rfc1459
+             )
+
+    assert [%{nick_key: "{mira}", status: "away"}] = Presence.list_users(membership)
+  end
+
+  test "changing from RFC1459 to strict RFC1459 rekeys tilde nicknames" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "strict-presence-casemapping",
+        "host" => "irc.strict-presence-casemapping.test",
+        "nickname" => "mira"
+      })
+
+    {:ok, connection} = Chat.update_connection_casemapping(connection, :rfc1459)
+    {:ok, membership} = Chat.join_channel(user, connection, "#room")
+    :ok = Presence.sync(connection, "#room", [%{nick: "mi~ra", prefixes: []}], :rfc1459)
+
+    assert [%{nick: "mi~ra", nick_key: "mi^ra"}] = Presence.list_users(membership)
+
+    assert {:ok, strict_connection} =
+             Chat.update_connection_casemapping(connection, :strict_rfc1459)
+
+    assert [%{nick: "mi~ra", nick_key: "mi~ra"}] = Presence.list_users(membership)
+
+    assert :ok =
+             Presence.diff(
+               strict_connection,
+               "#room",
+               %{action: "join", user: %{nick: "mi^ra", role: "user", status: "online"}},
+               :strict_rfc1459
+             )
+
+    assert Presence.list_users(membership) |> Enum.map(& &1.nick_key) |> Enum.sort() ==
+             ["mi^ra", "mi~ra"]
   end
 
   test "membership lifecycle rejects a connection marked for deletion" do

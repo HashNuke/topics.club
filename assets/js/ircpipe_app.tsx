@@ -37,6 +37,7 @@ import {
   normalizeMessage,
   normalizeTopic,
 } from "./chat_store.ts"
+import {validPresenceDiffPayload, validPresenceSyncPayload} from "./presence_payload.ts"
 import {requestedTopicId, topicForRequestedId} from "./topic_navigation.ts"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.ts"
 import useBufferMessages from "./hooks/use_buffer_messages.ts"
@@ -922,13 +923,17 @@ export default function IrcpipeApp({apiClient: providedApiClient, appMode, curre
   }
 
   function applyPresenceSync(payload: PresenceSyncPayload): void {
+    if (!validPresenceSyncPayload(payload)) return
+
     setUsersByChannel((current) => ({
       ...current,
-      [payload.buffer_id]: payload.users || [],
+      [payload.buffer_id]: payload.users,
     }))
   }
 
   function applyPresenceDiff(payload: PresenceDiffPayload): void {
+    if (!validPresenceDiffPayload(payload)) return
+
     setUsersByChannel((current) => ({
       ...current,
       [payload.buffer_id]: applyUserDiff(current[payload.buffer_id] || [], payload.diff),

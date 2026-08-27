@@ -71,9 +71,9 @@ defmodule Ircpipe.Chat.SystemMessages do
     end
   end
 
-  def record_for_present_nick(%ServerConnection{} = connection, kind, nick, body_fun)
+  def record_for_present_nick(%ServerConnection{} = connection, kind, nick, body_fun, casemapping)
       when is_binary(nick) and is_function(body_fun, 1) do
-    record_for_present_nick(connection, kind, nick, nick, body_fun)
+    record_for_present_nick(connection, kind, nick, nick, body_fun, casemapping)
   end
 
   def record_for_present_nick(
@@ -81,20 +81,23 @@ defmodule Ircpipe.Chat.SystemMessages do
         kind,
         present_nick,
         message_nick,
-        body_fun
+        body_fun,
+        casemapping
       )
       when is_binary(present_nick) and is_function(body_fun, 1) do
     assert_no_outer_transaction!()
 
     connection
-    |> Presence.memberships_with_nick(present_nick)
+    |> Presence.memberships_with_nick(present_nick, casemapping)
     |> Enum.each(fn membership ->
       record(
         connection,
         membership.channel,
         kind,
         message_nick,
-        body_fun.(membership)
+        body_fun.(membership),
+        %{},
+        casemapping
       )
     end)
   end

@@ -1,11 +1,16 @@
 import RightSidebar from "./right_sidebar.tsx"
 
 const users = [
-  {nick: "mira", role: "owner", status: "online"},
-  {nick: "akash", role: "op", status: "online"},
-  {nick: "robin", role: "voice", status: "online"},
-  ...Array.from({length: 12}, (_, index) => ({nick: `member_${index + 1}`, role: "user", status: "online"})),
-  {nick: "lena", role: "user", status: "away"},
+  {nick: "mira", nick_key: "mira", role: "owner", status: "online"},
+  {nick: "akash", nick_key: "akash", role: "op", status: "online"},
+  {nick: "robin", nick_key: "robin", role: "voice", status: "online"},
+  ...Array.from({length: 12}, (_, index) => ({
+    nick: `member_${index + 1}`,
+    nick_key: `member_${index + 1}`,
+    role: "user",
+    status: "online",
+  })),
+  {nick: "lena", nick_key: "lena", role: "user", status: "away"},
 ]
 
 export default {
@@ -35,8 +40,8 @@ export const Empty = {
 export const AwayOnly = {
   args: {
     users: [
-      {nick: "mira", role: "user", status: "away"},
-      {nick: "akash", role: "voice", status: "away"},
+      {nick: "mira", nick_key: "mira", role: "user", status: "away"},
+      {nick: "akash", nick_key: "akash", role: "voice", status: "away"},
     ],
   },
 }

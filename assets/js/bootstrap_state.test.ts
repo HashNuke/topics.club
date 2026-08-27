@@ -43,7 +43,7 @@ describe("buildBootstrapState", () => {
       messages_by_buffer: {"server:1": [{id: 8, body: "ready"}], "channel:2": [{id: 9, body: "hello", occurred_at: "2026-08-26T00:00:00Z"}]},
       push,
       topics: [{id: 3, channel: "elixir", server_host: "127.0.0.1"}],
-      users_by_buffer: {"channel:2": [{nick: "mira"}]},
+      users_by_buffer: {"channel:2": [{nick: "mira", nick_key: "mira"}]},
     })
 
     expect(state).toMatchObject({
@@ -51,7 +51,7 @@ describe("buildBootstrapState", () => {
       activeServerId: "server:1",
       commandCatalog: [{name: "join"}],
       cursorsByBuffer: {"channel:2": 9},
-      usersByChannel: {"channel:2": [{nick: "mira"}]},
+      usersByChannel: {"channel:2": [{nick: "mira", nick_key: "mira"}]},
     })
     expect(state.connections[0].channels[0]).toMatchObject({id: "channel:2", channel: "#elixir"})
     expect(state.messagesByChannel["channel:2"][0]).toMatchObject({id: 9, occurredAt: "2026-08-26T00:00:00Z"})
@@ -60,11 +60,56 @@ describe("buildBootstrapState", () => {
   })
 
   test("selects an active server and rejects incomplete payloads", () => {
-    expect(buildBootstrapState({user, buffers: [], connections: [], direct_message_tombstones: [], active_buffer_id: "server:4", push})).toMatchObject({
+    expect(buildBootstrapState({user, buffers: [], connections: [], direct_message_tombstones: [], active_buffer_id: "server:4", push, users_by_buffer: {}})).toMatchObject({
       activeServerId: null,
       view: null,
     })
     expect(buildBootstrapState({user, connections: []})).toBeNull()
+  })
+
+  test("rejects bootstrap presence without canonical channel and nick keys", () => {
+    const base = {
+      user,
+      buffers: [],
+      connections: [],
+      direct_message_tombstones: [],
+      push,
+    }
+
+    expect(buildBootstrapState({...base, users_by_buffer: {"channel:2": [{nick: "mira"}]}})).toBeNull()
+    expect(
+      buildBootstrapState({
+        ...base,
+        users_by_buffer: {"server:2": [{nick: "mira", nick_key: "mira"}]},
+      })
+    ).toBeNull()
+    expect(buildBootstrapState(base)).toBeNull()
+
+    const channelBase = {
+      ...base,
+      buffers: [{
+        buffer_id: "channel:2",
+        buffer_type: "channel",
+        channel_membership_id: 2,
+        server_connection_id: 1,
+        title: "#elixir",
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
+      }],
+    }
+
+    expect(buildBootstrapState({...channelBase, users_by_buffer: {}})).toBeNull()
+    expect(
+      buildBootstrapState({
+        ...channelBase,
+        users_by_buffer: {
+          "channel:2": [
+            {nick: "[Mira]", nick_key: "{mira}"},
+            {nick: "{MIRA}", nick_key: "{mira}"},
+          ],
+        },
+      })
+    ).toBeNull()
   })
 
   test("accepts the authoritative bootstrap DM shape and restores the direct buffer", () => {
@@ -82,6 +127,7 @@ describe("buildBootstrapState", () => {
       ],
       messages_by_buffer: {"direct:9": [{id: 21, nick: "Zed", body: "ping"}]},
       push,
+      users_by_buffer: {"channel:2": [], "channel:3": []},
     })
 
     expect(state).toMatchObject({
@@ -119,6 +165,7 @@ describe("buildBootstrapState", () => {
       ],
       direct_message_tombstones: [{buffer_id: "direct:9", server_connection_id: 1, direct_message_thread_id: 9, revision: 2}],
       push,
+      users_by_buffer: {},
     })
 
     expect(state.connections[0].channels).toEqual([])
@@ -132,6 +179,7 @@ describe("buildBootstrapState", () => {
       connections: [{id: 1, host: "irc.example.test"}],
       direct_message_tombstones: [],
       push,
+      users_by_buffer: {},
     })).toBeNull()
 
     expect(buildBootstrapState({
@@ -140,6 +188,7 @@ describe("buildBootstrapState", () => {
       connections: [{id: 1, host: "irc.example.test", mention_notifications_enabled: true, notification_preference_revision: 0}],
       direct_message_tombstones: [],
       push,
+      users_by_buffer: {},
     })).toBeNull()
   })
 })

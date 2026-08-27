@@ -20,7 +20,7 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
     state = Map.put(state, :names_buffers, Map.put(names_buffers, normalized, buffered_names))
 
     if MapSet.member?(Map.get(state, :pending_joins, MapSet.new()), normalized) or
-         Identity.listed?(names, state.connection.nickname) do
+         Identity.listed?(names, state.connection.nickname, Targets.casemapping(state)) do
       JoinLifecycle.mark_joined(state, channel)
     else
       state
@@ -100,11 +100,17 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
   end
 
   def handle(:quit, state, %{nick: nick}) do
-    EventRecorder.present_nick_line(state.connection, "quit", nick, fn _membership ->
+    EventRecorder.present_nick_line(state, "quit", nick, fn _membership ->
       "#{nick} quit."
     end)
 
-    Presence.diff(state.connection, nil, %{action: "quit", nick: nick})
+    Presence.diff(
+      state.connection,
+      nil,
+      %{action: "quit", nick: nick},
+      Targets.casemapping(state)
+    )
+
     state
   end
 
@@ -112,18 +118,19 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
     self? = Identity.source_self?(state, payload, old_nick)
 
     EventRecorder.present_nick_line(
-      state.connection,
+      state,
       "nick",
       old_nick,
       new_nick,
       fn _membership -> "#{old_nick} is now #{new_nick}." end
     )
 
-    Presence.diff(state.connection, nil, %{
-      action: "nick",
-      old_nick: old_nick,
-      new_nick: new_nick
-    })
+    Presence.diff(
+      state.connection,
+      nil,
+      %{action: "nick", old_nick: old_nick, new_nick: new_nick},
+      Targets.casemapping(state)
+    )
 
     unless self? do
       DirectMessageRenamer.rename(
@@ -148,11 +155,12 @@ defmodule Ircpipe.Irc.Session.MembershipEvents do
   def handle(:away, state, %{nick: nick} = payload) do
     status = if Map.get(payload, :away?), do: "away", else: "online"
 
-    Presence.diff(state.connection, nil, %{
-      action: "away",
-      nick: nick,
-      status: status
-    })
+    Presence.diff(
+      state.connection,
+      nil,
+      %{action: "away", nick: nick, status: status},
+      Targets.casemapping(state)
+    )
 
     state
   end

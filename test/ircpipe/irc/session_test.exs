@@ -106,12 +106,12 @@ defmodule Ircpipe.Irc.SessionTest do
 
     assert_receive {:irc_message, %{kind: "part", body: "akash left #pipe."}}
 
-    Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
+    Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}], :ascii)
 
     assert {:noreply, ^state} = Session.handle_info({:ircxd, {:quit, %{nick: "akash"}}}, state)
     assert_receive {:irc_message, %{kind: "quit", body: "akash quit."}}
 
-    Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}])
+    Presence.sync(connection, "#pipe", [%{nick: "akash", prefixes: []}], :ascii)
 
     assert {:noreply, ^state} =
              Session.handle_info(
@@ -1830,7 +1830,9 @@ defmodule Ircpipe.Irc.SessionTest do
     assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
     assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
     assert_receive {:irc_server_line, "JOIN #persisted"}, 1_000
-    assert_receive {:presence_sync, %{buffer_id: "channel:" <> _}}, 1_000
+
+    assert_receive {:presence_sync, %{buffer_id: "channel:" <> _, users: [_first_user | _users]}},
+                   1_000
 
     state = :sys.get_state(SessionLocator.via(connection))
     assert MapSet.member?(state.joined_channels, "#persisted")
@@ -2053,7 +2055,7 @@ defmodule Ircpipe.Irc.SessionTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
     {:ok, _pid} = SessionSupervisor.start_session(connection)
     assert_receive {:irc_server_line, "JOIN ~custom"}, 1_000
-    assert_receive {:presence_sync, %{users: _users}}, 1_000
+    assert_receive {:presence_sync, %{users: [_first_user | _users]}}, 1_000
 
     assert {:ok, sent_message} = Session.say(connection, "~custom", "hello")
     assert sent_message.body == "hello"

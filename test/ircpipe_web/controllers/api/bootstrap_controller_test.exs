@@ -45,10 +45,15 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     {:ok, channel_message} =
       MessageIngestion.record_channel(connection, "#elixir", "akash", "hello mira")
 
-    Presence.sync(connection, "#elixir", [
-      %{nick: "mira", prefixes: ["@"], raw_source: "mira!user@example.test"},
-      %{nick: "akash", prefixes: []}
-    ])
+    Presence.sync(
+      connection,
+      "#elixir",
+      [
+        %{nick: "mira", prefixes: ["@"], raw_source: "mira!user@example.test"},
+        %{nick: "akash", prefixes: []}
+      ],
+      :rfc1459
+    )
 
     {:ok, other_connection} =
       Connections.create(other_user, %{
