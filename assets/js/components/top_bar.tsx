@@ -39,6 +39,7 @@ interface TopBarProps extends TopBarContext {
 
 export default function TopBar({activeChannel, activeServer, connectionHealth, notificationDeviceState, notificationSavingIds, showsUserSidebar, view, onOpenMobileMenu, onOpenMobileUsers, onToggleChannelNotifications, onRetryRealtime}: TopBarProps) {
   const copy = topBarCopyFor({activeChannel, activeServer, view})
+  const subtitleRepeatsDesktopContext = copy.context !== null && copy.subtitle === copy.context
   return (
     <header className="flex h-14 items-center justify-between border-b border-slate-800/80 bg-[#0d1118] px-4">
       <div className="flex min-w-0 items-center gap-3">
@@ -49,7 +50,7 @@ export default function TopBar({activeChannel, activeServer, connectionHealth, n
             <h1 className="truncate text-base font-semibold">{copy.title}</h1>
             {view !== "server" && copy.context && <span className="hidden text-xs text-slate-500 sm:inline">{copy.context}</span>}
           </div>
-          <p className="truncate text-xs text-slate-500">{copy.subtitle}</p>
+          <p className={["truncate text-xs text-slate-500", subtitleRepeatsDesktopContext ? "sm:hidden" : ""].join(" ")}>{copy.subtitle}</p>
         </div>
       </div>
       <div className="flex items-center gap-2">
