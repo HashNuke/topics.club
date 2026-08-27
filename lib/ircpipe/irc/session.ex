@@ -1,8 +1,6 @@
 defmodule Ircpipe.Irc.Session do
   use GenServer
 
-  import Ecto.Query
-
   require Logger
 
   alias Ircpipe.Chat
@@ -12,7 +10,6 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Chat.DirectMessageRenamer
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Irc.CommandRegistry
-  alias Ircpipe.Irc.ConnectionLock
   alias Ircpipe.Irc.EventFormatting
   alias Ircpipe.Irc.Session.CommandLifecycle
   alias Ircpipe.Irc.Session.CommandExecution
@@ -22,8 +19,8 @@ defmodule Ircpipe.Irc.Session do
   alias Ircpipe.Irc.Session.JoinReconciliation
   alias Ircpipe.Irc.Session.PendingEchoes
   alias Ircpipe.Irc.Session.Registration
+  alias Ircpipe.Irc.Session.StartupAuthorization
   alias Ircpipe.Irc.Session.Targets
-  alias Ircpipe.Repo
   alias Ircpipe.Chat.{ChannelMembership, ServerConnection}
   alias Ircpipe.Accounts.User
   alias Ircxd.Message
@@ -114,7 +111,7 @@ defmodule Ircpipe.Irc.Session do
 
   @impl true
   def init(%ServerConnection{} = requested_connection) do
-    case start_payload(requested_connection) do
+    case StartupAuthorization.load(requested_connection) do
       {%ServerConnection{} = connection, pending_channels} ->
         send(self(), :connect)
 
@@ -1168,49 +1165,6 @@ defmodule Ircpipe.Irc.Session do
   defp normalize_result(error), do: error
 
   defp present?(value), do: is_binary(value) and value != ""
-
-  defp start_payload(requested_connection) do
-    ConnectionLock.run(requested_connection, fn ->
-      case authoritative_connection(requested_connection) do
-        %ServerConnection{} = connection ->
-          pending_channels = JoinLifecycle.persisted_channels(connection)
-          maybe_pause_start_after_lookup(connection)
-          {connection, pending_channels}
-
-        nil ->
-          nil
-      end
-    end)
-  end
-
-  defp authoritative_connection(%ServerConnection{id: id, user_id: user_id}) do
-    ServerConnection
-    |> where(
-      [connection],
-      connection.id == ^id and connection.user_id == ^user_id and not connection.deleting
-    )
-    |> Repo.one()
-  end
-
-  defp maybe_pause_start_after_lookup(connection) do
-    case Application.get_env(:ircpipe, :session_start_after_lookup_barrier) do
-      {test_pid, barrier_ref} when is_pid(test_pid) ->
-        test_ref = Process.monitor(test_pid)
-        send(test_pid, {:session_start_paused, self(), barrier_ref, connection.id})
-
-        receive do
-          {:continue_session_start, ^barrier_ref} ->
-            Process.demonitor(test_ref, [:flush])
-            :ok
-
-          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
-            :ok
-        end
-
-      _not_paused ->
-        :ok
-    end
-  end
 
   defp legacy_event_name(name) when is_atom(name), do: Atom.to_string(name)
   defp legacy_event_name(event) when is_tuple(event), do: event |> elem(0) |> to_string()
