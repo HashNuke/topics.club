@@ -373,7 +373,7 @@ Replies use versioned plain maps and stable error atoms. Unknown request version
 
 The checked-in version 1 contract currently defines these operations and expectations:
 
-| Operation | Default timeout | Automatic retry policy |
+| Operation | Default timeout | Retry classification |
 | --- | ---: | --- |
 | Batch connection status | 5 seconds | Safe |
 | Connection info | 5 seconds | Safe |
@@ -495,6 +495,7 @@ The monolith currently uses this engine branch:
 ```text
 Ircpipe.EngineSupervisor (:one_for_one)
   Engine.Marker (global singleton identity only)
+  Engine.OperationLock (per-connection API orchestration)
   Engine.RequestTaskSupervisor
   Ircpipe.EngineOban
   Ircpipe.Irc.SessionSystemSupervisor (:one_for_all)
