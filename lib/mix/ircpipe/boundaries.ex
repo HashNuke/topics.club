@@ -14,7 +14,7 @@ defmodule Mix.Ircpipe.Boundaries do
   end
 
   def tracked_files do
-    ["lib/**/*.ex", "test/support/**/*.ex"]
+    ["lib/**/*.ex", "priv/repo/migrations/*.exs", "test/support/**/*.ex"]
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.map(&normalize_path/1)
     |> Enum.uniq()
@@ -56,6 +56,7 @@ defmodule Mix.Ircpipe.Boundaries do
     with :ok <- validate_manifest(manifest),
          {:ok, ownership} <- build_ownership(manifest, tracked_files),
          :ok <- validate_allowed_dependencies(manifest, ownership),
+         :ok <- validate_temporary_component_cycles(manifest),
          :ok <- validate_temporary_dependencies(manifest, ownership),
          {:ok, dependency_summary} <- check_dependencies(manifest, graph, ownership) do
       {:ok,
@@ -208,6 +209,7 @@ defmodule Mix.Ircpipe.Boundaries do
 
   defp validate_temporary_dependencies(manifest, ownership) do
     temporary_dependencies = Map.fetch!(manifest, :temporary_dependencies)
+    temporary_dependency_budget = Map.get(manifest, :temporary_dependency_budget)
 
     errors =
       temporary_dependencies
@@ -265,7 +267,21 @@ defmodule Mix.Ircpipe.Boundaries do
         {{source, sink}, _duplicates} -> ["duplicate temporary dependency: #{source} -> #{sink}"]
       end)
 
-    case Enum.sort(errors ++ duplicate_edges) do
+    budget_errors =
+      cond do
+        not is_integer(temporary_dependency_budget) or temporary_dependency_budget < 0 ->
+          ["temporary dependency budget must be a non-negative integer"]
+
+        length(temporary_dependencies) > temporary_dependency_budget ->
+          [
+            "temporary dependency count #{length(temporary_dependencies)} exceeds budget #{temporary_dependency_budget}"
+          ]
+
+        true ->
+          []
+      end
+
+    case Enum.sort(errors ++ duplicate_edges ++ budget_errors) do
       [] -> :ok
       errors -> {:error, errors}
     end
@@ -326,7 +342,7 @@ defmodule Mix.Ircpipe.Boundaries do
         Enum.map(missing_graph_files, &"production file missing from xref graph: #{&1}") ++
         Enum.map(stale_temporary_dependencies, fn dependency ->
           "stale temporary dependency: #{dependency.from} -> #{dependency.to} (#{dependency.label})"
-        end)
+        end) ++ actual_dependency_cycle_errors(manifest, project_edges, ownership)
 
     if errors == [] do
       {:ok,
@@ -376,6 +392,137 @@ defmodule Mix.Ircpipe.Boundaries do
     |> Enum.filter(&reaches?(graph, &1, &1, MapSet.new()))
     |> Enum.map(&"deployable component dependency cycle involves #{inspect(&1)}")
   end
+
+  defp validate_temporary_component_cycles(manifest) do
+    cycles = Map.get(manifest, :temporary_component_cycles)
+
+    errors =
+      cond do
+        not is_list(cycles) ->
+          ["manifest temporary component cycles must be a list"]
+
+        true ->
+          cycles
+          |> Enum.with_index(1)
+          |> Enum.flat_map(fn {cycle, index} ->
+            missing =
+              [:components, :reason, :remove_in]
+              |> Enum.reject(&(is_map(cycle) and Map.has_key?(cycle, &1)))
+
+            components = if is_map(cycle), do: Map.get(cycle, :components), else: nil
+
+            cond do
+              missing != [] ->
+                ["temporary component cycle #{index} is missing keys: #{inspect(missing)}"]
+
+              not is_list(components) or length(components) < 2 ->
+                ["temporary component cycle #{index} must contain at least two components"]
+
+              Enum.uniq(components) != components ->
+                ["temporary component cycle #{index} contains duplicate components"]
+
+              Enum.any?(components, &(not MapSet.member?(@deployable_components, &1))) ->
+                ["temporary component cycle #{index} contains a non-deployable component"]
+
+              not nonempty_string?(Map.get(cycle, :reason)) or
+                  not nonempty_string?(Map.get(cycle, :remove_in)) ->
+                ["temporary component cycle #{index} has empty metadata"]
+
+              true ->
+                []
+            end
+          end)
+      end
+
+    duplicate_cycles =
+      if is_list(cycles) do
+        cycles
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(&(Map.get(&1, :components, []) |> Enum.sort()))
+        |> Enum.frequencies()
+        |> Enum.flat_map(fn
+          {_cycle, 1} -> []
+          {cycle, _count} -> ["duplicate temporary component cycle: #{format_cycle(cycle)}"]
+        end)
+      else
+        []
+      end
+
+    case Enum.sort(errors ++ duplicate_cycles) do
+      [] -> :ok
+      errors -> {:error, errors}
+    end
+  end
+
+  defp actual_dependency_cycle_errors(manifest, project_edges, ownership) do
+    graph = component_graph(project_edges, ownership)
+    actual_cycles = graph |> strongly_connected_components() |> MapSet.new()
+
+    configured_cycles =
+      manifest
+      |> Map.fetch!(:temporary_component_cycles)
+      |> Enum.map(&(Map.fetch!(&1, :components) |> Enum.sort()))
+      |> MapSet.new()
+
+    unapproved_cycles = MapSet.difference(actual_cycles, configured_cycles)
+    stale_cycles = MapSet.difference(configured_cycles, actual_cycles)
+
+    Enum.map(unapproved_cycles, fn cycle ->
+      "unapproved deployable component dependency cycle: #{format_cycle(cycle)}"
+    end) ++
+      Enum.map(stale_cycles, fn cycle ->
+        "stale temporary component dependency cycle: #{format_cycle(cycle)}"
+      end)
+  end
+
+  defp component_graph(project_edges, ownership) do
+    base = Map.new(@deployable_components, &{&1, MapSet.new()})
+
+    Enum.reduce(project_edges, base, fn {source, sink, _label}, graph ->
+      source_owner = Map.fetch!(ownership, source)
+      sink_owner = Map.fetch!(ownership, sink)
+
+      if source_owner != sink_owner and MapSet.member?(@deployable_components, source_owner) and
+           MapSet.member?(@deployable_components, sink_owner) do
+        Map.update!(graph, source_owner, &MapSet.put(&1, sink_owner))
+      else
+        graph
+      end
+    end)
+  end
+
+  defp strongly_connected_components(graph) do
+    components = graph |> Map.keys() |> Enum.sort()
+
+    components
+    |> Enum.flat_map(fn component ->
+      mutually_reachable =
+        Enum.filter(components, fn candidate ->
+          candidate != component and reachable?(graph, component, candidate, MapSet.new()) and
+            reachable?(graph, candidate, component, MapSet.new())
+        end)
+
+      case mutually_reachable do
+        [] -> []
+        connected -> [Enum.sort([component | connected])]
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp reachable?(graph, current, target, visited) do
+    graph
+    |> Map.get(current, MapSet.new())
+    |> Enum.any?(fn next ->
+      cond do
+        next == target -> true
+        MapSet.member?(visited, next) -> false
+        true -> reachable?(graph, next, target, MapSet.put(visited, next))
+      end
+    end)
+  end
+
+  defp format_cycle(cycle), do: Enum.map_join(cycle, " <-> ", &Atom.to_string/1)
 
   defp reaches?(graph, origin, current, visited) do
     current

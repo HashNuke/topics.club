@@ -104,6 +104,7 @@
         "lib/ircpipe/release.ex",
         "lib/ircpipe/repo.ex",
         "lib/ircpipe/vault.ex",
+        "priv/repo/migrations/*.exs",
         "test/support/data_case.ex",
         "test/support/migration_test_repo.ex"
       ]
@@ -127,6 +128,15 @@
     assembly: [:assembly, :core, :engine, :shared, :web],
     tooling: [:assembly, :core, :engine, :shared, :tooling, :web]
   },
+  temporary_component_cycles: [
+    %{
+      components: [:core, :engine, :web],
+      reason:
+        "The initial monolith inventory contains explicitly allowlisted transition edges in both directions",
+      remove_in: "checkpoint 5: all core/web and engine/web reverse edges removed"
+    }
+  ],
+  temporary_dependency_budget: 36,
   temporary_dependencies: [
     %{
       from: "lib/ircpipe/chat/buffer_events.ex",

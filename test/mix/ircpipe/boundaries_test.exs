@@ -10,6 +10,7 @@ defmodule Mix.Ircpipe.BoundariesTest do
     "lib/shared.ex",
     "lib/tooling.ex",
     "lib/web.ex",
+    "priv/repo/migrations/1_create_example.exs",
     "test/support/web_case.ex"
   ]
 
@@ -98,7 +99,12 @@ defmodule Mix.Ircpipe.BoundariesTest do
       remove_in: "checkpoint"
     }
 
-    temporary_manifest = %{manifest() | temporary_dependencies: [dependency]}
+    temporary_manifest = %{
+      manifest()
+      | temporary_dependencies: [dependency],
+        temporary_dependency_budget: 1
+    }
+
     runtime_graph = graph(%{"lib/web.ex" => %{"lib/engine.ex" => "runtime"}})
 
     assert {:ok, %{temporary_dependencies: 1}} =
@@ -137,6 +143,26 @@ defmodule Mix.Ircpipe.BoundariesTest do
     assert Enum.any?(malformed_errors, &String.contains?(&1, "is missing keys"))
   end
 
+  test "rejects temporary dependencies above the transition budget" do
+    dependency = %{
+      from: "lib/web.ex",
+      to: "lib/engine.ex",
+      label: "runtime",
+      owner: :web,
+      reason: "migration",
+      remove_in: "checkpoint"
+    }
+
+    invalid_manifest = %{
+      manifest()
+      | temporary_dependencies: [dependency],
+        temporary_dependency_budget: 0
+    }
+
+    assert {:error, errors} = Boundaries.check(invalid_manifest, graph(), @files)
+    assert Enum.any?(errors, &String.contains?(&1, "exceeds budget"))
+  end
+
   test "rejects cycles in the deployable component graph" do
     cyclic_manifest =
       put_in(manifest(), [:allowed_dependencies, :shared], [:shared, :core])
@@ -145,11 +171,48 @@ defmodule Mix.Ircpipe.BoundariesTest do
     assert Enum.any?(errors, &String.contains?(&1, "dependency cycle"))
   end
 
+  test "checks actual deployable cycles against the explicit transition baseline" do
+    dependency = %{
+      from: "lib/core.ex",
+      to: "lib/web.ex",
+      label: "runtime",
+      owner: :core,
+      reason: "migration",
+      remove_in: "checkpoint"
+    }
+
+    cyclic_graph =
+      graph(%{
+        "lib/core.ex" => %{"lib/web.ex" => "runtime"},
+        "lib/web.ex" => %{"lib/core.ex" => "runtime"}
+      })
+
+    without_cycle_baseline = %{
+      manifest()
+      | temporary_dependencies: [dependency],
+        temporary_dependency_budget: 1
+    }
+
+    assert {:error, errors} =
+             Boundaries.check(without_cycle_baseline, cyclic_graph, @files)
+
+    assert Enum.any?(errors, &String.contains?(&1, "unapproved deployable component"))
+
+    with_cycle_baseline = %{
+      without_cycle_baseline
+      | temporary_component_cycles: [temporary_cycle([:core, :web])]
+    }
+
+    assert {:ok, %{temporary_dependencies: 1}} =
+             Boundaries.check(with_cycle_baseline, cyclic_graph, @files)
+  end
+
   test "the checked-in ownership manifest covers production and test support" do
     project_manifest =
       "config/boundaries.exs"
       |> Boundaries.load!()
       |> Map.put(:temporary_dependencies, [])
+      |> Map.put(:temporary_component_cycles, [])
 
     files = Boundaries.tracked_files()
     production_graph = graph(Map.new(files, &{&1, %{}}))
@@ -158,6 +221,7 @@ defmodule Mix.Ircpipe.BoundariesTest do
              Boundaries.check(project_manifest, production_graph, files)
 
     assert file_count == length(files)
+    assert Enum.any?(files, &String.starts_with?(&1, "priv/repo/migrations/"))
   end
 
   test "the project boundary Mix task passes" do
@@ -170,7 +234,7 @@ defmodule Mix.Ircpipe.BoundariesTest do
       version: 1,
       ownership: [
         rule(:assembly, ["lib/assembly.ex"]),
-        rule(:core, ["lib/core.ex"]),
+        rule(:core, ["lib/core.ex", "priv/repo/migrations/1_create_example.exs"]),
         rule(:engine, ["lib/engine.ex"]),
         rule(:shared, ["lib/shared.ex"]),
         rule(:tooling, ["lib/tooling.ex"]),
@@ -184,7 +248,17 @@ defmodule Mix.Ircpipe.BoundariesTest do
         tooling: [:assembly, :core, :engine, :shared, :tooling, :web],
         web: [:web, :core, :shared]
       },
+      temporary_component_cycles: [],
+      temporary_dependency_budget: 0,
       temporary_dependencies: []
+    }
+  end
+
+  defp temporary_cycle(components) do
+    %{
+      components: components,
+      reason: "migration",
+      remove_in: "checkpoint"
     }
   end
 
