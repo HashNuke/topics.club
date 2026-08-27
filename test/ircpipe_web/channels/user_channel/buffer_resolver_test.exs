@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.UserChannel.BufferResolverTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias IrcpipeWeb.UserChannel.BufferResolver
 
   setup do
@@ -19,7 +20,7 @@ defmodule IrcpipeWeb.UserChannel.BufferResolverTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
-    {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
 
     %{user: user, connection: connection, membership: membership, thread: thread}
   end

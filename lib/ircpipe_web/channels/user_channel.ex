@@ -6,6 +6,7 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Accounts.Scope
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Realtime.Event
@@ -181,7 +182,7 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
-         {:ok, updated} <- Chat.mark_direct_message_read(Scope.for_user(user), thread.id) do
+         {:ok, updated} <- DirectMessageLifecycle.mark_read(Scope.for_user(user), thread.id) do
       Reply.ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
       {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
@@ -202,7 +203,7 @@ defmodule IrcpipeWeb.UserChannel do
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
          {:ok, updated} <-
-           Chat.set_direct_message_blocked(Scope.for_user(user), thread.id, blocked?) do
+           DirectMessageLifecycle.set_blocked(Scope.for_user(user), thread.id, blocked?) do
       Reply.ok(socket, Event.direct_message_thread(updated, updated.server_connection))
     else
       {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})
@@ -221,7 +222,7 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
 
     with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
-         {:ok, closed} <- Chat.close_direct_message_thread(Scope.for_user(user), thread.id) do
+         {:ok, closed} <- DirectMessageLifecycle.close(Scope.for_user(user), thread.id) do
       Reply.ok(socket, Event.direct_message_closed(closed))
     else
       {:error, reason} -> Reply.error(socket, %{reason: ErrorResponse.reason(reason)})

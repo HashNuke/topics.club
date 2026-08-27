@@ -5,6 +5,7 @@ defmodule Ircpipe.Chat.ConnectionsTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.ChannelMembership
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Repo
 
@@ -185,9 +186,9 @@ defmodule Ircpipe.Chat.ConnectionsTest do
                "nickname" => "mira"
              })
 
-    assert {:ok, open_thread} = Chat.open_direct_message(user, connection, "Zed")
-    assert {:ok, closed_thread} = Chat.open_direct_message(user, connection, "akash")
-    assert {:ok, closed_thread} = Chat.close_direct_message_thread(scope, closed_thread.id)
+    assert {:ok, open_thread} = DirectMessageLifecycle.open(user, connection, "Zed")
+    assert {:ok, closed_thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    assert {:ok, closed_thread} = DirectMessageLifecycle.close(scope, closed_thread.id)
 
     assert %{
              connections: [loaded],

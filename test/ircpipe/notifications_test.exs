@@ -7,6 +7,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.Notification
 
   alias Ircpipe.Notifications.{
@@ -422,7 +423,7 @@ defmodule Ircpipe.NotificationsTest do
     assert is_binary(payload.session_generation)
     assert payload.url == "/app?buffer=direct:#{thread.id}"
 
-    assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, thread.id, true)
+    assert {:ok, _blocked} = DirectMessageLifecycle.set_blocked(scope, thread.id, true)
 
     message_count = Repo.aggregate(Ircpipe.Chat.Message, :count)
 
@@ -649,7 +650,7 @@ defmodule Ircpipe.NotificationsTest do
              generation
            )
 
-    assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
+    assert {:ok, _closed} = DirectMessageLifecycle.close(scope, thread.id)
 
     refute Delivery.eligible?(
              scope,
@@ -677,7 +678,7 @@ defmodule Ircpipe.NotificationsTest do
              generation
            )
 
-    assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, reopened.id, true)
+    assert {:ok, _blocked} = DirectMessageLifecycle.set_blocked(scope, reopened.id, true)
 
     refute Delivery.eligible?(
              scope,
@@ -720,7 +721,7 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     first_notification = Repo.get_by!(Notification, message_id: first.id)
-    assert {:ok, _read} = Chat.mark_direct_message_read(scope, thread.id)
+    assert {:ok, _read} = DirectMessageLifecycle.mark_read(scope, thread.id)
 
     assert {:cancel, :notification_not_found} =
              Delivery.deliver(first_notification.id)
@@ -736,7 +737,7 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     second_notification = Repo.get_by!(Notification, message_id: second.id)
-    assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
+    assert {:ok, _closed} = DirectMessageLifecycle.close(scope, thread.id)
 
     assert {:cancel, :notification_not_found} =
              Delivery.deliver(second_notification.id)
@@ -778,7 +779,7 @@ defmodule Ircpipe.NotificationsTest do
 
     read =
       Task.Supervisor.async_nolink(supervisor, fn ->
-        Chat.mark_direct_message_read(scope, thread.id)
+        DirectMessageLifecycle.mark_read(scope, thread.id)
       end)
 
     refute Task.yield(read, 100)

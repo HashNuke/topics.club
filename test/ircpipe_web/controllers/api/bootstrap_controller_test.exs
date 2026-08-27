@@ -5,6 +5,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.Topic
   alias Ircpipe.Irc.{Session, SessionSupervisor}
   alias Ircpipe.IrcTestServer
@@ -32,7 +33,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
       })
 
     {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
-    {:ok, direct_message_thread} = Chat.open_direct_message(user, connection, "Zed")
+    {:ok, direct_message_thread} = DirectMessageLifecycle.open(user, connection, "Zed")
     {:ok, archived_membership} = Chat.join_channel(user, connection, "#archive")
     Chat.record_inbound_message(connection, "#archive", "akash", "retained archive")
     {:ok, _archived_membership} = Chat.confirm_channel_left(connection, "#archive")
@@ -279,7 +280,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert message_id == message.id
 
     scope = AccountsFixtures.user_scope_fixture(user)
-    assert {:ok, closed} = Chat.close_direct_message_thread(scope, thread.id)
+    assert {:ok, closed} = DirectMessageLifecycle.close(scope, thread.id)
 
     closed_payload = conn |> recycle() |> get(~p"/api/bootstrap") |> json_response(200)
     refute Enum.any?(closed_payload["buffers"], &(&1["buffer_id"] == buffer_id))

@@ -5,6 +5,7 @@ defmodule Ircpipe.Irc.SessionTest do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.{DirectMessageThread, MessageHistory, Notification}
   alias Ircpipe.Irc.{CommandRegistry, Session, SessionSupervisor}
   alias Ircpipe.Irc.Session.PendingEchoes
@@ -389,7 +390,7 @@ defmodule Ircpipe.Irc.SessionTest do
                       body: "Looking up your hostname"
                     }}
 
-    assert Enum.map(Chat.list_direct_message_threads(user, connection), & &1.peer_nick) == [
+    assert Enum.map(DirectMessageLifecycle.list(user, connection), & &1.peer_nick) == [
              "akash"
            ]
 
@@ -2090,7 +2091,7 @@ defmodule Ircpipe.Irc.SessionTest do
     messages = MessageHistory.list_messages(user, membership.id)
     assert Enum.any?(messages, &(&1.body == "operators only" and &1.nick == "akash"))
     assert Enum.any?(messages, &(&1.body == "hello voiced users" and &1.nick == "ircpipe"))
-    assert Chat.list_direct_message_threads(user, connection) == []
+    assert DirectMessageLifecycle.list(user, connection) == []
     assert :ok = Session.quit(connection)
   end
 

@@ -1,6 +1,7 @@
 defmodule IrcpipeWeb.UserChannel.BufferResolver do
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Irc.Session
 
   def membership(user, membership_id) do
@@ -15,7 +16,7 @@ defmodule IrcpipeWeb.UserChannel.BufferResolver do
   end
 
   def direct_message_thread(user, thread_id) do
-    {:ok, Chat.get_direct_message_thread!(user, thread_id)}
+    {:ok, DirectMessageLifecycle.get!(user, thread_id)}
   rescue
     _exception in [Ecto.NoResultsError, Ecto.Query.CastError] ->
       {:error, :invalid_direct_message}

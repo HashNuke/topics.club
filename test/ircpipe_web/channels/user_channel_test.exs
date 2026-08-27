@@ -10,6 +10,7 @@ defmodule IrcpipeWeb.UserChannelTest do
   alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ConnectionLifecycle
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -296,7 +297,9 @@ defmodule IrcpipeWeb.UserChannelTest do
                %{direction: "incoming"}
              )
 
-    assert {:ok, other_thread} = Chat.open_direct_message(other_user, other_connection, "private")
+    assert {:ok, other_thread} =
+             DirectMessageLifecycle.open(other_user, other_connection, "private")
+
     socket = join_user_channel(user)
     buffer_id = "direct:#{thread.id}"
 
@@ -397,7 +400,7 @@ defmodule IrcpipeWeb.UserChannelTest do
              )
 
     assert renamed.id == original.id
-    archived = Chat.get_direct_message_thread!(user, displaced.id)
+    archived = DirectMessageLifecycle.get!(user, displaced.id)
     assert archived.closed_at
     assert String.starts_with?(archived.peer_key, "archived:")
 

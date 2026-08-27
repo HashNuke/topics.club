@@ -2,8 +2,8 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
   use Ircpipe.DataCase
 
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.MessageHistory
   alias Ircpipe.Irc.Session
   alias Ircpipe.Irc.SessionSupervisor
@@ -56,7 +56,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
     server = start_supervised!({IrcTestServer, self()})
     user = AccountsFixtures.user_fixture()
     connection = connection_fixture(user, IrcTestServer.port(server))
-    {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     on_exit(fn -> SessionSupervisor.stop_session(connection) end)
     {:ok, _pid} = SessionSupervisor.start_session(connection)
 
@@ -102,7 +102,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
   test "maps a missing direct-message session to not_connected" do
     user = AccountsFixtures.user_fixture()
     connection = connection_fixture(user, 6667)
-    {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     socket = socket(user)
 
     assert {:reply,

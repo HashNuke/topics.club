@@ -4,6 +4,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.{DirectMessageBlockIdentity, Message, MessageHistory, Notification}
   alias Ircpipe.Irc.Identifier
   alias Ircpipe.Notifications.Delivery
@@ -39,10 +40,10 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     user: user,
     connection: connection
   } do
-    assert {:ok, _thread} = Chat.open_direct_message(user, connection, "Zed")
-    assert {:ok, _thread} = Chat.open_direct_message(user, connection, "akash")
+    assert {:ok, _thread} = DirectMessageLifecycle.open(user, connection, "Zed")
+    assert {:ok, _thread} = DirectMessageLifecycle.open(user, connection, "akash")
 
-    assert Enum.map(Chat.list_direct_message_threads(user, connection), & &1.peer_nick) == [
+    assert Enum.map(DirectMessageLifecycle.list(user, connection), & &1.peer_nick) == [
              "akash",
              "Zed"
            ]
@@ -87,8 +88,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     connection: connection
   } do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
-    assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
-    assert {:ok, _thread} = Chat.close_direct_message_thread(scope, thread.id)
+    assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    assert {:ok, _thread} = DirectMessageLifecycle.close(scope, thread.id)
 
     assert {:ok, %{thread: reopened, message: message, notify?: true}} =
              Chat.record_direct_message(
@@ -111,7 +112,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     notification = Repo.get_by!(Notification, message_id: message.id)
     assert notification.direct_message_thread_id == thread.id
 
-    assert {:ok, read} = Chat.mark_direct_message_read(scope, thread.id)
+    assert {:ok, read} = DirectMessageLifecycle.mark_read(scope, thread.id)
     assert read.unread_count == 0
   end
 
@@ -121,7 +122,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     connection: connection
   } do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
-    assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     assert thread.mutation_revision == 1
 
     previous_pause = Application.get_env(:ircpipe, :pause_direct_message_closed_broadcast)
@@ -140,7 +141,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     close =
       Task.Supervisor.async_nolink(supervisor, fn ->
         receive do
-          :close_thread -> Chat.close_direct_message_thread(scope, thread.id)
+          :close_thread -> DirectMessageLifecycle.close(scope, thread.id)
         end
       end)
 
@@ -172,7 +173,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     assert_receive {:direct_message_closed, %{buffer_id: ^buffer_id, revision: 2}}
 
-    stored = Chat.get_direct_message_thread!(user, thread.id)
+    stored = DirectMessageLifecycle.get!(user, thread.id)
     assert stored.closed_at == nil
     assert stored.mutation_revision == 4
   end
@@ -183,7 +184,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     connection: connection
   } do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
-    assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
+    assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     assert thread.mutation_revision == 1
 
     previous_pause = Application.get_env(:ircpipe, :pause_direct_message_thread_broadcast)
@@ -202,7 +203,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     block =
       Task.Supervisor.async_nolink(supervisor, fn ->
         receive do
-          :block_thread -> Chat.set_direct_message_blocked(scope, thread.id, true)
+          :block_thread -> DirectMessageLifecycle.set_blocked(scope, thread.id, true)
         end
       end)
 
@@ -212,7 +213,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert_receive {:direct_message_thread_broadcast_paused, block_pid, thread_id, 2}
     assert thread_id == thread.id
 
-    assert {:ok, read} = Chat.mark_direct_message_read(scope, thread.id)
+    assert {:ok, read} = DirectMessageLifecycle.mark_read(scope, thread.id)
     assert read.mutation_revision == 3
     assert read.blocked_at
     buffer_id = "direct:#{thread.id}"
@@ -233,12 +234,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     scope: scope,
     connection: connection
   } do
-    assert {:ok, thread} = Chat.open_direct_message(user, connection, "akash")
-    assert {:ok, closed} = Chat.close_direct_message_thread(scope, thread.id)
+    assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    assert {:ok, closed} = DirectMessageLifecycle.close(scope, thread.id)
 
-    assert {:error, :direct_message_closed} = Chat.mark_direct_message_read(scope, thread.id)
+    assert {:error, :direct_message_closed} = DirectMessageLifecycle.mark_read(scope, thread.id)
 
-    stored = Chat.get_direct_message_thread!(user, thread.id)
+    stored = DirectMessageLifecycle.get!(user, thread.id)
     assert stored.closed_at
     assert stored.mutation_revision == closed.mutation_revision
   end
@@ -265,7 +266,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              )
 
     flush_mailbox()
-    assert {:ok, blocked} = Chat.set_direct_message_blocked(scope, thread.id, true)
+    assert {:ok, blocked} = DirectMessageLifecycle.set_blocked(scope, thread.id, true)
     assert blocked.blocked_at
 
     assert DirectMessageBlockIdentity
@@ -274,7 +275,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
            |> Repo.all()
            |> Enum.sort() == ["account:akash-account", "hostmask:user@example.test"]
 
-    assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
+    assert {:ok, _closed} = DirectMessageLifecycle.close(scope, thread.id)
 
     message_count = Repo.aggregate(Message, :count)
 
@@ -297,7 +298,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert renamed.closed_at
     assert renamed.unread_count == 0
     assert Repo.aggregate(Message, :count) == message_count
-    assert {:ok, unblocked} = Chat.set_direct_message_blocked(scope, thread.id, false)
+    assert {:ok, unblocked} = DirectMessageLifecycle.set_blocked(scope, thread.id, false)
     refute unblocked.blocked_at
   end
 
@@ -317,8 +318,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
              )
 
     assert thread.identity_key == "hostmask:same-user@example.test"
-    assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, thread.id, true)
-    assert {:ok, _closed} = Chat.close_direct_message_thread(scope, thread.id)
+    assert {:ok, _blocked} = DirectMessageLifecycle.set_blocked(scope, thread.id, true)
+    assert {:ok, _closed} = DirectMessageLifecycle.close(scope, thread.id)
     message_count = Repo.aggregate(Message, :count)
 
     assert {:ok, %{thread: same_thread, message: nil, dropped?: true}} =
@@ -333,7 +334,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     assert same_thread.id == thread.id
     assert Repo.aggregate(Message, :count) == message_count
-    assert Chat.list_direct_message_threads(user, connection) == []
+    assert DirectMessageLifecycle.list(user, connection) == []
   end
 
   test "a different account reusing a blocked nick gets an independent thread", %{
@@ -355,7 +356,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
                }
              )
 
-    assert {:ok, _blocked} = Chat.set_direct_message_blocked(scope, blocked_thread.id, true)
+    assert {:ok, _blocked} = DirectMessageLifecycle.set_blocked(scope, blocked_thread.id, true)
 
     assert {:ok, %{thread: new_thread, message: message, dropped?: false}} =
              Chat.record_direct_message(
@@ -374,7 +375,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     refute new_thread.id == blocked_thread.id
     assert message.body == "I am somebody else"
     assert is_nil(new_thread.blocked_at)
-    assert Chat.get_direct_message_thread!(user, blocked_thread.id).blocked_at
+    assert DirectMessageLifecycle.get!(user, blocked_thread.id).blocked_at
   end
 
   test "an account appearing later preserves a user-at-host thread", %{
@@ -454,7 +455,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     assert_receive {:direct_message_closed, %{buffer_id: ^displaced_buffer_id}}
 
-    displaced = Chat.get_direct_message_thread!(user, account_b.id)
+    displaced = DirectMessageLifecycle.get!(user, account_b.id)
     assert displaced.closed_at
     assert displaced.last_read_at
     assert displaced.unread_count == 0
@@ -560,7 +561,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     blocker =
       Task.Supervisor.async_nolink(supervisor, fn ->
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Chat.set_direct_message_blocked(scope, thread.id, true)
+          DirectMessageLifecycle.set_blocked(scope, thread.id, true)
         end)
       end)
 
@@ -608,7 +609,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         user = AccountsFixtures.user_fixture()
         scope = AccountsFixtures.user_scope_fixture(user)
         connection = connection_fixture(user, "concurrent-send-close")
-        {:ok, thread} = Chat.open_direct_message(user, connection, "guest")
+        {:ok, thread} = DirectMessageLifecycle.open(user, connection, "guest")
         {user, scope, connection, thread}
       end)
 
@@ -642,7 +643,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         send(test_pid, :direct_message_close_started)
 
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Chat.close_direct_message_thread(scope, thread.id)
+          DirectMessageLifecycle.close(scope, thread.id)
         end)
       end)
 
@@ -658,7 +659,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert closed_thread.closed_at
 
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-      persisted = Chat.get_direct_message_thread!(user, thread.id)
+      persisted = DirectMessageLifecycle.get!(user, thread.id)
       assert persisted.closed_at
 
       assert Repo.exists?(
@@ -744,7 +745,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         send(test_pid, :blocking_started)
 
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          Chat.set_direct_message_blocked(scope, account_b.id, true)
+          DirectMessageLifecycle.set_blocked(scope, account_b.id, true)
         end)
       end)
 
@@ -758,7 +759,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
     archived =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-        Chat.get_direct_message_thread!(user, account_b.id)
+        DirectMessageLifecycle.get!(user, account_b.id)
       end)
 
     assert archived.closed_at
