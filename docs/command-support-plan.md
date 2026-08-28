@@ -59,7 +59,7 @@ The researched constraints that drive the action items are:
 
 **Priority:** P0/P1
 
-**Current behavior:** `Ircpipe.Irc.Session` handles selected events such as connection lifecycle, MOTD, notices, channel lifecycle, topics, IRC errors, and `/list`. Its final ircxd catch-all silently ignores the rest. ircxd already emits structured replies for WHO, WHOIS, WHOWAS, MODE and TOPIC queries, HELP, INFO, ADMIN, VERSION, TIME, STATS, ban/invite/exception lists, standard replies, and raw numerics.
+**Current behavior:** `TopicsClub.Irc.Session` handles selected events such as connection lifecycle, MOTD, notices, channel lifecycle, topics, IRC errors, and `/list`. Its final ircxd catch-all silently ignores the rest. ircxd already emits structured replies for WHO, WHOIS, WHOWAS, MODE and TOPIC queries, HELP, INFO, ADMIN, VERSION, TIME, STATS, ban/invite/exception lists, standard replies, and raw numerics.
 
 **Impact:** Commands such as `/quote WHOIS nick`, `/quote MODE #channel`, and `/quote HELP` can show `Command accepted.` without ever showing their results. Send acceptance is also presented like command completion.
 

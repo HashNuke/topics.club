@@ -1,6 +1,6 @@
 # Combined deployment
 
-The supported default deployment is the combined `ircpipe` release: one application instance and one PostgreSQL database. Do not run more than one application replica. The engine owns long-lived IRC sessions in memory and does not yet have database-backed leases or fencing.
+The supported default deployment is the combined `topics_club` release: one application instance and one PostgreSQL database. Do not run more than one application replica. The engine owns long-lived IRC sessions in memory and does not yet have database-backed leases or fencing.
 
 ## Required application configuration
 
@@ -10,7 +10,7 @@ Every production deployment requires:
   alternatively set all of `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, and
   `DATABASE_NAME`.
 - `SECRET_KEY_BASE`: generate with `mix phx.gen.secret`.
-- `IRC_CREDENTIALS_KEY`: generate with `mix ircpipe.gen_credentials_key` and retain for the lifetime of the encrypted data.
+- `IRC_CREDENTIALS_KEY`: generate with `mix topics_club.gen_credentials_key` and retain for the lifetime of the encrypted data.
 - `PHX_HOST`: public HTTPS hostname.
 
 `PORT` defaults to `4000`; Railway supplies it automatically. `POOL_SIZE` defaults to `10`. OAuth, SMTP, Web Push, and discovery variables are optional and documented in `env.example`.
@@ -32,22 +32,22 @@ Railway's repository-level `railway.toml` and `railway.json` configuration is de
 
 ## VPS installation with Docker Compose
 
-The production Compose package binds the application to `127.0.0.1:4000` by default and does not publish PostgreSQL. Put an HTTPS reverse proxy such as Caddy, nginx, or Traefik on the same host and proxy to that loopback address. If the proxy runs on another machine, set `IRCPIPE_BIND_IP` to a private interface and restrict the port with the host firewall; never expose it indiscriminately.
+The production Compose package binds the application to `127.0.0.1:4000` by default and does not publish PostgreSQL. Put an HTTPS reverse proxy such as Caddy, nginx, or Traefik on the same host and proxy to that loopback address. If the proxy runs on another machine, set `TOPICS_CLUB_BIND_IP` to a private interface and restrict the port with the host firewall; never expose it indiscriminately.
 
 On a clean VPS with Git, Docker Engine, and the Compose plugin:
 
 ```bash
-git clone <your-ircpipe-repository> /srv/ircpipe/source
-cd /srv/ircpipe/source
+git clone git@github.com:HashNuke/topics.club.git /srv/topics_club/source
+cd /srv/topics_club/source
 cp env.example .env
 ```
 
 Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`, and choose a persistent absolute host path. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported:
 
 ```text
-IRCPIPE_POSTGRES_DATA=/srv/ircpipe/postgres
-IRCPIPE_BIND_IP=127.0.0.1
-IRCPIPE_PORT=4000
+TOPICS_CLUB_POSTGRES_DATA=/srv/topics_club/postgres
+TOPICS_CLUB_BIND_IP=127.0.0.1
+TOPICS_CLUB_PORT=4000
 ```
 
 Create that directory with ownership appropriate for the PostgreSQL container, validate the resolved configuration, and start the stack:
@@ -63,19 +63,19 @@ The application waits for PostgreSQL health, runs migrations, and then starts th
 
 ## Back up and restore PostgreSQL
 
-Create logical backups outside `IRCPIPE_POSTGRES_DATA`; copying the live data directory is not a safe backup procedure:
+Create logical backups outside `TOPICS_CLUB_POSTGRES_DATA`; copying the live data directory is not a safe backup procedure:
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U postgres -d ircpipe_prod -Fc > ircpipe-$(date +%Y%m%d-%H%M%S).dump
+  pg_dump -U postgres -d topics_club_prod -Fc > topics_club-$(date +%Y%m%d-%H%M%S).dump
 ```
 
-Test restores on another PostgreSQL instance regularly. Restoring over the production database is destructive: stop the application, preserve a second current backup, recreate or clean the target database, restore with `pg_restore`, and start the application only after `pg_restore` succeeds. For example, against an already empty `ircpipe_prod` database:
+Test restores on another PostgreSQL instance regularly. Restoring over the production database is destructive: stop the application, preserve a second current backup, recreate or clean the target database, restore with `pg_restore`, and start the application only after `pg_restore` succeeds. For example, against an already empty `topics_club_prod` database:
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml stop app
 docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
-  pg_restore -U postgres -d ircpipe_prod --exit-on-error < ircpipe-backup.dump
+  pg_restore -U postgres -d topics_club_prod --exit-on-error < topics_club-backup.dump
 docker compose --env-file .env -f docker-compose.prod.yml up -d app
 ```
 

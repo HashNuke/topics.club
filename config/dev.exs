@@ -1,6 +1,6 @@
 import Config
 
-config :ircpipe_core, Ircpipe.Vault,
+config :topics_club_core, TopicsClub.Vault,
   ciphers: [
     default:
       {Cloak.Ciphers.AES.GCM,
@@ -10,11 +10,11 @@ config :ircpipe_core, Ircpipe.Vault,
   ]
 
 # Configure your database
-config :ircpipe_core, Ircpipe.Repo,
+config :topics_club_core, TopicsClub.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "ircpipe_dev",
+  database: "topics_club_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -25,15 +25,15 @@ config :ircpipe_core, Ircpipe.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :ircpipe_web, IrcpipeWeb.Endpoint,
+config :topics_club_gateway, TopicsClubWeb.Endpoint,
   http: [ip: {0, 0, 0, 0}, port: 4100],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "3ps+1yKVI13aG3co2FGgVxg8XdNe1gIorL/WOix/XizngsGbDm67jXVQpDbxgbsr",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:ircpipe, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:ircpipe, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:topics_club, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:topics_club, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -60,22 +60,22 @@ config :ircpipe_web, IrcpipeWeb.Endpoint,
 # different ports.
 
 # Reload browser tabs when matching files change.
-config :ircpipe_web, IrcpipeWeb.Endpoint,
+config :topics_club_gateway, TopicsClubWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
       # Static assets, except user uploads
-      ~r"apps/ircpipe_web/priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
+      ~r"apps/topics_club_gateway/priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
       # Gettext translations
-      ~r"apps/ircpipe_web/priv/gettext/.*\.po$"E,
+      ~r"apps/topics_club_gateway/priv/gettext/.*\.po$"E,
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"apps/ircpipe_web/lib/ircpipe_web/router\.ex$"E,
-      ~r"apps/ircpipe_web/lib/ircpipe_web/(controllers|live|components)/.*\.(ex|heex)$"E
+      ~r"apps/topics_club_gateway/lib/topics_club_web/router\.ex$"E,
+      ~r"apps/topics_club_gateway/lib/topics_club_web/(controllers|live|components)/.*\.(ex|heex)$"E
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :ircpipe_web, dev_routes: true
+config :topics_club_gateway, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

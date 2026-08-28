@@ -12,7 +12,7 @@ services:
       DATABASE_HOST: postgres
       DATABASE_USER: postgres
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      DATABASE_NAME: ircpipe_prod
+      DATABASE_NAME: topics_club_prod
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in .env}
       IRC_CREDENTIALS_KEY: ${IRC_CREDENTIALS_KEY:?Set IRC_CREDENTIALS_KEY in .env}
       PHX_HOST: ${PHX_HOST:?Set PHX_HOST in .env}
@@ -30,10 +30,10 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_TLS: ${SMTP_TLS:-if_available}
       SMTP_SSL: ${SMTP_SSL:-false}
-      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Ircpipe}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-TopicsClub}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-contact@example.com}
     ports:
-      - "${IRCPIPE_BIND_IP:-127.0.0.1}:${IRCPIPE_PORT:-4000}:4000"
+      - "${TOPICS_CLUB_BIND_IP:-127.0.0.1}:${TOPICS_CLUB_PORT:-4000}:4000"
     command: sh -c "/app/bin/migrate && /app/bin/server"
     init: true
     restart: unless-stopped
@@ -43,11 +43,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ircpipe_prod
+      POSTGRES_DB: topics_club_prod
     volumes:
-      - ${IRCPIPE_POSTGRES_DATA:?Set IRCPIPE_POSTGRES_DATA to a host directory for database data}:/var/lib/postgresql/data
+      - ${TOPICS_CLUB_POSTGRES_DATA:?Set TOPICS_CLUB_POSTGRES_DATA to a host directory for database data}:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ircpipe_prod"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d topics_club_prod"]
       interval: 5s
       timeout: 5s
       retries: 10

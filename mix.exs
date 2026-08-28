@@ -3,7 +3,7 @@ Path.join([__DIR__, "lib/mix/**/*.ex"])
 |> Enum.sort()
 |> Enum.each(&Code.require_file/1)
 
-defmodule Ircpipe.MixProject do
+defmodule TopicsClub.MixProject do
   use Mix.Project
 
   @version "0.1.0"
@@ -14,7 +14,7 @@ defmodule Ircpipe.MixProject do
       version: @version,
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
-      default_release: :ircpipe,
+      default_release: :topics_club,
       aliases: aliases(),
       deps: [],
       releases: releases()
@@ -31,9 +31,13 @@ defmodule Ircpipe.MixProject do
     version = release_version()
 
     [
-      ircpipe: release(version, [:ircpipe_core, :ircpipe_engine, :ircpipe_web], ["rel/web"]),
-      ircpipe_web: release(version, [:ircpipe_core, :ircpipe_web], ["rel/web"]),
-      ircpipe_engine: release(version, [:ircpipe_core, :ircpipe_engine])
+      topics_club:
+        release(version, [:topics_club_core, :topics_club_engine, :topics_club_gateway], [
+          "rel/web"
+        ]),
+      topics_club_gateway:
+        release(version, [:topics_club_core, :topics_club_gateway], ["rel/web"]),
+      topics_club_engine: release(version, [:topics_club_core, :topics_club_engine])
     ]
   end
 
@@ -48,7 +52,7 @@ defmodule Ircpipe.MixProject do
 
   defp release_version do
     revision =
-      System.get_env("IRCPIPE_SOURCE_REVISION") ||
+      System.get_env("TOPICS_CLUB_SOURCE_REVISION") ||
         System.get_env("RAILWAY_GIT_COMMIT_SHA") ||
         git_revision() ||
         "unknown"
@@ -75,21 +79,27 @@ defmodule Ircpipe.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup", "ircpipe.setup_local_irc", "assets.setup", "assets.build"],
+      setup: [
+        "deps.get",
+        "ecto.setup",
+        "topics_club.setup_local_irc",
+        "assets.setup",
+        "assets.build"
+      ],
       "ecto.setup": [&ecto_setup/1],
       "ecto.reset": [&ecto_reset/1],
       test: [&test/1],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind ircpipe", "esbuild ircpipe"],
+      "assets.build": ["compile", "tailwind topics_club", "esbuild topics_club"],
       "assets.deploy": [
         "compile",
-        "tailwind ircpipe --minify",
-        "esbuild ircpipe --minify",
+        "tailwind topics_club --minify",
+        "esbuild topics_club --minify",
         &digest_assets/1
       ],
       precommit: [
         "compile --warnings-as-errors",
-        "ircpipe.check_boundaries",
+        "topics_club.check_boundaries",
         "deps.unlock --unused",
         "format",
         &frontend_typecheck/1,
@@ -101,19 +111,19 @@ defmodule Ircpipe.MixProject do
   end
 
   defp ecto_setup(_args) do
-    run_mix!("apps/ircpipe_core", ["ecto.create", "-r", "Ircpipe.Repo"])
-    run_mix!("apps/ircpipe_core", ["ecto.migrate", "-r", "Ircpipe.Repo"])
-    run_mix!("apps/ircpipe_web", ["run", "../../priv/repo/seeds.exs"])
+    run_mix!("apps/topics_club_core", ["ecto.create", "-r", "TopicsClub.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.migrate", "-r", "TopicsClub.Repo"])
+    run_mix!("apps/topics_club_gateway", ["run", "../../priv/repo/seeds.exs"])
   end
 
   defp ecto_reset(_args) do
-    run_mix!("apps/ircpipe_core", ["ecto.drop", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.drop", "-r", "TopicsClub.Repo"])
     ecto_setup([])
   end
 
   defp test(args) do
-    run_mix!("apps/ircpipe_core", ["ecto.create", "--quiet", "-r", "Ircpipe.Repo"])
-    run_mix!("apps/ircpipe_core", ["ecto.migrate", "--quiet", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.create", "--quiet", "-r", "TopicsClub.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.migrate", "--quiet", "-r", "TopicsClub.Repo"])
 
     case test_target(args) do
       {:child, child_path, child_args} ->
@@ -123,9 +133,12 @@ defmodule Ircpipe.MixProject do
         run_mix!("test", ["test" | integration_args])
 
       :all ->
-        Enum.each(["apps/ircpipe_core", "apps/ircpipe_engine", "apps/ircpipe_web"], fn path ->
-          run_mix!(path, ["test" | args])
-        end)
+        Enum.each(
+          ["apps/topics_club_core", "apps/topics_club_engine", "apps/topics_club_gateway"],
+          fn path ->
+            run_mix!(path, ["test" | args])
+          end
+        )
 
         run_mix!("test", ["test" | args])
     end
@@ -133,9 +146,9 @@ defmodule Ircpipe.MixProject do
 
   defp test_target(args) do
     targets = [
-      {"apps/ircpipe_core/", "apps/ircpipe_core"},
-      {"apps/ircpipe_engine/", "apps/ircpipe_engine"},
-      {"apps/ircpipe_web/", "apps/ircpipe_web"}
+      {"apps/topics_club_core/", "apps/topics_club_core"},
+      {"apps/topics_club_engine/", "apps/topics_club_engine"},
+      {"apps/topics_club_gateway/", "apps/topics_club_gateway"}
     ]
 
     Enum.find_value(Enum.with_index(args), :all, fn {arg, index} ->
@@ -155,9 +168,11 @@ defmodule Ircpipe.MixProject do
   defp frontend_typecheck(_args), do: run_npm!(["run", "typecheck"])
   defp frontend_test(_args), do: run_npm!(["test"])
   defp storybook_build(_args), do: run_npm!(["run", "build-storybook"])
-  defp digest_assets(_args), do: run_mix!("apps/ircpipe_web", ["phx.digest", "priv/static"])
 
-  defp run_npm!(args), do: run_command!("npm", args, "apps/ircpipe_web/assets")
+  defp digest_assets(_args),
+    do: run_mix!("apps/topics_club_gateway", ["phx.digest", "priv/static"])
+
+  defp run_npm!(args), do: run_command!("npm", args, "apps/topics_club_gateway/assets")
   defp run_mix!(path, args), do: run_command!("mix", args, path)
 
   defp run_command!(command, args, path) do

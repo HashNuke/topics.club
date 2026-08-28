@@ -7,57 +7,57 @@
 # General application configuration
 import Config
 
-config :ircpipe_web, :scopes,
+config :topics_club_gateway, :scopes,
   user: [
     default: true,
-    module: Ircpipe.Accounts.Scope,
+    module: TopicsClub.Accounts.Scope,
     assign_key: :current_scope,
     access_path: [:user, :id],
     schema_key: :user_id,
     schema_type: :id,
     schema_table: :users,
-    test_data_fixture: Ircpipe.AccountsFixtures,
+    test_data_fixture: TopicsClub.AccountsFixtures,
     test_setup_helper: :register_and_log_in_user
   ]
 
-config :ircpipe_core,
-  ecto_repos: [Ircpipe.Repo],
-  engine_client_adapter: Ircpipe.Engine.LocalAdapter,
-  internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+config :topics_club_core,
+  ecto_repos: [TopicsClub.Repo],
+  engine_client_adapter: TopicsClub.Engine.LocalAdapter,
+  internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter
 
-config :ircpipe_web,
+config :topics_club_gateway,
   generators: [timestamp_type: :utc_datetime],
   discovery_refresh_enabled: config_env() == :dev
 
-config :ircpipe_engine,
+config :topics_club_engine,
   irc_bouncer_enabled: true
 
-config :ircpipe_engine, Ircpipe.EngineOban,
-  name: Ircpipe.EngineOban,
-  repo: Ircpipe.Repo,
+config :topics_club_engine, TopicsClub.EngineOban,
+  name: TopicsClub.EngineOban,
+  repo: TopicsClub.Repo,
   queues: [connection_deletions: 2, internal_events: 5],
   plugins: [],
   cron: [
     crontab: [
-      {"* * * * *", Ircpipe.Chat.ConnectionDeletionReconcilerWorker}
+      {"* * * * *", TopicsClub.Chat.ConnectionDeletionReconcilerWorker}
     ]
   ]
 
-config :ircpipe_web, IrcpipeWeb.Oban,
-  name: IrcpipeWeb.Oban,
-  repo: Ircpipe.Repo,
+config :topics_club_gateway, TopicsClubWeb.Oban,
+  name: TopicsClubWeb.Oban,
+  repo: TopicsClub.Repo,
   queues: [notifications: 5],
   plugins: [Oban.Plugins.Pruner]
 
 # Configure the endpoint
-config :ircpipe_web, IrcpipeWeb.Endpoint,
+config :topics_club_gateway, TopicsClubWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: IrcpipeWeb.ErrorHTML, json: IrcpipeWeb.ErrorJSON],
+    formats: [html: TopicsClubWeb.ErrorHTML, json: TopicsClubWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Ircpipe.PubSub,
+  pubsub_server: TopicsClub.PubSub,
   live_view: [signing_salt: "i3784qJX"]
 
 # Configure the mailer
@@ -67,27 +67,27 @@ config :ircpipe_web, IrcpipeWeb.Endpoint,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :ircpipe_web, Ircpipe.Mailer, adapter: Swoosh.Adapters.Local
+config :topics_club_gateway, TopicsClub.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  ircpipe: [
+  topics_club: [
     args:
       ~w(js/app.ts --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../apps/ircpipe_web/assets", __DIR__),
+    cd: Path.expand("../apps/topics_club_gateway/assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.1.12",
-  ircpipe: [
+  topics_club: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css
     ),
-    cd: Path.expand("../apps/ircpipe_web", __DIR__)
+    cd: Path.expand("../apps/topics_club_gateway", __DIR__)
   ]
 
 # Configure Elixir's Logger
@@ -105,7 +105,7 @@ oauth_providers =
     if config_env() in [:dev, :test] do
       [
         developer:
-          {IrcpipeWeb.Auth.DevStrategy,
+          {TopicsClubWeb.Auth.DevStrategy,
            [
              callback_methods: ["GET"],
              ignores_csrf_attack: true

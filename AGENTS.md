@@ -46,7 +46,7 @@ custom classes must fully style the input
 
 ### Storybook-first React UI development
 
-- "Storybook" means the Node.js Storybook toolchain for the React frontend under `apps/ircpipe_web/assets/js`. Install and run it from `apps/ircpipe_web/assets/` using the project's JavaScript package manager; do not substitute a Phoenix or Elixir component-story library.
+- "Storybook" means the Node.js Storybook toolchain for the React frontend under `apps/topics_club_gateway/assets/js`. Install and run it from `apps/topics_club_gateway/assets/` using the project's JavaScript package manager; do not substitute a Phoenix or Elixir component-story library.
 - Create or extract frontend UI as reusable React components, add those components to the Storybook catalog, and validate them in Storybook before composing them into the application.
 - Every project-owned React UI component must have stories that make it independently previewable. Cover the representative states that apply, including default, loading, empty, error, disabled, and responsive states.
 - Keep components modular and presentation-focused. Pass application data and actions through props instead of coupling stories to live HTTP requests, sockets, authentication, or navigation.
@@ -489,13 +489,13 @@ And **never** do this:
 
 <!-- usage-rules-end -->
 
-## Ircpipe app notes
+## TopicsClub app notes
 
-- Ircpipe is a Phoenix app with server-rendered auth and a React IRC client mounted at `/chat` via `apps/ircpipe_web/assets/js/ircpipe_app.tsx`.
-- The backend keeps IRC domain data in `Ircpipe.Chat`: suggested topics, user server connections, joined channels, messages, notifications, and per-user message retention.
-- Message retention is user configurable from 1 to 3 days. `Ircpipe.Chat.Retention.prune/1` enforces it after inbound message persistence.
-- IRC runtime processes are supervised by `Ircpipe.Irc.SessionSupervisor` and registered in `Ircpipe.Irc.SessionRegistry` by `{user_id, server_connection_id}`. Keep the one-process-per-user-server invariant when adding features.
-- Deploy exactly one BEAM application node/replica. IRC session ownership is deliberately single-node; `Ircpipe.Irc.SingleNodeGuard` stops the complete IRC session subsystem if another visible node connects. Do not add DNS clustering or scale the application horizontally without first implementing database-backed ownership leases and fencing.
-- Realtime UI updates flow through `IrcpipeWeb.UserSocket` and `IrcpipeWeb.UserChannel`. Mention browser notifications are delivered only through Web Push and displayed by the service worker when no visible Ircpipe window is open.
+- TopicsClub is a Phoenix app with server-rendered auth and a React IRC client mounted at `/chat` via `apps/topics_club_gateway/assets/js/topics_club_app.tsx`.
+- The backend keeps IRC domain data in `TopicsClub.Chat`: suggested topics, user server connections, joined channels, messages, notifications, and per-user message retention.
+- Message retention is user configurable from 1 to 3 days. `TopicsClub.Chat.Retention.prune/1` enforces it after inbound message persistence.
+- IRC runtime processes are supervised by `TopicsClub.Irc.SessionSupervisor` and registered in `TopicsClub.Irc.SessionRegistry` by `{user_id, server_connection_id}`. Keep the one-process-per-user-server invariant when adding features.
+- Deploy exactly one BEAM application node/replica. IRC session ownership is deliberately single-node; `TopicsClub.Irc.SingleNodeGuard` stops the complete IRC session subsystem if another visible node connects. Do not add DNS clustering or scale the application horizontally without first implementing database-backed ownership leases and fencing.
+- Realtime UI updates flow through `TopicsClubWeb.UserSocket` and `TopicsClubWeb.UserChannel`. Mention browser notifications are delivered only through Web Push and displayed by the service worker when no visible TopicsClub window is open.
 - The React client talks to same-origin JSON endpoints under `/api/*` using the session cookie and CSRF token from the root layout.
-- OAuth sign in uses Ueberauth. Google is configured with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; dev/test also include a local `/auth/developer` provider implemented in `IrcpipeWeb.Auth.DevStrategy`.
+- OAuth sign in uses Ueberauth. Google is configured with `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; dev/test also include a local `/auth/developer` provider implemented in `TopicsClubWeb.Auth.DevStrategy`.

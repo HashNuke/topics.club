@@ -1,12 +1,12 @@
 [Unit]
-Description=Ircpipe development IRC server
+Description=TopicsClub development IRC server
 After=network.target
 
 [Service]
 Type=simple
 User=irc
 Group=irc
-ExecStart=/usr/sbin/inspircd --nofork --nopid --nolog --config /etc/inspircd/ircpipe-dev.conf
+ExecStart=/usr/sbin/inspircd --nofork --nopid --nolog --config /etc/inspircd/topics-club-dev.conf
 Restart=on-failure
 RestartSec=2
 

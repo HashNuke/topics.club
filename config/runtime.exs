@@ -2,28 +2,29 @@ import Config
 
 release_name = System.get_env("RELEASE_NAME")
 
-if config_env() == :prod and release_name not in [nil, "ircpipe", "ircpipe_web", "ircpipe_engine"] do
+if config_env() == :prod and
+     release_name not in [nil, "topics_club", "topics_club_gateway", "topics_club_engine"] do
   raise "unsupported release name: #{inspect(release_name)}"
 end
 
-web_capable? = release_name != "ircpipe_engine"
+web_capable? = release_name != "topics_club_engine"
 
 if config_env() == :prod do
   case release_name do
-    "ircpipe_web" ->
-      config :ircpipe_core,
-        engine_client_adapter: Ircpipe.EngineClient.RpcAdapter,
-        internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+    "topics_club_gateway" ->
+      config :topics_club_core,
+        engine_client_adapter: TopicsClub.EngineClient.RpcAdapter,
+        internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter
 
-    "ircpipe_engine" ->
-      config :ircpipe_core,
-        engine_client_adapter: Ircpipe.Engine.LocalAdapter,
+    "topics_club_engine" ->
+      config :topics_club_core,
+        engine_client_adapter: TopicsClub.Engine.LocalAdapter,
         internal_event_adapter: nil
 
     _combined_or_mix ->
-      config :ircpipe_core,
-        engine_client_adapter: Ircpipe.Engine.LocalAdapter,
-        internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+      config :topics_club_core,
+        engine_client_adapter: TopicsClub.Engine.LocalAdapter,
+        internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter
   end
 end
 
@@ -39,12 +40,12 @@ end
 # If you use `mix release`, you need to explicitly enable the server
 # by passing the PHX_SERVER=true when you start it:
 #
-#     PHX_SERVER=true bin/ircpipe start
+#     PHX_SERVER=true bin/topics_club start
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if web_capable? and System.get_env("PHX_SERVER") do
-  config :ircpipe_web, IrcpipeWeb.Endpoint, server: true
+  config :topics_club_gateway, TopicsClubWeb.Endpoint, server: true
 end
 
 if web_capable? do
@@ -64,7 +65,7 @@ if web_capable? do
     end
 
   if smtp_relay && smtp_username && smtp_password do
-    config :ircpipe_web, Ircpipe.Mailer,
+    config :topics_club_gateway, TopicsClub.Mailer,
       adapter: Swoosh.Adapters.SMTP,
       relay: smtp_relay,
       port: String.to_integer(System.get_env("SMTP_PORT") || "587"),
@@ -75,8 +76,8 @@ if web_capable? do
       auth: :always
   end
 
-  config :ircpipe_web, :email_from,
-    name: System.get_env("EMAIL_FROM_NAME") || "Ircpipe",
+  config :topics_club_gateway, :email_from,
+    name: System.get_env("EMAIL_FROM_NAME") || "TopicsClub",
     address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
 
   vapid_subject =
@@ -86,7 +87,7 @@ if web_capable? do
       subject -> if String.contains?(subject, ":"), do: subject, else: "mailto:#{subject}"
     end
 
-  config :ircpipe_web, Ircpipe.Notifications.WebPush,
+  config :topics_club_gateway, TopicsClub.Notifications.WebPush,
     public_key: System.get_env("VAPID_PUBLIC_KEY"),
     private_key: System.get_env("VAPID_PRIVATE_KEY"),
     subject: vapid_subject
@@ -94,14 +95,16 @@ end
 
 if config_env() == :prod do
   if web_capable? do
-    config :ircpipe_web, :discovery_refresh_enabled, System.get_env("ENABLE_DISCOVERY") == "true"
+    config :topics_club_gateway,
+           :discovery_refresh_enabled,
+           System.get_env("ENABLE_DISCOVERY") == "true"
   end
 
   credentials_key =
     System.get_env("IRC_CREDENTIALS_KEY") ||
       raise """
       environment variable IRC_CREDENTIALS_KEY is missing.
-      Generate one with: mix ircpipe.gen_credentials_key
+      Generate one with: mix topics_club.gen_credentials_key
       """
 
   credentials_key =
@@ -113,7 +116,7 @@ if config_env() == :prod do
         raise "IRC_CREDENTIALS_KEY must be a Base64-encoded 32-byte key"
     end
 
-  config :ircpipe_core, Ircpipe.Vault,
+  config :topics_club_core, TopicsClub.Vault,
     ciphers: [
       default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: credentials_key, iv_length: 12}
     ]
@@ -148,7 +151,7 @@ if config_env() == :prod do
       socket_options: maybe_ipv6
     )
 
-  config :ircpipe_core, Ircpipe.Repo, repo_options
+  config :topics_club_core, TopicsClub.Repo, repo_options
 
   if web_capable? do
     # The secret key base is used to sign/encrypt cookies and other secrets.
@@ -165,7 +168,7 @@ if config_env() == :prod do
 
     host = System.get_env("PHX_HOST") || "example.com"
 
-    config :ircpipe_web, IrcpipeWeb.Endpoint,
+    config :topics_club_gateway, TopicsClubWeb.Endpoint,
       url: [host: host, port: 443, scheme: "https"],
       http: [
         # Enable IPv6 and bind on all interfaces.
@@ -183,7 +186,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :ircpipe_web, IrcpipeWeb.Endpoint,
+  #     config :topics_club_gateway, TopicsClubWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -205,7 +208,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :ircpipe_web, IrcpipeWeb.Endpoint,
+  #     config :topics_club_gateway, TopicsClubWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
@@ -215,7 +218,7 @@ if config_env() == :prod do
   # In production you need to configure the mailer to use a different adapter.
   # Here is an example configuration for Mailgun:
   #
-  #     config :ircpipe_web, Ircpipe.Mailer,
+  #     config :topics_club_gateway, TopicsClub.Mailer,
   #       adapter: Swoosh.Adapters.Mailgun,
   #       api_key: System.get_env("MAILGUN_API_KEY"),
   #       domain: System.get_env("MAILGUN_DOMAIN")
