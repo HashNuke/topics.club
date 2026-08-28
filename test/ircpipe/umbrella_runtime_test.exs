@@ -1,5 +1,5 @@
 defmodule Ircpipe.UmbrellaRuntimeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ircpipe.Discovery.Refresher
 
@@ -109,6 +109,33 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
     assert Application.get_env(:ircpipe, Oban) == nil
   end
 
+  test "production config accepts discrete database credentials without URL encoding" do
+    credentials_key = Base.encode64(:binary.copy(<<0>>, 32))
+
+    with_system_env(
+      %{
+        "DATABASE_URL" => nil,
+        "DATABASE_HOST" => "postgres",
+        "DATABASE_USER" => "postgres",
+        "DATABASE_PASSWORD" => "pa:ss@word#x?/+",
+        "DATABASE_NAME" => "ircpipe_prod",
+        "IRC_CREDENTIALS_KEY" => credentials_key,
+        "RELEASE_NAME" => "ircpipe_engine"
+      },
+      fn ->
+        config_path = Path.expand("../../config/runtime.exs", __DIR__)
+        config = Config.Reader.read!(config_path, env: :prod)
+        repo_config = config[:ircpipe_core][Ircpipe.Repo]
+
+        refute Keyword.has_key?(repo_config, :url)
+        assert repo_config[:hostname] == "postgres"
+        assert repo_config[:username] == "postgres"
+        assert repo_config[:password] == "pa:ss@word#x?/+"
+        assert repo_config[:database] == "ircpipe_prod"
+      end
+    )
+  end
+
   defp direct_child_pid(supervisor, child_id) do
     supervisor
     |> Supervisor.which_children()
@@ -126,5 +153,23 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
       config[:ircpipe_engine][Ircpipe.EngineOban],
       config[:ircpipe_web][IrcpipeWeb.Oban]
     }
+  end
+
+  defp with_system_env(overrides, callback) do
+    previous = Map.new(Map.keys(overrides), &{&1, System.get_env(&1)})
+    set_system_env(overrides)
+
+    try do
+      callback.()
+    after
+      set_system_env(previous)
+    end
+  end
+
+  defp set_system_env(environment) do
+    Enum.each(environment, fn
+      {name, nil} -> System.delete_env(name)
+      {name, value} -> System.put_env(name, value)
+    end)
   end
 end

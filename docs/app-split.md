@@ -297,7 +297,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 
 | Environment variable or secret | Release that genuinely needs it |
 | --- | --- |
-| `DATABASE_URL`, `ECTO_IPV6`, `POOL_SIZE` | Combined, web, and engine |
+| `DATABASE_URL`, discrete `DATABASE_*` connection settings, `ECTO_IPV6`, `POOL_SIZE` | Combined, web, and engine |
 | `IRC_CREDENTIALS_KEY` | Combined and engine; web must stop loading encrypted IRC credentials before the key is removed from the web release |
 | `SECRET_KEY_BASE`, `PHX_HOST`, `PORT`, `PHX_SERVER` | Combined and web |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Combined and web |
@@ -360,7 +360,7 @@ The current deployment artifacts remain intentionally separate from the future f
 | `Dockerfile` | Phoenix generated-style multi-stage build of the combined OTP release; suitable for Railway and other container platforms |
 | `docker-compose.prod.yml` | Combined app plus PostgreSQL sidecar for a personal VPS; app runs migrations once before server startup |
 | `docker-compose.yml` | Development PostgreSQL only |
-| `rel/overlays/bin/migrate*` and `Ircpipe.Release` | Explicit release migration entry point |
+| `rel/web/bin/migrate` and `Ircpipe.Release` | Explicit release migration entry point for web-capable releases |
 | First-party topics.club deployment | Pull exact commit on destination, build bare releases there, migrate once, atomically select versioned release, and run systemd units; automation remains workstream 6 |
 
 The engine protocol compatibility window is web N with engine N-1. Version 1 request/reply and event envelopes remain accepted for at least one engine release after a compatible web release ships. An incompatible field or semantic change requires a new protocol version, additive dual-version handling, an N-1 integration test, and deployment of the accepting side before the producing side.
@@ -1074,6 +1074,8 @@ The first release slice defines three explicit Unix releases without adding a de
 The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the umbrella and assembles the explicit `ircpipe` release. Source-revision arguments are declared immediately before release assembly so a new commit does not invalidate dependency, compilation, or asset layers. The final image runs as `nobody`, contains no build launchers or compiler toolchain, and has a database-backed `/health` readiness endpoint plus an image health check. A fresh external-PostgreSQL smoke ran every migration and booted core, engine, and web without node, cookie, engine-node, or clustering variables. The production Compose package builds the same image, keeps PostgreSQL unpublished, binds Phoenix to host loopback by default, waits for database health, migrates before startup, and passed an isolated clean-data installation with 29 migrations and a healthy endpoint. `docs/deployment.md` records required variables, current Railway service settings, the one-replica constraint, safe reverse-proxy binding, backup/restore, upgrades, migration failure handling, and compatible rollback. A project-blind Railway IaC file is deliberately omitted because Railway's replacement configuration owns the complete linked project and can delete omitted resources; operators import and plan against the real project instead.
 
 The final local CI reproduction starts from a source-only Git archive with no `.git`, dependencies, build output, or frontend installation. It exposed that production assets had relied on an earlier compile to generate Phoenix colocated hooks; `assets.deploy` now declares that compile prerequisite directly. The repaired clean gate installs locked dependencies, builds digested assets, assembles all three releases with the same source-derived version, and enforces their application, asset, and migration-command boundaries. Root `mix precommit` passes 37 core, 67 engine, 173 web, and 421 root tests (698 total), 229 frontend tests, type checking, Storybook, warning-free compilation, and the 243-file/769-edge/zero-exception boundary graph.
+
+The first Sol checkpoint review rejected the candidate after reproducing two deployment defects: production SSL redirection intercepted Railway's plain-HTTP health probe, and Compose embedded an unescaped PostgreSQL password in `DATABASE_URL`. The health path is now the sole path-based SSL-redirection exclusion while ordinary browser HTTP requests still redirect. Compose now passes discrete database fields, so PostgreSQL passwords containing URL-reserved characters remain exact. Focused regressions exercise both cases, and the stale pre-umbrella migration-wrapper path in this document is corrected.
 
 #### Release definitions
 

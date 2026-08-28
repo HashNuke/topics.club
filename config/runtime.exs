@@ -118,22 +118,37 @@ if config_env() == :prod do
       default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: credentials_key, iv_length: 12}
     ]
 
-  database_url =
-    System.get_env("DATABASE_URL") ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      For example: ecto://USER:PASS@HOST/DATABASE
-      """
+  database_options =
+    case System.get_env("DATABASE_URL") do
+      nil ->
+        fetch_database_env = fn name ->
+          System.get_env(name) ||
+            raise "environment variable #{name} is missing when DATABASE_URL is not set"
+        end
+
+        [
+          hostname: fetch_database_env.("DATABASE_HOST"),
+          username: fetch_database_env.("DATABASE_USER"),
+          password: fetch_database_env.("DATABASE_PASSWORD"),
+          database: fetch_database_env.("DATABASE_NAME")
+        ]
+
+      database_url ->
+        [url: database_url]
+    end
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :ircpipe_core, Ircpipe.Repo,
-    # ssl: true,
-    url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    # For machines with several cores, consider starting multiple pools of `pool_size`
-    # pool_count: 4,
-    socket_options: maybe_ipv6
+  repo_options =
+    Keyword.merge(database_options,
+      # ssl: true,
+      pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+      # For machines with several cores, consider starting multiple pools of `pool_size`
+      # pool_count: 4,
+      socket_options: maybe_ipv6
+    )
+
+  config :ircpipe_core, Ircpipe.Repo, repo_options
 
   if web_capable? do
     # The secret key base is used to sign/encrypt cookies and other secrets.

@@ -6,7 +6,9 @@ The supported default deployment is the combined `ircpipe` release: one applicat
 
 Every production deployment requires:
 
-- `DATABASE_URL`: PostgreSQL connection URL.
+- PostgreSQL connection settings. Container platforms normally provide `DATABASE_URL`;
+  alternatively set all of `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, and
+  `DATABASE_NAME`.
 - `SECRET_KEY_BASE`: generate with `mix phx.gen.secret`.
 - `IRC_CREDENTIALS_KEY`: generate with `mix ircpipe.gen_credentials_key` and retain for the lifetime of the encrypted data.
 - `PHX_HOST`: public HTTPS hostname.
@@ -24,7 +26,7 @@ Railway detects the repository `Dockerfile`. Configure exactly one service repli
 - Health-check path: `/health`
 - Health-check timeout: `300` seconds
 
-Attach a managed PostgreSQL service or provide an external `DATABASE_URL`, then add the other required application variables above. The Docker build consumes Railway's `RAILWAY_GIT_COMMIT_SHA` so the OTP release version identifies the deployed source revision.
+Attach a managed PostgreSQL service or provide an external `DATABASE_URL`, then add the other required application variables above. The Docker build consumes Railway's `RAILWAY_GIT_COMMIT_SHA` so the OTP release version identifies the deployed source revision. Railway's health probe reaches `/health` directly over its private HTTP path; production SSL redirection excludes only that readiness path while normal browser requests still redirect to HTTPS.
 
 Railway's repository-level `railway.toml` and `railway.json` configuration is deprecated and stops being read on 2026-12-01. Its replacement, `.railway/railway.ts`, owns the complete linked Railway project; omitted services and databases are deletion candidates. Run `railway config pull` against the real project before adopting Infrastructure as Code, add the four settings above to the imported application service, review `railway config plan`, and only then apply it. This repository intentionally does not provide a project-blind IaC file.
 
@@ -40,7 +42,7 @@ cd /srv/ircpipe/source
 cp env.example .env
 ```
 
-Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`, and choose a persistent absolute host path:
+Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`, and choose a persistent absolute host path. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported:
 
 ```text
 IRCPIPE_POSTGRES_DATA=/srv/ircpipe/postgres
