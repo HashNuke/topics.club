@@ -4,7 +4,6 @@ defmodule TopicsClub.Irc.ConnectionLock do
   alias TopicsClub.Accounts.User
   alias TopicsClub.Chat.ServerConnection
   alias TopicsClub.Irc.ConnectionOperationLock
-  alias TopicsClub.Irc.SingleNodeGuard
   alias TopicsClub.Repo
 
   def run(%ServerConnection{user_id: user_id, id: connection_id}, callback) do
@@ -17,17 +16,15 @@ defmodule TopicsClub.Irc.ConnectionLock do
 
   def run(user_id, connection_id, callback)
       when is_integer(user_id) and is_integer(connection_id) and is_function(callback, 0) do
-    with :ok <- SingleNodeGuard.ensure_single_node() do
-      serialize_locally(user_id, connection_id, fn ->
-        case Repo.transaction(fn ->
-               acquire(user_id, connection_id)
-               run_if_single_node(callback)
-             end) do
-          {:ok, result} -> result
-          {:error, reason} -> {:error, reason}
-        end
-      end)
-    end
+    serialize_locally(user_id, connection_id, fn ->
+      case Repo.transaction(fn ->
+             acquire(user_id, connection_id)
+             callback.()
+           end) do
+        {:ok, result} -> result
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
   def run_serialized(%ServerConnection{user_id: user_id, id: connection_id}, callback) do
@@ -40,9 +37,7 @@ defmodule TopicsClub.Irc.ConnectionLock do
 
   def run_serialized(user_id, connection_id, callback)
       when is_integer(user_id) and is_integer(connection_id) and is_function(callback, 0) do
-    with :ok <- SingleNodeGuard.ensure_single_node() do
-      serialize_locally(user_id, connection_id, fn -> run_if_single_node(callback) end)
-    end
+    serialize_locally(user_id, connection_id, callback)
   end
 
   defp acquire(user_id, connection_id) do
@@ -59,9 +54,5 @@ defmodule TopicsClub.Irc.ConnectionLock do
 
   defp serialize_locally(user_id, connection_id, callback) do
     ConnectionOperationLock.run(user_id, connection_id, callback)
-  end
-
-  defp run_if_single_node(callback) do
-    with :ok <- SingleNodeGuard.ensure_single_node(), do: callback.()
   end
 end

@@ -23,7 +23,8 @@ config :topics_club_gateway, :scopes,
 config :topics_club_core,
   ecto_repos: [TopicsClub.Repo],
   engine_client_adapter: TopicsClub.Engine.LocalAdapter,
-  internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter
+  internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter,
+  pubsub_pool_size: 1
 
 config :topics_club_gateway,
   generators: [timestamp_type: :utc_datetime],

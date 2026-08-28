@@ -27,6 +27,7 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
 
     assert is_pid(direct_child_pid(TopicsClub.CoreSupervisor, Phoenix.PubSub.Supervisor))
     assert is_pid(Process.whereis(TopicsClub.PubSub))
+    assert Application.fetch_env!(:topics_club_core, :pubsub_pool_size) == 1
   end
 
   test "core owns the Ecto repository configuration" do

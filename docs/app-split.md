@@ -314,7 +314,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 | Combined release | The release boot script starts the core, engine, and web OTP applications directly; there is no empty assembly supervisor or fourth production application |
 | Core | `TopicsClub.CoreSupervisor`, `:one_for_one`; `TopicsClub.Vault`, `TopicsClub.Repo`, and `TopicsClub.PubSub` |
 | Engine | `TopicsClub.EngineSupervisor`, `:one_for_one`; global engine marker, `TopicsClub.Engine.OperationLock`, `TopicsClub.Engine.RequestTaskSupervisor`, `TopicsClub.EngineOban`, and `TopicsClub.Irc.SessionSystemSupervisor` |
-| Engine session subsystem | `:one_for_all`; `SingleNodeGuard`, `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
+| Engine session subsystem | `:one_for_all`; `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
 | Web | `TopicsClubWeb.Supervisor`, `:one_for_one`; Telemetry, `EngineRestoreTaskSupervisor`, `EngineRestorer`, `TopicsClubWeb.Oban`, optional `Discovery.Refresher`, and Endpoint last |
 
 Shared Repo, Vault, and PubSub start once in combined mode. In split mode each node starts its own core runtime instance against the shared database; only the engine starts the session subsystem and only the web starts Endpoint.
@@ -518,7 +518,7 @@ The engine starts a lightweight marker registered under a stable global name. Th
 
 In split mode, the RPC adapter resolves the marker, obtains its node, and invokes a stable engine API on that node. The combined-mode local adapter invokes the API under the local engine task supervisor without consulting the marker.
 
-The existing `TopicsClub.Irc.SingleNodeGuard` must be replaced. The new guard permits web nodes in the cluster and fails engine startup when another engine marker is already registered.
+The global engine marker replaces the old `TopicsClub.Irc.SingleNodeGuard`. It permits web nodes in the cluster while preventing a second engine marker from acquiring the singleton name before that engine can start its session subsystem.
 
 This global registration is a singleton guard for the supported static two-node topology, not a substitute for database-backed fencing. Network-partition-safe engine failover remains deferred.
 
@@ -677,12 +677,11 @@ The monolith currently uses this engine branch:
 
 ```text
 TopicsClub.EngineSupervisor (:one_for_one)
-  Engine.Marker (global singleton identity only)
+  Engine.Marker (global engine singleton identity)
   Engine.OperationLock (per-connection API orchestration)
   Engine.RequestTaskSupervisor
   TopicsClub.EngineOban
   TopicsClub.Irc.SessionSystemSupervisor (:one_for_all)
-    SingleNodeGuard
     ConnectionOperationLock
     ClientRegistry
     SessionRegistry
@@ -1164,7 +1163,7 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 - [ ] Generate and store a high-entropy deployment-specific cookie.
 - [ ] Configure fixed distribution port ranges for firewalling.
 - [ ] Keep EPMD and distribution ports off public interfaces.
-- [ ] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
+- [x] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
 - [ ] Add static web-to-engine connection attempts during web startup.
 - [ ] Add bounded reconnect/backoff behavior after node loss.
 - [ ] Decide whether production hosts need TLS distribution based on their network trust boundary.
@@ -1172,10 +1171,10 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 
 #### Engine singleton and discovery
 
-- [ ] Implement the lightweight globally registered engine marker.
-- [ ] Return the owning engine node without routing all work through the marker process.
-- [ ] Replace `TopicsClub.Irc.SingleNodeGuard` with an engine-only singleton guard.
-- [ ] Permit any number of non-engine web nodes to join without stopping engine supervision.
+- [x] Implement the lightweight globally registered engine marker.
+- [x] Return the owning engine node without routing all work through the marker process.
+- [x] Replace `TopicsClub.Irc.SingleNodeGuard` with the engine marker singleton guard.
+- [x] Permit non-engine web nodes to join without stopping engine supervision.
 - [ ] Refuse engine startup before opening sessions when another marker exists.
 - [ ] Handle stale marker cleanup after an ordinary node shutdown.
 - [ ] Log and expose marker acquisition and ownership status.
