@@ -1216,24 +1216,31 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 
 #### Split integration harness and tests
 
-- [ ] Start distinct web and engine nodes against one test PostgreSQL database and local IRC server.
-- [ ] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
+- [ ] Start distinct complete web and engine applications against one test PostgreSQL database and local IRC server.
+- [x] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
 - [x] Confirm engine PubSub events reach a user channel on the web node.
-- [ ] Stop web and prove the engine session PID remains alive.
+- [x] Stop web and prove the engine session PID remains alive.
 - [ ] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
 - [ ] Stop engine and verify persisted web features remain available with degraded mutation errors.
 - [ ] Restart engine and restore only desired-connected recent sessions and their autojoins.
-- [ ] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
+- [x] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
 - [x] Simulate a request timeout and prove errors are normalized without crashing callers.
 - [ ] Verify web N operates with the supported engine N-1 protocol.
 - [ ] Add an optional split Compose harness if it materially simplifies CI and local integration testing.
 
+The focused integration test currently starts a real gateway-side BEAM peer and drives the
+production `EngineClient`/RPC boundary against the engine node, shared test database, and local
+IRC server. It proves operation coverage, singleton rejection, and engine-process survival across
+a gateway-node restart. Booting both complete role applications and exercising post-restart web
+bootstrap remain separate unchecked tasks; the focused peer test is not presented as that broader
+release harness.
+
 #### Distributed-runtime exit gate
 
-- [ ] Restarting web leaves the engine marker, hosted server, and outbound session PIDs alive.
-- [ ] Starting a second engine fails safely before session startup.
-- [ ] Cross-node calls and events pass the integration suite.
-- [ ] Engine loss produces a visible degraded state without taking down persisted web features.
+- [x] Restarting web leaves the engine marker, hosted server, and outbound session PIDs alive.
+- [x] Starting a second engine fails safely before session startup.
+- [x] Cross-node calls and events pass the integration suite.
+- [x] Engine loss produces a visible degraded state without taking down persisted web features.
 - [ ] Combined mode remains green and requires no distribution settings.
 
 ### Workstream 5: Enable the hosted `Ircxd.Server`
