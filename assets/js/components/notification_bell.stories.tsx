@@ -15,4 +15,11 @@ export const UnavailableOnHttp = {args: {state: {kind: "unavailable", reason: "N
 export const PermissionBlocked = {args: {state: {kind: "unavailable", reason: "Notifications are blocked in browser or operating-system settings."}}}
 export const ServerMuted = {args: {state: {kind: "disabled", reason: "Mentions are muted because Libera Chat notifications are off."}}}
 export const Saving = {args: {state: {kind: "enabled"}, loading: true}}
-export const CompactServerRow = {args: {state: {kind: "enabled"}, compact: true, scopeLabel: "Libera Chat"}}
+export const CompactServerRowAtViewportEdge = {
+  args: {state: {kind: "enabled"}, compact: true, scopeLabel: "Libera Chat"},
+  decorators: [(Story: React.ComponentType) => (
+    <div className="fixed left-0 top-8 w-64 overflow-hidden bg-[var(--app-sidebar)] p-2">
+      <div className="flex justify-end"><Story /></div>
+    </div>
+  )],
+}

@@ -1,4 +1,5 @@
-import React from "react"
+import {autoUpdate, flip, FloatingPortal, offset, shift, useFloating} from "@floating-ui/react"
+import React, {useState} from "react"
 
 export type NotificationControlKind = "enabled" | "disabled" | "available" | "unavailable"
 
@@ -17,11 +18,28 @@ export interface NotificationBellProps {
 }
 
 export default function NotificationBell({compact = false, id, loading = false, onToggle, scopeLabel, state}: NotificationBellProps) {
+  const [tooltipOpen, setTooltipOpen] = useState(false)
+  const {refs, floatingStyles} = useFloating({
+    open: tooltipOpen,
+    onOpenChange: setTooltipOpen,
+    placement: "bottom",
+    strategy: "fixed",
+    middleware: [offset(8), flip(), shift({padding: 8})],
+    whileElementsMounted: autoUpdate,
+  })
   const unavailable = state.kind === "unavailable"
   const copy = notificationCopy(scopeLabel, state)
+  const tooltipId = `${id}-tooltip`
 
   return (
-    <span className="group/notification relative inline-grid shrink-0 place-items-center">
+    <span
+      ref={refs.setReference}
+      className="inline-grid shrink-0 place-items-center"
+      onBlur={() => setTooltipOpen(false)}
+      onFocus={() => setTooltipOpen(true)}
+      onMouseEnter={() => setTooltipOpen(true)}
+      onMouseLeave={() => setTooltipOpen(false)}
+    >
       <button
         id={id}
         className={[
@@ -36,7 +54,7 @@ export default function NotificationBell({compact = false, id, loading = false, 
         disabled={unavailable || loading}
         onClick={onToggle}
         aria-label={copy.action}
-        aria-describedby={`${id}-tooltip`}
+        aria-describedby={tooltipOpen ? tooltipId : undefined}
         type="button"
       >
         {loading
@@ -48,13 +66,19 @@ export default function NotificationBell({compact = false, id, loading = false, 
         {state.kind === "available" && !loading && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-cyan-300 ring-2 ring-[var(--app-header)]" aria-hidden="true" />}
         {unavailable && !loading && <span className="hero-lock-closed absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-slate-950 text-slate-500" aria-hidden="true" />}
       </button>
-      <span
-        id={`${id}-tooltip`}
-        className="pointer-events-none absolute right-0 top-full z-50 mt-2 hidden w-max max-w-64 rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-left text-xs font-normal normal-case tracking-normal text-slate-200 shadow-xl group-hover/notification:block group-focus-within/notification:block"
-        role="tooltip"
-      >
-        {copy.tooltip}
-      </span>
+      {tooltipOpen && (
+        <FloatingPortal>
+          <span
+            id={tooltipId}
+            ref={refs.setFloating}
+            style={floatingStyles}
+            className="pointer-events-none z-[70] w-max max-w-[min(16rem,calc(100vw-1rem))] rounded-md border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-left text-xs font-normal normal-case tracking-normal text-slate-200 shadow-xl"
+            role="tooltip"
+          >
+            {copy.tooltip}
+          </span>
+        </FloatingPortal>
+      )}
     </span>
   )
 }
