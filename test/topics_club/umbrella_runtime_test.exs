@@ -159,6 +159,8 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
 
     assert web_config[:plugins] == [Oban.Plugins.Pruner]
     assert web_config[:cron] == nil
+    assert MapSet.equal?(engine_queues, MapSet.new([:connection_deletions]))
+    assert MapSet.equal?(web_queues, MapSet.new([:internal_events, :notifications]))
     assert MapSet.disjoint?(engine_queues, web_queues)
     assert Application.get_env(:topics_club, Oban) == nil
     assert Application.get_env(:ircpipe, Oban) == nil

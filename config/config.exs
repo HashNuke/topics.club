@@ -37,7 +37,7 @@ config :topics_club_engine,
 config :topics_club_engine, TopicsClub.EngineOban,
   name: TopicsClub.EngineOban,
   repo: TopicsClub.Repo,
-  queues: [connection_deletions: 2, internal_events: 5],
+  queues: [connection_deletions: 2],
   plugins: [],
   cron: [
     crontab: [
@@ -48,7 +48,7 @@ config :topics_club_engine, TopicsClub.EngineOban,
 config :topics_club_gateway, TopicsClubWeb.Oban,
   name: TopicsClubWeb.Oban,
   repo: TopicsClub.Repo,
-  queues: [notifications: 5],
+  queues: [internal_events: 5, notifications: 5],
   plugins: [Oban.Plugins.Pruner]
 
 # Configure the endpoint

@@ -220,7 +220,7 @@ The remaining modules that assume an IRC process is local are all engine-owned: 
 | Connection status/nickname | Session connection events -> `ConnectionLifecycle` transaction | `connection_status_changed` -> `server:status` |
 | Join/part and buffer lifecycle | Join reconciliation -> membership persistence transaction | `buffer_joined` or `buffer_left` -> matching browser buffer event |
 | Presence snapshot/diff | Session presence handlers -> `Presence` transaction | `presence_synchronized` or `presence_changed` -> matching browser presence event |
-| Mention/direct-message notification | Message transaction inserts notification and one engine event job atomically | `notification_committed` -> web handler -> web-owned PushWorker |
+| Mention/direct-message notification | Message transaction inserts notification and one durable gateway handoff job atomically | `notification_committed` -> web handler -> web-owned PushWorker |
 
 Publish helpers reject calls from inside an outer rollback-capable transaction. Ordinary realtime message publication is synchronous after commit and does not use Oban; only notification delivery and durable deletion/event recovery use jobs. If web delivery is missed, bootstrap and cursor-based history reconciliation rebuild browser state from PostgreSQL.
 
@@ -610,6 +610,13 @@ Synchronous command execution results remain in the versioned `EngineClient` rep
 
 `TopicsClub.InternalEvents` synchronously invokes one configured adapter. Combined mode selects the web-owned adapter that translates committed facts directly into the existing browser PubSub payloads and Web Push jobs. Split engine mode selects one small PubSub transport adapter that publishes the unchanged envelope on `topics_club:internal_events:v1`; one gateway subscriber validates it again and invokes the same web-owned adapter. This is deliberately a two-module transport bridge, not a general event-bus framework. Event producers and browser serializers do not branch by runtime mode.
 
+The durable notification handoff does not rely on a PubSub subscriber being present. Engine
+ingestion inserts the core-defined `NotificationEventsWorker` job into the shared Oban table in the
+same transaction as the notification. Only the gateway owns the `internal_events` queue, so the job
+waits in PostgreSQL while the gateway is down and invokes the local web adapter after the gateway
+returns. Cross-node PubSub remains appropriate for recoverable realtime state, while Web Push job
+creation retains a durable database handoff.
+
 ## PostgreSQL and migrations
 
 - Both nodes connect to the same PostgreSQL database with independent Repo pools.
@@ -647,7 +654,7 @@ Oban configuration is release-specific even though all jobs use the same Postgre
 - Engine release executes connection-deletion and other jobs that require local access to live IRC sessions.
 - Cron entries run only in the release that owns the corresponding work.
 
-Engine ingestion atomically inserts an engine-owned `NotificationEventsWorker` job with the canonical notification row. That worker publishes the stable internal notification event after commit and snoozes without consuming attempts while the event adapter is unavailable. The web event handler then inserts the web-owned `PushWorker` job into the web queue. Engine code never inserts a web worker directly.
+Engine ingestion atomically inserts a core-defined, gateway-executed `NotificationEventsWorker` job with the canonical notification row. The gateway-owned worker publishes the stable internal notification event after commit and snoozes without consuming attempts while the local event adapter is unavailable. The web event handler then inserts the web-owned `PushWorker` job into the web queue. Engine code never inserts a web worker directly.
 
 No queue may be enabled on a node where its worker assumes a local IRC registry unless the worker has first been refactored through `TopicsClub.EngineClient`.
 
@@ -656,7 +663,7 @@ The combined monolith now runs two named Oban instances so queue execution alrea
 | Instance owner | Queue/plugin | Workers or purpose |
 | --- | --- | --- |
 | Engine | `connection_deletions` queue | `ConnectionDeletionWorker`, `ConnectionDeletionEventsWorker`, and `ConnectionDeletionReconcilerWorker` |
-| Engine | `internal_events` queue | `NotificationEventsWorker` durably publishes committed notification facts to the configured internal event adapter |
+| Web | `internal_events` queue | `NotificationEventsWorker` durably hands committed notification facts to the local web adapter after any gateway downtime |
 | Engine | Cron | Enqueues `ConnectionDeletionReconcilerWorker` once per minute |
 | Web | `notifications` queue | `PushWorker` |
 | Web | `Oban.Plugins.Pruner` | Prunes the shared jobs table exactly once in combined mode |
@@ -912,7 +919,7 @@ Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint 
 
 Checkpoint 5 is implemented and passed its GPT-5.6 Sol xhigh checkpoint review. Connection deletion now enters the engine through a versioned `delete_connection` operation, and the engine-owned `TopicsClub.Chat.ConnectionDeletion` module owns quiescence, durable recovery, final deletion, and deletion-event dispatch. The web connection facade no longer constructs deletion jobs, mutates durable connection intent, or calls engine locks and session supervision. Durable deletion workers acquire the engine operation lock before resuming. Web connection snapshots are now query-only; casemapping reconciliation stays in engine registration and join paths.
 
-The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. Each version-one event type validates its exact top-level payload and canonical nested record shapes before dispatch. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs directly. Notification event jobs are inserted atomically with their notification rows and retry adapter failures through the engine-owned `internal_events` Oban queue. A failed deletion-event dispatch retains its committed batch and scheduled recovery job instead of acknowledging and deleting the batch.
+The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. Each version-one event type validates its exact top-level payload and canonical nested record shapes before dispatch. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs directly. Notification event jobs are inserted atomically with their notification rows; the distributed-runtime checkpoint assigns their `internal_events` queue to the gateway so a stopped gateway leaves the durable handoff pending rather than losing it through PubSub. A failed deletion-event dispatch retains its committed batch and scheduled recovery job instead of acknowledging and deleting the batch.
 
 The boundary graph now contains 237 owned files, no temporary dependency exceptions, and no deployable-component cycles. Dependency totals vary because Mix compiles environment-specific modules: the default environment currently reports 748 checked project edges and the test environment reports 763. An expanded set of 254 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair. After the first review fixes, full `mix precommit` passes with 686 Elixir tests, 227 frontend tests, type checking, the Storybook build, and the zero-exception boundary gate. The final reviewer reran 66 focused tests, both environment-specific boundary checks, and found no remaining correctness, SRP, or framework-building concern.
 

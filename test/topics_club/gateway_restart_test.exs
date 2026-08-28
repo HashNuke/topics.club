@@ -1,5 +1,6 @@
 defmodule TopicsClub.GatewayRestartTest do
   use ExUnit.Case, async: false
+  use Oban.Testing, repo: TopicsClub.Repo
 
   import Ecto.Query
   import ExUnit.CaptureLog
@@ -10,6 +11,7 @@ defmodule TopicsClub.GatewayRestartTest do
   alias TopicsClub.Accounts.User
   alias TopicsClub.AccountsFixtures
   alias TopicsClub.Chat
+  alias TopicsClub.Chat.NotificationEventsWorker
   alias TopicsClub.Chat.Connections
   alias TopicsClub.Irc.SessionLocator
   alias TopicsClub.Irc.SessionSupervisor
@@ -86,20 +88,38 @@ defmodule TopicsClub.GatewayRestartTest do
                server,
                "#gateway-restart",
                "akash",
-               "persisted during gateway restart"
+               "hello gateway_nick, persisted during gateway restart"
              )
 
-    assert_receive {:buffer_message, %{body: "persisted during gateway restart"}}, 1_000
+    assert_receive {:buffer_message,
+                    %{body: "hello gateway_nick, persisted during gateway restart"}},
+                   1_000
+
+    assert_enqueued(
+      worker: NotificationEventsWorker,
+      queue: :internal_events,
+      args: %{user_id: user.id}
+    )
 
     assert {:ok, _applications} = Application.ensure_all_started(:topics_club_gateway)
     refute Process.whereis(TopicsClubWeb.Supervisor) == gateway
     assert SessionLocator.whereis(connection) == session
 
+    assert_enqueued(
+      worker: NotificationEventsWorker,
+      queue: :internal_events,
+      args: %{user_id: user.id}
+    )
+
     conn = build_conn() |> ConnCase.log_in_user(user) |> get("/api/bootstrap")
     payload = json_response(conn, 200)
     messages = get_in(payload, ["messages_by_buffer", "channel:#{membership.id}"])
 
-    assert Enum.any?(messages, &(&1["body"] == "persisted during gateway restart"))
+    assert Enum.any?(
+             messages,
+             &(&1["body"] == "hello gateway_nick, persisted during gateway restart")
+           )
+
     assert SessionLocator.whereis(connection) == session
   end
 

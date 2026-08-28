@@ -1,9 +1,10 @@
 defmodule TopicsClub.Chat.NotificationEventsWorkerTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias TopicsClub.Chat.NotificationEventsWorker
 
-  @tag :capture_log
   test "returns a retryable error while the internal event adapter is unavailable" do
     previous_adapter = Application.get_env(:topics_club_core, :internal_event_adapter)
     Application.delete_env(:topics_club_core, :internal_event_adapter)
@@ -18,7 +19,9 @@ defmodule TopicsClub.Chat.NotificationEventsWorkerTest do
       }
     }
 
-    assert {:snooze, {1, :minute}} = NotificationEventsWorker.perform(job)
+    capture_log(fn ->
+      assert {:snooze, {1, :minute}} = NotificationEventsWorker.perform(job)
+    end)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:topics_club_core, key)
