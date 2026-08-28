@@ -1228,7 +1228,7 @@ exclusion, and channel autojoin without turning the test harness into a deployme
 - [x] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
 - [x] Confirm engine PubSub events reach a user channel on the web node.
 - [x] Stop web and prove the engine session PID remains alive.
-- [ ] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
+- [x] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
 - [x] Stop engine and verify persisted web features remain available with degraded mutation errors.
 - [x] Restart engine and restore only desired-connected recent sessions and their autojoins.
 - [x] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
@@ -1239,9 +1239,11 @@ exclusion, and channel autojoin without turning the test harness into a deployme
 The focused integration test currently starts a real gateway-side BEAM peer and drives the
 production `EngineClient`/RPC boundary against the engine node, shared test database, and local
 IRC server. It proves operation coverage, singleton rejection, and engine-process survival across
-a gateway-node restart. Booting both complete role applications and exercising post-restart web
-bootstrap remain separate unchecked tasks; the focused peer test is not presented as that broader
-release harness.
+a gateway-node restart. A separate application lifecycle test stops the complete gateway, delivers
+an IRC message while it is down, restarts it, and recovers the message through authenticated
+bootstrap without changing the engine session PID. Booting both complete role applications on
+distinct nodes remains an unchecked release-harness task; the focused tests are not presented as
+that broader harness.
 
 #### Distributed-runtime exit gate
 
