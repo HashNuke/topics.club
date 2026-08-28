@@ -24,6 +24,7 @@ config :ircpipe,
   ecto_repos: [Ircpipe.Repo],
   engine_client_adapter: Ircpipe.Engine.LocalAdapter,
   generators: [timestamp_type: :utc_datetime],
+  internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter,
   irc_bouncer_enabled: true,
   discovery_refresh_enabled: config_env() == :dev
 

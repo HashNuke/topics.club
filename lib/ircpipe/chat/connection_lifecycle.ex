@@ -2,7 +2,8 @@ defmodule Ircpipe.Chat.ConnectionLifecycle do
   @moduledoc false
 
   alias Ircpipe.Chat.{ServerConnection, ServerConnectionLock}
-  alias Ircpipe.Realtime.Event
+  alias Ircpipe.InternalEvent.Data
+  alias Ircpipe.InternalEvents
   alias Ircpipe.Repo
 
   def update_status(%ServerConnection{} = connection, status) do
@@ -68,13 +69,19 @@ defmodule Ircpipe.Chat.ConnectionLifecycle do
     assert_no_outer_transaction!()
 
     case ServerConnectionLock.serialize_effects(connection.id, fn active_connection ->
-           Phoenix.PubSub.broadcast(
-             Ircpipe.PubSub,
-             "user:#{active_connection.user_id}",
-             {:server_status, Event.server_status(active_connection, status)}
+           occurred_at = DateTime.utc_now(:second)
+
+           InternalEvents.emit(
+             "connection_status_changed",
+             active_connection.user_id,
+             %{connection: Data.connection(active_connection), status: status},
+             event_id:
+               "server_status:#{active_connection.id}:#{DateTime.to_unix(occurred_at, :microsecond)}",
+             occurred_at: occurred_at
            )
          end) do
       {:ok, :ok} -> :ok
+      {:ok, {:error, reason}} -> {:error, reason}
       {:error, reason} -> {:error, reason}
     end
   end

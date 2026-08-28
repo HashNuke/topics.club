@@ -14,7 +14,9 @@ defmodule Ircpipe.Chat.MembershipReconciler do
   }
 
   alias Ircpipe.Irc.Identifier
-  alias Ircpipe.Realtime.Event
+  alias Ircpipe.InternalEvent
+  alias Ircpipe.InternalEvent.Data
+  alias Ircpipe.InternalEvents
   alias Ircpipe.Repo
 
   def reconcile(%ServerConnection{} = connection, casemapping) do
@@ -71,12 +73,19 @@ defmodule Ircpipe.Chat.MembershipReconciler do
     |> all_memberships()
     |> Enum.filter(&(&1.status == "joined"))
     |> Enum.map(fn membership ->
-      Event.presence_sync(%{
-        buffer_id: "channel:#{membership.id}",
-        server_connection_id: connection.id,
-        channel_membership_id: membership.id,
-        users: Presence.list_users(membership)
-      })
+      occurred_at = DateTime.utc_now(:second)
+
+      InternalEvent.new!(
+        "presence_synchronized",
+        connection.user_id,
+        %{
+          connection_id: connection.id,
+          membership_id: membership.id,
+          users: membership |> Presence.list_users() |> Data.presence_users()
+        },
+        event_id: "presence_sync:channel:#{membership.id}:#{timestamp(occurred_at)}",
+        occurred_at: occurred_at
+      )
     end)
   end
 
@@ -98,13 +107,7 @@ defmodule Ircpipe.Chat.MembershipReconciler do
           })
         end)
 
-        Enum.each(presence_sync_events, fn event ->
-          Phoenix.PubSub.broadcast(
-            Ircpipe.PubSub,
-            "user:#{active_connection.user_id}",
-            {:presence_sync, event}
-          )
-        end)
+        Enum.each(presence_sync_events, &InternalEvents.publish/1)
       end)
 
     :ok
@@ -172,6 +175,9 @@ defmodule Ircpipe.Chat.MembershipReconciler do
   defp status_rank("pending"), do: 1
   defp status_rank("left"), do: 2
   defp status_rank("error"), do: 3
+
+  defp timestamp(%DateTime{} = occurred_at),
+    do: DateTime.to_unix(occurred_at, :microsecond)
 
   defp assert_no_outer_transaction! do
     if Repo.in_transaction?() do

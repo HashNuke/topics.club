@@ -14,7 +14,7 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
     ServerConnectionLock
   }
 
-  alias Ircpipe.Notifications.Delivery
+  alias Ircpipe.InternalEvents
   alias Ircpipe.Repo
 
   def record(
@@ -148,9 +148,19 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
          archived_threads: archived_threads
        } = recorded} ->
         _effects =
-          ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
+          ServerConnectionLock.serialize_effects(connection.id, fn active_connection ->
             Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
-            if notification, do: Delivery.enqueue(notification)
+
+            if notification do
+              InternalEvents.emit(
+                "notification_committed",
+                active_connection.user_id,
+                %{notification_id: notification.id},
+                event_id: "notification:#{notification.id}",
+                occurred_at: message.occurred_at
+              )
+            end
+
             BufferEvents.direct_message_thread(thread)
             BufferEvents.direct_message(message, thread)
           end)

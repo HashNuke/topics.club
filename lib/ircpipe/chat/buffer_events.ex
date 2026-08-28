@@ -9,15 +9,48 @@ defmodule Ircpipe.Chat.BufferEvents do
     ServerConnectionLock
   }
 
-  alias Ircpipe.Realtime.Event
+  alias Ircpipe.InternalEvent.Data
+  alias Ircpipe.InternalEvents
   alias Ircpipe.Repo
 
   def left(payload) when is_map(payload) do
-    broadcast_payload(:buffer_left, payload, &Event.buffer_left/1)
+    connection_id = value!(payload, :server_connection_id)
+    ensure_after_commit!(connection_id)
+    occurred_at = value(payload, :occurred_at) || DateTime.utc_now(:second)
+
+    InternalEvents.emit(
+      "buffer_left",
+      value!(payload, :user_id),
+      %{
+        connection_id: connection_id,
+        membership_id: value(payload, :channel_membership_id),
+        channel: value(payload, :channel)
+      },
+      event_id:
+        value(payload, :event_id) ||
+          "buffer_left:#{buffer_key(value(payload, :channel_membership_id), connection_id)}:#{timestamp(occurred_at)}",
+      occurred_at: occurred_at
+    )
   end
 
   def read(payload) when is_map(payload) do
-    broadcast_payload(:buffer_read, payload, &Event.buffer_read/1)
+    connection_id = value!(payload, :server_connection_id)
+    ensure_after_commit!(connection_id)
+    occurred_at = DateTime.utc_now(:second)
+
+    InternalEvents.emit(
+      "buffer_read",
+      value!(payload, :user_id),
+      %{
+        connection_id: connection_id,
+        membership_id: value(payload, :channel_membership_id),
+        unread_count: value(payload, :unread_count) || 0,
+        mention_count: value(payload, :mention_count) || 0
+      },
+      event_id:
+        "buffer_read:#{buffer_key(value(payload, :channel_membership_id), connection_id)}:#{timestamp(occurred_at)}",
+      occurred_at: occurred_at
+    )
   end
 
   def joined(
@@ -26,11 +59,18 @@ defmodule Ircpipe.Chat.BufferEvents do
         status \\ nil
       ) do
     ensure_after_commit!(connection.id)
+    occurred_at = DateTime.utc_now(:second)
 
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{connection.user_id}",
-      {:buffer_joined, Event.buffer_joined(connection, membership, status || connection.status)}
+    InternalEvents.emit(
+      "buffer_joined",
+      connection.user_id,
+      %{
+        connection: Data.connection(connection),
+        membership: Data.membership(membership),
+        status: status || connection.status
+      },
+      event_id: "buffer_joined:channel:#{membership.id}:#{timestamp(occurred_at)}",
+      occurred_at: occurred_at
     )
   end
 
@@ -39,14 +79,11 @@ defmodule Ircpipe.Chat.BufferEvents do
         %ChannelMembership{} = membership,
         %ServerConnection{} = connection
       ) do
-    ensure_after_commit!(connection.id)
-    payload = Event.message(message, "channel:#{membership.id}", %{channel: membership.channel})
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{connection.user_id}",
-      {pubsub_event(payload), payload}
-    )
+    emit_message(message, connection.user_id, %{
+      delivery: "channel",
+      connection: Data.connection(connection),
+      membership: Data.membership(membership)
+    })
   end
 
   def attention_message(
@@ -54,73 +91,54 @@ defmodule Ircpipe.Chat.BufferEvents do
         %ChannelMembership{} = membership,
         %ServerConnection{} = connection
       ) do
-    ensure_after_commit!(connection.id)
-
-    payload =
-      Event.message(message, "channel:#{membership.id}", %{
-        channel: membership.channel,
-        unread_count: membership.unread_count,
-        mention_count: membership.mention_count
-      })
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{connection.user_id}",
-      {pubsub_event(payload), payload}
-    )
+    emit_message(message, connection.user_id, %{
+      delivery: "channel_attention",
+      connection: Data.connection(connection),
+      membership: Data.membership(membership)
+    })
   end
 
   def server_message(%Message{} = message, %ServerConnection{} = connection) do
-    ensure_after_commit!(connection.id)
-    event = Event.message(message, "server:#{connection.id}", %{mentioned: false})
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{connection.user_id}",
-      {pubsub_event(event), event}
-    )
+    emit_message(message, connection.user_id, %{
+      delivery: "server",
+      connection: Data.connection(connection)
+    })
   end
 
   def direct_message_thread(%DirectMessageThread{} = thread) do
     ensure_after_commit!(thread.server_connection_id)
     connection = Repo.get!(ServerConnection, thread.server_connection_id)
-    event = Event.direct_message_thread(thread, connection)
     maybe_pause_direct_message_thread_broadcast(thread)
+    occurred_at = DateTime.utc_now(:second)
 
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{thread.user_id}",
-      {:direct_message_thread, event}
+    InternalEvents.emit(
+      "direct_message_thread_changed",
+      thread.user_id,
+      %{thread: Data.thread(thread), connection: Data.connection(connection)},
+      event_id: "direct_message_thread:#{thread.id}:#{thread.mutation_revision}",
+      occurred_at: occurred_at
     )
   end
 
   def direct_message_closed(%DirectMessageThread{} = thread) do
     ensure_after_commit!(thread.server_connection_id)
     maybe_pause_direct_message_closed_broadcast(thread)
+    occurred_at = DateTime.utc_now(:second)
 
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{thread.user_id}",
-      {:direct_message_closed, Event.direct_message_closed(thread)}
+    InternalEvents.emit(
+      "direct_message_thread_closed",
+      thread.user_id,
+      %{thread: Data.thread(thread)},
+      event_id: "direct_message_closed:#{thread.id}:#{thread.mutation_revision}",
+      occurred_at: occurred_at
     )
   end
 
   def direct_message(%Message{} = message, %DirectMessageThread{} = thread) do
-    ensure_after_commit!(thread.server_connection_id)
-
-    event =
-      Event.message(message, "direct:#{thread.id}", %{
-        peer_nick: thread.peer_nick,
-        blocked: not is_nil(thread.blocked_at)
-      })
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{thread.user_id}",
-      {pubsub_event(event), event}
-    )
-
-    event
+    emit_message(message, thread.user_id, %{
+      delivery: "direct",
+      thread: Data.thread(thread)
+    })
   end
 
   def command_message(%Message{} = message, nil, %ServerConnection{} = connection),
@@ -133,20 +151,15 @@ defmodule Ircpipe.Chat.BufferEvents do
       ),
       do: message(message, membership, connection)
 
-  defp broadcast_payload(event_name, payload, event_builder) do
-    connection_id = Map.fetch!(payload, :server_connection_id)
-    ensure_after_commit!(connection_id)
-    user_id = Map.fetch!(payload, :user_id)
+  defp emit_message(%Message{} = message, user_id, data) do
+    ensure_after_commit!(message.server_connection_id)
 
-    event =
-      payload
-      |> event_builder.()
-      |> Map.drop([:user_id])
-
-    Phoenix.PubSub.broadcast(
-      Ircpipe.PubSub,
-      "user:#{user_id}",
-      {event_name, event}
+    InternalEvents.emit(
+      "message_committed",
+      user_id,
+      Map.put(data, :message, Data.message(message)),
+      event_id: "message:#{message.id}",
+      occurred_at: message.occurred_at
     )
   end
 
@@ -178,9 +191,25 @@ defmodule Ircpipe.Chat.BufferEvents do
     end
   end
 
-  defp pubsub_event(%{type: "buffer:error"}), do: :buffer_error
-  defp pubsub_event(%{type: "buffer:system"}), do: :buffer_system
-  defp pubsub_event(_event), do: :buffer_message
+  defp buffer_key(nil, connection_id), do: "server:#{connection_id}"
+  defp buffer_key(membership_id, _connection_id), do: "channel:#{membership_id}"
+
+  defp timestamp(%DateTime{} = occurred_at), do: DateTime.to_unix(occurred_at, :microsecond)
+  defp timestamp(occurred_at) when is_binary(occurred_at), do: occurred_at
+
+  defp value(payload, key) do
+    case Map.fetch(payload, key) do
+      {:ok, value} -> value
+      :error -> Map.get(payload, Atom.to_string(key))
+    end
+  end
+
+  defp value!(payload, key) do
+    case value(payload, key) do
+      nil -> raise KeyError, key: key, term: payload
+      value -> value
+    end
+  end
 
   defp ensure_after_commit!(connection_id) do
     if Repo.in_transaction?() and not ServerConnectionLock.effects_lock_held?(connection_id) do

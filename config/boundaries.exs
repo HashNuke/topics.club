@@ -11,6 +11,10 @@
         "lib/ircpipe/engine_client/contract.ex",
         "lib/ircpipe/engine_client/discovery.ex",
         "lib/ircpipe/engine_client/reply.ex",
+        "lib/ircpipe/internal_event.ex",
+        "lib/ircpipe/internal_event/adapter.ex",
+        "lib/ircpipe/internal_event/data.ex",
+        "lib/ircpipe/internal_events.ex",
         "lib/ircpipe/chat/mention_detection.ex",
         "lib/ircpipe/irc/command_registry.ex",
         "lib/ircpipe/irc/commands.ex",
@@ -142,63 +146,7 @@
     assembly: [:assembly, :core, :engine, :shared, :web],
     tooling: [:assembly, :core, :engine, :shared, :tooling, :web]
   },
-  temporary_component_cycles: [
-    %{
-      components: [:core, :web],
-      reason:
-        "The remaining core BufferEvents bridge still constructs web-owned browser event payloads",
-      remove_in: "checkpoint 5: stable internal event boundary"
-    }
-  ],
-  temporary_dependency_budget: 6,
-  temporary_dependencies: [
-    %{
-      from: "lib/ircpipe/chat/buffer_events.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :core,
-      reason: "Core PubSub publishing still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: stable internal event boundary"
-    },
-    %{
-      from: "lib/ircpipe/chat/connection_lifecycle.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine connection lifecycle still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/direct_message_ingestion.ex",
-      to: "lib/ircpipe/notifications/delivery.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Canonical ingestion still invokes web-owned push enqueueing directly",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/membership_reconciler.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine membership reconciliation still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/message_ingestion.ex",
-      to: "lib/ircpipe/notifications/delivery.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Canonical ingestion still invokes web-owned push enqueueing directly",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/presence.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine presence persistence still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    }
-  ]
+  temporary_component_cycles: [],
+  temporary_dependency_budget: 0,
+  temporary_dependencies: []
 }

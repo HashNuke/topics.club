@@ -14,7 +14,9 @@ defmodule Ircpipe.Chat.Presence do
   }
 
   alias Ircpipe.Irc.Identifier
-  alias Ircpipe.Realtime.Event
+  alias Ircpipe.InternalEvent
+  alias Ircpipe.InternalEvent.Data
+  alias Ircpipe.InternalEvents
   alias Ircpipe.Repo
 
   defdelegate list_users(membership), to: PresenceQueries
@@ -36,29 +38,32 @@ defmodule Ircpipe.Chat.Presence do
 
           replace_users(membership, users)
 
-          event =
-            Event.presence_sync(%{
-              buffer_id: "channel:#{membership.id}",
-              server_connection_id: active_connection.id,
-              channel_membership_id: membership.id,
-              users: users
-            })
+          occurred_at = DateTime.utc_now(:second)
 
-          {:publish, active_connection.user_id, event}
+          event =
+            InternalEvent.new!(
+              "presence_synchronized",
+              active_connection.user_id,
+              %{
+                connection_id: active_connection.id,
+                membership_id: membership.id,
+                users: Data.presence_users(users)
+              },
+              event_id: "presence_sync:channel:#{membership.id}:#{timestamp(occurred_at)}",
+              occurred_at: occurred_at
+            )
+
+          {:publish, event}
 
         nil ->
           :noop
       end
     end)
     |> case do
-      {:ok, {:publish, user_id, event}} ->
+      {:ok, {:publish, event}} ->
         _effects =
           ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
-            Phoenix.PubSub.broadcast(
-              Ircpipe.PubSub,
-              "user:#{user_id}",
-              {:presence_sync, event}
-            )
+            InternalEvents.publish(event)
           end)
 
         :ok
@@ -84,27 +89,28 @@ defmodule Ircpipe.Chat.Presence do
         |> Enum.map(fn membership ->
           apply_diff(membership, canonical_diff)
 
-          Event.presence_diff(%{
-            buffer_id: "channel:#{membership.id}",
-            server_connection_id: active_connection.id,
-            channel_membership_id: membership.id,
-            diff: canonical_diff
-          })
+          occurred_at = DateTime.utc_now(:second)
+
+          InternalEvent.new!(
+            "presence_changed",
+            active_connection.user_id,
+            %{
+              connection_id: active_connection.id,
+              membership_id: membership.id,
+              diff: Data.presence_diff(canonical_diff)
+            },
+            event_id: "presence_diff:channel:#{membership.id}:#{timestamp(occurred_at)}",
+            occurred_at: occurred_at
+          )
         end)
 
-      {active_connection.user_id, events}
+      events
     end)
     |> case do
-      {:ok, {user_id, events}} ->
+      {:ok, events} ->
         _effects =
           ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
-            Enum.each(events, fn event ->
-              Phoenix.PubSub.broadcast(
-                Ircpipe.PubSub,
-                "user:#{user_id}",
-                {:presence_diff, event}
-              )
-            end)
+            Enum.each(events, &InternalEvents.publish/1)
           end)
 
         :ok
@@ -305,6 +311,9 @@ defmodule Ircpipe.Chat.Presence do
       true -> "user"
     end
   end
+
+  defp timestamp(%DateTime{} = occurred_at),
+    do: DateTime.to_unix(occurred_at, :microsecond)
 
   defp assert_no_outer_transaction! do
     if Repo.in_transaction?() do

@@ -17,7 +17,7 @@ defmodule Ircpipe.Chat.MessageIngestion do
     ServerConnectionLock
   }
 
-  alias Ircpipe.Notifications.Delivery
+  alias Ircpipe.InternalEvents
   alias Ircpipe.Repo
 
   def record_channel(
@@ -102,7 +102,15 @@ defmodule Ircpipe.Chat.MessageIngestion do
       {:ok, {message, notification, active_connection, membership}} ->
         _effects =
           ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
-            if notification, do: Delivery.enqueue(notification)
+            if notification do
+              InternalEvents.emit(
+                "notification_committed",
+                effect_connection.user_id,
+                %{notification_id: notification.id},
+                event_id: "notification:#{notification.id}",
+                occurred_at: message.occurred_at
+              )
+            end
 
             case Repo.get(ChannelMembership, membership.id) do
               %ChannelMembership{} = current_membership ->

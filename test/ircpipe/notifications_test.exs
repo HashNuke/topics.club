@@ -505,7 +505,7 @@ defmodule Ircpipe.NotificationsTest do
       {self(), failure_ref}
     )
 
-    assert {:error, :forced_final_delete_failure} =
+    assert {:error, %{code: :invalid_state, details: %{reason: "forced_final_delete_failure"}}} =
              Connections.delete(scope.user, connection.id)
 
     assert_receive {:connection_final_delete_failed, _pid, ^failure_ref, connection_id}
