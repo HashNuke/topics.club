@@ -971,6 +971,8 @@ The first physical core move is committed at `789036e`. `ircpipe_core` now owns 
 
 GPT-5.6 Sol xhigh approved the immutable core checkpoint at `703c785` with no remaining blocking, SRP, or over-engineering findings. It was merged into `app-split` at `eb04c34`. The engine ownership checkpoint proceeds from that merge on `app-split-umbrella-engine`; it will move only the files already assigned to engine ownership, preserve their module names and behavior, and retain combined-mode startup through the existing root composition application until the complete umbrella root is ready.
 
+The engine production move is committed at `737f446`, with the isolated disabled hosted-server supervisor branch added at `fc979f9`. `ircpipe_engine` now owns the outbound IRC session tree, registries, protocol handlers, bouncer, connection restoration and autojoin behavior, canonical IRC ingestion and state updates, and engine-owned Oban workers. It declares only its direct core, Ecto, Oban, and Git-pinned `ircxd` dependencies and compiles 74 production files without Phoenix, Endpoint, or frontend dependencies. Its 67 independently runnable focused tests moved with it; 202 database-heavy tests from the recorded engine baseline remain root integration coverage because their setup crosses the future web boundary. Root `mix test` now runs 37 core tests, 67 engine tests, and 592 root tests, for 696 passing ExUnit tests in total. Root `mix precommit` also passes with 229 frontend tests, type checking, Storybook, and a 240-file/499-edge/zero-exception boundary graph. Production compilation, asset deployment, combined release assembly, a clean no-cache Docker build, image-content inspection, production Compose resolution, and a fresh-database release boot smoke all pass. The boot smoke proves the combined release runs the extracted engine application and both the outbound session and disabled hosted-server supervisor branches. The checkpoint still requires its independent GPT-5.6 Sol xhigh review and merge into `app-split`.
+
 #### Extraction rules
 
 - [x] Do not begin the umbrella conversion until every workstream 1 exit-gate item passes.
@@ -988,7 +990,7 @@ GPT-5.6 Sol xhigh approved the immutable core checkpoint at `703c785` with no re
 
 - [ ] Create an umbrella root project with shared aliases and build paths.
 - [x] Create `apps/ircpipe_core`.
-- [ ] Create `apps/ircpipe_engine`.
+- [x] Create `apps/ircpipe_engine`.
 - [ ] Create `apps/ircpipe_web`.
 - [ ] Preserve the existing `Ircpipe` and `IrcpipeWeb` module namespaces where renaming adds no value.
 - [ ] Move frontend assets and Storybook under the web application while preserving existing npm commands.
@@ -1011,14 +1013,14 @@ GPT-5.6 Sol xhigh approved the immutable core checkpoint at `703c785` with no re
 
 #### Engine ownership
 
-- [ ] Move outbound session supervision, registries, session modules, and protocol handlers into engine.
-- [ ] Move `Ircpipe.Irc.Bouncer` into engine.
-- [ ] Declare `ircxd` in engine for long-lived outbound sessions and hosted-server integration.
-- [ ] Move connection restoration and autojoin logic into engine.
-- [ ] Move canonical IRC message ingestion and IRC-derived state updates into engine.
-- [ ] Move engine-owned Oban workers into engine.
-- [ ] Add the isolated hosted-server supervisor branch even if the hosted server remains disabled initially.
-- [ ] Keep engine free of Phoenix Endpoint, controllers, HTML, authentication UI, React, and browser serialization.
+- [x] Move outbound session supervision, registries, session modules, and protocol handlers into engine.
+- [x] Move `Ircpipe.Irc.Bouncer` into engine.
+- [x] Declare `ircxd` in engine for long-lived outbound sessions and hosted-server integration.
+- [x] Move connection restoration and autojoin logic into engine.
+- [x] Move canonical IRC message ingestion and IRC-derived state updates into engine.
+- [x] Move engine-owned Oban workers into engine.
+- [x] Add the isolated hosted-server supervisor branch even if the hosted server remains disabled initially.
+- [x] Keep engine free of Phoenix Endpoint, controllers, HTML, authentication UI, React, and browser serialization.
 
 #### Web ownership
 
@@ -1035,8 +1037,8 @@ GPT-5.6 Sol xhigh approved the immutable core checkpoint at `703c785` with no re
 - [ ] Give each child application only the Hex/Git dependencies it uses.
 - [ ] Translate the already-green logical dependency graph into child `deps/0` declarations without adding new edges.
 - [ ] Make web compile without engine implementation modules while retaining `ircxd` for directory discovery.
-- [ ] Make engine compile without Phoenix Endpoint and frontend dependencies.
-- [ ] Check compile-connected dependency graphs for accidental cycles.
+- [x] Make engine compile without Phoenix Endpoint and frontend dependencies.
+- [x] Check compile-connected dependency graphs for accidental cycles.
 - [x] Start Vault, Repo, and PubSub exactly once per node.
 - [ ] Start engine supervision only in combined and engine releases.
 - [ ] Start Endpoint only in combined and web releases.
