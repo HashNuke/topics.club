@@ -45,6 +45,7 @@
         "lib/ircpipe/chat/direct_message_sender.ex",
         "lib/ircpipe/chat/membership_reconciler.ex",
         "lib/ircpipe/chat/message_ingestion.ex",
+        "lib/ircpipe/chat/notification_events_worker.ex",
         "lib/ircpipe/chat/presence.ex",
         "lib/ircpipe/chat/presence_diff.ex",
         "lib/ircpipe/chat/presence_membership_lookup.ex",

@@ -746,6 +746,53 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     refute_receive {:buffer_left, _event}
   end
 
+  @tag :capture_log
+  test "a failed event adapter leaves the committed deletion batch retryable" do
+    user = AccountsFixtures.user_fixture()
+
+    assert {:ok, connection} =
+             Connections.create(user, %{
+               "name" => "event adapter recovery",
+               "host" => "irc.event-adapter-recovery.test",
+               "nickname" => "mira"
+             })
+
+    assert {:ok, membership} = Chat.join_channel(user, connection, "#durable")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+
+    previous_adapter = Application.get_env(:ircpipe, :internal_event_adapter)
+    Application.delete_env(:ircpipe, :internal_event_adapter)
+
+    on_exit(fn -> restore_env(:internal_event_adapter, previous_adapter) end)
+
+    assert {:ok, deleted} = ConnectionDeletion.delete(user, connection.id)
+    assert deleted.id == connection.id
+
+    batch = Repo.get_by!(ConnectionDeletionEventBatch, server_connection_id: connection.id)
+
+    assert_enqueued(
+      worker: ConnectionDeletionEventsWorker,
+      args: %{event_batch_id: batch.id}
+    )
+
+    assert Repo.get(ConnectionDeletionEventBatch, batch.id)
+    refute_receive {:buffer_left, _event}
+
+    restore_env(:internal_event_adapter, previous_adapter)
+
+    assert :ok =
+             perform_job(ConnectionDeletionEventsWorker, %{
+               event_batch_id: batch.id
+             })
+
+    assert_receive {:buffer_left,
+                    %{buffer_id: "channel:" <> _, channel_membership_id: membership_id}}
+
+    assert membership_id == membership.id
+    assert_receive {:buffer_left, %{buffer_id: "server:" <> _, channel_membership_id: nil}}
+    assert Repo.get(ConnectionDeletionEventBatch, batch.id) == nil
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
   defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 

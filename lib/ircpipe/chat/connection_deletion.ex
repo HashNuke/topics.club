@@ -79,8 +79,11 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
 
             {deleted, event_batch, event_job} ->
               maybe_pause_delete_after_commit(event_batch)
-              :ok = ConnectionDeletionEventsWorker.dispatch(event_batch.id)
-              :ok = Oban.cancel_job(Ircpipe.EngineOban, event_job)
+
+              if ConnectionDeletionEventsWorker.dispatch(event_batch.id) == :ok do
+                :ok = Oban.cancel_job(Ircpipe.EngineOban, event_job)
+              end
+
               {:ok, deleted}
           end
         end

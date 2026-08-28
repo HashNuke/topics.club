@@ -12,6 +12,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.ReadState
   alias Ircpipe.Chat.Notification
+  alias Ircpipe.Chat.NotificationEventsWorker
 
   alias Ircpipe.Notifications.{
     Delivery,
@@ -1041,6 +1042,23 @@ defmodule Ircpipe.NotificationsTest do
     notification = Repo.get_by!(Notification, message_id: mention.id)
     refute ordinary.mentioned
     assert mention.mentioned
+
+    assert_enqueued(
+      worker: NotificationEventsWorker,
+      args: %{
+        notification_id: notification.id,
+        user_id: connection.user_id,
+        occurred_at: DateTime.to_iso8601(mention.occurred_at)
+      }
+    )
+
+    assert :ok =
+             perform_job(NotificationEventsWorker, %{
+               notification_id: notification.id,
+               user_id: connection.user_id,
+               occurred_at: DateTime.to_iso8601(mention.occurred_at)
+             })
+
     assert_enqueued(worker: PushWorker, args: %{notification_id: notification.id})
   end
 

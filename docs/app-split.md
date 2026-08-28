@@ -387,7 +387,7 @@ The checked-in version 1 contract currently defines these operations and expecta
 | Execute validated command line | 15 seconds | Unsafe |
 | Fetch live channel list | 12 seconds | Safe |
 
-“Safe” means the operation is designed to tolerate a retry after an unavailable/timeout result; callers still use bounded attempts and the same request ID. Message, command, and part operations are unsafe because an ambiguous timeout can follow successful IRC transmission or persistence. The client does not retry automatically in this phase—it exposes the classification in telemetry for the later RPC policy.
+“Safe” means the operation is designed to tolerate a retry after an unavailable/timeout result; callers still use bounded attempts and the same request ID. Message, command, part, and deletion operations are unsafe because an ambiguous timeout can follow successful IRC transmission, persistence, or deletion without enough retained result state to reproduce the original success reply. The client does not retry automatically in this phase—it exposes the classification in telemetry for the later RPC policy.
 
 `Ircpipe.EngineClient` builds and validates envelopes, invokes the configured adapter dynamically, validates the versioned reply, and returns plain success data or a stable error map. Combined mode selects the engine-owned local adapter without any split-mode environment variables. The web-owned RPC adapter resolves the global engine marker and calls the engine API using a runtime-resolved module name, so it has no compile-time dependency on engine implementation modules.
 
@@ -702,7 +702,9 @@ Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint 
 
 Checkpoint 5 is in progress. Connection deletion now enters the engine through a versioned `delete_connection` operation, and the engine-owned `Ircpipe.Chat.ConnectionDeletion` module owns quiescence, durable recovery, final deletion, and deletion-event dispatch. The web connection facade no longer constructs deletion jobs, mutates durable connection intent, or calls engine locks and session supervision. Durable deletion workers acquire the engine operation lock before resuming. Web connection snapshots are now query-only; casemapping reconciliation stays in engine registration and join paths.
 
-The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs. The boundary graph now contains 236 owned files and 746 checked project edges, with no temporary dependency exceptions or deployable-component cycles. An expanded set of 252 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite also passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair.
+The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. Each version-one event type validates its exact top-level payload and canonical nested record shapes before dispatch. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs directly. Notification event jobs are inserted atomically with their notification rows and retry adapter failures through the engine-owned `internal_events` Oban queue. A failed deletion-event dispatch retains its committed batch and scheduled recovery job instead of acknowledging and deleting the batch.
+
+The boundary graph now contains 237 owned files, no temporary dependency exceptions, and no deployable-component cycles. Dependency totals vary because Mix compiles environment-specific modules: the default environment currently reports 748 checked project edges and the test environment reports 763. An expanded set of 254 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair.
 
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
@@ -758,9 +760,10 @@ The stable event slice now emits versioned plain-map facts after commit for mess
 - [x] Define direct-message-thread events.
 - [x] Keep synchronous command results in versioned `EngineClient` replies and publish committed command transcript updates through `message_committed`, avoiding a duplicate event path.
 - [x] Publish only after the transaction containing the canonical data commits.
+- [x] Keep notification and deletion effects durable and retryable when the configured event adapter is unavailable.
 - [x] Keep browser-specific field names and formatting out of engine events.
 - [x] Convert internal events to the existing REST/Channel protocol in the web layer.
-- [x] Preserve browser payload compatibility with deterministic tests.
+- [ ] Add exact frozen before/after fixtures for every browser payload; representative compatibility assertions pass, but they are not exhaustive.
 - [x] Verify browser history reconciliation recovers events missed while the web layer is unavailable.
 
 #### Combined-mode exit gate

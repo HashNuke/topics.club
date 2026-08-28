@@ -31,7 +31,7 @@ config :ircpipe,
 config :ircpipe, Ircpipe.EngineOban,
   name: Ircpipe.EngineOban,
   repo: Ircpipe.Repo,
-  queues: [connection_deletions: 2],
+  queues: [connection_deletions: 2, internal_events: 5],
   plugins: [],
   cron: [
     crontab: [
