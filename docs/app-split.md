@@ -967,23 +967,25 @@ Size: **M**. Risk: **Medium** after the workstream 1 exit gate passes. This work
 
 Checkpoint 7, the core ownership slice, started from `app-split` at `f232f00`. The pre-move baseline passes 692 ExUnit tests, 229 frontend tests, type checking, Storybook, and the 237-file/763-edge/zero-exception test boundary graph. Core-focused tests that currently construct fixtures through web- or engine-owned contexts must be given core-owned setup during the move or explicitly reclassified as root integration tests; child-application dependency cycles will not be introduced merely to preserve their current setup path.
 
+The first physical core move is committed at `789036e`. `ircpipe_core` now owns its OTP application callback, Repo, Vault, PubSub supervisor, canonical migrations and seeds, shared schemas and persistence primitives, `EngineClient`, internal-event contracts, and shared IRC policy. Its 37 already-independent focused tests run from the child application. The remaining 25 tests in the recorded future-core baseline still use combined web/engine setup and remain in the root suite until that setup is removed or the tests are explicitly classified as integration coverage. Root `mix test` runs 37 child tests plus 656 root tests with no failures; the increase from 692 to 693 is the new nested-child boundary-graph regression test, not duplicate discovery. The boundary checker now tracks and merges root and nested-child xref graphs and covers 238 owned files with zero temporary dependencies.
+
 #### Extraction rules
 
-- [ ] Do not begin the umbrella conversion until every workstream 1 exit-gate item passes.
+- [x] Do not begin the umbrella conversion until every workstream 1 exit-gate item passes.
 - [ ] Keep production module names unchanged during physical moves.
 - [ ] Move source modules and their focused tests as one coherent component slice.
 - [ ] Keep cross-component integration tests at the umbrella root or assign them an explicit owning application.
 - [ ] Make one ownership move at a time and run its focused tests before the next move.
-- [ ] Run the root boundary check after every component move.
+- [x] Run the root boundary check after every component move.
 - [ ] Run root `mix precommit` after every completed ownership slice.
-- [ ] Compare discovered test counts with the recorded monolith baseline after every test-path change.
-- [ ] Do not introduce temporary child-application dependency cycles to make an intermediate move compile.
+- [x] Compare discovered test counts with the recorded monolith baseline after every test-path change.
+- [x] Do not introduce temporary child-application dependency cycles to make an intermediate move compile.
 - [ ] Do not combine module renaming or behavior changes with filesystem extraction.
 
 #### Umbrella scaffolding
 
 - [ ] Create an umbrella root project with shared aliases and build paths.
-- [ ] Create `apps/ircpipe_core`.
+- [x] Create `apps/ircpipe_core`.
 - [ ] Create `apps/ircpipe_engine`.
 - [ ] Create `apps/ircpipe_web`.
 - [ ] Preserve the existing `Ircpipe` and `IrcpipeWeb` module namespaces where renaming adds no value.
@@ -991,19 +993,19 @@ Checkpoint 7, the core ownership slice, started from `app-split` at `f232f00`. T
 - [ ] Update formatter inputs for the umbrella and all child applications.
 - [ ] Update test support paths and shared fixtures without introducing cross-application test coupling.
 - [ ] Update `mix setup`, asset, test, and `mix precommit` aliases at the umbrella root.
-- [ ] Prove root `mix test` discovers all previously recorded tests before moving the next component.
+- [x] Prove root `mix test` discovers all previously recorded tests before moving the next component.
 
 #### Core ownership
 
-- [ ] Move `Ircpipe.Repo` into core.
-- [ ] Move `Ircpipe.Vault` and encrypted Ecto types into core.
-- [ ] Move all shared Ecto schemas into core.
-- [ ] Move the canonical migrations directory into core and update repository migration paths.
-- [ ] Move PubSub naming and shared PubSub configuration into core.
-- [ ] Move versioned engine request, reply, and event definitions into core.
-- [ ] Move shared account identity needed to authorize engine requests into core.
-- [ ] Move database primitives needed by both roles into core without moving web or IRC policy indiscriminately.
-- [ ] Keep core free of dependencies on engine and web applications.
+- [x] Move `Ircpipe.Repo` into core.
+- [x] Move `Ircpipe.Vault` and encrypted Ecto types into core.
+- [x] Move all shared Ecto schemas into core.
+- [x] Move the canonical migrations directory into core and update repository migration paths.
+- [x] Move PubSub naming and shared PubSub configuration into core.
+- [x] Move versioned engine request, reply, and event definitions into core.
+- [x] Move shared account identity needed to authorize engine requests into core.
+- [x] Move database primitives needed by both roles into core without moving web or IRC policy indiscriminately.
+- [x] Keep core free of dependencies on engine and web applications.
 
 #### Engine ownership
 
@@ -1033,7 +1035,7 @@ Checkpoint 7, the core ownership slice, started from `app-split` at `f232f00`. T
 - [ ] Make web compile without engine implementation modules while retaining `ircxd` for directory discovery.
 - [ ] Make engine compile without Phoenix Endpoint and frontend dependencies.
 - [ ] Check compile-connected dependency graphs for accidental cycles.
-- [ ] Start Vault, Repo, and PubSub exactly once per node.
+- [x] Start Vault, Repo, and PubSub exactly once per node.
 - [ ] Start engine supervision only in combined and engine releases.
 - [ ] Start Endpoint only in combined and web releases.
 - [ ] Start release-owned Oban queues only after Repo is available.
