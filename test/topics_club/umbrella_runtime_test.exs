@@ -104,9 +104,41 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
   test "the web branch controls discovery and keeps Endpoint last" do
     assert TopicsClubWeb.Supervisor.discovery_children(true) == [{Refresher, []}]
     assert TopicsClubWeb.Supervisor.discovery_children(false) == []
+    assert TopicsClubWeb.Supervisor.engine_node_children(nil) == []
+
+    assert TopicsClubWeb.Supervisor.engine_node_children(:engine@localhost) == [
+             {TopicsClubWeb.EngineNodeConnector, engine_node: :engine@localhost}
+           ]
 
     assert List.last(TopicsClubWeb.Supervisor.children(discovery_enabled?: true)) ==
              TopicsClubWeb.Endpoint
+  end
+
+  test "split gateway runtime requires and configures explicit cluster credentials" do
+    credentials_key = Base.encode64(:binary.copy(<<0>>, 32))
+
+    with_system_env(
+      %{
+        "DATABASE_URL" => "ecto://postgres:postgres@localhost/topics_club_prod",
+        "IRC_CREDENTIALS_KEY" => credentials_key,
+        "PHX_HOST" => "topics.club",
+        "RELEASE_COOKIE" => String.duplicate("a", 32),
+        "RELEASE_NAME" => "topics_club_gateway",
+        "RELEASE_NODE" => "topics_club_gateway@web.internal",
+        "SECRET_KEY_BASE" => String.duplicate("b", 64),
+        "TOPICS_CLUB_ENGINE_NODE" => "topics_club_engine@engine.internal"
+      },
+      fn ->
+        config_path = Path.expand("../../config/runtime.exs", __DIR__)
+        config = Config.Reader.read!(config_path, env: :prod)
+
+        assert config[:topics_club_gateway][:engine_node] ==
+                 :"topics_club_engine@engine.internal"
+
+        assert config[:topics_club_core][:engine_client_adapter] ==
+                 TopicsClub.EngineClient.RpcAdapter
+      end
+    )
   end
 
   test "the combined tree uses named role-specific Oban instances" do
@@ -142,7 +174,9 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         "DATABASE_PASSWORD" => "pa:ss@word#x?/+",
         "DATABASE_NAME" => "topics_club_prod",
         "IRC_CREDENTIALS_KEY" => credentials_key,
-        "RELEASE_NAME" => "topics_club_engine"
+        "RELEASE_COOKIE" => String.duplicate("c", 32),
+        "RELEASE_NAME" => "topics_club_engine",
+        "RELEASE_NODE" => "topics_club_engine@engine.internal"
       },
       fn ->
         config_path = Path.expand("../../config/runtime.exs", __DIR__)

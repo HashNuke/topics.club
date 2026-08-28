@@ -749,6 +749,8 @@ The topics.club production deployment uses bare OTP releases built from source o
 
 The two releases use stable long node names, a shared high-entropy Erlang cookie, static engine-node configuration, fixed distribution ports, and a private network path. Public HTTP is served only by the web release. Hosted IRC ports are served only by the engine release when enabled.
 
+The split gateway listens for Erlang distribution on TCP 4370 and the split engine on TCP 4371; EPMD uses TCP 4369. Combined releases default to `RELEASE_DISTRIBUTION=none`. Split release startup requires explicit long `RELEASE_NODE` names and the same deployment-specific `RELEASE_COOKIE`. The gateway also requires `TOPICS_CLUB_ENGINE_NODE` and reconnects to that static node with capped exponential backoff without blocking web startup.
+
 ### Optional split Compose harness
 
 An additional `docker-compose.split.yml` may be added as a development and CI integration harness. It is not the primary first-party deployment mechanism. If provided, it has one PostgreSQL service, one engine service, one web service, a one-shot migrator, private distribution networking, and no migration command on the engine.
@@ -1158,14 +1160,14 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 
 #### Distribution and network configuration
 
-- [ ] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
-- [ ] Use stable long node names resolvable on the private network.
+- [x] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
+- [x] Require stable long node names resolvable on the private network.
 - [ ] Generate and store a high-entropy deployment-specific cookie.
-- [ ] Configure fixed distribution port ranges for firewalling.
+- [x] Configure fixed distribution ports for firewalling: gateway 4370 and engine 4371.
 - [ ] Keep EPMD and distribution ports off public interfaces.
 - [x] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
-- [ ] Add static web-to-engine connection attempts during web startup.
-- [ ] Add bounded reconnect/backoff behavior after node loss.
+- [x] Add static web-to-engine connection attempts during web startup.
+- [x] Add bounded reconnect/backoff behavior after node loss.
 - [ ] Decide whether production hosts need TLS distribution based on their network trust boundary.
 - [ ] Document cookie rotation as a coordinated web-and-engine restart.
 

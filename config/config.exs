@@ -28,7 +28,8 @@ config :topics_club_core,
 
 config :topics_club_gateway,
   generators: [timestamp_type: :utc_datetime],
-  discovery_refresh_enabled: config_env() == :dev
+  discovery_refresh_enabled: config_env() == :dev,
+  engine_node: nil
 
 config :topics_club_engine,
   irc_bouncer_enabled: true
