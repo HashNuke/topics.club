@@ -694,7 +694,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 #### Route all operations through `EngineClient`
 
-Checkpoint 4 routing is implemented and awaiting its checkpoint review. Live REST operations other than deletion quiescence, bootstrap restoration/status, and Phoenix Channel operations now use `EngineClient`; live-status formatting uses the batch status operation, send-failure persistence occurs inside the engine API, and bootstrap presence reads use a core-owned query module. No module under `IrcpipeWeb` directly references an engine implementation module. The temporary dependency budget has fallen from 36 to 14; the remaining context/deletion and engine-to-web edges belong to checkpoint 5.
+Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint review. Live REST operations other than deletion quiescence, bootstrap restoration/status, and Phoenix Channel operations now use `EngineClient`; live-status formatting uses the batch status operation, send-failure persistence occurs inside the engine API, and bootstrap presence reads use a core-owned query module. No module under `IrcpipeWeb` directly references an engine implementation module. The temporary dependency budget has fallen from 36 to 14; the remaining context/deletion and engine-to-web edges belong to checkpoint 5. The reviewed checkpoint passed `mix precommit` with 680 Elixir tests, 227 frontend tests, the Storybook build, and the boundary gate.
 
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
