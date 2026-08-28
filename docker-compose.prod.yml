@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        SOURCE_REVISION: ${SOURCE_REVISION:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -28,8 +30,9 @@ services:
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Ircpipe}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-contact@example.com}
     ports:
-      - "${IRCPIPE_PORT:-4000}:4000"
+      - "${IRCPIPE_BIND_IP:-127.0.0.1}:${IRCPIPE_PORT:-4000}:4000"
     command: sh -c "/app/bin/migrate && /app/bin/server"
+    init: true
     restart: unless-stopped
 
   postgres:

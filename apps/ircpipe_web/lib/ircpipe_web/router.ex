@@ -42,6 +42,12 @@ defmodule IrcpipeWeb.Router do
   end
 
   scope "/", IrcpipeWeb do
+    pipe_through :api
+
+    get "/health", HealthController, :show
+  end
+
+  scope "/", IrcpipeWeb do
     pipe_through [:browser, :require_authenticated_user]
 
     get "/chat", AppController, :index

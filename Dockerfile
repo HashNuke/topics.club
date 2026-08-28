@@ -76,14 +76,24 @@ RUN mix assets.deploy
 COPY config/runtime.exs config/
 
 COPY rel rel
-RUN mix release
+ARG SOURCE_REVISION
+ARG RAILWAY_GIT_COMMIT_SHA
+RUN source_revision="${SOURCE_REVISION:-${RAILWAY_GIT_COMMIT_SHA:-}}" \
+  && if [ -z "$source_revision" ]; then \
+    source_revision="$(find apps config lib priv rel mix.exs mix.lock -type f -print0 \
+      | sort -z \
+      | xargs -0 sha256sum \
+      | sha256sum \
+      | cut -c1-40)"; \
+  fi \
+  && IRCPIPE_SOURCE_REVISION="$source_revision" mix release ircpipe
 
 # start a new build stage so that the final image will only contain
 # the compiled release and other runtime necessities
 FROM ${RUNNER_IMAGE} AS final
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -104,6 +114,9 @@ ENV MIX_ENV="prod"
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/ircpipe ./
 
 USER nobody
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl --fail --silent "http://127.0.0.1:${PORT:-4000}/health" >/dev/null || exit 1
 
 # If using an environment that doesn't automatically reap zombie processes, it is
 # advised to add an init process such as tini via `apt-get install`
