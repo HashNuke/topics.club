@@ -53,7 +53,11 @@ defmodule Ircpipe.Irc.Session.StartupAuthorizationTest do
                "nickname" => "mira"
              })
 
-    assert {:ok, paused} = Connections.request_disconnect(user, connection.id)
+    assert {:ok, paused} =
+             connection
+             |> Ecto.Changeset.change(desired_state: "paused")
+             |> Repo.update()
+
     assert StartupAuthorization.load(paused) == {:error, :connection_paused}
   end
 end

@@ -144,13 +144,13 @@
   },
   temporary_component_cycles: [
     %{
-      components: [:core, :engine, :web],
+      components: [:core, :web],
       reason:
-        "The initial monolith inventory contains explicitly allowlisted transition edges in both directions",
-      remove_in: "checkpoint 5: all core/web and engine/web reverse edges removed"
+        "The remaining core BufferEvents bridge still constructs web-owned browser event payloads",
+      remove_in: "checkpoint 5: stable internal event boundary"
     }
   ],
-  temporary_dependency_budget: 8,
+  temporary_dependency_budget: 6,
   temporary_dependencies: [
     %{
       from: "lib/ircpipe/chat/buffer_events.ex",
@@ -199,22 +199,6 @@
       owner: :engine,
       reason: "Engine presence persistence still constructs browser-shaped payloads",
       remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/connection_snapshot.ex",
-      to: "lib/ircpipe/chat/membership_reconciler.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Web bootstrap snapshots still trigger engine-owned reconciliation",
-      remove_in: "checkpoint 5: query and reconciliation split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/irc/connection_lock.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still owns engine process serialization",
-      remove_in: "checkpoint 5: connection orchestration split"
     }
   ]
 }

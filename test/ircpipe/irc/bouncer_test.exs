@@ -80,7 +80,10 @@ defmodule Ircpipe.Irc.BouncerTest do
         "nickname" => "mira"
       })
 
-    assert {:ok, _paused} = Connections.request_disconnect(user, connection.id)
+    assert {:ok, _paused} =
+             connection
+             |> Ecto.Changeset.change(desired_state: "paused")
+             |> Repo.update()
 
     pid = start_supervised!({Bouncer, enabled?: true, sweep_interval: :timer.hours(1), name: nil})
     _ = :sys.get_state(pid)

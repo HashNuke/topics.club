@@ -3,7 +3,6 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
 
   alias Ircpipe.AccountsFixtures
   alias Ircpipe.Chat.ChannelMembership
-  alias Ircpipe.Chat.ConnectionCasemapping
   alias Ircpipe.Chat.ConnectionSnapshot
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
@@ -45,7 +44,7 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
            }
   end
 
-  test "defers reconciliation broadcasts and rolls back changes with an outer transaction" do
+  test "captures memberships without reconciling or broadcasting engine effects" do
     user = AccountsFixtures.user_fixture()
 
     assert {:ok, connection} =
@@ -55,7 +54,10 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
                "nickname" => "mira"
              })
 
-    assert {:ok, connection} = ConnectionCasemapping.update(connection, :rfc1459)
+    connection =
+      connection
+      |> Ecto.Changeset.change(casemapping: "rfc1459")
+      |> Repo.update!()
 
     for channel <- ["#[ops]", "#" <> "{ops}"] do
       %ChannelMembership{user_id: user.id, server_connection_id: connection.id}
@@ -64,14 +66,11 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
     end
 
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
-    connection_id = connection.id
 
-    assert {:error, :forced_rollback} =
-             Repo.transaction(fn ->
-               snapshot = ConnectionSnapshot.capture_in_transaction(user)
-               assert [{^connection_id, [_loser]}] = reconciliation_ids(snapshot.reconciliations)
-               Repo.rollback(:forced_rollback)
-             end)
+    assert {:ok, %{connections: [%{channel_memberships: memberships}]}} =
+             Repo.transaction(fn -> ConnectionSnapshot.capture_in_transaction(user) end)
+
+    assert length(memberships) == 2
 
     refute_receive {:buffer_left, _event}
 
@@ -80,18 +79,14 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
              |> where([membership], membership.server_connection_id == ^connection.id)
              |> Repo.aggregate(:count)
 
-    assert %{connections: [%{channel_memberships: [_survivor]}]} =
+    assert %{connections: [%{channel_memberships: persisted_memberships}]} =
              ConnectionSnapshot.capture(user)
 
-    assert_receive {:buffer_left, %{channel_membership_id: _loser_id}}
-
-    assert 1 ==
-             ChannelMembership
-             |> where([membership], membership.server_connection_id == ^connection.id)
-             |> Repo.aggregate(:count)
+    assert length(persisted_memberships) == 2
+    refute_receive {:buffer_left, _event}
   end
 
-  test "rejects transaction-owning snapshots and broadcasts inside an outer transaction" do
+  test "rejects a transaction-owning snapshot inside an outer transaction" do
     user = AccountsFixtures.user_fixture()
 
     assert {:error, :forced_rollback} =
@@ -100,17 +95,7 @@ defmodule Ircpipe.Chat.ConnectionSnapshotTest do
                  ConnectionSnapshot.capture(user)
                end
 
-               assert_raise ArgumentError, ~r/after the transaction commits/, fn ->
-                 ConnectionSnapshot.broadcast_reconciliations([])
-               end
-
                Repo.rollback(:forced_rollback)
              end)
-  end
-
-  defp reconciliation_ids(reconciliations) do
-    Enum.map(reconciliations, fn {connection, losers} ->
-      {connection.id, Enum.map(losers, & &1.id)}
-    end)
   end
 end

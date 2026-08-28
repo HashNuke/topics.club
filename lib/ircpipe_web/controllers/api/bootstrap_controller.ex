@@ -26,14 +26,12 @@ defmodule IrcpipeWeb.Api.BootstrapController do
         %{
           connections: connections,
           direct_message_tombstones: connection_snapshot.direct_message_tombstones,
-          connection_reconciliations: connection_snapshot.reconciliations,
           messages_by_buffer: messages_by_buffer(user, connections),
           topics: Topics.list(),
           users_by_buffer: users_by_buffer(connections)
         }
       end)
 
-    ConnectionSnapshot.broadcast_reconciliations(snapshot.connection_reconciliations)
     connections = snapshot.connections
 
     :ok = EngineRestorer.restore(user, connections)

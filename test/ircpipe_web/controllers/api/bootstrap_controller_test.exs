@@ -56,7 +56,10 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
                "nickname" => "mira"
              })
 
-    assert {:ok, _paused} = Connections.request_disconnect(user, connection.id)
+    assert {:ok, _paused} =
+             connection
+             |> Ecto.Changeset.change(desired_state: "paused")
+             |> Repo.update()
 
     assert %{"connections" => [%{"status" => "disconnected"}]} =
              conn |> get(~p"/api/bootstrap") |> json_response(200)

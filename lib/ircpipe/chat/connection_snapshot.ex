@@ -8,7 +8,6 @@ defmodule Ircpipe.Chat.ConnectionSnapshot do
   alias Ircpipe.Chat.{
     ChannelMembership,
     DirectMessageThread,
-    MembershipReconciler,
     ServerConnection
   }
 
@@ -24,9 +23,8 @@ defmodule Ircpipe.Chat.ConnectionSnapshot do
             "snapshot cannot own a nested transaction; use capture_in_transaction and broadcast after the transaction commits"
     end
 
-    {:ok, internal_snapshot} = Repo.transaction(fn -> capture_in_transaction(user) end)
-    broadcast_reconciliations(internal_snapshot.reconciliations)
-    Map.take(internal_snapshot, [:connections, :direct_message_tombstones])
+    {:ok, snapshot} = Repo.transaction(fn -> capture_in_transaction(user) end)
+    snapshot
   end
 
   def capture_in_transaction(%User{id: user_id}) do
@@ -40,20 +38,6 @@ defmodule Ircpipe.Chat.ConnectionSnapshot do
       |> where([connection], connection.user_id == ^user_id and not connection.deleting)
       |> order_by([connection], asc: connection.inserted_at, asc: connection.id)
       |> Repo.all()
-
-    reconciliations =
-      Enum.flat_map(connections, fn connection ->
-        case stored_casemapping(connection) do
-          nil ->
-            []
-
-          mapping ->
-            case MembershipReconciler.reconcile_in_transaction(connection, mapping) do
-              [] -> []
-              losers -> [{connection, losers}]
-            end
-        end
-      end)
 
     memberships =
       from(membership in ChannelMembership,
@@ -99,28 +83,7 @@ defmodule Ircpipe.Chat.ConnectionSnapshot do
 
     %{
       connections: connections,
-      direct_message_tombstones: tombstones,
-      reconciliations: reconciliations
+      direct_message_tombstones: tombstones
     }
   end
-
-  def broadcast_reconciliations(reconciliations) when is_list(reconciliations) do
-    if Repo.in_transaction?() do
-      raise ArgumentError, "reconciliation events must be broadcast after the transaction commits"
-    end
-
-    Enum.each(reconciliations, fn {connection, losers} ->
-      MembershipReconciler.broadcast_losers(connection, losers)
-    end)
-  end
-
-  defp stored_casemapping(%ServerConnection{casemapping: mapping}) when is_binary(mapping) do
-    case mapping do
-      "ascii" -> :ascii
-      "strict_rfc1459" -> :strict_rfc1459
-      _mapping -> :rfc1459
-    end
-  end
-
-  defp stored_casemapping(%ServerConnection{}), do: nil
 end

@@ -13,7 +13,6 @@ defmodule Ircpipe.Chat.Connections do
   }
 
   alias Ircpipe.EngineClient
-  alias Ircpipe.Irc.ConnectionLock
   alias Ircpipe.Repo
 
   def list(%User{} = user), do: ConnectionSnapshot.list(user)
@@ -39,10 +38,6 @@ defmodule Ircpipe.Chat.Connections do
     |> Repo.update()
   end
 
-  def request_connect(%User{} = user, id), do: update_desired_state(user, id, "connected")
-
-  def request_disconnect(%User{} = user, id), do: update_desired_state(user, id, "paused")
-
   def delete(%User{} = user, id) do
     if Repo.in_transaction?() do
       raise ArgumentError,
@@ -55,24 +50,5 @@ defmodule Ircpipe.Chat.Connections do
       {:ok, %{deleted: true}} -> {:ok, connection}
       {:error, error} -> {:error, error}
     end
-  end
-
-  defp update_desired_state(%User{id: user_id}, id, desired_state)
-       when desired_state in ["connected", "paused"] do
-    {:ok, id} = Ecto.Type.cast(:id, id)
-
-    ConnectionLock.run(user_id, id, fn ->
-      connection =
-        ServerConnection
-        |> where(
-          [connection],
-          connection.id == ^id and connection.user_id == ^user_id and not connection.deleting
-        )
-        |> Repo.one!()
-
-      connection
-      |> Ecto.Changeset.change(desired_state: desired_state)
-      |> Repo.update()
-    end)
   end
 end

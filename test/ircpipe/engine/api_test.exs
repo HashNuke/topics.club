@@ -135,7 +135,11 @@ defmodule Ircpipe.Engine.APITest do
   end
 
   test "restore mode respects paused durable intent", %{user: user, connection: connection} do
-    assert {:ok, paused} = Connections.request_disconnect(user, connection.id)
+    assert {:ok, paused} =
+             connection
+             |> Ecto.Changeset.change(desired_state: "paused")
+             |> Repo.update()
+
     assert paused.desired_state == "paused"
 
     assert {:error, %{code: :invalid_state, details: %{reason: "connection_paused"}}} =
