@@ -10,7 +10,7 @@ defmodule TopicsClub.Engine.MarkerTest do
   alias TopicsClub.Irc.SessionSupervisor
   alias TopicsClub.IrcTestServer
 
-  test "the global marker prevents a second engine marker" do
+  test "the global marker rejects a second marker visible in the connected cluster" do
     assert {:ok, marker} = Discovery.whereis()
     assert %{status: :owner, owner_node: owner_node, started_at: started_at} = Marker.status()
     assert owner_node == Atom.to_string(node())
@@ -18,7 +18,7 @@ defmodule TopicsClub.Engine.MarkerTest do
     assert {:error, {:already_started, ^marker}} = Marker.start_link([])
   end
 
-  test "a duplicate marker stops engine supervision before later children start" do
+  test "a visible duplicate marker stops engine supervision before later children start" do
     test_pid = self()
     previous_trap_exit = Process.flag(:trap_exit, true)
     on_exit(fn -> Process.flag(:trap_exit, previous_trap_exit) end)

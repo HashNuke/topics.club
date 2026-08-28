@@ -26,10 +26,11 @@ defmodule TopicsClubWeb.InternalEvents.Subscriber do
     emit_delivery_telemetry(result, event)
 
     if not delivered?(result) do
-      Logger.warning("Cluster internal event was not delivered",
-        event_id: event_field(event, :event_id),
-        event_type: event_field(event, :type),
-        reason: inspect(result)
+      Logger.warning(
+        "Cluster internal event was not delivered " <>
+          "event_id=#{inspect(event_field(event, :event_id))} " <>
+          "event_type=#{inspect(event_field(event, :type))} " <>
+          "result=#{inspect(failure_kind(result))}"
       )
     end
 
@@ -68,6 +69,11 @@ defmodule TopicsClubWeb.InternalEvents.Subscriber do
   defp delivered?(:ok), do: true
   defp delivered?({:ok, _value}), do: true
   defp delivered?(_result), do: false
+
+  defp failure_kind({:error, {:exception, _message}}), do: :exception
+  defp failure_kind({:error, {:exit, _reason}}), do: :exit
+  defp failure_kind({:error, reason}) when is_atom(reason), do: reason
+  defp failure_kind(_result), do: :error
 
   defp event_field(event, key) when is_map(event), do: Map.get(event, key)
   defp event_field(_event, _key), do: nil

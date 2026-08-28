@@ -25,9 +25,11 @@ defmodule TopicsClub.Engine.API do
   alias TopicsClub.Repo
 
   def dispatch(request) do
-    Logger.debug("Engine API request",
-      request_id: request_id(request),
-      operation: if(is_map(request), do: Map.get(request, :operation))
+    operation = if(is_map(request), do: Map.get(request, :operation))
+
+    Logger.debug(
+      "Engine API request operation=#{inspect(operation)}",
+      request_id: request_id(request)
     )
 
     case Contract.validate(request) do

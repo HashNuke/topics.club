@@ -32,7 +32,7 @@ Sizing used by this document:
 - [x] The combined supervision tree is divided into logical core, engine, and web supervisors.
 - [x] The repository is an umbrella containing core, engine, and web OTP applications.
 - [x] The three release artifacts build independently.
-- [ ] Split web and engine nodes communicate successfully in an integration environment.
+- [x] Split web and engine nodes communicate successfully in an integration environment.
 - [ ] First-party bare-host deployment and rollback automation is complete.
 
 ### Workstream summary
@@ -43,7 +43,7 @@ Sizing used by this document:
 | 1. Logical boundaries and engine contract inside the monolith | XL | High | Enforcing one-way dependencies and replacing direct process calls without changing behavior |
 | 2. Mechanical umbrella extraction | M | Medium | Moving already-separated code and tests without changing behavior or losing coverage |
 | 3. Release and container packaging | L | High | Producing three minimal, correctly configured artifacts |
-| 4. Distributed runtime | XL | Critical | Singleton safety, failure handling, PubSub, and protocol compatibility |
+| 4. Distributed runtime | XL | Critical | Single-engine topology, failure handling, PubSub, and protocol compatibility |
 | 5. Hosted `Ircxd.Server` | XL | High | Isolated supervision, authentication, TLS, and server persistence |
 | 6. First-party deployment automation | L | High | Atomic deploys, migrations, systemd, health checks, and rollback |
 | 7. Verification and operational hardening | L | High | Exercising cross-node failures and N/N-1 compatibility |
@@ -133,7 +133,7 @@ Browser
                                     PostgreSQL
 ```
 
-The first split-mode release supports one web node and one engine node. Additional web replicas may be considered separately; the engine remains a singleton until database-backed ownership leases and fencing exist.
+The first split-mode release supports one web node and one engine node. The deployment mechanism must create exactly one engine service; the runtime marker cannot prevent an isolated, unconnected second engine from starting. Additional web replicas may be considered separately only after their own shared-work concerns are reviewed. Multiple engine replicas require database-backed ownership leases and fencing.
 
 ## Pre-umbrella logical boundaries
 
@@ -311,7 +311,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 | --- | --- |
 | Combined release | The release boot script starts the core, engine, and web OTP applications directly; there is no empty assembly supervisor or fourth production application |
 | Core | `TopicsClub.CoreSupervisor`, `:one_for_one`; `TopicsClub.Vault`, `TopicsClub.Repo`, and `TopicsClub.PubSub` |
-| Engine | `TopicsClub.EngineSupervisor`, `:one_for_one`; global engine marker, `TopicsClub.Engine.OperationLock`, `TopicsClub.Engine.RequestTaskSupervisor`, `TopicsClub.EngineOban`, and `TopicsClub.Irc.SessionSystemSupervisor` |
+| Engine | `TopicsClub.EngineSupervisor`, `:one_for_one`; global engine discovery marker, `TopicsClub.Engine.OperationLock`, `TopicsClub.Engine.RequestTaskSupervisor`, `TopicsClub.EngineOban`, and `TopicsClub.Irc.SessionSystemSupervisor` |
 | Engine session subsystem | `:one_for_all`; `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
 | Web | `TopicsClubWeb.Supervisor`, `:one_for_one`; Telemetry, `EngineRestoreTaskSupervisor`, `EngineRestorer`, `TopicsClubWeb.Oban`, optional `Discovery.Refresher`, and Endpoint last |
 
@@ -404,7 +404,7 @@ The small, long-lived connection and ingestion runtime:
 - Stable canonical message ingestion
 - Connection lifecycle and IRC-derived presence persistence
 - Post-commit internal PubSub events
-- The engine API and singleton registration
+- The engine API and discovery marker
 - Jobs that must quiesce or manipulate live IRC sessions
 
 The engine must not depend on Phoenix Endpoint, controllers, browser authentication, HTML, React assets, or frontend event serialization.
@@ -512,13 +512,13 @@ Slow or retryable work remains asynchronous:
 
 ### Engine discovery
 
-The engine starts a lightweight marker registered under a stable global name. The registration identifies the single engine node; it must not perform all IRC work in one serialized GenServer loop.
+The engine starts a lightweight marker registered under a stable global name. Within the connected cluster, the registration identifies the engine node; it must not perform all IRC work in one serialized GenServer loop.
 
 In split mode, the RPC adapter resolves the marker, obtains its node, and invokes a stable engine API on that node. The combined-mode local adapter invokes the API under the local engine task supervisor without consulting the marker.
 
-The global engine marker replaces the old `TopicsClub.Irc.SingleNodeGuard`. It permits web nodes in the cluster while preventing a second engine marker from acquiring the singleton name before that engine can start its session subsystem.
+The global engine marker replaces the old `TopicsClub.Irc.SingleNodeGuard`. It permits web nodes in the cluster, identifies the engine expected by the gateway, and rejects a second marker that is already visible in the connected cluster before later engine children start.
 
-This global registration is a singleton guard for the supported static two-node topology, not a substitute for database-backed fencing. Network-partition-safe engine failover remains deferred.
+The marker is not the single-engine guarantee. Two engine nodes that start while disconnected can each acquire a marker and open sessions; global registration reconciles only after connectivity exists and is not fencing. The supported static topology therefore depends on deployment automation creating exactly one engine service. Starting any second or partitioned engine is unsupported until database-backed leases and fencing exist.
 
 ### Request contract
 
@@ -688,7 +688,7 @@ The monolith currently uses this engine branch:
 
 ```text
 TopicsClub.EngineSupervisor (:one_for_one)
-  Engine.Marker (global engine singleton identity)
+  Engine.Marker (connected-cluster engine discovery identity)
   Engine.OperationLock (per-connection API orchestration)
   Engine.RequestTaskSupervisor
   TopicsClub.EngineOban
@@ -784,8 +784,8 @@ Generate one deployment-specific cookie with `openssl rand -hex 32`. Store the r
 `RELEASE_COOKIE` in both role-specific environment files outside the checkout, restrict those
 files to the runtime account, and never commit the value. Rotation is a coordinated maintenance
 operation because a node has one active cookie: stop the gateway, stop the engine, replace the
-cookie in both environment files, start the engine and verify marker ownership, then start the
-gateway and verify `/health` reports engine connectivity. This restarts IRC sessions once; do not
+cookie in both environment files, start the engine and verify marker status, then start the
+gateway and verify `/health` reports the engine ready through a protocol request. This restarts IRC sessions once; do not
 attempt a rolling cookie change with mismatched nodes.
 
 The runtime emits redacted telemetry for marker acquisition/duplication, gateway-engine
@@ -1193,15 +1193,19 @@ Publishing `ircxd` and replacing its Git source are intentionally deferred until
 
 ### Workstream 4: Enable the distributed split runtime
 
-Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-safety cases that do not exist in combined mode.
+Size: **XL**. Risk: **Critical**. This introduces partial failure and single-engine operational constraints that do not exist in combined mode.
 
 The implemented runtime stays intentionally small: one statically configured engine node, one
-globally registered singleton marker, one versioned RPC entry point, and one PubSub bridge. There
+global discovery marker, one versioned RPC entry point, and one PubSub bridge. There
 is no dynamic cluster membership layer, routing table, lease service, or multi-engine scheduler.
 The focused cross-node test drives the production client boundary from a gateway-side peer, while
 an application lifecycle test stops and restarts the complete engine application. Together they
 prove normalized failure, process isolation, desired-session restoration, paused-session
 exclusion, and channel autojoin without turning the test harness into a deployment framework.
+
+This checkpoint proves the runtime mechanics, not a safe multi-engine deployment. Split mode is
+not a supported production topology until workstream 6 supplies the one-engine service layout and
+deployment checks. The releases intentionally contain no substitute lease or scheduler.
 
 #### Distribution and network configuration
 
@@ -1216,16 +1220,17 @@ exclusion, and channel autojoin without turning the test harness into a deployme
 - [x] Decide whether production hosts need TLS distribution based on their network trust boundary.
 - [x] Document cookie rotation as a coordinated web-and-engine restart.
 
-#### Engine singleton and discovery
+#### Engine discovery and supported singleton topology
 
-- [x] Implement the lightweight globally registered engine marker.
+- [x] Implement the lightweight globally registered marker for connected-cluster discovery.
 - [x] Return the owning engine node without routing all work through the marker process.
-- [x] Replace `TopicsClub.Irc.SingleNodeGuard` with the engine marker singleton guard.
+- [x] Retire `TopicsClub.Irc.SingleNodeGuard`; the marker does not terminate the engine when a web node joins.
 - [x] Permit non-engine web nodes to join without stopping engine supervision.
-- [x] Refuse engine startup before opening sessions when another marker exists.
+- [x] Refuse the later engine supervision branch when another marker is already visible.
 - [x] Handle stale marker cleanup after an ordinary node shutdown.
-- [x] Log and expose marker acquisition and ownership status.
-- [x] Document that this guard is not network-partition-safe fencing.
+- [x] Log and expose marker acquisition and discovery status.
+- [x] Document that the marker cannot prevent an unconnected or partitioned second engine.
+- [x] Make the supported one-engine deployment topology—not the marker—the current singleton guarantee.
 
 #### Remote engine calls
 
@@ -1254,8 +1259,8 @@ exclusion, and channel autojoin without turning the test harness into a deployme
 - [x] Keep login, account, settings, and persisted history available while the engine is down.
 - [x] Return a clear degraded error for IRC mutations while the engine is unavailable.
 - [x] Keep pending browser sends recoverable or retryable according to operation semantics.
-- [x] Expose web-to-engine connection state in health and telemetry.
-- [x] Expose engine marker ownership, active sessions, reconnects, and ingestion failures.
+- [x] Expose transport state in telemetry and require a successful engine protocol request for healthy split readiness.
+- [x] Expose engine marker status, active sessions, reconnects, and ingestion failures.
 - [ ] Add alerts for engine loss, duplicate-engine attempts, and sustained RPC timeouts.
 - [x] Ensure web startup is not permanently blocked by temporary engine unavailability.
 
@@ -1268,14 +1273,14 @@ exclusion, and channel autojoin without turning the test harness into a deployme
 - [x] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
 - [x] Stop engine and verify persisted web features remain available with degraded mutation errors.
 - [x] Restart engine and restore only desired-connected recent sessions and their autojoins.
-- [x] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
+- [x] Start a second marker on a connected peer and prove the visible duplicate is rejected before later engine children start.
 - [x] Simulate a request timeout and prove errors are normalized without crashing callers.
 - [x] Record that protocol v1 has no N-1; require a real compatibility test when v2 is introduced.
 - [x] Omit split Compose because it would duplicate the real-node tests and is not the deployment target.
 
 The focused integration test currently starts a real gateway-side BEAM peer and drives the
 production `EngineClient`/RPC boundary against the engine node, shared test database, and local
-IRC server. It proves operation coverage, singleton rejection, and engine-process survival across
+IRC server. It proves operation coverage, visible duplicate-marker rejection, and engine-process survival across
 a gateway-node restart. A separate application lifecycle test stops the complete gateway, delivers
 an IRC message while it is down, restarts it, and recovers the message through authenticated
 bootstrap without changing the engine session PID. Booting both complete role applications on
@@ -1285,7 +1290,8 @@ that broader harness.
 #### Distributed-runtime exit gate
 
 - [x] Restarting web leaves the engine marker, hosted server, and outbound session PIDs alive.
-- [x] Starting a second engine fails safely before session startup.
+- [x] A second marker already visible in the connected cluster fails before later engine children start.
+- [x] The unsupported disconnected-second-engine case and deployment-enforced singleton requirement are explicit.
 - [x] Cross-node calls and events pass the integration suite.
 - [x] Engine loss produces a visible degraded state without taking down persisted web features.
 - [x] Combined mode remains green and requires no distribution settings.
@@ -1293,7 +1299,7 @@ that broader harness.
 The checkpoint release smoke assembled all three production releases, migrated an isolated
 temporary PostgreSQL database from the gateway artifact, and booted the complete gateway and
 engine releases as distinct long-named nodes. Gateway `/health` reported the configured engine as
-connected, and a gateway-side `protocol_info` RPC returned the remote marker owner, version 1
+connected only after its `protocol_info` RPC returned the remote marker status, version 1
 capabilities, and active-session count. This smoke exposed one release-script defect: remote
 control helper nodes inherited the running service's fixed distribution port and could not execute
 `pid`, `rpc`, or `stop`. Fixed ports now apply only to `start`, `start_iex`, `daemon`, and
@@ -1301,7 +1307,7 @@ control helper nodes inherited the running service's fixed distribution port and
 The repaired real releases successfully reported both OS PIDs, executed cross-node diagnostics,
 stopped the gateway while the engine remained reachable, then stopped the engine cleanly. The
 temporary database was removed afterward. The final pre-review `mix precommit` passes 40 core, 69
-engine, 180 gateway, and 416 integration tests (705 Elixir tests total), plus 229 frontend tests,
+engine, 181 gateway, and 416 integration tests (706 Elixir tests total), plus 229 frontend tests,
 type checking, Storybook, formatting, and warning-free compilation; all three production releases
 assemble from the same checkpoint source.
 
@@ -1375,6 +1381,7 @@ Size: **L**. Risk: **High**. The web/engine split has little operational value u
 
 - [ ] Add a `topics-club-gateway.service` unit using the stable gateway symlink.
 - [ ] Add a `topics-club-engine.service` unit using the stable engine symlink.
+- [ ] Make the deployment entry point and service layout target exactly one engine host and reject a second engine deployment target.
 - [ ] Configure graceful SIGTERM shutdown and realistic start/stop timeouts.
 - [ ] Configure automatic restart policy without causing a rapid crash loop.
 - [ ] Configure stable `RELEASE_NODE` values for both services.
@@ -1402,7 +1409,7 @@ Size: **L**. Risk: **High**. The web/engine split has little operational value u
 - [ ] Build and smoke-check the new engine release before activation.
 - [ ] Gracefully stop the old engine, accepting one IRC reconnect window.
 - [ ] Atomically repoint the engine `current` symlink.
-- [ ] Start the new engine and verify marker ownership.
+- [ ] Start the new engine and verify marker status.
 - [ ] Verify desired-connected session restoration and autojoins.
 - [ ] Roll back to the prior compatible engine release if startup or restoration checks fail.
 
@@ -1477,7 +1484,7 @@ The first transition from combined to split mode requires one planned IRC reconn
 - [ ] Build the initial standalone engine and web releases on their destination host or hosts.
 - [ ] Run required additive migrations from the new web release.
 - [ ] Stop the combined application and confirm all old engine/session processes are gone.
-- [ ] Start the standalone engine and confirm marker ownership.
+- [ ] Start the standalone engine and confirm marker status.
 - [ ] Verify desired-connected session restoration, autojoins, ingestion, and hosted-server listeners if enabled.
 - [ ] Start the standalone web release and confirm engine connectivity.
 - [ ] Verify login, bootstrap, history, status, send, receive, PubSub, notifications, and degraded-state reporting.
@@ -1499,7 +1506,7 @@ The first transition from combined to split mode requires one planned IRC reconn
 - [ ] Confirm the prior engine release is compatible with the current schema and web protocol.
 - [ ] Stop the current engine cleanly.
 - [ ] Repoint the engine symlink to the prior release.
-- [ ] Start the prior engine and verify marker ownership.
+- [ ] Start the prior engine and verify marker status.
 - [ ] Verify desired-connected restoration and autojoins.
 - [ ] Verify web-to-engine operations and events.
 

@@ -1,6 +1,8 @@
 defmodule TopicsClubWeb.HealthController do
   use TopicsClubWeb, :controller
 
+  alias TopicsClub.EngineClient
+
   def show(conn, _params) do
     case Ecto.Adapters.SQL.query(TopicsClub.Repo, "SELECT 1", [], timeout: 1_000) do
       {:ok, _result} -> json(conn, health_payload())
@@ -30,7 +32,7 @@ defmodule TopicsClubWeb.HealthController do
     %{
       mode: "split",
       node: Atom.to_string(engine_node),
-      status: if(connector_status.connected?, do: "connected", else: "disconnected"),
+      status: split_engine_status(connector_status),
       retry_attempt: connector_status.retry_attempt
     }
   catch
@@ -41,6 +43,15 @@ defmodule TopicsClubWeb.HealthController do
         status: "disconnected",
         retry_attempt: 0
       }
+  end
+
+  defp split_engine_status(%{connected?: false}), do: "disconnected"
+
+  defp split_engine_status(%{connected?: true}) do
+    case EngineClient.protocol_info(timeout: 1_000) do
+      {:ok, %{marker: %{status: :owner}}} -> "connected"
+      _result -> "unavailable"
+    end
   end
 
   defp unavailable(conn) do
