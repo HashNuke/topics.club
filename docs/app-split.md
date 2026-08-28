@@ -965,6 +965,8 @@ Checkpoint 6 completes the monolith exit audit and passed its GPT-5.6 Sol xhigh 
 
 Size: **M**. Risk: **Medium** after the workstream 1 exit gate passes. This workstream changes physical ownership and Mix configuration, not architecture or product behavior. If a move reveals a new dependency design problem, stop and resolve it in the monolith boundary model instead of adding a shortcut between child applications.
 
+Checkpoint 7, the core ownership slice, started from `app-split` at `f232f00`. The pre-move baseline passes 692 ExUnit tests, 229 frontend tests, type checking, Storybook, and the 237-file/763-edge/zero-exception test boundary graph. Core-focused tests that currently construct fixtures through web- or engine-owned contexts must be given core-owned setup during the move or explicitly reclassified as root integration tests; child-application dependency cycles will not be introduced merely to preserve their current setup path.
+
 #### Extraction rules
 
 - [ ] Do not begin the umbrella conversion until every workstream 1 exit-gate item passes.
