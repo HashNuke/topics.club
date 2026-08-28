@@ -298,6 +298,7 @@ deploy_component() {
   local candidate="$base/candidate-$component"
   local target="$base/releases/$component/$tag"
   local service
+  local old_previous=""
   local old_target=""
   local source_dir
 
@@ -331,6 +332,7 @@ deploy_component() {
   fi
 
   old_target=$(resolved_link "$current")
+  old_previous=$(resolved_link "$previous")
   if [ -n "$old_target" ] && [ "$old_target" != "$target" ]; then
     atomic_link "$old_target" "$previous"
   fi
@@ -347,6 +349,11 @@ deploy_component() {
   if ! "${healthy_command[@]}"; then
     printf 'new %s release failed its health check; restoring the prior release\n' "$component" >&2
     restore_release "$component" "$old_target"
+    if [ -n "$old_previous" ]; then
+      atomic_link "$old_previous" "$previous"
+    else
+      rm -f -- "$previous"
+    fi
     if [ -n "$old_target" ] && ! check_component "$component" "$health_url"; then
       printf 'warning: restored %s release is not healthy\n' "$component" >&2
     fi
