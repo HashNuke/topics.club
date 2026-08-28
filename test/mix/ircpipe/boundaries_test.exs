@@ -3,8 +3,9 @@ defmodule Mix.Ircpipe.BoundariesTest do
 
   alias Mix.Ircpipe.Boundaries
 
+  @project_root Path.expand("../../..", __DIR__)
+
   @files [
-    "lib/assembly.ex",
     "lib/core.ex",
     "lib/engine.ex",
     "lib/shared.ex",
@@ -66,7 +67,6 @@ defmodule Mix.Ircpipe.BoundariesTest do
   test "accepts the allowed deployable dependency directions" do
     graph =
       graph(%{
-        "lib/assembly.ex" => %{"lib/engine.ex" => "runtime"},
         "lib/core.ex" => %{"lib/shared.ex" => "export"},
         "lib/engine.ex" => %{"lib/core.ex" => "runtime"},
         "lib/tooling.ex" => %{"lib/web.ex" => "compile"},
@@ -253,25 +253,31 @@ defmodule Mix.Ircpipe.BoundariesTest do
   end
 
   test "the checked-in ownership manifest covers production and test support" do
-    project_manifest =
-      "config/boundaries.exs"
-      |> Boundaries.load!()
-      |> Map.put(:temporary_dependencies, [])
-      |> Map.put(:temporary_component_cycles, [])
+    File.cd!(@project_root, fn ->
+      project_manifest =
+        "config/boundaries.exs"
+        |> Boundaries.load!()
+        |> Map.put(:temporary_dependencies, [])
+        |> Map.put(:temporary_component_cycles, [])
 
-    files = Boundaries.tracked_files()
-    production_graph = graph(Map.new(files, &{&1, %{}}))
+      files = Boundaries.tracked_files()
+      production_graph = graph(Map.new(files, &{&1, %{}}))
 
-    assert {:ok, %{files: file_count}} =
-             Boundaries.check(project_manifest, production_graph, files)
+      assert {:ok, %{files: file_count}} =
+               Boundaries.check(project_manifest, production_graph, files)
 
-    assert file_count == length(files)
-    assert Enum.any?(files, &String.contains?(&1, "/priv/repo/migrations/"))
+      assert file_count == length(files)
+      assert Enum.any?(files, &String.contains?(&1, "/priv/repo/migrations/"))
+    end)
   end
 
   test "the project boundary Mix task passes" do
-    Mix.Task.reenable("ircpipe.check_boundaries")
-    assert :ok = Mix.Tasks.Ircpipe.CheckBoundaries.run([])
+    assert {_output, 0} =
+             System.cmd("mix", ["ircpipe.check_boundaries"],
+               cd: @project_root,
+               env: [{"MIX_ENV", Atom.to_string(Mix.env())}],
+               stderr_to_stdout: true
+             )
   end
 
   test "isolated child compilation rejects a call to an unavailable sibling module" do
@@ -426,7 +432,6 @@ defmodule Mix.Ircpipe.BoundariesTest do
     %{
       version: 1,
       ownership: [
-        rule(:assembly, ["lib/assembly.ex"]),
         rule(:core, ["lib/core.ex", "priv/repo/migrations/1_create_example.exs"]),
         rule(:engine, ["lib/engine.ex"]),
         rule(:shared, ["lib/shared.ex"]),
@@ -434,11 +439,10 @@ defmodule Mix.Ircpipe.BoundariesTest do
         rule(:web, ["lib/web.ex", "test/support/web_case.ex"])
       ],
       allowed_dependencies: %{
-        assembly: [:assembly, :core, :engine, :shared, :web],
         core: [:core, :shared],
         engine: [:engine, :core, :shared],
         shared: [:shared],
-        tooling: [:assembly, :core, :engine, :shared, :tooling, :web],
+        tooling: [:core, :engine, :shared, :tooling, :web],
         web: [:web, :core, :shared]
       },
       temporary_component_cycles: [],

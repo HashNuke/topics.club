@@ -362,7 +362,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Frontend tests for notification permission, preference, Web Push, and visible-window suppression states.
 - [x] Frontend tests for socket/backend failure states.
 - [x] Headless Chromium tests for local-only landing topics and auth-protected chat route.
-- [x] Run `npm test --prefix assets` for React changes.
+- [x] Run `npm test --prefix apps/ircpipe_web/assets` for React changes.
 - [x] Run targeted `mix test` during backend work.
 - [x] Run `mix precommit` before completing implementation changes.
 

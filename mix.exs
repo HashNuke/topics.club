@@ -1,27 +1,20 @@
+Path.join([__DIR__, "lib/mix/**/*.ex"])
+|> Path.wildcard()
+|> Enum.sort()
+|> Enum.each(&Code.require_file/1)
+
 defmodule Ircpipe.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :ircpipe,
+      apps_path: "apps",
       version: "0.1.0",
       elixir: "~> 1.15",
-      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps(),
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
-    ]
-  end
-
-  # Configuration for the OTP application.
-  #
-  # Type `mix help compile.app` for more information.
-  def application do
-    [
-      mod: {Ircpipe.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      deps: [],
+      releases: releases()
     ]
   end
 
@@ -31,92 +24,114 @@ defmodule Ircpipe.MixProject do
     ]
   end
 
-  # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
-
-  # Specifies your project dependencies.
-  #
-  # Type `mix help deps` for examples and options.
-  defp deps do
+  defp releases do
     [
-      {:ircpipe_core, path: "apps/ircpipe_core", env: Mix.env()},
-      {:ircpipe_engine, path: "apps/ircpipe_engine", env: Mix.env()},
-      {:bcrypt_elixir, "~> 3.0"},
-      {:cloak_ecto, "~> 1.3"},
-      {:phoenix, "~> 1.8.7"},
-      {:phoenix_ecto, "~> 4.5"},
-      {:ecto_sql, "~> 3.13"},
-      {:postgrex, ">= 0.0.0"},
-      {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:phoenix_live_view, "~> 1.1.0"},
-      {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
-      {:ueberauth, "~> 0.10"},
-      {:ueberauth_google, "~> 0.12"},
-      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
-      {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
-      {:heroicons,
-       github: "tailwindlabs/heroicons",
-       tag: "v2.2.0",
-       sparse: "optimized",
-       app: false,
-       compile: false,
-       depth: 1},
-      {:swoosh, "~> 1.16"},
-      {:gen_smtp, "~> 1.3"},
-      {:floki, "~> 0.38.4"},
-      {:req, "~> 0.5"},
-      {:ircxd, github: "HashNuke/ircxd", branch: "main"},
-      {:telemetry_metrics, "~> 1.0"},
-      {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 1.0"},
-      {:jason, "~> 1.2"},
-      {:oban, "~> 2.24"},
-      {:bandit, "~> 1.5"}
+      ircpipe: [
+        applications: [
+          ircpipe_core: :permanent,
+          ircpipe_engine: :permanent,
+          ircpipe_web: :permanent
+        ]
+      ]
     ]
   end
 
-  # Aliases are shortcuts or tasks specific to the current project.
-  # For example, to install project dependencies and perform other setup tasks, run:
-  #
-  #     $ mix setup
-  #
-  # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup", "ircpipe.setup_local_irc", "assets.setup", "assets.build"],
-      "ecto.setup": [
-        "ecto.create -r Ircpipe.Repo",
-        "ecto.migrate -r Ircpipe.Repo",
-        "run priv/repo/seeds.exs"
-      ],
-      "ecto.reset": ["ecto.drop -r Ircpipe.Repo", "ecto.setup"],
-      test: [
-        "ecto.create --quiet -r Ircpipe.Repo",
-        "ecto.migrate --quiet -r Ircpipe.Repo",
-        "cmd --cd apps/ircpipe_core mix test",
-        "cmd --cd apps/ircpipe_engine mix test",
-        "test"
-      ],
+      "ecto.setup": [&ecto_setup/1],
+      "ecto.reset": [&ecto_reset/1],
+      test: [&test/1],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind ircpipe", "esbuild ircpipe"],
       "assets.deploy": [
         "tailwind ircpipe --minify",
         "esbuild ircpipe --minify",
-        "phx.digest"
+        &digest_assets/1
       ],
       precommit: [
         "compile --warnings-as-errors",
         "ircpipe.check_boundaries",
         "deps.unlock --unused",
         "format",
-        "cmd --cd assets npm run typecheck",
-        "cmd --cd assets npm test",
-        "cmd --cd assets npm run build-storybook",
+        &frontend_typecheck/1,
+        &frontend_test/1,
+        &storybook_build/1,
         "test"
       ]
     ]
+  end
+
+  defp ecto_setup(_args) do
+    run_mix!("apps/ircpipe_core", ["ecto.create", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/ircpipe_core", ["ecto.migrate", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/ircpipe_web", ["run", "../../priv/repo/seeds.exs"])
+  end
+
+  defp ecto_reset(_args) do
+    run_mix!("apps/ircpipe_core", ["ecto.drop", "-r", "Ircpipe.Repo"])
+    ecto_setup([])
+  end
+
+  defp test(args) do
+    run_mix!("apps/ircpipe_core", ["ecto.create", "--quiet", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/ircpipe_core", ["ecto.migrate", "--quiet", "-r", "Ircpipe.Repo"])
+
+    case test_target(args) do
+      {:child, child_path, child_args} ->
+        run_mix!(child_path, ["test" | child_args])
+
+      {:integration, integration_args} ->
+        run_mix!("test", ["test" | integration_args])
+
+      :all ->
+        Enum.each(["apps/ircpipe_core", "apps/ircpipe_engine", "apps/ircpipe_web"], fn path ->
+          run_mix!(path, ["test" | args])
+        end)
+
+        run_mix!("test", ["test" | args])
+    end
+  end
+
+  defp test_target(args) do
+    targets = [
+      {"apps/ircpipe_core/", "apps/ircpipe_core"},
+      {"apps/ircpipe_engine/", "apps/ircpipe_engine"},
+      {"apps/ircpipe_web/", "apps/ircpipe_web"}
+    ]
+
+    Enum.find_value(Enum.with_index(args), :all, fn {arg, index} ->
+      case Enum.find(targets, &String.starts_with?(arg, elem(&1, 0))) do
+        {prefix, child_path} ->
+          {:child, child_path, List.replace_at(args, index, String.trim_leading(arg, prefix))}
+
+        nil ->
+          if arg == "test" or String.starts_with?(arg, "test/") do
+            relative = if arg == "test", do: ".", else: String.trim_leading(arg, "test/")
+            {:integration, List.replace_at(args, index, relative)}
+          end
+      end
+    end)
+  end
+
+  defp frontend_typecheck(_args), do: run_npm!(["run", "typecheck"])
+  defp frontend_test(_args), do: run_npm!(["test"])
+  defp storybook_build(_args), do: run_npm!(["run", "build-storybook"])
+  defp digest_assets(_args), do: run_mix!("apps/ircpipe_web", ["phx.digest", "priv/static"])
+
+  defp run_npm!(args), do: run_command!("npm", args, "apps/ircpipe_web/assets")
+  defp run_mix!(path, args), do: run_command!("mix", args, path)
+
+  defp run_command!(command, args, path) do
+    {_stream, status} =
+      System.cmd(command, args,
+        cd: Path.join(__DIR__, path),
+        env: [{"MIX_ENV", Atom.to_string(Mix.env())}],
+        into: IO.stream(:stdio, :line)
+      )
+
+    if status != 0 do
+      Mix.raise("#{command} #{Enum.join(args, " ")} failed in #{path} with exit #{status}")
+    end
   end
 end

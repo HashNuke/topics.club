@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "allowImportingTsExtensions": true,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "*": ["../../../deps/*"]
+    },
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": [
+    ".storybook/**/*",
+    "e2e/**/*",
+    "js/**/*",
+    "playwright.config.ts",
+    "test/**/*",
+    "vitest.config.ts"
+  ],
+  "exclude": ["js/**/*.test.ts", "js/**/*.test.tsx"]
+}

@@ -8,7 +8,7 @@ defmodule Ircpipe.Notifications.PreferencesTest do
   alias Ircpipe.Repo
 
   setup do
-    previous_pause = Application.get_env(:ircpipe, :pause_notification_preference_broadcast)
+    previous_pause = Application.get_env(:ircpipe_web, :pause_notification_preference_broadcast)
 
     previous_effects_barrier =
       Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
@@ -177,7 +177,7 @@ defmodule Ircpipe.Notifications.PreferencesTest do
   test "revision broadcasts remain ordered when an older update is delayed", context do
     %{scope: scope, connection: connection} = context
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{scope.user.id}")
-    Application.put_env(:ircpipe, :pause_notification_preference_broadcast, {self(), 1})
+    Application.put_env(:ircpipe_web, :pause_notification_preference_broadcast, {self(), 1})
     supervisor = start_supervised!(Task.Supervisor)
 
     first =
@@ -219,8 +219,8 @@ defmodule Ircpipe.Notifications.PreferencesTest do
     assert stored.notification_preference_revision == 2
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_web, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe_web, key, value)
 
   defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
   defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)

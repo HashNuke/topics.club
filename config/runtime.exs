@@ -17,7 +17,7 @@ import Config
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :ircpipe, IrcpipeWeb.Endpoint, server: true
+  config :ircpipe_web, IrcpipeWeb.Endpoint, server: true
 end
 
 config :ueberauth, Ueberauth.Strategy.Google.OAuth,
@@ -36,7 +36,7 @@ smtp_tls =
   end
 
 if smtp_relay && smtp_username && smtp_password do
-  config :ircpipe, Ircpipe.Mailer,
+  config :ircpipe_web, Ircpipe.Mailer,
     adapter: Swoosh.Adapters.SMTP,
     relay: smtp_relay,
     port: String.to_integer(System.get_env("SMTP_PORT") || "587"),
@@ -47,7 +47,7 @@ if smtp_relay && smtp_username && smtp_password do
     auth: :always
 end
 
-config :ircpipe, :email_from,
+config :ircpipe_web, :email_from,
   name: System.get_env("EMAIL_FROM_NAME") || "Ircpipe",
   address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
 
@@ -58,13 +58,13 @@ vapid_subject =
     subject -> if String.contains?(subject, ":"), do: subject, else: "mailto:#{subject}"
   end
 
-config :ircpipe, Ircpipe.Notifications.WebPush,
+config :ircpipe_web, Ircpipe.Notifications.WebPush,
   public_key: System.get_env("VAPID_PUBLIC_KEY"),
   private_key: System.get_env("VAPID_PRIVATE_KEY"),
   subject: vapid_subject
 
 if config_env() == :prod do
-  config :ircpipe, :discovery_refresh_enabled, System.get_env("ENABLE_DISCOVERY") == "true"
+  config :ircpipe_web, :discovery_refresh_enabled, System.get_env("ENABLE_DISCOVERY") == "true"
 
   credentials_key =
     System.get_env("IRC_CREDENTIALS_KEY") ||
@@ -118,7 +118,7 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "example.com"
 
-  config :ircpipe, IrcpipeWeb.Endpoint,
+  config :ircpipe_web, IrcpipeWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
@@ -135,7 +135,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :ircpipe, IrcpipeWeb.Endpoint,
+  #     config :ircpipe_web, IrcpipeWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -157,7 +157,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :ircpipe, IrcpipeWeb.Endpoint,
+  #     config :ircpipe_web, IrcpipeWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
@@ -167,7 +167,7 @@ if config_env() == :prod do
   # In production you need to configure the mailer to use a different adapter.
   # Here is an example configuration for Mailgun:
   #
-  #     config :ircpipe, Ircpipe.Mailer,
+  #     config :ircpipe_web, Ircpipe.Mailer,
   #       adapter: Swoosh.Adapters.Mailgun,
   #       api_key: System.get_env("MAILGUN_API_KEY"),
   #       domain: System.get_env("MAILGUN_DOMAIN")

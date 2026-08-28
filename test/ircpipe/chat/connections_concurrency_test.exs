@@ -20,10 +20,12 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   test "concurrent endpoint discovery serializes equivalent port representations" do
     user = unboxed(fn -> AccountsFixtures.user_fixture() end)
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_endpoint_create_barrier)
+
+    previous_barrier =
+      Application.get_env(:ircpipe_web, :connection_endpoint_create_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_web,
       :connection_endpoint_create_barrier,
       {self(), barrier_ref}
     )
@@ -189,11 +191,11 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   end
 
   defp restore_barrier(nil) do
-    Application.delete_env(:ircpipe, :connection_endpoint_create_barrier)
+    Application.delete_env(:ircpipe_web, :connection_endpoint_create_barrier)
   end
 
   defp restore_barrier(previous_barrier) do
-    Application.put_env(:ircpipe, :connection_endpoint_create_barrier, previous_barrier)
+    Application.put_env(:ircpipe_web, :connection_endpoint_create_barrier, previous_barrier)
   end
 
   defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)

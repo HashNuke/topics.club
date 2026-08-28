@@ -46,7 +46,7 @@ custom classes must fully style the input
 
 ### Storybook-first React UI development
 
-- "Storybook" means the Node.js Storybook toolchain for the React frontend under `assets/js`. Install and run it from `assets/` using the project's JavaScript package manager; do not substitute a Phoenix or Elixir component-story library.
+- "Storybook" means the Node.js Storybook toolchain for the React frontend under `apps/ircpipe_web/assets/js`. Install and run it from `apps/ircpipe_web/assets/` using the project's JavaScript package manager; do not substitute a Phoenix or Elixir component-story library.
 - Create or extract frontend UI as reusable React components, add those components to the Storybook catalog, and validate them in Storybook before composing them into the application.
 - Every project-owned React UI component must have stories that make it independently previewable. Cover the representative states that apply, including default, loading, empty, error, disabled, and responsive states.
 - Keep components modular and presentation-focused. Pass application data and actions through props instead of coupling stories to live HTTP requests, sockets, authentication, or navigation.
@@ -491,7 +491,7 @@ And **never** do this:
 
 ## Ircpipe app notes
 
-- Ircpipe is a Phoenix app with server-rendered auth and a React IRC client mounted at `/chat` via `assets/js/ircpipe_app.tsx`.
+- Ircpipe is a Phoenix app with server-rendered auth and a React IRC client mounted at `/chat` via `apps/ircpipe_web/assets/js/ircpipe_app.tsx`.
 - The backend keeps IRC domain data in `Ircpipe.Chat`: suggested topics, user server connections, joined channels, messages, notifications, and per-user message retention.
 - Message retention is user configurable from 1 to 3 days. `Ircpipe.Chat.Retention.prune/1` enforces it after inbound message persistence.
 - IRC runtime processes are supervised by `Ircpipe.Irc.SessionSupervisor` and registered in `Ircpipe.Irc.SessionRegistry` by `{user_id, server_connection_id}`. Keep the one-process-per-user-server invariant when adding features.

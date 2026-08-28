@@ -93,7 +93,12 @@ defmodule Mix.Tasks.Ircpipe.CheckBoundaries do
   end
 
   defp xref_graph(child_paths) do
-    root_graph = xref_graph_for_current_project()
+    root_graphs =
+      if Mix.Project.umbrella?() do
+        []
+      else
+        [xref_graph_for_current_project()]
+      end
 
     child_graphs =
       Enum.map(child_paths, fn child_path ->
@@ -107,11 +112,10 @@ defmodule Mix.Tasks.Ircpipe.CheckBoundaries do
       |> project_manifests()
       |> Mix.Ircpipe.Boundaries.manifest_graph()
 
-    Mix.Ircpipe.Boundaries.merge_graphs([root_graph, manifest_graph | child_graphs])
+    Mix.Ircpipe.Boundaries.merge_graphs(root_graphs ++ [manifest_graph | child_graphs])
   end
 
   defp project_manifests(child_paths) do
-    root_manifest = Path.join(Mix.Project.manifest_path(), "compile.elixir")
     build_path = Mix.Project.build_path()
 
     child_manifests =
@@ -128,7 +132,12 @@ defmodule Mix.Tasks.Ircpipe.CheckBoundaries do
         {manifest, child_path}
       end)
 
-    [{root_manifest, ""} | child_manifests]
+    if Mix.Project.umbrella?() do
+      child_manifests
+    else
+      root_manifest = Path.join(Mix.Project.manifest_path(), "compile.elixir")
+      [{root_manifest, ""} | child_manifests]
+    end
   end
 
   defp xref_graph_for_current_project do

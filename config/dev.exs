@@ -25,7 +25,7 @@ config :ircpipe_core, Ircpipe.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :ircpipe, IrcpipeWeb.Endpoint,
+config :ircpipe_web, IrcpipeWeb.Endpoint,
   http: [ip: {0, 0, 0, 0}, port: 4100],
   check_origin: false,
   code_reloader: true,
@@ -60,22 +60,22 @@ config :ircpipe, IrcpipeWeb.Endpoint,
 # different ports.
 
 # Reload browser tabs when matching files change.
-config :ircpipe, IrcpipeWeb.Endpoint,
+config :ircpipe_web, IrcpipeWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
       # Static assets, except user uploads
-      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
+      ~r"apps/ircpipe_web/priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
       # Gettext translations
-      ~r"priv/gettext/.*\.po$"E,
+      ~r"apps/ircpipe_web/priv/gettext/.*\.po$"E,
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/ircpipe_web/router\.ex$"E,
-      ~r"lib/ircpipe_web/(controllers|live|components)/.*\.(ex|heex)$"E
+      ~r"apps/ircpipe_web/lib/ircpipe_web/router\.ex$"E,
+      ~r"apps/ircpipe_web/lib/ircpipe_web/(controllers|live|components)/.*\.(ex|heex)$"E
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :ircpipe, dev_routes: true
+config :ircpipe_web, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

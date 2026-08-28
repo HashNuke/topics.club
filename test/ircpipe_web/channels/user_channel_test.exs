@@ -838,10 +838,12 @@ defmodule IrcpipeWeb.UserChannelTest do
     socket = join_user_channel(user)
     channel_ref = Process.monitor(socket.channel_pid)
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :read_state_before_server_lock_barrier)
+
+    previous_barrier =
+      Application.get_env(:ircpipe_web, :read_state_before_server_lock_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_web,
       :read_state_before_server_lock_barrier,
       {self(), barrier_ref}
     )

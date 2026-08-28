@@ -54,13 +54,13 @@ defmodule Ircpipe.Irc.SingleNodeGuardTest do
       if started_distribution?, do: :net_kernel.stop()
     end)
 
-    root_supervisor = Process.whereis(Ircpipe.Supervisor)
+    engine_supervisor = Process.whereis(Ircpipe.EngineSupervisor)
     session_system_supervisor = Process.whereis(SessionSystemSupervisor)
     old_guard = Process.whereis(SingleNodeGuard)
     old_session_supervisor = Process.whereis(SessionSupervisor)
     guard_ref = Process.monitor(old_guard)
     session_supervisor_ref = Process.monitor(old_session_supervisor)
-    root_ref = Process.monitor(root_supervisor)
+    engine_ref = Process.monitor(engine_supervisor)
     task_supervisor = start_supervised!(Task.Supervisor)
     test_pid = self()
     lock_user_id = System.unique_integer([:positive])
@@ -102,7 +102,7 @@ defmodule Ircpipe.Irc.SingleNodeGuardTest do
 
     _ = :sys.get_state(SessionSystemSupervisor)
 
-    assert Process.whereis(Ircpipe.Supervisor) == root_supervisor
+    assert Process.whereis(Ircpipe.EngineSupervisor) == engine_supervisor
     assert Process.whereis(SessionSystemSupervisor) == session_system_supervisor
     assert peer_node in Node.list(:visible)
     refute Process.whereis(SingleNodeGuard) == old_guard
@@ -118,7 +118,7 @@ defmodule Ircpipe.Irc.SingleNodeGuardTest do
 
     _ = :sys.get_state(current_guard)
     refute_receive {:DOWN, ^current_guard_ref, :process, ^current_guard, _reason}, 100
-    refute_receive {:DOWN, ^root_ref, :process, ^root_supervisor, _reason}, 100
+    refute_receive {:DOWN, ^engine_ref, :process, ^engine_supervisor, _reason}, 100
 
     assert :ok = stop_supervised(peer_name)
 
@@ -133,7 +133,7 @@ defmodule Ircpipe.Irc.SingleNodeGuardTest do
     _ = :sys.get_state(SessionSystemSupervisor)
 
     assert Node.list(:visible) == []
-    assert Process.whereis(Ircpipe.Supervisor) == root_supervisor
+    assert Process.whereis(Ircpipe.EngineSupervisor) == engine_supervisor
 
     second_lock_task =
       unboxed_task(task_supervisor, fn ->

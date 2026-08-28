@@ -28,7 +28,7 @@ defmodule IrcpipeEngine.MixProject do
 
   defp deps do
     [
-      {:ircpipe_core, path: "../ircpipe_core", env: Mix.env()},
+      {:ircpipe_core, in_umbrella: true},
       {:ecto_sql, "~> 3.13"},
       {:oban, "~> 2.24"},
       {:ircxd, github: "HashNuke/ircxd", branch: "main"}
