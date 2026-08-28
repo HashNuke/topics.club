@@ -1,6 +1,9 @@
 defmodule Mix.Ircpipe.Boundaries do
   @moduledoc false
 
+  import Mix.Compilers.Elixir,
+    only: [module: 1, read_manifest: 1, source: 1]
+
   @type graph :: %{String.t() => %{String.t() => String.t()}}
 
   @dot_edge ~r/^\s*"([^"]+)" -> "([^"]+)"(?: \[label="\((compile|export)\)"\])?$/
@@ -91,6 +94,65 @@ defmodule Mix.Ircpipe.Boundaries do
     Enum.reduce(graphs, %{}, fn graph, merged ->
       Map.merge(merged, graph, fn _source, left_sinks, right_sinks ->
         Map.merge(left_sinks, right_sinks)
+      end)
+    end)
+  end
+
+  @doc false
+  def manifest_graph(manifests) when is_list(manifests) do
+    projects = Enum.map(manifests, &read_project_manifest!/1)
+
+    module_sources =
+      for %{modules: modules, prefix: prefix} <- projects,
+          {module_name, module(sources: sources)} <- modules,
+          source_path <- sources,
+          do: {module_name, prefixed_path(prefix, source_path)}
+
+    duplicate_modules =
+      module_sources
+      |> Enum.frequencies_by(&elem(&1, 0))
+      |> Enum.flat_map(fn
+        {_module_name, 1} -> []
+        {module_name, _count} -> [module_name]
+      end)
+
+    if duplicate_modules != [] do
+      raise ArgumentError,
+            "modules occur in more than one project compiler manifest: #{inspect(Enum.sort(duplicate_modules))}"
+    end
+
+    module_sources = Map.new(module_sources)
+
+    Enum.reduce(projects, %{}, fn %{prefix: prefix, sources: sources}, graph ->
+      Enum.reduce(sources, graph, fn {source_path, source_entry}, graph ->
+        source_path = prefixed_path(prefix, source_path)
+
+        source(
+          compile_references: compile_references,
+          export_references: export_references,
+          runtime_references: runtime_references
+        ) = source_entry
+
+        graph
+        |> Map.put_new(source_path, %{})
+        |> put_module_reference_edges(
+          source_path,
+          runtime_references,
+          "runtime",
+          module_sources
+        )
+        |> put_module_reference_edges(
+          source_path,
+          export_references,
+          "export",
+          module_sources
+        )
+        |> put_module_reference_edges(
+          source_path,
+          compile_references,
+          "compile",
+          module_sources
+        )
       end)
     end)
   end
@@ -411,6 +473,36 @@ defmodule Mix.Ircpipe.Boundaries do
     |> Path.relative_to_cwd()
     |> Path.split()
     |> Path.join()
+  end
+
+  defp read_project_manifest!({manifest_path, prefix})
+       when is_binary(manifest_path) and is_binary(prefix) do
+    {modules, sources} = read_manifest(manifest_path)
+
+    if modules == [] or sources == [] do
+      raise ArgumentError, "missing or empty project compiler manifest: #{manifest_path}"
+    end
+
+    %{modules: modules, sources: sources, prefix: prefix}
+  end
+
+  defp prefixed_path("", source_path), do: normalize_path(source_path)
+  defp prefixed_path(prefix, source_path), do: normalize_path(Path.join(prefix, source_path))
+
+  defp put_module_reference_edges(
+         graph,
+         source_path,
+         referenced_modules,
+         label,
+         module_sources
+       ) do
+    Enum.reduce(referenced_modules, graph, fn module_name, graph ->
+      case Map.fetch(module_sources, module_name) do
+        {:ok, ^source_path} -> graph
+        {:ok, sink_path} -> put_graph_edge(graph, source_path, sink_path, label)
+        :error -> graph
+      end
+    end)
   end
 
   defp put_graph_edge(graph, source, sink, label) do

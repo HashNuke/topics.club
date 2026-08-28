@@ -317,6 +317,99 @@ defmodule Mix.Ircpipe.BoundariesTest do
     assert output =~ "Compilation failed due to warnings"
   end
 
+  test "compiler manifests expose a forbidden call to an available path dependency" do
+    fixture_path =
+      Path.join(
+        System.tmp_dir!(),
+        "ircpipe-boundary-path-dependency-#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    engine_path = Path.join(fixture_path, "engine")
+    build_path = Path.join(fixture_path, "build")
+    File.mkdir_p!(Path.join(fixture_path, "lib"))
+    File.mkdir_p!(Path.join(engine_path, "lib"))
+
+    File.write!(
+      Path.join(engine_path, "mix.exs"),
+      """
+      defmodule BoundaryEngineFixture.MixProject do
+        use Mix.Project
+
+        def project do
+          [app: :boundary_engine_fixture, version: "0.1.0", elixir: "~> 1.15"]
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(engine_path, "lib/engine.ex"),
+      """
+      defmodule BoundaryEngineFixture.API do
+        def call, do: :ok
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(fixture_path, "mix.exs"),
+      """
+      defmodule BoundaryWebFixture.MixProject do
+        use Mix.Project
+
+        def project do
+          [
+            app: :boundary_web_fixture,
+            version: "0.1.0",
+            elixir: "~> 1.15",
+            deps: [{:boundary_engine_fixture, path: "engine"}]
+          ]
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(fixture_path, "lib/web.ex"),
+      """
+      defmodule BoundaryWebFixture.Crossing do
+        def call, do: BoundaryEngineFixture.API.call()
+      end
+      """
+    )
+
+    on_exit(fn -> File.rm_rf!(fixture_path) end)
+
+    assert {_output, 0} =
+             System.cmd("mix", ["compile", "--warnings-as-errors"],
+               cd: fixture_path,
+               env: [
+                 {"MIX_BUILD_PATH", build_path},
+                 {"MIX_ENV", "test"}
+               ],
+               stderr_to_stdout: true
+             )
+
+    manifest_graph =
+      Boundaries.manifest_graph([
+        {Path.join([build_path, "lib/boundary_web_fixture/.mix/compile.elixir"]), ""},
+        {Path.join([build_path, "lib/boundary_engine_fixture/.mix/compile.elixir"]), ""}
+      ])
+
+    assert manifest_graph["lib/web.ex"]["lib/engine.ex"] == "runtime"
+
+    assert {:error, errors} =
+             Boundaries.check(
+               manifest(),
+               Boundaries.merge_graphs([graph(), manifest_graph]),
+               @files
+             )
+
+    assert Enum.any?(errors, fn error ->
+             String.contains?(error, "forbidden runtime dependency web -> engine")
+           end)
+  end
+
   defp manifest do
     %{
       version: 1,
