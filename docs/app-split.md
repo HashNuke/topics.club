@@ -1046,9 +1046,9 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 - [x] Make engine compile without Phoenix Endpoint and frontend dependencies.
 - [x] Check compile-connected dependency graphs for accidental cycles.
 - [x] Start Vault, Repo, and PubSub exactly once per node.
-- [ ] Start engine supervision only in combined and engine releases.
-- [ ] Start Endpoint only in combined and web releases.
-- [ ] Start release-owned Oban queues only after Repo is available.
+- [x] Start engine supervision only in combined and engine releases.
+- [x] Start Endpoint only in combined and web releases.
+- [x] Start release-owned Oban queues only after Repo is available.
 - [x] Start Endpoint last in the web supervision tree.
 - [x] Preserve configuration-change handling for Endpoint in the web application.
 
@@ -1069,30 +1069,32 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 
 Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a release that merely boots is not sufficient.
 
+The first release slice defines three explicit Unix releases without adding a deployment-mode application or switch. `ircpipe` remains the default and contains core, engine, and web; `ircpipe_web` contains core and web; and `ircpipe_engine` contains core and engine. Release versions combine application version `0.1.0` with a normalized source revision. Fresh artifact inspection proves that only the web-capable releases contain digested assets plus release-name-aware `server` and `migrate` commands. Runtime smoke checks prove that combined mode starts all three supervisors with the local engine adapter, web-only mode starts no engine supervisor and selects the RPC adapter, and engine-only mode starts no web supervisor or Endpoint and does not require web secrets. In every artifact core starts before the role application, so Repo is available before either named role-owned Oban instance starts.
+
 #### Release definitions
 
-- [ ] Define `ircpipe` with core, engine, and web applications.
-- [ ] Define `ircpipe_web` with core and web applications only.
-- [ ] Define `ircpipe_engine` with core and engine applications only.
-- [ ] Set `ircpipe` as the default release for simple builds.
-- [ ] Use a traceable release version derived from the application version and source revision.
-- [ ] Generate Unix release executables required by the supported deployment hosts.
-- [ ] Add release-specific runtime configuration without a generic deployment-mode switch.
-- [ ] Ensure combined release startup requires no node, cookie, or engine-node variables.
-- [ ] Add web and combined server commands that set `PHX_SERVER=true`.
-- [ ] Add migration commands only to combined and web/migrator artifacts.
-- [ ] Keep migration execution out of engine startup and engine artifacts.
-- [ ] Make release wrappers release-name aware rather than hard-coding `ircpipe`.
-- [ ] Include digested frontend assets in combined and web releases only.
+- [x] Define `ircpipe` with core, engine, and web applications.
+- [x] Define `ircpipe_web` with core and web applications only.
+- [x] Define `ircpipe_engine` with core and engine applications only.
+- [x] Set `ircpipe` as the default release for simple builds.
+- [x] Use a traceable release version derived from the application version and source revision.
+- [x] Generate Unix release executables required by the supported deployment hosts.
+- [x] Add release-specific runtime configuration without a generic deployment-mode switch.
+- [x] Ensure combined release startup requires no node, cookie, or engine-node variables.
+- [x] Add web and combined server commands that set `PHX_SERVER=true`.
+- [x] Add migration commands only to combined and web/migrator artifacts.
+- [x] Keep migration execution out of engine startup and engine artifacts.
+- [x] Make release wrappers release-name aware rather than hard-coding `ircpipe`.
+- [x] Include digested frontend assets in combined and web releases only.
 - [ ] Build all three releases from a clean checkout.
 
 #### Release-specific background work
 
-- [ ] Define the complete combined Oban queue and plugin configuration.
-- [ ] Define web-owned notification and web-maintenance queues.
-- [ ] Define engine-owned connection and session queues.
-- [ ] Assign every cron entry to exactly one release.
-- [ ] Ensure a worker that expects a local session is enabled only in engine-capable releases.
+- [x] Define the complete combined Oban queue and plugin configuration.
+- [x] Define web-owned notification and web-maintenance queues.
+- [x] Define engine-owned connection and session queues.
+- [x] Assign every cron entry to exactly one release.
+- [x] Ensure a worker that expects a local session is enabled only in engine-capable releases.
 - [ ] Verify jobs inserted by one role can be executed by the owning role through shared PostgreSQL tables.
 - [ ] Test that duplicate queue ownership does not occur in split mode.
 
@@ -1101,8 +1103,8 @@ Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a r
 - [x] Fetch `ircxd` from `HashNuke/ircxd` and pin the resolved commit in `mix.lock`.
 - [ ] Publish `ircxd` to Hex with a version compatible with the core, engine, and web applications.
 - [ ] Replace the Git dependency with a Hex version constraint after publication.
-- [ ] Verify core, engine, and web declare `ircxd` wherever their code references it, with one resolved version across the umbrella.
-- [ ] Verify the web release starts only short-lived directory discovery clients and no per-user session or hosted-server listeners.
+- [x] Verify core, engine, and web declare `ircxd` wherever their code references it, with one resolved version across the umbrella.
+- [x] Verify the web release starts only short-lived directory discovery clients and no per-user session or hosted-server listeners.
 
 #### Combined Docker image for Railway and similar platforms
 
