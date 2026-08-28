@@ -245,9 +245,9 @@ The ownership manifest deliberately assigns files rather than relying on the mix
 
 | Owner | Schemas and behavior modules |
 | --- | --- |
-| Core | `User`, `ServerConnection`, `ChannelMembership`, `ChannelUser`, `Message`, `Notification`, `DirectMessageThread`, deletion request/event-batch schemas, direct-message identity/store primitives, membership lookup, retention, presence queries, locking, Repo, Vault, and migrations |
+| Core | `User`, `ServerConnection`, `ChannelMembership`, `ChannelUser`, `Message`, `Notification`, `DirectMessageThread`, direct-message identity/store primitives, membership lookup, retention, presence queries, locking, Repo, Vault, and migrations |
 | Shared protocol | `EngineClient` and its request/reply contracts, `InternalEvent` and its data contract, pure IRC command/identifier policy, and mention detection |
-| Engine | Connection lifecycle/deletion, join/part, ingestion, command/system messages, IRC-derived presence and direct-message behavior, engine API/local adapter, all per-user session processes, and engine-owned workers |
+| Engine | Connection lifecycle/deletion, deletion request/event-batch schemas, join/part, ingestion, command/system messages, IRC-derived presence and direct-message behavior, engine API/local adapter, all per-user session processes, and engine-owned workers |
 | Web | Accounts/session behavior, connection endpoint/snapshots and browser queries, read state, topics, notifications/Web Push, discovery, realtime serializers, RPC adapter, and all `IrcpipeWeb` modules |
 | Assembly/tooling | Root `Ircpipe.Application` only; Mix tasks and release-development helpers respectively |
 
@@ -339,13 +339,13 @@ The pre-umbrella discovery baseline partitions every current ExUnit file exactly
 | Core data/persistence | 9 | 27 | `ircpipe_core` |
 | Shared protocol/contracts | 7 | 35 | `ircpipe_core` |
 | Engine | 57 | 269 | `ircpipe_engine` |
-| Web | 50 | 318 | `ircpipe_web` |
+| Web | 50 | 319 | `ircpipe_web` |
 | Combined assembly | 1 | 6 | Umbrella root |
 | Tooling | 2 | 14 | Umbrella root |
 | Cross-component integration | 2 | 22 | Umbrella root |
-| **Total** | **128** | **691** | **691 discovered from the umbrella root** |
+| **Total** | **128** | **692** | **692 discovered from the umbrella root** |
 
-The future child expectations are therefore core 62, engine 269, and web 318, with 42 root assembly/tooling/integration tests. The two explicitly cross-component files are `connections_concurrency_test.exs` and `direct_messages_test.exs`; keeping them at the root avoids inventing a false child owner. This is a discovery baseline, not a requirement that a child test suite boot unrelated child applications after extraction.
+The future child expectations are therefore core 62, engine 269, and web 319, with 42 root assembly/tooling/integration tests. The two explicitly cross-component files are `connections_concurrency_test.exs` and `direct_messages_test.exs`; keeping them at the root avoids inventing a false child owner. This is a discovery baseline, not a requirement that a child test suite boot unrelated child applications after extraction.
 
 #### Browser and deployment compatibility baseline
 
@@ -841,7 +841,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 - [x] Reject new engine references to web modules outside the exact migration allowlist.
 - [x] Reject cycles in the permanent dependency policy and actual deployable cycles outside the explicit transition-cycle baseline.
 - [x] Keep the migration allowlist explicit, file-exact, label-sensitive, capped at the initial 36 edges, and free of namespace-wide exceptions.
-- [x] Add the boundary gate to CI and enforce that exception, budget, and transition-cycle baseline changes only shrink against the base branch.
+- [x] Add the boundary gate to CI and enforce that exception, budget, and transition-cycle baseline changes only shrink once the base branch contains the manifest; the one-time initial-adoption PR runs the complete head policy because no base manifest exists to compare.
 - [x] Run the boundary check from `mix precommit`.
 
 #### Versioned request and reply contracts
@@ -881,7 +881,7 @@ The stable event slice now emits versioned plain-map facts after commit for mess
 
 The boundary graph now contains 237 owned files, no temporary dependency exceptions, and no deployable-component cycles. Dependency totals vary because Mix compiles environment-specific modules: the default environment currently reports 748 checked project edges and the test environment reports 763. An expanded set of 254 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair. After the first review fixes, full `mix precommit` passes with 686 Elixir tests, 227 frontend tests, type checking, the Storybook build, and the zero-exception boundary gate. The final reviewer reran 66 focused tests, both environment-specific boundary checks, and found no remaining correctness, SRP, or framework-building concern.
 
-Checkpoint 6 completes the monolith exit audit. The checked-in inventory now classifies runtime flows, data and behavior ownership, direct dependencies, configuration and secrets, registered processes, browser contracts, deployment artifacts, future paths, and test destinations. Pull-request CI runs the boundary gate and rejects any exception, exception-budget, or temporary-cycle addition relative to the base commit. Focused regressions prove lifecycle retry after a committed intent/process-effect failure, join reactivation, paused bootstrap immutability, engine-start restoration with autojoins, ordinary-message commit-before-broadcast without Oban, and exact internal-event-to-browser translation. The complete ownership-partitioned suite passes 691 ExUnit tests, and `mix precommit` passes those tests plus 227 frontend tests, type checking, Storybook, and the 237-file/763-edge/zero-exception test boundary graph. A production build using the Dockerfile's compile-before-assets order assembles the combined release, and starting all `:ircpipe` applications through the release succeeds against PostgreSQL without split-mode variables.
+Checkpoint 6 completes the monolith exit audit. The checked-in inventory now classifies runtime flows, data and behavior ownership, direct dependencies, configuration and secrets, registered processes, browser contracts, deployment artifacts, future paths, and test destinations. Pull-request CI always runs the head boundary gate and, once the base contains the manifest, rejects any exception, exception-budget, or temporary-cycle addition relative to that base; the initial-adoption path has no older policy to compare. Focused regressions prove lifecycle retry after a committed intent/process-effect failure, join reactivation, paused bootstrap immutability, engine-start restoration with autojoins, ordinary-message commit-before-broadcast without Oban, exact internal-event-to-browser translation, and the final Channel forwarding paths. The complete ownership-partitioned suite passes 692 ExUnit tests, and `mix precommit` passes those tests plus 227 frontend tests, type checking, Storybook, and the 237-file/763-edge/zero-exception test boundary graph. A production build using the Dockerfile's compile-before-assets order assembles the combined release, and starting all `:ircpipe` applications through the release succeeds against PostgreSQL without split-mode variables.
 
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
