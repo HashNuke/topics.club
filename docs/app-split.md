@@ -1069,7 +1069,7 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 
 Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a release that merely boots is not sufficient.
 
-The first release slice defines three explicit Unix releases without adding a deployment-mode application or switch. `ircpipe` remains the default and contains core, engine, and web; `ircpipe_web` contains core and web; and `ircpipe_engine` contains core and engine. Release versions combine application version `0.1.0` with a normalized source revision. Fresh artifact inspection proves that only the web-capable releases contain digested assets plus release-name-aware `server` and `migrate` commands. Runtime smoke checks prove that combined mode starts all three supervisors with the local engine adapter, web-only mode starts no engine supervisor and selects the RPC adapter, and engine-only mode starts no web supervisor or Endpoint and does not require web secrets. In every artifact core starts before the role application, so Repo is available before either named role-owned Oban instance starts.
+The first release slice defines three explicit Unix releases without adding a deployment-mode application or switch. `ircpipe` remains the default and contains core, engine, and web; `ircpipe_web` contains core and web; and `ircpipe_engine` contains core and engine. Release versions combine application version `0.1.0` with a normalized source revision. Fresh artifact inspection proves that only the web-capable releases contain digested assets plus release-name-aware `server` and `migrate` commands. Runtime smoke checks prove that combined mode starts all three supervisors with the local engine adapter, web-only mode starts no engine supervisor and selects the RPC adapter, and engine-only mode starts no web supervisor or Endpoint and does not require web secrets. In every artifact core starts before the role application, so Repo is available before either named role-owned Oban instance starts. `Ircpipe.Release` is now web-owned, leaving the engine artifact without the migration helper as well as without a migration command. CI assembles and inspects all three role boundaries, while focused runtime tests prove the production Oban queue sets are disjoint and the existing notification pipeline proves engine-owned work can insert web-owned work through the shared PostgreSQL job table.
 
 #### Release definitions
 
@@ -1095,8 +1095,8 @@ The first release slice defines three explicit Unix releases without adding a de
 - [x] Define engine-owned connection and session queues.
 - [x] Assign every cron entry to exactly one release.
 - [x] Ensure a worker that expects a local session is enabled only in engine-capable releases.
-- [ ] Verify jobs inserted by one role can be executed by the owning role through shared PostgreSQL tables.
-- [ ] Test that duplicate queue ownership does not occur in split mode.
+- [x] Verify jobs inserted by one role can be executed by the owning role through shared PostgreSQL tables.
+- [x] Test that duplicate queue ownership does not occur in split mode.
 
 #### Dependency distribution
 

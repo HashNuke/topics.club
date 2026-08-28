@@ -89,16 +89,23 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
   end
 
   test "the combined tree uses named role-specific Oban instances" do
-    engine_config = Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)
-    web_config = Application.fetch_env!(:ircpipe_web, IrcpipeWeb.Oban)
+    runtime_engine_config = Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)
+    runtime_web_config = Application.fetch_env!(:ircpipe_web, IrcpipeWeb.Oban)
+    {engine_config, web_config} = production_oban_configs()
+    engine_queues = engine_config |> Keyword.fetch!(:queues) |> Keyword.keys() |> MapSet.new()
+    web_queues = web_config |> Keyword.fetch!(:queues) |> Keyword.keys() |> MapSet.new()
 
-    assert engine_config[:name] == Ircpipe.EngineOban
+    assert runtime_engine_config[:name] == Ircpipe.EngineOban
+    assert runtime_web_config[:name] == IrcpipeWeb.Oban
+    assert engine_config[:plugins] == []
 
     assert get_in(engine_config, [:cron, :crontab]) == [
              {"* * * * *", Ircpipe.Chat.ConnectionDeletionReconcilerWorker}
            ]
 
-    assert web_config[:name] == IrcpipeWeb.Oban
+    assert web_config[:plugins] == [Oban.Plugins.Pruner]
+    assert web_config[:cron] == nil
+    assert MapSet.disjoint?(engine_queues, web_queues)
     assert Application.get_env(:ircpipe, Oban) == nil
   end
 
@@ -109,5 +116,15 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
       {^child_id, pid, _type, _modules} -> pid
       _child -> nil
     end)
+  end
+
+  defp production_oban_configs do
+    config_path = Path.expand("../../config/config.exs", __DIR__)
+    config = Config.Reader.read!(config_path, env: :prod)
+
+    {
+      config[:ircpipe_engine][Ircpipe.EngineOban],
+      config[:ircpipe_web][IrcpipeWeb.Oban]
+    }
   end
 end
