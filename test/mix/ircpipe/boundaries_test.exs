@@ -393,16 +393,28 @@ defmodule Mix.Ircpipe.BoundariesTest do
     manifest_graph =
       Boundaries.manifest_graph([
         {Path.join([build_path, "lib/boundary_web_fixture/.mix/compile.elixir"]), ""},
-        {Path.join([build_path, "lib/boundary_engine_fixture/.mix/compile.elixir"]), ""}
+        {Path.join([build_path, "lib/boundary_engine_fixture/.mix/compile.elixir"]),
+         "apps/ircpipe_engine"}
       ])
 
-    assert manifest_graph["lib/web.ex"]["lib/engine.ex"] == "runtime"
+    engine_source = "apps/ircpipe_engine/lib/engine.ex"
+    assert manifest_graph["lib/web.ex"][engine_source] == "runtime"
+
+    fixture_manifest =
+      update_in(manifest(), [:ownership], fn ownership ->
+        Enum.map(ownership, fn
+          %{component: :engine} = rule -> %{rule | paths: [engine_source]}
+          rule -> rule
+        end)
+      end)
+
+    fixture_files = [engine_source | List.delete(@files, "lib/engine.ex")]
 
     assert {:error, errors} =
              Boundaries.check(
-               manifest(),
+               fixture_manifest,
                Boundaries.merge_graphs([graph(), manifest_graph]),
-               @files
+               fixture_files
              )
 
     assert Enum.any?(errors, fn error ->
