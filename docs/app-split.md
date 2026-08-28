@@ -1300,7 +1300,10 @@ control helper nodes inherited the running service's fixed distribution port and
 `daemon_iex`; regression coverage evaluates every server and control command for both split roles.
 The repaired real releases successfully reported both OS PIDs, executed cross-node diagnostics,
 stopped the gateway while the engine remained reachable, then stopped the engine cleanly. The
-temporary database was removed afterward.
+temporary database was removed afterward. The final pre-review `mix precommit` passes 40 core, 69
+engine, 180 gateway, and 416 integration tests (705 Elixir tests total), plus 229 frontend tests,
+type checking, Storybook, formatting, and warning-free compilation; all three production releases
+assemble from the same checkpoint source.
 
 ### Workstream 5: Enable the hosted `Ircxd.Server`
 
