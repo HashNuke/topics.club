@@ -3,15 +3,14 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   alias Ircpipe.Chat.ConnectionSnapshot
   alias Ircpipe.Chat.MessageHistory
-  alias Ircpipe.Chat.ServerConnection
-  alias Ircpipe.Chat.Topics
   alias Ircpipe.Chat.PresenceQueries
-  alias Ircpipe.EngineClient
+  alias Ircpipe.Chat.Topics
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Notifications.PushRegistrations
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
   alias IrcpipeWeb.Api.BootstrapBuffers
+  alias IrcpipeWeb.EngineRestorer
   alias IrcpipeWeb.EngineStatuses
 
   @message_limit 150
@@ -37,9 +36,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     ConnectionSnapshot.broadcast_reconciliations(snapshot.connection_reconciliations)
     connections = snapshot.connections
 
-    connections
-    |> Enum.filter(&ServerConnection.connect_desired?/1)
-    |> Enum.each(&start_session(user, &1))
+    :ok = EngineRestorer.restore(user, connections)
 
     statuses = EngineStatuses.fetch(user, connections)
 
@@ -171,10 +168,5 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       use_tls: topic.use_tls,
       channel: topic.channel
     }
-  end
-
-  defp start_session(user, connection) do
-    EngineClient.ensure_connection(user.id, connection.id, intent: "restore")
-    :ok
   end
 end

@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.EngineClient
   alias Ircpipe.Realtime.Event
+  alias IrcpipeWeb.Api.EngineErrorResponse
   alias IrcpipeWeb.EngineStatuses
 
   def index(conn, _params) do
@@ -26,6 +27,12 @@ defmodule IrcpipeWeb.Api.ConnectionController do
       |> json(%{
         connection: connection_json(%{connection | channel_memberships: []}, status)
       })
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
+        validation_error(conn, changeset)
+
+      {:error, %{code: _code} = error} ->
+        EngineErrorResponse.respond(conn, error)
     end
   end
 
@@ -34,6 +41,8 @@ defmodule IrcpipeWeb.Api.ConnectionController do
 
     with {:ok, connection} <- Connections.update(user, id, attrs) do
       json(conn, %{connection: connection_json(connection, EngineStatuses.one(user, connection))})
+    else
+      {:error, %Ecto.Changeset{} = changeset} -> validation_error(conn, changeset)
     end
   end
 
@@ -43,6 +52,8 @@ defmodule IrcpipeWeb.Api.ConnectionController do
 
     with {:ok, %{status: status}} <- EngineClient.ensure_connection(user.id, connection.id) do
       json(conn, %{connection: connection_json(connection, status)})
+    else
+      {:error, %{code: _code} = error} -> EngineErrorResponse.respond(conn, error)
     end
   end
 
@@ -53,6 +64,8 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     with {:ok, %{status: status}} <-
            EngineClient.disconnect_connection(user.id, connection.id) do
       json(conn, %{connection: connection_json(connection, status)})
+    else
+      {:error, %{code: _code} = error} -> EngineErrorResponse.respond(conn, error)
     end
   end
 
@@ -94,5 +107,18 @@ defmodule IrcpipeWeb.Api.ConnectionController do
       mention_notifications_enabled: channel.mention_notifications_enabled,
       notification_preference_revision: channel.notification_preference_revision
     }
+  end
+
+  defp validation_error(conn, changeset) do
+    errors =
+      Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
+        Regex.replace(~r"%{(\w+)}", message, fn _, key ->
+          opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+        end)
+      end)
+
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "invalid_connection", errors: errors})
   end
 end

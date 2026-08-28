@@ -275,7 +275,7 @@ defmodule Ircpipe.Engine.API do
   defp ensure_available(%ServerConnection{deleting: true}, :quiesce_connection), do: :ok
 
   defp ensure_available(%ServerConnection{deleting: true}, _operation),
-    do: {:error, :invalid_state}
+    do: {:error, :connection_deleting}
 
   defp ensure_available(%ServerConnection{}, _operation), do: :ok
 

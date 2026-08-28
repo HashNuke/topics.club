@@ -3,6 +3,7 @@ defmodule IrcpipeWeb.Api.TopicController do
 
   alias Ircpipe.Chat.Topics
   alias Ircpipe.EngineClient
+  alias IrcpipeWeb.Api.EngineErrorResponse
 
   def index(conn, _params) do
     json(conn, %{topics: Enum.map(Topics.list(), &topic_json/1)})
@@ -23,6 +24,9 @@ defmodule IrcpipeWeb.Api.TopicController do
             buffer: channel_buffer_json(connection, membership, connection_status),
             status: status
           })
+
+        {:error, %{code: _code} = error} ->
+          EngineErrorResponse.respond(conn, error)
 
         {:error, reason} ->
           conn

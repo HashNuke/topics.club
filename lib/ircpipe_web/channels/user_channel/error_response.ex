@@ -13,6 +13,7 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponse do
   def reason(:joining_channel), do: "joining_channel"
   def reason(:not_joined), do: "not_joined"
   def reason(%{code: :invalid_state, details: %{code: code}}), do: code
+  def reason(%{code: :invalid_state, details: %{reason: reason}}), do: reason
   def reason(%{code: code}) when is_atom(code), do: Atom.to_string(code)
   def reason(%{code: code}), do: code
   def reason(_reason), do: "send_failed"

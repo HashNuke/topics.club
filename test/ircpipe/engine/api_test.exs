@@ -141,6 +141,21 @@ defmodule Ircpipe.Engine.APITest do
              EngineClient.ensure_connection(user.id, connection.id, intent: "restore")
   end
 
+  test "deleting connections retain their stable EngineClient reason", %{
+    user: user,
+    connection: connection
+  } do
+    assert {:ok, deleting} =
+             connection
+             |> Ecto.Changeset.change(deleting: true)
+             |> Repo.update()
+
+    assert deleting.deleting
+
+    assert {:error, %{code: :invalid_state, details: %{reason: "connection_deleting"}}} =
+             EngineClient.connection_info(user.id, connection.id)
+  end
+
   test "opposing connection intents serialize through their process effects", %{
     user: user,
     connection: connection

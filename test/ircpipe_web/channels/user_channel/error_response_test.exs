@@ -25,6 +25,11 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponseTest do
              details: %{code: "protocol_owned"}
            }) == "protocol_owned"
 
+    assert ErrorResponse.reason(%{
+             code: :invalid_state,
+             details: %{reason: "joining_channel"}
+           }) == "joining_channel"
+
     assert ErrorResponse.reason(:unexpected) == "send_failed"
   end
 

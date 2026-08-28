@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Discovery
   alias Ircpipe.EngineClient
+  alias IrcpipeWeb.Api.EngineErrorResponse
 
   def index(conn, _params) do
     server_channels = Discovery.list_popular_server_channels()
@@ -37,6 +38,9 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
         status: status
       })
     else
+      {:error, %{code: _code} = error} ->
+        EngineErrorResponse.respond(conn, error)
+
       {:error, reason} ->
         conn
         |> put_status(:unprocessable_entity)

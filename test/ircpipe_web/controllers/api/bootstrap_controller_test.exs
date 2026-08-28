@@ -14,8 +14,29 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
   alias Ircpipe.IrcTestServer
   alias Ircpipe.Repo
+  alias IrcpipeWeb.EngineRestorer
 
   setup :register_and_log_in_user
+
+  setup %{user: user} do
+    previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:ircpipe, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:ircpipe, :engine_client_test_reply)
+
+    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
+    Application.put_env(:ircpipe, :engine_client_test_pid, self())
+    Application.put_env(:ircpipe, :engine_client_test_reply, {:error, :engine_unavailable})
+
+    on_exit(fn ->
+      :ok = EngineRestorer.await_idle()
+      Enum.each(Connections.list(user), &SessionSupervisor.stop_session/1)
+      restore_env(:engine_client_adapter, previous_adapter)
+      restore_env(:engine_client_test_pid, previous_test_pid)
+      restore_env(:engine_client_test_reply, previous_test_reply)
+    end)
+
+    :ok
+  end
 
   test "requires authentication" do
     conn = build_conn() |> get(~p"/api/bootstrap")
@@ -237,6 +258,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     conn: conn,
     user: user
   } do
+    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.Engine.LocalAdapter)
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
@@ -353,7 +375,8 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert %{"active_buffer_id" => active_buffer_id} = json_response(conn, 200)
     assert active_buffer_id == "channel:#{joined.id}"
     refute active_buffer_id == "channel:#{pending.id}"
-
-    assert :ok = Session.quit(connection)
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 end

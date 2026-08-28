@@ -17,6 +17,9 @@ defmodule IrcpipeWeb.UserChannel.ChannelDirectory do
       {:error, %{code: :timeout}} ->
         {:error, :list_timeout}
 
+      {:error, %{code: :invalid_state} = error} ->
+        {:error, error}
+
       {:error, %{code: code}} ->
         {:error, code}
     end

@@ -23,6 +23,8 @@ defmodule IrcpipeWeb.Supervisor do
 
     [
       IrcpipeWeb.Telemetry,
+      {Task.Supervisor, name: IrcpipeWeb.EngineRestoreTaskSupervisor},
+      {IrcpipeWeb.EngineRestorer, []},
       {Oban, Application.fetch_env!(:ircpipe, IrcpipeWeb.Oban)}
     ] ++
       discovery_children(discovery_enabled?) ++

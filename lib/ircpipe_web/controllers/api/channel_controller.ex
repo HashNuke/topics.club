@@ -4,6 +4,7 @@ defmodule IrcpipeWeb.Api.ChannelController do
   alias Ircpipe.Chat.{Connections, MembershipLookup}
   alias Ircpipe.EngineClient
   alias Ircpipe.Irc.CommandRegistry
+  alias IrcpipeWeb.Api.EngineErrorResponse
 
   def create(conn, %{"connection_id" => connection_id, "channel" => channel}) do
     user = conn.assigns.current_scope.user
@@ -16,10 +17,8 @@ defmodule IrcpipeWeb.Api.ChannelController do
       |> maybe_accept_queued(status)
       |> json(%{channel: channel_json(membership), status: status})
     else
-      {:error, %{code: code}} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: code})
+      {:error, %{code: _code} = error} ->
+        EngineErrorResponse.respond(conn, error)
 
       {:error, reason} ->
         conn
@@ -39,10 +38,8 @@ defmodule IrcpipeWeb.Api.ChannelController do
           buffer_id: "channel:#{membership.id}"
         })
 
-      {:error, %{code: code}} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: code})
+      {:error, %{code: _code} = error} ->
+        EngineErrorResponse.respond(conn, error)
     end
   end
 
@@ -62,9 +59,6 @@ defmodule IrcpipeWeb.Api.ChannelController do
   defp maybe_accept_queued(conn, "sent"), do: conn
 
   defp join_status(:not_connected), do: :service_unavailable
-
-  defp join_status(%{code: code}) when code in [:engine_unavailable, :not_connected, :timeout],
-    do: :service_unavailable
 
   defp join_status(_reason), do: :unprocessable_entity
 

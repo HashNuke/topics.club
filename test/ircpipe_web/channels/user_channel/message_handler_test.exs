@@ -2,6 +2,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
   use Ircpipe.DataCase
 
   alias Ircpipe.AccountsFixtures
+  alias Ircpipe.Chat
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.MessageHistory
@@ -117,6 +118,34 @@ defmodule IrcpipeWeb.UserChannel.MessageHandlerTest do
                  "buffer_id" => "direct:#{thread.id}",
                  "body" => "hello?",
                  "client_message_id" => "client-dm-offline"
+               },
+               socket
+             )
+  end
+
+  test "preserves joining_channel through the stable engine error envelope" do
+    server = start_supervised!({IrcTestServer, {self(), join_replies?: false}})
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user, IrcTestServer.port(server))
+    {:ok, membership} = Chat.join_channel(user, connection, "#pending")
+    on_exit(fn -> SessionSupervisor.stop_session(connection) end)
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "JOIN #pending"}, 1_000
+    socket = socket(user)
+
+    assert {:reply,
+            {:error,
+             %{
+               reply: "error",
+               reason: "joining_channel",
+               client_message_id: "client-pending"
+             }}, ^socket} =
+             MessageHandler.send_message(
+               %{
+                 "buffer_id" => "channel:#{membership.id}",
+                 "body" => "too soon",
+                 "client_message_id" => "client-pending"
                },
                socket
              )
