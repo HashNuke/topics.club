@@ -1,0 +1,55 @@
+import re
+import shlex
+from urllib.parse import urlparse
+
+from pyinfra import host
+from pyinfra.operations import server
+
+
+component = host.data.component
+tag = host.data.tag
+commit = host.data.commit
+health_url = host.data.health_url
+
+if component not in {"gateway", "engine"}:
+    raise ValueError("component must be gateway or engine")
+
+if not re.fullmatch(r"[0-9]{8}\.[0-9]+", tag):
+    raise ValueError("tag must use the YYYYMMDD.N release format")
+
+if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    raise ValueError("commit must be a full lowercase Git object ID")
+
+try:
+    parsed_health_url = urlparse(health_url)
+    health_port = parsed_health_url.port
+except ValueError as error:
+    raise ValueError("health_url must use loopback HTTP with a valid port") from error
+
+if (
+    parsed_health_url.scheme != "http"
+    or parsed_health_url.hostname != "127.0.0.1"
+    or parsed_health_url.username is not None
+    or parsed_health_url.password is not None
+    or health_port is None
+    or not 1 <= health_port <= 65_535
+    or not parsed_health_url.path.startswith("/")
+    or parsed_health_url.fragment
+    or any(character.isspace() for character in health_url)
+):
+    raise ValueError("health_url must use loopback HTTP")
+
+server.shell(
+    name=f"Deploy the exact {tag} {component} release",
+    commands=" ".join(
+        shlex.quote(argument)
+        for argument in [
+            "/usr/local/sbin/topics-club-deploy",
+            "deploy",
+            component,
+            tag,
+            commit,
+            health_url,
+        ]
+    ),
+)

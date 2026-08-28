@@ -1,0 +1,409 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository_url={{ repo_url_quoted }}
+deploy_user=topics-club-deploy
+base=/srv/topics-club
+lock_file=/run/lock/topics-club-deploy.lock
+
+fail() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+validate_component() {
+  case "$1" in
+    gateway|engine) ;;
+    *) fail "component must be gateway or engine" ;;
+  esac
+}
+
+validate_health_url() {
+  [[ "$1" =~ ^http://127\.0\.0\.1:([0-9]{1,5})/[^[:space:]#]*$ ]] ||
+    fail "health URL must use loopback HTTP with a valid port"
+  local port=${BASH_REMATCH[1]}
+  ((port >= 1 && port <= 65535)) || fail "health URL port is out of range"
+}
+
+service_name() {
+  printf 'topics-club-%s.service\n' "$1"
+}
+
+runtime_user() {
+  printf 'topics-club-%s\n' "$1"
+}
+
+release_name() {
+  printf 'topics_club_%s\n' "$1"
+}
+
+git_as_deploy() {
+  runuser -u "$deploy_user" -- git "$@"
+}
+
+atomic_link() {
+  local target=$1
+  local link=$2
+  local temporary="${link}.new.$$"
+
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    fail "refusing to replace non-symlink path: $link"
+  fi
+  ln -s "$target" "$temporary"
+  mv -Tf "$temporary" "$link"
+}
+
+resolved_link() {
+  local link=$1
+
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    fail "expected a symlink at $link"
+  fi
+  if [ -L "$link" ]; then
+    readlink -f -- "$link" || fail "invalid symlink at $link"
+  fi
+}
+
+prepare_source() {
+  local commit=$1
+  local source_dir="$base/sources/$commit"
+  local temporary="${source_dir}.new.$$"
+
+  if [ -d "$source_dir/.git" ]; then
+    [ "$(git_as_deploy -C "$source_dir" rev-parse HEAD)" = "$commit" ] ||
+      fail "existing source directory does not match $commit"
+    git_as_deploy -C "$source_dir" diff-index --quiet HEAD -- ||
+      fail "existing source checkout has tracked changes"
+    [ -z "$(git_as_deploy -C "$source_dir" status --porcelain --untracked-files=all)" ] ||
+      fail "existing source checkout has unexpected files"
+    printf '%s\n' "$source_dir"
+    return
+  fi
+
+  rm -rf -- "$temporary"
+  if ! runuser -u "$deploy_user" -- git clone --no-checkout "$repository_url" "$temporary"; then
+    rm -rf -- "$temporary"
+    fail "could not clone $repository_url"
+  fi
+  if ! runuser -u "$deploy_user" -- git -C "$temporary" checkout --detach "$commit"; then
+    rm -rf -- "$temporary"
+    fail "could not check out requested commit $commit"
+  fi
+
+  [ "$(git_as_deploy -C "$temporary" rev-parse HEAD)" = "$commit" ] ||
+    fail "checkout did not resolve to requested commit $commit"
+  git_as_deploy -C "$temporary" diff-index --quiet HEAD -- || fail "new source checkout is dirty"
+  [ -z "$(git_as_deploy -C "$temporary" status --porcelain --untracked-files=all)" ] ||
+    fail "new source checkout contains unexpected files"
+  mv "$temporary" "$source_dir"
+  printf '%s\n' "$source_dir"
+}
+
+build_release() {
+  local component=$1
+  local tag=$2
+  local commit=$3
+  local source_dir=$4
+  local target=$5
+  local release
+  local owner
+  local temporary="${target}.new.$$"
+
+  release=$(release_name "$component")
+  owner=$(runtime_user "$component")
+
+  if [ -d "$target" ]; then
+    [ -f "$target/deploy-manifest" ] || fail "release directory is missing its manifest: $target"
+    grep -Fxq "commit=$commit" "$target/deploy-manifest" ||
+      fail "release tag $tag is already associated with another commit"
+    return
+  fi
+
+  if [ -e "$temporary" ]; then
+    rm -rf -- "$temporary"
+  fi
+
+  if ! docker buildx build \
+      --progress plain \
+      --file /etc/topics-club/release-builder.dockerfile \
+      --target artifact \
+      --build-arg "RELEASE_NAME=$release" \
+      --build-arg "SOURCE_REVISION=$commit" \
+      --build-arg "BUILD_TAG=$tag" \
+      --output "type=local,dest=$temporary" \
+      "$source_dir"; then
+    rm -rf -- "$temporary"
+    fail "release build failed for $component $tag"
+  fi
+
+  if [ ! -x "$temporary/bin/$release" ] ||
+     [ ! -f "$temporary/releases/start_erl.data" ] ||
+     [ ! -f "$temporary/deploy-manifest" ] ||
+     ! grep -Fxq "tag=$tag" "$temporary/deploy-manifest" ||
+     ! grep -Fxq "commit=$commit" "$temporary/deploy-manifest" ||
+     ! grep -Fxq "release=$release" "$temporary/deploy-manifest"; then
+    rm -rf -- "$temporary"
+    fail "release artifact failed its structural smoke check"
+  fi
+
+  chown -R "$owner:$owner" "$temporary"
+  mv "$temporary" "$target"
+}
+
+gateway_healthy() {
+  local health_url=$1
+  local attempt
+  local payload
+
+  for attempt in $(seq 1 30); do
+    payload=$(curl --fail --silent --show-error --max-time 2 "$health_url" 2>/dev/null || true)
+    if printf '%s' "$payload" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+gateway_database_healthy() {
+  local health_url=$1
+  local attempt
+  local payload
+
+  for attempt in $(seq 1 30); do
+    payload=$(curl --fail --silent --show-error --max-time 2 "$health_url" 2>/dev/null || true)
+    if printf '%s' "$payload" | grep -Eq '"database"[[:space:]]*:[[:space:]]*"ok"'; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+engine_healthy() {
+  local attempt
+  local successes=0
+
+  for attempt in $(seq 1 30); do
+    if systemctl is-active --quiet topics-club-engine.service; then
+      systemctl reset-failed topics-club-engine-health.service >/dev/null 2>&1 || true
+      if systemctl start topics-club-engine-health.service; then
+        successes=$((successes + 1))
+        if [ "$successes" -ge 3 ]; then
+          return 0
+        fi
+      else
+        successes=0
+      fi
+    else
+      successes=0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+check_component() {
+  local component=$1
+  local health_url=$2
+
+  if [ "$component" = gateway ]; then
+    gateway_healthy "$health_url"
+  else
+    engine_healthy || return 1
+    if systemctl is-active --quiet topics-club-gateway.service; then
+      gateway_healthy "$health_url" || return 1
+    fi
+  fi
+}
+
+restart_component() {
+  local component=$1
+  systemctl reset-failed "$(service_name "$component")" >/dev/null 2>&1 || true
+  systemctl restart "$(service_name "$component")"
+}
+
+restore_release() {
+  local component=$1
+  local prior=$2
+  local current="$base/current-$component"
+
+  if [ -n "$prior" ] && [ -d "$prior" ]; then
+    atomic_link "$prior" "$current"
+    restart_component "$component"
+  else
+    rm -f -- "$current"
+    systemctl stop "$(service_name "$component")" || true
+  fi
+}
+
+require_matching_gateway() {
+  local tag=$1
+  local commit=$2
+  local health_url=$3
+  local gateway_target
+
+  gateway_target=$(resolved_link "$base/current-gateway")
+  [ -f "$gateway_target/deploy-manifest" ] ||
+    fail "deploy gateway $tag before deploying its engine"
+  grep -Fxq "tag=$tag" "$gateway_target/deploy-manifest" ||
+    fail "active gateway does not match engine tag $tag"
+  grep -Fxq "commit=$commit" "$gateway_target/deploy-manifest" ||
+    fail "active gateway does not match engine commit $commit"
+  systemctl is-active --quiet topics-club-gateway.service ||
+    fail "matching gateway must be running before engine deployment"
+  gateway_database_healthy "$health_url" ||
+    fail "matching gateway cannot confirm the migrated schema"
+}
+
+prune_old_directories() {
+  local directory=$1
+  local keep=$2
+  local protected_one=${3:-}
+  local protected_two=${4:-}
+  local count=0
+  local candidate
+
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    if [ "$candidate" = "$protected_one" ] || [ "$candidate" = "$protected_two" ]; then
+      continue
+    fi
+    count=$((count + 1))
+    if [ "$count" -gt "$keep" ]; then
+      case "$candidate" in
+        "$directory"/*)
+          rm -rf -- "$candidate"
+          printf 'removed old build directory %s\n' "$candidate"
+          ;;
+        *) fail "refusing to prune unexpected path: $candidate" ;;
+      esac
+    fi
+  done < <(find "$directory" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' |
+    sort -nr | sed 's/^[^ ]* //')
+}
+
+deploy_component() {
+  local component=$1
+  local tag=$2
+  local commit=$3
+  local health_url=$4
+  local current="$base/current-$component"
+  local previous="$base/previous-$component"
+  local candidate="$base/candidate-$component"
+  local target="$base/releases/$component/$tag"
+  local service
+  local old_target=""
+  local source_dir
+
+  validate_component "$component"
+  validate_health_url "$health_url"
+  [[ "$tag" =~ ^[0-9]{8}\.[0-9]+$ ]] || fail "invalid release tag: $tag"
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail "invalid commit: $commit"
+  service=$(service_name "$component")
+
+  if [ "$(resolved_link "$current")" = "$target" ] &&
+     systemctl is-active --quiet "$service"; then
+    printf '%s %s is already active; nothing to do\n' "$component" "$tag"
+    return
+  fi
+
+  if [ "$component" = engine ]; then
+    require_matching_gateway "$tag" "$commit" "$health_url"
+  fi
+
+  source_dir=$(prepare_source "$commit")
+  build_release "$component" "$tag" "$commit" "$source_dir" "$target"
+
+  if [ "$component" = gateway ]; then
+    atomic_link "$target" "$candidate"
+    systemctl reset-failed topics-club-migrate.service >/dev/null 2>&1 || true
+    if ! systemctl start topics-club-migrate.service; then
+      rm -f -- "$candidate"
+      fail "migration failed; gateway selection was not changed"
+    fi
+    rm -f -- "$candidate"
+  fi
+
+  old_target=$(resolved_link "$current")
+  if [ -n "$old_target" ] && [ "$old_target" != "$target" ]; then
+    atomic_link "$old_target" "$previous"
+  fi
+  atomic_link "$target" "$current"
+
+  restart_component "$component"
+  if [ "$component" = gateway ] && [ -z "$old_target" ] &&
+     ! systemctl is-active --quiet topics-club-engine.service; then
+    healthy_command=(gateway_database_healthy "$health_url")
+  else
+    healthy_command=(check_component "$component" "$health_url")
+  fi
+
+  if ! "${healthy_command[@]}"; then
+    printf 'new %s release failed its health check; restoring the prior release\n' "$component" >&2
+    restore_release "$component" "$old_target"
+    if [ -n "$old_target" ] && ! check_component "$component" "$health_url"; then
+      printf 'warning: restored %s release is not healthy\n' "$component" >&2
+    fi
+    fail "$component health check failed after activation"
+  fi
+
+  printf 'deployed %s %s (%s)\n' "$component" "$tag" "$commit"
+  prune_old_directories "$base/releases/$component" 5 \
+    "$(resolved_link "$current")" \
+    "$(resolved_link "$previous")"
+  prune_old_directories "$base/sources" 2 "$source_dir"
+}
+
+rollback_component() {
+  local component=$1
+  local health_url=$2
+  local current="$base/current-$component"
+  local previous="$base/previous-$component"
+  local current_target
+  local rollback_target
+
+  validate_component "$component"
+  validate_health_url "$health_url"
+  current_target=$(resolved_link "$current")
+  rollback_target=$(resolved_link "$previous")
+  [ -n "$current_target" ] || fail "there is no active $component release"
+  [ -d "$rollback_target" ] || fail "there is no prior $component release to restore"
+
+  atomic_link "$current_target" "$previous"
+  atomic_link "$rollback_target" "$current"
+  restart_component "$component"
+
+  if ! check_component "$component" "$health_url"; then
+    printf 'rollback target failed its health check; restoring the original release\n' >&2
+    atomic_link "$rollback_target" "$previous"
+    atomic_link "$current_target" "$current"
+    restart_component "$component"
+    check_component "$component" "$health_url" || true
+    fail "$component rollback health check failed"
+  fi
+
+  printf 'rolled back %s to %s\n' "$component" "$rollback_target"
+}
+
+main() {
+  local action=${1:-}
+  shift || true
+
+  exec 9>"$lock_file"
+  flock -n 9 || fail "another TopicsClub deployment is already running"
+
+  case "$action" in
+    deploy)
+      [ "$#" -eq 4 ] || fail "usage: topics-club-deploy deploy COMPONENT TAG COMMIT HEALTH_URL"
+      deploy_component "$@"
+      ;;
+    rollback)
+      [ "$#" -eq 2 ] || fail "usage: topics-club-deploy rollback COMPONENT HEALTH_URL"
+      rollback_component "$@"
+      ;;
+    *) fail "action must be deploy or rollback" ;;
+  esac
+}
+
+main "$@"

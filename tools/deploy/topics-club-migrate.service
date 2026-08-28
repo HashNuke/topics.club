@@ -1,0 +1,20 @@
+[Unit]
+Description=Run TopicsClub database migrations
+ConditionPathExists=/srv/topics-club/candidate-gateway/bin/migrate
+
+[Service]
+Type=oneshot
+User=topics-club-gateway
+Group=topics-club-gateway
+WorkingDirectory=/var/lib/topics-club/gateway
+EnvironmentFile=/etc/topics-club/gateway.env
+Environment=HOME=/var/lib/topics-club/gateway
+Environment=RELEASE_TMP=/var/lib/topics-club/gateway/tmp
+Environment=ERL_CRASH_DUMP=/var/lib/topics-club/gateway/erl_crash.dump
+ExecStart=/srv/topics-club/candidate-gateway/bin/migrate
+UMask=0027
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/topics-club/gateway

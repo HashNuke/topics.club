@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+script_dir=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -P -- "$script_dir/.." && pwd)
+
+exec uv run --project "$repo_root" python "$repo_root/tools/apptools.py" "$@"

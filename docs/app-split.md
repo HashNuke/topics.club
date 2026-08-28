@@ -1377,6 +1377,26 @@ shell operation must carry its own explicit state check. Keep gateway deployment
 deployment as separate entry points so an ordinary web deployment cannot select or restart the
 engine accidentally.
 
+The chosen implementation builds on the destination host rather than copying a release assembled
+elsewhere. Pyinfra installs Docker, but deliberately leaves Erlang, Elixir, Node.js, and npm absent
+from the host. An exact Git tag and commit are checked out into a non-current source directory, then
+a pinned Ubuntu 26.04 builder produces the bare OTP release locally. This keeps `bcrypt_elixir` and
+other native code aligned with the target userspace without turning the application itself into a
+container deployment. A low-memory bare host gets 4 GiB of build swap while the supported runtime
+floor stays at 1.5 GiB RAM.
+
+Use two destination-only environment files, not one shared file. Gateway and engine intentionally
+repeat the database URL, encryption key, release cookie, and stable node names, while role-specific
+values remain readable only by that role. No filled plaintext or encrypted secret file belongs in
+the public repository; operators create and edit both files directly on the server. The committed
+examples contain variable names and placeholders only.
+
+`bin/apptools` is the operator interface. `deploy` defaults to both roles in schema-safe order
+(gateway migrations while the old engine stays online, followed by the matching engine), while
+`deploy gateway` and `deploy engine` remain independently selectable. The engine command requires
+the same tag and commit to be active in the gateway before it can stop the old engine. The complete
+operator runbook is in `docs/deployment.md`.
+
 #### Host and directory preparation
 
 - [ ] Pin Erlang, Elixir, Node.js, and npm versions used on production build hosts.

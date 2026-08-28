@@ -61,6 +61,119 @@ curl --fail http://127.0.0.1:4000/health
 
 The application waits for PostgreSQL health, runs migrations, and then starts the combined release. Keep exactly one `app` container.
 
+## Advanced split deployment on one bare host
+
+The first-party split deployment is for the TopicsClub-operated environment where web-only
+deployments must leave IRC connections alone. It runs `topics_club_gateway` and
+`topics_club_engine` as separate systemd services on one Ubuntu 26.04 x86-64 host. It does not
+support a second engine host or horizontal replicas. The two BEAM nodes use short names and bind
+EPMD plus distribution ports `4369`, `4370`, and `4371` to loopback.
+
+The destination must be reachable as `root@IP` with an existing SSH key. PostgreSQL and its backup
+policy are provisioned separately; the application deploy never creates, replaces, or restores the
+database. The local operator machine needs `uv`, while the destination needs no preinstalled
+Erlang, Elixir, Node.js, or npm. Provisioning installs Docker and builds every release on the
+destination in a pinned Ubuntu 26.04 builder, so NIFs match the target userspace. A host below the
+recommended build memory gets a persistent 4 GiB `/swapfile` when it has less than 4 GiB of swap;
+the supported runtime RAM floor remains 1.5 GiB.
+
+Create the two environment files directly on the destination before provisioning. Do not copy a
+filled environment file from the repository or commit it, encrypted or otherwise. The committed
+`tools/deploy/gateway.env.example` and `tools/deploy/engine.env.example` files are variable lists
+only. On the server:
+
+```bash
+install -d -m 0755 /etc/topics-club
+install -m 0600 /dev/null /etc/topics-club/gateway.env
+install -m 0600 /dev/null /etc/topics-club/engine.env
+editor /etc/topics-club/gateway.env
+editor /etc/topics-club/engine.env
+```
+
+Both files need the same `DATABASE_URL`, `IRC_CREDENTIALS_KEY`, and `RELEASE_COOKIE`. Use stable
+node names `topics_club_gateway@localhost` and `topics_club_engine@localhost`; gateway also needs
+`TOPICS_CLUB_ENGINE_NODE=topics_club_engine@localhost`, `SECRET_KEY_BASE`, `PHX_HOST`, and `PORT`.
+Only the gateway starts Phoenix. Add engine-only hosted-IRC listener secrets to `engine.env` when
+that feature exists. Pyinfra checks the files' existence, ownership, and mode without reading,
+printing, templating, replacing, or transferring their contents.
+
+Provision the one destination repeatedly with the same command. Subsequent convergences are
+no-ops unless declared host configuration changed:
+
+```bash
+bin/apptools provision --host root@203.0.113.10
+```
+
+The repository defaults to `https://github.com/HashNuke/topics.club.git`. Create a release tag with
+`bin/release`, push it to `origin`, and deploy either the newest numeric release tag or an exact tag:
+
+```bash
+bin/apptools deploy --host root@203.0.113.10 --tag latest
+bin/apptools deploy --host root@203.0.113.10 --tag 20260828.1
+```
+
+The combined command deploys gateway first, while the old engine remains online, then deploys the
+matching engine. The gateway build runs locked migrations before its symlink changes. An explicit
+engine deployment is accepted only after the same tag and commit are active in a healthy gateway,
+which confirms that its schema migration step completed:
+
+```bash
+bin/apptools deploy gateway --host root@203.0.113.10 --tag latest
+bin/apptools deploy engine --host root@203.0.113.10 --tag latest
+```
+
+A gateway-only deployment never selects or restarts the engine service. The deploy program checks
+out an exact clean commit away from the running release, builds into a new versioned directory,
+checks the artifact manifest, atomically changes the role's `current` symlink, restarts only that
+role, and checks readiness. It keeps five release directories per role and two recent source
+checkouts, protecting current and previous targets. A deployment lock rejects concurrent builds.
+Re-running the active tag is a no-op.
+
+Gateway readiness requires PostgreSQL plus connectivity to the engine. During the first empty-host
+bootstrap only, gateway database readiness is sufficient until the engine starts. Engine readiness
+requires three consecutive marker RPC checks; when gateway is running, its end-to-end health must
+also become healthy. A failed migration leaves the previous gateway selected and running. A failed
+post-activation health check automatically restores and restarts the previous compatible role.
+
+Inspect the services and immutable build metadata with:
+
+```bash
+systemctl status topics-club-gateway topics-club-engine
+journalctl -u topics-club-gateway -u topics-club-engine
+cat /srv/topics-club/current-gateway/deploy-manifest
+cat /srv/topics-club/current-engine/deploy-manifest
+curl --fail http://127.0.0.1:4000/health
+```
+
+Roll back one application role to its recorded previous release with:
+
+```bash
+bin/apptools rollback gateway --host root@203.0.113.10
+bin/apptools rollback engine --host root@203.0.113.10
+```
+
+Gateway rollback leaves the engine running; engine rollback leaves the gateway running. The
+rollback swaps stable symlinks, restarts only the selected service, health-checks it, and restores
+the original selection if that check fails. It never reverses database migrations. Deploy and roll
+back only across additive, application-compatible migrations; a destructive migration needs its
+own coordinated database recovery plan.
+
+For local production-like rehearsal, the resettable pseudo-VPS has the same Ubuntu version,
+systemd services, SSH-as-root entry point, target-side Docker builder, 1.5 GiB RAM limit, build swap,
+and PostgreSQL sidecar:
+
+```bash
+bin/apptools testvps create
+bin/apptools provision --repository file:///mnt/topics-club.git
+bin/apptools deploy --tag latest
+bin/apptools testvps status
+bin/apptools testvps destroy
+```
+
+The `file:///mnt/topics-club.git` repository is a test-only read-only mount. Production provision
+uses the public HTTPS remote. Reset and destroy affect only the exact named pseudo-VPS containers,
+network, PostgreSQL data volume, Docker build-data volume, and ignored `.apptools/vps` test state.
+
 ## Back up and restore PostgreSQL
 
 Create logical backups outside `TOPICS_CLUB_POSTGRES_DATA`; copying the live data directory is not a safe backup procedure:

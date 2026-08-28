@@ -195,7 +195,7 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
     )
   end
 
-  test "split release control commands do not reuse the running node's fixed port" do
+  test "split releases use short local names without reusing runtime distribution ports" do
     env_script = Path.expand("../../rel/env.sh.eex", __DIR__)
 
     for {release_name, release_node, engine_node, port} <- [
@@ -204,13 +204,21 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
           {"topics_club_engine", "topics_club_engine@engine.internal", nil, "4371"}
         ] do
       for command <- ~w(start start_iex daemon daemon_iex) do
-        assert release_env(env_script, release_name, release_node, engine_node, command) =~
-                 "inet_dist_listen_min #{port} inet_dist_listen_max #{port}"
+        output = release_env(env_script, release_name, release_node, engine_node, command)
+        assert output =~ "sname|"
+        assert output =~ "inet_dist_listen_min #{port} inet_dist_listen_max #{port}"
       end
 
-      for command <- ~w(eval pid remote restart rpc stop version) do
-        refute release_env(env_script, release_name, release_node, engine_node, command) =~
-                 "inet_dist_listen"
+      for command <- ~w(pid remote restart rpc stop) do
+        output = release_env(env_script, release_name, release_node, engine_node, command)
+        assert output =~ "sname|"
+        refute output =~ "inet_dist_listen"
+      end
+
+      for command <- ~w(eval version) do
+        output = release_env(env_script, release_name, release_node, engine_node, command)
+        assert output =~ "none|"
+        refute output =~ "inet_dist_listen"
       end
     end
   end
@@ -247,7 +255,12 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
     assert {output, 0} =
              System.cmd(
                "sh",
-               ["-c", ~S(. "$1"; printf '%s' "${ELIXIR_ERL_OPTIONS:-}"), "env-test", script],
+               [
+                 "-c",
+                 ~S(. "$1"; printf '%s|%s' "${RELEASE_DISTRIBUTION:-}" "${ELIXIR_ERL_OPTIONS:-}"),
+                 "env-test",
+                 script
+               ],
                env: env
              )
 
