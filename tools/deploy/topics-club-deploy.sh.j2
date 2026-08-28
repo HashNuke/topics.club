@@ -114,8 +114,13 @@ build_release() {
 
   if [ -d "$target" ]; then
     [ -f "$target/deploy-manifest" ] || fail "release directory is missing its manifest: $target"
+    [ -x "$target/bin/$release" ] || fail "release directory is missing its executable: $target"
+    grep -Fxq "tag=$tag" "$target/deploy-manifest" ||
+      fail "release directory manifest does not match tag $tag"
     grep -Fxq "commit=$commit" "$target/deploy-manifest" ||
       fail "release tag $tag is already associated with another commit"
+    grep -Fxq "release=$release" "$target/deploy-manifest" ||
+      fail "release directory manifest does not match $release"
     return
   fi
 
@@ -261,26 +266,26 @@ prune_old_directories() {
   local keep=$2
   local protected_one=${3:-}
   local protected_two=${4:-}
-  local count=0
+  local total
   local candidate
 
+  total=$(find "$directory" -mindepth 1 -maxdepth 1 -type d -printf . | wc -c)
   while IFS= read -r candidate; do
     [ -n "$candidate" ] || continue
+    [ "$total" -gt "$keep" ] || break
     if [ "$candidate" = "$protected_one" ] || [ "$candidate" = "$protected_two" ]; then
       continue
     fi
-    count=$((count + 1))
-    if [ "$count" -gt "$keep" ]; then
-      case "$candidate" in
-        "$directory"/*)
-          rm -rf -- "$candidate"
-          printf 'removed old build directory %s\n' "$candidate"
-          ;;
-        *) fail "refusing to prune unexpected path: $candidate" ;;
-      esac
-    fi
+    case "$candidate" in
+      "$directory"/*)
+        rm -rf -- "$candidate"
+        total=$((total - 1))
+        printf 'removed old build directory %s\n' "$candidate"
+        ;;
+      *) fail "refusing to prune unexpected path: $candidate" ;;
+    esac
   done < <(find "$directory" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' |
-    sort -nr | sed 's/^[^ ]* //')
+    sort -n | sed 's/^[^ ]* //')
 }
 
 deploy_component() {
