@@ -39,6 +39,17 @@ defmodule TopicsClub.Engine.APITest do
     %{user: user, other_user: other_user, connection: connection}
   end
 
+  test "reports protocol capabilities and runtime ownership through the stable API" do
+    assert {:ok, info} = EngineClient.protocol_info(request_id: "protocol-info-test")
+
+    assert info.protocol_version == 1
+    assert :protocol_info in info.operations
+    assert info.engine_node == Atom.to_string(node())
+    assert info.marker.status == :owner
+    assert info.marker.owner_node == Atom.to_string(node())
+    assert is_integer(info.active_sessions)
+  end
+
   test "unknown versions and operations return stable replies without crashing", %{user: user} do
     unsupported_version = %{
       version: 2,

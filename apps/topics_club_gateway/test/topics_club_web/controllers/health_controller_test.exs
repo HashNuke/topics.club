@@ -1,10 +1,41 @@
 defmodule TopicsClubWeb.HealthControllerTest do
-  use TopicsClubWeb.ConnCase, async: true
+  use TopicsClubWeb.ConnCase, async: false
 
   test "reports readiness without authentication", %{conn: conn} do
     conn = get(conn, ~p"/health")
 
-    assert %{"status" => "ok"} = json_response(conn, 200)
+    assert %{
+             "status" => "ok",
+             "database" => "ok",
+             "engine" => %{"mode" => "combined", "status" => "local"}
+           } = json_response(conn, 200)
+  end
+
+  test "keeps persisted web readiness available while exposing a disconnected split engine", %{
+    conn: conn
+  } do
+    previous_engine_node = Application.get_env(:topics_club_gateway, :engine_node)
+    Application.put_env(:topics_club_gateway, :engine_node, :missing_engine@localhost)
+
+    on_exit(fn ->
+      if previous_engine_node do
+        Application.put_env(:topics_club_gateway, :engine_node, previous_engine_node)
+      else
+        Application.delete_env(:topics_club_gateway, :engine_node)
+      end
+    end)
+
+    conn = get(conn, ~p"/health")
+
+    assert %{
+             "status" => "degraded",
+             "database" => "ok",
+             "engine" => %{
+               "mode" => "split",
+               "status" => "disconnected",
+               "node" => "missing_engine@localhost"
+             }
+           } = json_response(conn, 200)
   end
 
   test "production SSL policy permits a plain HTTP platform health check" do

@@ -104,9 +104,10 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
   test "the web branch controls discovery and keeps Endpoint last" do
     assert TopicsClubWeb.Supervisor.discovery_children(true) == [{Refresher, []}]
     assert TopicsClubWeb.Supervisor.discovery_children(false) == []
-    assert TopicsClubWeb.Supervisor.engine_node_children(nil) == []
+    assert TopicsClubWeb.Supervisor.split_runtime_children(nil) == []
 
-    assert TopicsClubWeb.Supervisor.engine_node_children(:engine@localhost) == [
+    assert TopicsClubWeb.Supervisor.split_runtime_children(:engine@localhost) == [
+             {TopicsClubWeb.InternalEvents.Subscriber, []},
              {TopicsClubWeb.EngineNodeConnector, engine_node: :engine@localhost}
            ]
 

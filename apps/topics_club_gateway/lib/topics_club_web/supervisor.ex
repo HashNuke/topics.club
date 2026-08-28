@@ -31,7 +31,7 @@ defmodule TopicsClubWeb.Supervisor do
     [
       TopicsClubWeb.Telemetry
     ] ++
-      engine_node_children(engine_node) ++
+      split_runtime_children(engine_node) ++
       [
         {Task.Supervisor, name: TopicsClubWeb.EngineRestoreTaskSupervisor},
         {TopicsClubWeb.EngineRestorer, []},
@@ -44,10 +44,13 @@ defmodule TopicsClubWeb.Supervisor do
   end
 
   @doc false
-  def engine_node_children(nil), do: []
+  def split_runtime_children(nil), do: []
 
-  def engine_node_children(engine_node) when is_atom(engine_node) do
-    [{TopicsClubWeb.EngineNodeConnector, engine_node: engine_node}]
+  def split_runtime_children(engine_node) when is_atom(engine_node) do
+    [
+      {TopicsClubWeb.InternalEvents.Subscriber, []},
+      {TopicsClubWeb.EngineNodeConnector, engine_node: engine_node}
+    ]
   end
 
   @doc false

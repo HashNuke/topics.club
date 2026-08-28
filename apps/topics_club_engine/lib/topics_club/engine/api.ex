@@ -12,6 +12,7 @@ defmodule TopicsClub.Engine.API do
   alias TopicsClub.Chat.DirectMessageThread
   alias TopicsClub.Chat.ServerConnection
   alias TopicsClub.Chat.SystemMessages
+  alias TopicsClub.Engine.Diagnostics
   alias TopicsClub.Engine.OperationLock
   alias TopicsClub.Engine.Serialization
   alias TopicsClub.EngineClient.Contract
@@ -24,6 +25,11 @@ defmodule TopicsClub.Engine.API do
   alias TopicsClub.Repo
 
   def dispatch(request) do
+    Logger.debug("Engine API request",
+      request_id: request_id(request),
+      operation: if(is_map(request), do: Map.get(request, :operation))
+    )
+
     case Contract.validate(request) do
       :ok -> dispatch_valid(request)
       {:error, error} -> Reply.error(request, error)
@@ -42,6 +48,10 @@ defmodule TopicsClub.Engine.API do
       )
 
       Reply.error(request, :internal_error)
+  end
+
+  defp dispatch_valid(%{operation: :protocol_info} = request) do
+    Reply.ok(request, Diagnostics.snapshot())
   end
 
   defp dispatch_valid(%{operation: :connection_statuses} = request) do

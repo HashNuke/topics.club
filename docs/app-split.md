@@ -551,6 +551,7 @@ The checked-in version 1 contract currently defines these operations and expecta
 
 | Operation | Default timeout | Retry classification |
 | --- | ---: | --- |
+| Protocol/capability information | 5 seconds | Safe |
 | Batch connection status | 5 seconds | Safe |
 | Connection info | 5 seconds | Safe |
 | Ensure/start connection | 15 seconds | Safe |
@@ -602,7 +603,7 @@ Browser payload formatting remains in `topics_club_gateway`. Internal events mus
 
 Synchronous command execution results remain in the versioned `EngineClient` reply. Command transcript rows and later status changes are canonical messages and therefore use `message_committed`; emitting a second command-result event would duplicate the request reply and the persisted message event without adding recoverable state.
 
-During monolith demarcation, `TopicsClub.InternalEvents` synchronously invokes one configured adapter. The combined configuration selects a web-owned adapter that translates committed internal facts into the existing Phoenix PubSub payloads and Web Push jobs. This is deliberately a small port, not a general event-bus framework. Workstream 4 will supply the split transport adapter that carries the same envelopes between nodes; event producers and browser serializers must not change for that transport move.
+`TopicsClub.InternalEvents` synchronously invokes one configured adapter. Combined mode selects the web-owned adapter that translates committed facts directly into the existing browser PubSub payloads and Web Push jobs. Split engine mode selects one small PubSub transport adapter that publishes the unchanged envelope on `topics_club:internal_events:v1`; one gateway subscriber validates it again and invokes the same web-owned adapter. This is deliberately a two-module transport bridge, not a general event-bus framework. Event producers and browser serializers do not branch by runtime mode.
 
 ## PostgreSQL and migrations
 
@@ -628,7 +629,7 @@ IRC server credentials remain encrypted at rest. Both combined mode and the engi
 
 All participating nodes start `TopicsClub.PubSub` with the default Distributed Erlang adapter and an explicitly identical pool configuration. Do not derive pool size from the node's CPU count because the web and engine machines may differ.
 
-The initial deployment uses a fixed `pool_size: 1` on every node. A future pool-size change must follow Phoenix PubSub's compatible rolling migration procedure.
+The initial deployment uses a fixed `pool_size: 1` on every node. To increase it later, first deploy the new `pool_size` while retaining `broadcast_pool_size: 1` on every node, then remove `broadcast_pool_size` only after all nodes run the new pool. Decrease it in the reverse two-phase order. Never roll directly between unequal active pool sizes.
 
 Combined mode uses the same PubSub calls locally. Engine modules must not branch between local and clustered publishing.
 
@@ -759,7 +760,7 @@ Distribution ports and EPMD must not be exposed publicly. A shared Erlang cookie
 
 ## Configuration contract
 
-Combined mode should work with the existing required environment variables. Split mode adds explicit cluster configuration, with names to be finalized during implementation:
+Combined mode works with the existing required environment variables. Split mode adds the finalized explicit cluster configuration:
 
 ```text
 RELEASE_NODE=topics_club_gateway@web.internal
@@ -1176,54 +1177,54 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 - [x] Return the owning engine node without routing all work through the marker process.
 - [x] Replace `TopicsClub.Irc.SingleNodeGuard` with the engine marker singleton guard.
 - [x] Permit non-engine web nodes to join without stopping engine supervision.
-- [ ] Refuse engine startup before opening sessions when another marker exists.
-- [ ] Handle stale marker cleanup after an ordinary node shutdown.
-- [ ] Log and expose marker acquisition and ownership status.
-- [ ] Document that this guard is not network-partition-safe fencing.
+- [x] Refuse engine startup before opening sessions when another marker exists.
+- [x] Handle stale marker cleanup after an ordinary node shutdown.
+- [x] Log and expose marker acquisition and ownership status.
+- [x] Document that this guard is not network-partition-safe fencing.
 
 #### Remote engine calls
 
-- [ ] Add the split-mode `EngineClient` adapter.
-- [ ] Resolve the engine node through the marker and static configuration.
-- [ ] Invoke only the stable engine API entry point remotely.
-- [ ] Apply per-operation timeouts and normalize timeout exits.
-- [ ] Normalize node-down and engine-not-started failures to `:engine_unavailable`.
-- [ ] Reject unsupported request versions and operations explicitly.
-- [ ] Add protocol capability/version reporting for diagnostics.
-- [ ] Correlate remote logs using request IDs.
-- [ ] Ensure remote retries cannot duplicate non-idempotent sends.
-- [ ] Verify the engine reloads ownership and authorization data from PostgreSQL for every mutation.
+- [x] Add the split-mode `EngineClient` adapter.
+- [x] Resolve the engine node through the marker and static configuration.
+- [x] Invoke only the stable engine API entry point remotely.
+- [x] Apply per-operation timeouts and normalize timeout exits.
+- [x] Normalize node-down and engine-not-started failures to `:engine_unavailable`.
+- [x] Reject unsupported request versions and operations explicitly.
+- [x] Add protocol capability/version reporting for diagnostics.
+- [x] Correlate remote logs using request IDs.
+- [x] Ensure remote retries cannot duplicate non-idempotent sends.
+- [x] Verify the engine reloads ownership and authorization data from PostgreSQL for every mutation.
 
 #### Cross-node PubSub
 
-- [ ] Start identically named PubSub instances on web and engine.
-- [ ] Verify engine broadcasts reach the web node through Distributed Erlang.
-- [ ] Verify combined mode still uses the same publish calls locally.
+- [x] Start identically named PubSub instances on web and engine.
+- [x] Verify engine broadcasts reach the web node through Distributed Erlang.
+- [x] Verify combined mode still uses the same publish calls locally.
 - [ ] Verify web restart and resubscription do not require engine restart.
-- [ ] Verify missed events are recovered through browser bootstrap/history rather than a new raw-event journal.
-- [ ] Document the compatible rolling procedure required before any future PubSub pool-size change.
+- [x] Verify missed events are recovered through browser bootstrap/history rather than a new raw-event journal.
+- [x] Document the compatible rolling procedure required before any future PubSub pool-size change.
 
 #### Degraded behavior and observability
 
-- [ ] Keep login, account, settings, and persisted history available while the engine is down.
-- [ ] Return a clear degraded error for IRC mutations while the engine is unavailable.
-- [ ] Keep pending browser sends recoverable or retryable according to operation semantics.
-- [ ] Expose web-to-engine connection state in health and telemetry.
+- [x] Keep login, account, settings, and persisted history available while the engine is down.
+- [x] Return a clear degraded error for IRC mutations while the engine is unavailable.
+- [x] Keep pending browser sends recoverable or retryable according to operation semantics.
+- [x] Expose web-to-engine connection state in health and telemetry.
 - [ ] Expose engine marker ownership, active sessions, reconnects, and ingestion failures.
 - [ ] Add alerts for engine loss, duplicate-engine attempts, and sustained RPC timeouts.
-- [ ] Ensure web startup is not permanently blocked by temporary engine unavailability.
+- [x] Ensure web startup is not permanently blocked by temporary engine unavailability.
 
 #### Split integration harness and tests
 
 - [ ] Start distinct web and engine nodes against one test PostgreSQL database and local IRC server.
 - [ ] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
-- [ ] Confirm engine PubSub events reach a user channel on the web node.
+- [x] Confirm engine PubSub events reach a user channel on the web node.
 - [ ] Stop web and prove the engine session PID remains alive.
 - [ ] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
 - [ ] Stop engine and verify persisted web features remain available with degraded mutation errors.
 - [ ] Restart engine and restore only desired-connected recent sessions and their autojoins.
 - [ ] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
-- [ ] Simulate a request timeout and prove errors are normalized without crashing callers.
+- [x] Simulate a request timeout and prove errors are normalized without crashing callers.
 - [ ] Verify web N operates with the supported engine N-1 protocol.
 - [ ] Add an optional split Compose harness if it materially simplifies CI and local integration testing.
 

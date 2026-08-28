@@ -12,7 +12,31 @@ defmodule TopicsClub.Engine.MarkerTest do
 
   test "the global marker prevents a second engine marker" do
     assert {:ok, marker} = Discovery.whereis()
+    assert %{status: :owner, owner_node: owner_node, started_at: started_at} = Marker.status()
+    assert owner_node == Atom.to_string(node())
+    assert {:ok, _timestamp, 0} = DateTime.from_iso8601(started_at)
     assert {:error, {:already_started, ^marker}} = Marker.start_link([])
+  end
+
+  test "a duplicate marker stops engine supervision before later children start" do
+    test_pid = self()
+    previous_trap_exit = Process.flag(:trap_exit, true)
+    on_exit(fn -> Process.flag(:trap_exit, previous_trap_exit) end)
+
+    children = [
+      {Marker, []},
+      Supervisor.child_spec(
+        {Task, fn -> send(test_pid, :duplicate_engine_started_later_child) end},
+        id: :duplicate_engine_later_child
+      )
+    ]
+
+    assert {:error,
+            {:shutdown, {:failed_to_start_child, Marker, {:already_started, existing_marker}}}} =
+             Supervisor.start_link(children, strategy: :one_for_one)
+
+    assert is_pid(existing_marker)
+    refute_receive :duplicate_engine_started_later_child
   end
 
   test "a connected non-engine node leaves IRC sessions and connection locks operational" do

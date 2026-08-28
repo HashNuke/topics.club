@@ -12,10 +12,14 @@ defmodule TopicsClub.EngineClient.Discovery do
     end
   end
 
-  def engine_node do
+  def engine_node(expected_node \\ nil) do
     case whereis() do
-      {:ok, pid} -> {:ok, node(pid)}
+      {:ok, pid} -> verify_expected_node(node(pid), expected_node)
       error -> error
     end
   end
+
+  defp verify_expected_node(engine_node, nil), do: {:ok, engine_node}
+  defp verify_expected_node(engine_node, engine_node), do: {:ok, engine_node}
+  defp verify_expected_node(_engine_node, _expected_node), do: {:error, :engine_unavailable}
 end

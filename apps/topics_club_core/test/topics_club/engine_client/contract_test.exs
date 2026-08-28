@@ -20,7 +20,9 @@ defmodule TopicsClub.EngineClient.ContractTest do
 
   test "version 1 defines every initial operation with timeout and retry policy" do
     assert Contract.version() == 1
-    assert Enum.sort(Enum.map(@requests, &elem(&1, 0))) == Contract.operations()
+
+    assert Enum.sort([:protocol_info | Enum.map(@requests, &elem(&1, 0))]) ==
+             Contract.operations()
 
     for operation <- Contract.operations() do
       assert is_integer(Contract.timeout(operation))
@@ -31,6 +33,16 @@ defmodule TopicsClub.EngineClient.ContractTest do
     assert Contract.retry_policy(:send_channel_message) == :unsafe
     assert Contract.retry_policy(:delete_connection) == :unsafe
     assert Contract.retry_policy(:connection_statuses) == :safe
+  end
+
+  test "constructs the system protocol-info request without user credentials" do
+    assert {:ok, request} =
+             Contract.new(:protocol_info, nil, nil, %{}, request_id: "protocol-info-1")
+
+    assert :ok = Contract.validate(request)
+    assert Contract.plain_term?(request)
+    assert request.user_id == nil
+    assert request.connection_id == nil
   end
 
   test "constructs valid scalar-only envelopes for every initial operation" do

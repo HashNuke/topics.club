@@ -49,7 +49,7 @@ if config_env() == :prod do
     "topics_club_engine" ->
       config :topics_club_core,
         engine_client_adapter: TopicsClub.Engine.LocalAdapter,
-        internal_event_adapter: nil
+        internal_event_adapter: TopicsClub.InternalEvents.PubSubAdapter
 
     _combined_or_mix ->
       config :topics_club_core,
