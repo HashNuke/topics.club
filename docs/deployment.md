@@ -61,6 +61,38 @@ curl --fail http://127.0.0.1:4000/health
 
 The application waits for PostgreSQL health, runs migrations, and then starts the combined release. Keep exactly one `app` container.
 
+### One-time database rename for existing installations
+
+The topics.club naming checkpoint changes the Compose database from `ircpipe_prod` to `topics_club_prod`. PostgreSQL only applies `POSTGRES_DB` when it initializes an empty data directory, so changing the Compose setting does not rename a database in an existing `PGDATA` volume.
+
+Before starting the renamed application against an existing volume:
+
+1. Back up `ircpipe_prod` and verify the backup file is non-empty.
+2. Stop the application container so it holds no database connections, but keep PostgreSQL running.
+3. Rename `IRCPIPE_POSTGRES_DATA` to `TOPICS_CLUB_POSTGRES_DATA` in `.env` while preserving the exact existing directory value. This is an environment-variable rename, not a data-directory move.
+4. Check out the naming checkpoint and start only PostgreSQL with the new Compose file.
+5. Rename the database exactly once, then continue with the normal migration and application upgrade commands.
+
+```bash
+# Run these commands from the old checkout with the old .env file.
+docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
+  pg_dump -U postgres -d ircpipe_prod -Fc > ircpipe-before-topics-club.dump
+test -s ircpipe-before-topics-club.dump
+docker compose --env-file .env -f docker-compose.prod.yml stop app
+
+# Rename the .env key without changing its directory value, then check out the new commit.
+# IRCPIPE_POSTGRES_DATA=/srv/ircpipe/postgres
+# becomes TOPICS_CLUB_POSTGRES_DATA=/srv/ircpipe/postgres
+
+# Run these commands from the new checkout.
+docker compose --env-file .env -f docker-compose.prod.yml up -d postgres
+docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
+  psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  -c 'ALTER DATABASE ircpipe_prod RENAME TO topics_club_prod;'
+```
+
+Do not run the rename if `topics_club_prod` already exists. The application migration that follows rewrites persisted Oban worker names before the renamed workers can consume queued jobs. The clean cookie and browser-storage namespace rename intentionally signs users out and resets browser-only preferences; there are no legacy configuration fallbacks.
+
 ## Back up and restore PostgreSQL
 
 Create logical backups outside `TOPICS_CLUB_POSTGRES_DATA`; copying the live data directory is not a safe backup procedure:
