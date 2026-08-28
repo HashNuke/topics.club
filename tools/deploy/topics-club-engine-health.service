@@ -13,7 +13,7 @@ EnvironmentFile=/etc/topics-club/engine.env
 Environment=HOME=/var/lib/topics-club/engine
 Environment=RELEASE_TMP=/var/lib/topics-club/engine/tmp
 Environment=ERL_EPMD_ADDRESS=127.0.0.1
-ExecStart=/srv/topics-club/current-engine/bin/topics_club_engine rpc "case TopicsClub.Engine.Diagnostics.snapshot() do %%{marker: %%{status: :owner}} -> :ok; state -> raise \"engine is not ready: #{inspect(state)}\" end"
+ExecStart=/srv/topics-club/current-engine/bin/topics_club_engine rpc "_ = :sys.get_state(TopicsClub.Irc.Bouncer); case TopicsClub.Engine.Diagnostics.snapshot() do %%{marker: %%{status: :owner}} -> :ok; state -> raise \"engine is not ready: #{inspect(state)}\" end"
 TimeoutStartSec=30
 UMask=0027
 PrivateTmp=true
