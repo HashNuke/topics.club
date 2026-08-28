@@ -49,7 +49,15 @@ jobs:
 
       - name: Prevent boundary baseline expansion
         if: github.event_name == 'pull_request'
-        run: mix ircpipe.check_boundaries --baseline-ref "${{ github.event.pull_request.base.sha }}"
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git cat-file -e "${BASE_SHA}:config/boundaries.exs" 2>/dev/null; then
+            mix ircpipe.check_boundaries --baseline-ref "$BASE_SHA"
+          else
+            echo "Base commit predates the boundary manifest; running the head policy only."
+            mix ircpipe.check_boundaries
+          fi
 
       - name: Run precommit suite
         run: mix precommit
