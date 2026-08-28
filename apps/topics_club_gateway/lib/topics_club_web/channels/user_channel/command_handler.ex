@@ -192,6 +192,38 @@ defmodule TopicsClubWeb.UserChannel.CommandHandler do
     end
   end
 
+  defp run_command(%{name: "whoami", args: []} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
+         {:ok, %{connection_info: %{current_nick: nick}}} <-
+           session_connection_info(user, connection),
+         true <- is_binary(nick),
+         {:ok, result} <- execute_intent(connection, "WHOIS #{nick}", buffer_id, socket) do
+      Reply.ok(socket, Map.put(result, :command, command))
+    else
+      false ->
+        Reply.error(socket, %{reason: "not_connected", command: command})
+
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
+
+      {:error, reason} ->
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+    end
+  end
+
+  defp run_command(%{name: "whois", args: [nick]} = command, user, buffer_id, socket) do
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
+         {:ok, result} <- execute_intent(connection, "WHOIS #{nick}", buffer_id, socket) do
+      Reply.ok(socket, Map.put(result, :command, command))
+    else
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
+
+      {:error, reason} ->
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+    end
+  end
+
   defp run_command(%{name: "topic", args: [channel]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel),

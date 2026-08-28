@@ -72,8 +72,26 @@ defmodule TopicsClub.Irc.Session.DepartureCommands do
 
   defp transmit_part(state, channel, reason, key) do
     case Ircxd.Client.part(state.client, channel, reason) do
-      :ok -> {:ok, %{state | pending_joins: MapSet.delete(state.pending_joins, key)}}
+      :ok -> confirm_requested_part(state, channel, key)
       error -> {error, state}
+    end
+  end
+
+  defp confirm_requested_part(state, channel, key) do
+    case ChannelPartLifecycle.confirm(
+           state.connection,
+           channel,
+           Targets.casemapping(state)
+         ) do
+      {:ok, _membership} ->
+        {:ok,
+         state
+         |> Map.update(:pending_joins, MapSet.new(), &MapSet.delete(&1, key))
+         |> Map.update(:sent_joins, MapSet.new(), &MapSet.delete(&1, key))
+         |> Map.update(:joined_channels, MapSet.new(), &MapSet.delete(&1, key))}
+
+      {:error, reason} ->
+        {{:error, reason}, state}
     end
   end
 

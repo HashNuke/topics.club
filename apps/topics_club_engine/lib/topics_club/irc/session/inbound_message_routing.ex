@@ -43,7 +43,7 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
     if Identity.source_self?(state, payload, nick) do
       case PendingEchoes.pop(
              state.pending_echoes,
-             Targets.normalize(state, target),
+             Targets.key(state, target),
              body,
              kind
            ) do

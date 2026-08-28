@@ -78,6 +78,26 @@ defmodule TopicsClub.Irc.Commands do
       examples: ["/nick mira_"]
     },
     %{
+      name: "/whoami",
+      command: "whoami",
+      usage: "/whoami",
+      description: "Show your current IRC identity",
+      required_permission: "user",
+      contexts: ["server", "channel"],
+      availability: "enabled",
+      examples: ["/whoami"]
+    },
+    %{
+      name: "/whois",
+      command: "whois",
+      usage: "/whois nick",
+      description: "Show an IRC user's identity",
+      required_permission: "user",
+      contexts: ["server", "channel"],
+      availability: "enabled",
+      examples: ["/whois mira"]
+    },
+    %{
       name: "/topic",
       command: "topic",
       usage: "/topic #channel [topic]",

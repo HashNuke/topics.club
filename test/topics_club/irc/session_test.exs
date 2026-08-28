@@ -1206,9 +1206,16 @@ defmodule TopicsClub.Irc.SessionTest do
       end)
 
     assert {:noreply, returned_state} = Session.handle_info({:ircxd, event}, returned_state)
-    Process.cancel_timer(timer)
 
-    assert returned_state.pending_commands == state.pending_commands
+    completed =
+      Ircxd.Client.Event.from_legacy!(
+        {:labeled_request, %{label: "whois-batch-1", status: :completed}}
+      )
+
+    assert {:noreply, returned_state} =
+             Session.handle_info({:ircxd, completed}, returned_state)
+
+    assert returned_state.pending_commands == %{}
 
     results =
       user
@@ -1218,7 +1225,7 @@ defmodule TopicsClub.Irc.SessionTest do
     assert length(results) == 2
 
     assert Enum.all?(results, &(&1.metadata["command_id"] == "whois-batch-1"))
-    assert Enum.any?(results, &(&1.metadata["irc_event"] == "whois_user"))
+    assert Enum.any?(results, &(&1.metadata["irc_event"] == "whois_summary"))
 
     assert Enum.any?(results, fn result ->
              result.metadata["irc_event"] == "standard_reply" and
@@ -1299,7 +1306,7 @@ defmodule TopicsClub.Irc.SessionTest do
 
     assert Enum.sort(Enum.map(results, & &1.metadata["irc_event"])) == [
              "standard_reply",
-             "whois_user"
+             "whois_summary"
            ]
 
     assert :ok = Session.quit(connection)

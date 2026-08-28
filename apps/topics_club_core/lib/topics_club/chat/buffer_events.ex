@@ -146,6 +146,13 @@ defmodule TopicsClub.Chat.BufferEvents do
 
   def command_message(
         %Message{} = message,
+        %DirectMessageThread{} = thread,
+        %ServerConnection{}
+      ),
+      do: direct_message(message, thread)
+
+  def command_message(
+        %Message{} = message,
         %ChannelMembership{} = membership,
         %ServerConnection{} = connection
       ),

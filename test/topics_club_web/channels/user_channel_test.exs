@@ -1256,7 +1256,7 @@ defmodule TopicsClubWeb.UserChannelTest do
   end
 
   test "leaves a channel buffer through the IRC session" do
-    server = start_supervised!({IrcTestServer, self()})
+    server = start_supervised!({IrcTestServer, {self(), part_replies?: false}})
     user = AccountsFixtures.user_fixture()
 
     {:ok, connection} =
@@ -1414,7 +1414,7 @@ defmodule TopicsClubWeb.UserChannelTest do
       metadata: %{
         "command_id" => "whois-mira-1",
         "command_status" => "result",
-        "irc_event" => "whois_user"
+        "irc_event" => "whois_summary"
       }
     }
 
@@ -1434,6 +1434,113 @@ defmodule TopicsClubWeb.UserChannelTest do
                message.metadata["command_status"] == "completed"
            end)
 
+    assert :ok = Session.quit(connection)
+  end
+
+  test "runs nick and whoami from a direct-message buffer without restarting the session" do
+    server = start_supervised!({IrcTestServer, self()})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "direct buffer commands",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "topics_club"
+      })
+
+    {:ok, thread} = DirectMessageLifecycle.open(user, connection, "NickServ")
+    socket = join_user_channel(user)
+    {:ok, session_pid} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK topics_club"}, 1_000
+    assert_receive {:irc_server_line, "USER topics_club 0 * topics_club"}, 1_000
+    assert_push "buffer:system", %{body: "Connected to 127.0.0.1."}
+    buffer_id = "direct:#{thread.id}"
+
+    nick_ref =
+      push(socket, "command:run", %{
+        "command_id" => "direct-nick-1",
+        "input" => "/nick topics_club2",
+        "buffer_id" => buffer_id
+      })
+
+    assert_reply nick_ref, :ok, %{
+      command_id: "direct-nick-1",
+      command: %{name: "nick", args: ["topics_club2"]},
+      status: "sent"
+    }
+
+    assert_receive {:irc_server_line, "NICK topics_club2"}, 1_000
+
+    assert_push "buffer:system", %{
+      buffer_id: ^buffer_id,
+      metadata: %{
+        "command_id" => "direct-nick-1",
+        "command_status" => "completed"
+      }
+    }
+
+    assert SessionLocator.whereis(connection) == session_pid
+
+    whoami_ref =
+      push(socket, "command:run", %{
+        "command_id" => "direct-whoami-1",
+        "input" => "/whoami",
+        "buffer_id" => buffer_id
+      })
+
+    assert_reply whoami_ref, :ok, %{
+      command_id: "direct-whoami-1",
+      command: %{name: "whoami", args: []},
+      display: "WHOIS topics_club2",
+      status: "sent"
+    }
+
+    assert_receive {:irc_server_line, "WHOIS topics_club2"}, 1_000
+
+    assert_push "buffer:system", %{
+      buffer_id: ^buffer_id,
+      metadata: %{
+        "command_id" => "direct-whoami-1",
+        "command_status" => "completed"
+      }
+    }
+
+    assert [_nick_command] =
+             MessageHistory.list_buffer_command_messages(user, buffer_id, ["direct-nick-1"])
+
+    assert [_whoami_command] =
+             MessageHistory.list_buffer_command_messages(user, buffer_id, ["direct-whoami-1"])
+
+    whois_ref =
+      push(socket, "command:run", %{
+        "command_id" => "direct-whois-1",
+        "input" => "/whois dev3dev",
+        "buffer_id" => buffer_id
+      })
+
+    assert_reply whois_ref, :ok, %{
+      command_id: "direct-whois-1",
+      command: %{name: "whois", args: ["dev3dev"]},
+      display: "WHOIS dev3dev",
+      status: "sent"
+    }
+
+    assert_receive {:irc_server_line, "WHOIS dev3dev"}, 1_000
+
+    assert_push "buffer:system", %{
+      buffer_id: ^buffer_id,
+      metadata: %{
+        "command_id" => "direct-whois-1",
+        "command_status" => "completed"
+      }
+    }
+
+    assert [_whois_command] =
+             MessageHistory.list_buffer_command_messages(user, buffer_id, ["direct-whois-1"])
+
+    assert SessionLocator.whereis(connection) == session_pid
     assert :ok = Session.quit(connection)
   end
 

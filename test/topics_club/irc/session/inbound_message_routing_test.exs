@@ -120,6 +120,42 @@ defmodule TopicsClub.Irc.Session.InboundMessageRoutingTest do
     assert_receive {:buffer_message, %{body: "self echo after stale edit"}}
   end
 
+  test "deduplicates a self echo addressed through a channel status prefix" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, _membership} = Chat.join_channel(user, connection, "##fix_your_connection")
+
+    state = %{
+      connection: connection,
+      active_casemapping: :rfc1459,
+      client_info:
+        struct(Info,
+          current_nick: "mira",
+          casemapping: :rfc1459,
+          isupport: %{"CHANTYPES" => "#", "STATUSMSG" => "@+"}
+        ),
+      isupport_received?: true,
+      pending_echoes:
+        PendingEchoes.new()
+        |> PendingEchoes.remember(
+          "##fix_your_connection",
+          "Msgs appear twice",
+          "message"
+        )
+    }
+
+    returned =
+      InboundMessageRouting.privmsg(state, %{
+        target: "@##fix_your_connection",
+        nick: "mira",
+        raw_source: "mira!user@example.test",
+        body: "Msgs appear twice"
+      })
+
+    assert PendingEchoes.empty?(returned.pending_echoes)
+    refute Repo.get_by(Message, body: "Msgs appear twice")
+  end
+
   test "keeps the session alive when late channel messages arrive without a membership" do
     server = start_supervised!({IrcTestServer, self()})
     user = AccountsFixtures.user_fixture()

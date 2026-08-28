@@ -36,6 +36,7 @@ defmodule TopicsClub.IrcTestServer do
       port: port,
       labeled_responses?: Keyword.get(opts, :labeled_responses?, false),
       join_replies?: Keyword.get(opts, :join_replies?, true),
+      part_replies?: Keyword.get(opts, :part_replies?, true),
       motd_end?: Keyword.get(opts, :motd_end?, true),
       isupport_lines:
         Keyword.get(opts, :isupport_lines, [
@@ -168,6 +169,8 @@ defmodule TopicsClub.IrcTestServer do
       ":topics_club-test 366 topics_club #{channel} :End of /NAMES list"
     ]
   end
+
+  defp reply("PART " <> _rest, %{part_replies?: false}), do: []
 
   defp reply("PART " <> rest, _state) do
     [channel | reason] = String.split(rest, " ", parts: 2)

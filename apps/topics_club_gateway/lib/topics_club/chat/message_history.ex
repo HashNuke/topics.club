@@ -101,6 +101,15 @@ defmodule TopicsClub.Chat.MessageHistory do
                 is_nil(message.direct_message_thread_id)
           )
 
+        "direct:" <> thread_id ->
+          thread = get_direct_message_thread!(user, thread_id)
+
+          from(message in Message,
+            where:
+              message.user_id == ^user.id and
+                message.direct_message_thread_id == ^thread.id
+          )
+
         _invalid_buffer ->
           from(message in Message, where: false)
       end

@@ -33,6 +33,12 @@ defmodule TopicsClub.Irc.CommandsTest do
 
     assert {:ok, %{name: "list", args: [], description: "Browse channels on this server"}} =
              Commands.parse("/list")
+
+    assert {:ok, %{name: "whoami", args: [], usage: "/whoami"}} =
+             Commands.parse("/whoami")
+
+    assert {:ok, %{name: "whois", args: ["mira"], usage: "/whois nick"}} =
+             Commands.parse("/whois mira")
   end
 
   test "rejects normal messages and unknown slash commands" do

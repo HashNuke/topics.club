@@ -46,6 +46,7 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
         spec: Map.put(intent.spec, :terminal_events, terminal_events),
         invocation: invocation,
         labeled?: labeled?,
+        collected_results: [],
         timer: Process.send_after(self(), {:command_timeout, command_id}, @command_timeout)
       }
 
@@ -64,6 +65,10 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
 
       pending ->
         status = payload |> Map.get(:status) |> lifecycle_status()
+
+        state =
+          if status in ["completed", "failed"], do: record_summary(state, pending), else: state
+
         update_status(pending, status, lifecycle_metadata(payload))
 
         if status in ["completed", "failed"] do
@@ -80,6 +85,7 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
     case pending_for_event(state, event) do
       {command_id, pending} ->
         state = maybe_record_result(state, event, pending)
+        pending = Map.get(state.pending_commands, command_id, pending)
 
         cond do
           not pending.labeled? and pending.command != "JOIN" and
@@ -92,6 +98,7 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
             finish(state, command_id, pending)
 
           not pending.labeled? and event.name in pending.spec.terminal_events ->
+            state = record_summary(state, pending)
             update_status(pending, "completed", %{})
             finish(state, command_id, pending)
 
@@ -281,24 +288,56 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
   end
 
   defp maybe_record_result(state, event, pending) do
-    if result_event?(event, pending) do
-      formatted = CommandResult.format(event)
+    cond do
+      pending.command == "WHOIS" and event.name in pending.spec.result_events ->
+        pending = Map.update(pending, :collected_results, [event], &[event | &1])
+        %{state | pending_commands: Map.put(state.pending_commands, pending.command_id, pending)}
 
-      metadata =
-        Map.merge(formatted.metadata, %{
-          command_id: pending.command_id,
-          command: pending.command,
-          command_status: "result"
-        })
+      result_event?(event, pending) ->
+        record_result(
+          state,
+          pending,
+          CommandResult.format(event),
+          result_buffer_id(state, event, pending)
+        )
 
-      _result =
-        CommandMessages.record(
-          state.connection,
-          result_buffer_id(state, event, pending),
-          formatted.body,
-          metadata
+      true ->
+        state
+    end
+  end
+
+  defp record_summary(state, %{command: "WHOIS"} = pending) do
+    case Map.get(pending, :collected_results, []) do
+      [] ->
+        state
+
+      events ->
+        record_result(
+          state,
+          pending,
+          CommandResult.format_whois(Enum.reverse(events)),
+          pending.buffer_id
         )
     end
+  end
+
+  defp record_summary(state, _pending), do: state
+
+  defp record_result(state, pending, formatted, buffer_id) do
+    metadata =
+      Map.merge(formatted.metadata, %{
+        command_id: pending.command_id,
+        command: pending.command,
+        command_status: "result"
+      })
+
+    _result =
+      CommandMessages.record(
+        state.connection,
+        buffer_id,
+        formatted.body,
+        metadata
+      )
 
     state
   end

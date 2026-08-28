@@ -133,7 +133,7 @@ defmodule TopicsClub.Irc.Session.OutboundMessages do
     pending_echoes =
       PendingEchoes.remember(
         state.pending_echoes,
-        Targets.normalize(state, target),
+        Targets.key(state, target),
         body,
         kind
       )

@@ -5,6 +5,7 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
 
   alias TopicsClub.Chat.{
     ChannelJoinRequest,
+    ChannelPartLifecycle,
     CommandMessages,
     DirectMessageIngestion,
     MessageIngestion
@@ -177,6 +178,31 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
      }}
   end
 
+  def persist_outcome(
+        state,
+        %{disposition: :managed, message: %{command: "PART", params: [channel | _rest]}}
+      ) do
+    key = Targets.key(state, channel)
+
+    next_state =
+      case ChannelPartLifecycle.confirm(
+             state.connection,
+             channel,
+             Targets.casemapping(state)
+           ) do
+        {:ok, _membership} ->
+          state
+          |> Map.update(:pending_joins, MapSet.new(), &MapSet.delete(&1, key))
+          |> Map.update(:sent_joins, MapSet.new(), &MapSet.delete(&1, key))
+          |> Map.update(:joined_channels, MapSet.new(), &MapSet.delete(&1, key))
+
+        {:error, _reason} ->
+          state
+      end
+
+    {next_state, %{}}
+  end
+
   def persist_outcome(state, _intent), do: {state, %{}}
 
   defp transmit(
@@ -313,7 +339,7 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
     pending_echoes =
       PendingEchoes.remember(
         state.pending_echoes,
-        Targets.normalize(state, target),
+        Targets.key(state, target),
         body,
         kind
       )

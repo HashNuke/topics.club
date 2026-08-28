@@ -6,6 +6,7 @@ defmodule TopicsClub.Chat.CommandMessages do
   alias TopicsClub.Chat.{
     BufferEvents,
     ChannelMembership,
+    DirectMessageThread,
     Message,
     Retention,
     ServerConnection,
@@ -16,7 +17,8 @@ defmodule TopicsClub.Chat.CommandMessages do
 
   def record(%ServerConnection{} = connection, buffer_id, body, metadata) do
     assert_no_outer_transaction!()
-    membership = membership_for_buffer(connection, buffer_id)
+    buffer = command_buffer(connection, buffer_id)
+    {membership_id, thread_id} = message_buffer_ids(buffer)
     user = Repo.get!(User, connection.user_id)
 
     Repo.transaction(fn ->
@@ -26,7 +28,8 @@ defmodule TopicsClub.Chat.CommandMessages do
         %Message{
           user_id: active_connection.user_id,
           server_connection_id: active_connection.id,
-          channel_membership_id: membership && membership.id
+          channel_membership_id: membership_id,
+          direct_message_thread_id: thread_id
         }
         |> Message.changeset(%{
           kind: "command",
@@ -45,7 +48,7 @@ defmodule TopicsClub.Chat.CommandMessages do
       {:ok, {message, active_connection}} ->
         _effects =
           ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
-            BufferEvents.command_message(message, membership, effect_connection)
+            BufferEvents.command_message(message, buffer, effect_connection)
           end)
 
         {:ok, message}
@@ -67,14 +70,14 @@ defmodule TopicsClub.Chat.CommandMessages do
         |> Message.changeset(%{metadata: merged_metadata})
         |> Repo.update()
 
-      membership = membership_for_message(message)
-      {message, membership, connection}
+      buffer = command_buffer(message)
+      {message, buffer, connection}
     end)
     |> case do
-      {:ok, {message, membership, connection}} ->
+      {:ok, {message, buffer, connection}} ->
         _effects =
           ServerConnectionLock.serialize_effects(connection.id, fn effect_connection ->
-            BufferEvents.command_message(message, membership, effect_connection)
+            BufferEvents.command_message(message, buffer, effect_connection)
           end)
 
         {:ok, message}
@@ -96,14 +99,21 @@ defmodule TopicsClub.Chat.CommandMessages do
     end
   end
 
-  defp membership_for_buffer(
+  defp command_buffer(
          %ServerConnection{id: connection_id},
          "channel:" <> membership_id
        ) do
     Repo.get_by!(ChannelMembership, id: membership_id, server_connection_id: connection_id)
   end
 
-  defp membership_for_buffer(
+  defp command_buffer(
+         %ServerConnection{id: connection_id},
+         "direct:" <> thread_id
+       ) do
+    Repo.get_by!(DirectMessageThread, id: thread_id, server_connection_id: connection_id)
+  end
+
+  defp command_buffer(
          %ServerConnection{id: connection_id},
          "server:" <> connection_id_text
        )
@@ -113,11 +123,19 @@ defmodule TopicsClub.Chat.CommandMessages do
       else: raise(Ecto.NoResultsError, queryable: ServerConnection)
   end
 
-  defp membership_for_buffer(%ServerConnection{}, _buffer_id),
+  defp command_buffer(%ServerConnection{}, _buffer_id),
     do: raise(Ecto.NoResultsError, queryable: ChannelMembership)
 
-  defp membership_for_message(%Message{channel_membership_id: nil}), do: nil
+  defp command_buffer(%Message{direct_message_thread_id: thread_id})
+       when not is_nil(thread_id),
+       do: Repo.get!(DirectMessageThread, thread_id)
 
-  defp membership_for_message(%Message{channel_membership_id: membership_id}),
+  defp command_buffer(%Message{channel_membership_id: nil}), do: nil
+
+  defp command_buffer(%Message{channel_membership_id: membership_id}),
     do: Repo.get!(ChannelMembership, membership_id)
+
+  defp message_buffer_ids(%ChannelMembership{id: membership_id}), do: {membership_id, nil}
+  defp message_buffer_ids(%DirectMessageThread{id: thread_id}), do: {nil, thread_id}
+  defp message_buffer_ids(nil), do: {nil, nil}
 end
