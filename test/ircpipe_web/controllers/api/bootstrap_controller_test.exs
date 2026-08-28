@@ -64,6 +64,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert %{"connections" => [%{"status" => "disconnected"}]} =
              conn |> get(~p"/api/bootstrap") |> json_response(200)
 
+    assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).desired_state == "paused"
     assert SessionLocator.status(connection) == "disconnected"
     refute_receive {:irc_server_line, "NICK mira"}
   end
@@ -126,6 +127,23 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
 
     on_exit(fn -> SessionSupervisor.stop_session(connection) end)
     conn = get(conn, ~p"/api/bootstrap")
+    payload = json_response(conn, 200)
+
+    assert Enum.sort(Map.keys(payload)) ==
+             Enum.sort(~w(
+               active_buffer_id
+               buffers
+               command_catalog
+               connections
+               direct_message_tombstones
+               message_cursors_by_buffer
+               messages_by_buffer
+               push
+               server_time
+               topics
+               user
+               users_by_buffer
+             ))
 
     assert %{
              "user" => %{"id" => user_id, "email" => _email, "message_retention_days" => 3},
@@ -145,7 +163,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
              "message_cursors_by_buffer" => message_cursors_by_buffer,
              "users_by_buffer" => users_by_buffer,
              "topics" => topics_json
-           } = json_response(conn, 200)
+           } = payload
 
     assert user_id == user.id
     assert is_binary(session_generation)

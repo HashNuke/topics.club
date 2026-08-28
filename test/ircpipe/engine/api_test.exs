@@ -145,6 +145,30 @@ defmodule Ircpipe.Engine.APITest do
              EngineClient.ensure_connection(user.id, connection.id, intent: "restore")
   end
 
+  @tag :capture_log
+  test "a failed process stop keeps paused intent and can be retried", %{
+    user: user,
+    connection: connection
+  } do
+    pid =
+      start_supervised!(%{
+        id: {:crashing_engine_session, connection.id},
+        start: {Ircpipe.CrashingIrcSession, :start_link, [connection]},
+        restart: :temporary
+      })
+
+    monitor_ref = Process.monitor(pid)
+
+    assert {:error, %{code: :internal_error, details: %{}}} =
+             EngineClient.disconnect_connection(user.id, connection.id)
+
+    assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).desired_state == "paused"
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :quit_failed}
+
+    assert {:ok, %{connection: %{desired_state: "paused"}, status: "disconnected"}} =
+             EngineClient.disconnect_connection(user.id, connection.id)
+  end
+
   test "deleting connections retain their stable EngineClient reason", %{
     user: user,
     connection: connection
@@ -319,6 +343,11 @@ defmodule Ircpipe.Engine.APITest do
         "nickname" => "ircpipe"
       })
 
+    assert {:ok, connection} =
+             connection
+             |> Ecto.Changeset.change(desired_state: "paused")
+             |> Repo.update()
+
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     assert {:ok, %{membership: membership, status: status}} =
@@ -327,6 +356,7 @@ defmodule Ircpipe.Engine.APITest do
     assert status in ["queued", "sent"]
     assert membership.channel == "#pipe"
     assert is_integer(membership.id)
+    assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).desired_state == "connected"
     assert_receive {:irc_server_line, "NICK ircpipe"}, 1_000
     assert_receive {:irc_server_line, "USER ircpipe 0 * ircpipe"}, 1_000
     assert_receive {:irc_server_line, "JOIN #pipe"}, 1_000

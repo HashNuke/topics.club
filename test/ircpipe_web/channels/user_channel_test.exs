@@ -55,6 +55,40 @@ defmodule IrcpipeWeb.UserChannelTest do
     }
   end
 
+  test "forwards web-owned lifecycle payloads without changing their public shape" do
+    user = AccountsFixtures.user_fixture()
+    socket = join_user_channel(user)
+    occurred_at = ~U[2026-08-28 10:11:12Z]
+
+    closed = %{
+      type: "direct_message:closed",
+      version: 1,
+      event_id: "direct-message-closed:10:3",
+      occurred_at: occurred_at,
+      buffer_id: "direct:10",
+      server_connection_id: 7,
+      direct_message_thread_id: 10,
+      revision: 3
+    }
+
+    preference = %{
+      type: "notification:preference",
+      version: 1,
+      event_id: "notification-preference:server:7:4",
+      occurred_at: occurred_at,
+      scope: "server",
+      id: 7,
+      mention_notifications_enabled: false,
+      revision: 4
+    }
+
+    send(socket.channel_pid, {:direct_message_closed, closed})
+    assert_push "direct_message:closed", ^closed
+
+    send(socket.channel_pid, {:notification_preference, preference})
+    assert_push "notification:preference", ^preference
+  end
+
   test "suggests slash commands over the user channel" do
     user = AccountsFixtures.user_fixture()
 

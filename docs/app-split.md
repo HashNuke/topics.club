@@ -189,6 +189,180 @@ The initial inventory records 36 exact temporary dependency edges:
 
 Every exception records its current xref label, responsible logical owner, reason, and removal checkpoint. The initial allowlist is capped at 36 entries, and a removed edge makes its exception stale and fails the check until the manifest is deliberately tightened. Mix xref reports dependencies at file-edge granularity: a second call added between an already-exempt source/target pair is not a new xref edge. Review and focused behavioral tests must therefore police call-site growth within an existing exception, while the automated gate prevents new file pairs and a growing exception count.
 
+### Current monolith inventory
+
+This inventory was refreshed at the workstream 1 exit audit on 2026-08-28. `config/boundaries.exs` is the file-level source of truth; the tables below record runtime behavior that xref cannot express. There are currently no temporary dependency exceptions and no deployable-component cycles.
+
+#### Outbound IRC operations and local-process assumptions
+
+No `IrcpipeWeb` module calls a long-lived session, session registry, locator, supervisor, or engine implementation module. Every per-user operation uses `Ircpipe.EngineClient`; the engine API reloads ownership from PostgreSQL and then calls the local process implementation. The web-owned directory worker is the one deliberate exception to using the per-user engine: it creates its own short-lived `Ircxd.Client` solely to issue `LIST`, owns that client for the duration of the request, and never uses the per-user registries.
+
+| Public entry points | EngineClient operation | Engine implementation |
+| --- | --- | --- |
+| Bootstrap, connection index, Channel status sync | `connection_statuses` | `SessionLocator.status/1` through the engine API |
+| Message/command validation needing live IRC support | `connection_info` | `Session.connection_info/1` |
+| Bootstrap restore, connect/reconnect, join preparation | `ensure_connection` | Persist connected intent, then `SessionSupervisor.start_session/1` |
+| REST/Channel disconnect | `disconnect_connection` | Persist paused intent, then `SessionSupervisor.stop_session/2` |
+| REST connection deletion | `delete_connection` | Engine-owned quiescence, durable deletion jobs, and recovery |
+| Topic, discovery, REST, and `/join` joins | `join_channel` | Persist connected intent, ensure session, then `Session.request_join/3` |
+| REST, Channel, and `/part` leaves | `part_channel` | `Session.part/3` after membership ownership reload |
+| Channel messages and actions | `send_channel_message` | `Session.say/3` or `Session.action/3` after membership reload |
+| Direct messages and `/msg` | `send_direct_message` | `Session.privmsg_thread/4` after thread reload |
+| Slash/quote commands | `execute_command` | Re-resolve command intent in the engine, then `Session.execute/5` |
+| Live server channel directory and `/list` | `list_channels` | `Session.list_channels/1` |
+
+The remaining modules that assume an IRC process is local are all engine-owned: `Ircpipe.Engine.API` and its local adapter, `Ircpipe.Chat.ConnectionDeletion` and its workers, `Ircpipe.Irc.Bouncer`, `SessionSupervisor`, `SessionLocator`, and the modules under `Ircpipe.Irc.Session`. The engine bouncer restores recent desired-connected sessions at engine startup; session registration restores persisted autojoins. No core module or web-owned worker has a local-session assumption.
+
+#### Inbound facts, commit ordering, and browser delivery
+
+| IRC-derived fact | Persistence path | Post-commit path |
+| --- | --- | --- |
+| Channel/server message or command transcript | Session event pipeline -> recorder -> `MessageIngestion`, `SystemMessages`, or `CommandMessages` transaction | `message_committed` -> web realtime handler -> `buffer:message`, `buffer:error`, or `buffer:system` |
+| Direct message and thread state | Session event pipeline -> `DirectMessageIngestion` transaction | thread event plus `message_committed` -> `direct_message:thread` and `buffer:message` |
+| Connection status/nickname | Session connection events -> `ConnectionLifecycle` transaction | `connection_status_changed` -> `server:status` |
+| Join/part and buffer lifecycle | Join reconciliation -> membership persistence transaction | `buffer_joined` or `buffer_left` -> matching browser buffer event |
+| Presence snapshot/diff | Session presence handlers -> `Presence` transaction | `presence_synchronized` or `presence_changed` -> matching browser presence event |
+| Mention/direct-message notification | Message transaction inserts notification and one engine event job atomically | `notification_committed` -> web handler -> web-owned PushWorker |
+
+Publish helpers reject calls from inside an outer rollback-capable transaction. Ordinary realtime message publication is synchronous after commit and does not use Oban; only notification delivery and durable deletion/event recovery use jobs. If web delivery is missed, bootstrap and cursor-based history reconciliation rebuild browser state from PostgreSQL.
+
+`IrcpipeWeb.UserChannel` consumes one shared PubSub topic, `user:<user_id>`. Its internal tuple names and public pushes are:
+
+| PubSub tuple | Browser event |
+| --- | --- |
+| `:buffer_message`, `:buffer_error`, `:buffer_system` | `buffer:message`, `buffer:error`, `buffer:system` |
+| `:direct_message_thread`, `:direct_message_closed` | `direct_message:thread`, `direct_message:closed` |
+| `:server_status` | `server:status` |
+| `:presence_sync`, `:presence_diff` | `presence:sync`, `presence:diff` |
+| `:buffer_joined`, `:buffer_left`, `:buffer_read` | `buffer:joined`, `buffer:left`, `buffer:read` |
+| `:notification_preference` | `notification:preference` |
+
+Authentication revocation uses the separate Phoenix socket topic `user_socket:session:<session-token-fingerprint>` with the `disconnect` event. It is web-only and is not part of the engine event contract.
+
+#### Data and behavior ownership
+
+The ownership manifest deliberately assigns files rather than relying on the mixed `Ircpipe.Chat` namespace:
+
+| Owner | Schemas and behavior modules |
+| --- | --- |
+| Core | `User`, `ServerConnection`, `ChannelMembership`, `ChannelUser`, `Message`, `Notification`, `DirectMessageThread`, direct-message identity/store primitives, membership lookup, retention, presence queries, locking, Repo, Vault, and migrations |
+| Shared protocol | `EngineClient` and its request/reply contracts, `InternalEvent` and its data contract, pure IRC command/identifier policy, and mention detection |
+| Engine | Connection lifecycle/deletion, deletion request/event-batch schemas, join/part, ingestion, command/system messages, IRC-derived presence and direct-message behavior, engine API/local adapter, all per-user session processes, and engine-owned workers |
+| Web | Accounts/session behavior, connection endpoint/snapshots and browser queries, read state, topics, notifications/Web Push, discovery, realtime serializers, RPC adapter, and all `IrcpipeWeb` modules |
+| Assembly/tooling | Root `Ircpipe.Application` only; Mix tasks and release-development helpers respectively |
+
+The less obvious web-owned schemas are `UserToken`, `Topic`, discovery `Network`/`ServerChannel`, `PushSubscription`, and `PushSubscriptionRateLimit`. The authoritative exact path list remains `config/boundaries.exs`, which fails on an unowned or multiply owned production, migration, or test-support file.
+
+#### External dependency ownership
+
+These are the current direct Mix dependencies. A component listed here must declare the dependency when its files move; depending on another child application must not be used to hide a direct library use.
+
+| Dependency | Logical user |
+| --- | --- |
+| `bcrypt_elixir` | Core user schema |
+| `cloak_ecto`, `postgrex` | Core persistence and encryption |
+| `ecto_sql` | Core, engine, and web modules that directly use Ecto; Repo remains core-owned |
+| `phoenix`, `phoenix_ecto`, `phoenix_html`, `phoenix_live_view`, `phoenix_live_dashboard`, `bandit` | Web; core will declare `phoenix_pubsub` directly after extraction instead of inheriting it through Phoenix |
+| `ueberauth`, `ueberauth_google`, `swoosh`, `gen_smtp`, `gettext` | Web auth, mail, and presentation |
+| `req`, `floki` | Web notification/discovery HTTP and discovery parsing |
+| `telemetry_metrics`, `telemetry_poller` | Web telemetry; the shared EngineClient contract will declare `telemetry` directly after extraction |
+| `jason` | Core Vault serialization and web JSON/push payloads |
+| `oban` | Engine and web, with separate named instances and queues |
+| `ircxd` | Shared protocol, engine sessions, web directory listing, and local-development tooling |
+| `phoenix_live_reload`, `esbuild`, `tailwind`, `heroicons` | Web development/build tooling |
+| `lazy_html` | Web tests only |
+
+Direct production `ircxd` use is intentionally narrow:
+
+- Shared: `Ircpipe.Chat.MentionDetection`, `Ircpipe.Irc.CommandRegistry`, and `Ircpipe.Irc.Identifier`.
+- Engine: `Ircpipe.Engine.Serialization`, `Ircpipe.Irc.CommandResult`, `EventFormatting`, `SessionLocator`, and the `Ircpipe.Irc.Session` protocol modules.
+- Web: `Ircpipe.Discovery.ServerChannelLister`, whose short-lived workers are why `ircpipe_web` still requires `ircxd` after the application split.
+- Tooling: `Mix.Tasks.Ircpipe.SetupLocalIrc`.
+- Core data/persistence has no direct `ircxd` use.
+
+#### Configuration, environment, and secrets
+
+| Configuration | Phase | Owner |
+| --- | --- | --- |
+| `:scopes`, Ueberauth providers, endpoint compile options, `:dev_routes`, production force-SSL/static manifest | Compile | Web |
+| esbuild/tailwind versions and generators | Compile | Web build tooling |
+| `:ecto_repos`, Repo and Vault configuration | Runtime | Core; both split releases start their own Repo/Vault instance |
+| `:engine_client_adapter` | Runtime | Shared port selection; combined assembly selects local, web split release selects RPC |
+| `:internal_event_adapter` | Runtime | Engine event-port selection; combined assembly selects the web adapter |
+| `:irc_bouncer_enabled`, `Ircpipe.EngineOban` | Runtime | Engine |
+| `:discovery_refresh_enabled`, `IrcpipeWeb.Oban`, Endpoint, Mailer, `:email_from`, WebPush | Runtime | Web |
+| logger, Phoenix JSON library | Compile/runtime support | Assembly, with the consuming component retaining its direct library dependency |
+
+Test-only application keys are not release configuration. They are narrow synchronization or failure seams owned by the module that reads them: `connection_*_barrier`, `connection_*_failure`, `engine_api_after_connection_load_barrier`, `engine_local_api_module`, `engine_client_test_pid`, `engine_client_test_reply`, `pause_direct_message_*`, `pause_notification_preference_broadcast`, `pause_push_*`, `pause_session_*`, `push_sender`, `push_test_pid`, `push_test_result`, `read_state_before_server_lock_barrier`, and `session_*_barrier`.
+
+| Environment variable or secret | Release that genuinely needs it |
+| --- | --- |
+| `DATABASE_URL`, `ECTO_IPV6`, `POOL_SIZE` | Combined, web, and engine |
+| `IRC_CREDENTIALS_KEY` | Combined and engine; web must stop loading encrypted IRC credentials before the key is removed from the web release |
+| `SECRET_KEY_BASE`, `PHX_HOST`, `PORT`, `PHX_SERVER` | Combined and web |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Combined and web |
+| `SMTP_*`, `EMAIL_FROM_*` | Combined and web |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Combined and web |
+| `ENABLE_DISCOVERY` | Combined and web |
+| `RELEASE_NODE`, `RELEASE_COOKIE`; later `IRCPIPE_ENGINE_NODE` on web | Split runtime/distribution as described in the configuration contract |
+| `POSTGRES_PASSWORD`, `IRCPIPE_POSTGRES_DATA`, `IRCPIPE_PORT` | Compose interpolation only, not application configuration |
+
+#### Supervision and registered names
+
+| Owner | Tree, strategy, and stable names |
+| --- | --- |
+| Assembly | `Ircpipe.Supervisor`, `:one_for_one`; starts the three logical branches |
+| Core | `Ircpipe.CoreSupervisor`, `:one_for_one`; `Ircpipe.Vault`, `Ircpipe.Repo`, and `Ircpipe.PubSub` |
+| Engine | `Ircpipe.EngineSupervisor`, `:one_for_one`; global engine marker, `Ircpipe.Engine.OperationLock`, `Ircpipe.Engine.RequestTaskSupervisor`, `Ircpipe.EngineOban`, and `Ircpipe.Irc.SessionSystemSupervisor` |
+| Engine session subsystem | `:one_for_all`; `SingleNodeGuard`, `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
+| Web | `IrcpipeWeb.Supervisor`, `:one_for_one`; Telemetry, `EngineRestoreTaskSupervisor`, `EngineRestorer`, `IrcpipeWeb.Oban`, optional `Discovery.Refresher`, and Endpoint last |
+
+Shared Repo, Vault, and PubSub start once in combined mode. In split mode each node starts its own core runtime instance against the shared database; only the engine starts the session subsystem and only the web starts Endpoint.
+
+#### Future paths and test destinations
+
+Extraction preserves module names and relative paths. No module rename is bundled with a filesystem move.
+
+| Current ownership/path | Future source destination | Future focused-test destination |
+| --- | --- | --- |
+| Core and shared entries in `config/boundaries.exs` | `apps/ircpipe_core/lib/...` | `apps/ircpipe_core/test/...` |
+| Engine entries, including selected `lib/ircpipe/chat` files | `apps/ircpipe_engine/lib/...` | `apps/ircpipe_engine/test/...` |
+| Web entries in both `lib/ircpipe` and `lib/ircpipe_web` plus assets | `apps/ircpipe_web/lib/...`, `apps/ircpipe_web/assets/...` | `apps/ircpipe_web/test/...` |
+| `lib/ircpipe/application.ex` | Umbrella combined-release assembly | Root integration tests |
+| `lib/mix/**` | Umbrella root tooling | Root tooling tests |
+| Cross-component release, boundary, and distributed integration tests | No child source owner | Umbrella root integration test directory |
+
+The pre-umbrella discovery baseline partitions every current ExUnit file exactly once:
+
+| Logical test owner | Files | Tests | Future physical expectation |
+| --- | ---: | ---: | --- |
+| Core data/persistence | 9 | 27 | `ircpipe_core` |
+| Shared protocol/contracts | 7 | 35 | `ircpipe_core` |
+| Engine | 57 | 269 | `ircpipe_engine` |
+| Web | 50 | 319 | `ircpipe_web` |
+| Combined assembly | 1 | 6 | Umbrella root |
+| Tooling | 2 | 14 | Umbrella root |
+| Cross-component integration | 2 | 22 | Umbrella root |
+| **Total** | **128** | **692** | **692 discovered from the umbrella root** |
+
+The future child expectations are therefore core 62, engine 269, and web 319, with 42 root assembly/tooling/integration tests. The two explicitly cross-component files are `connections_concurrency_test.exs` and `direct_messages_test.exs`; keeping them at the root avoids inventing a false child owner. This is a discovery baseline, not a requirement that a child test suite boot unrelated child applications after extraction.
+
+#### Browser and deployment compatibility baseline
+
+Every current JSON route in the router has a controller test under `test/ircpipe_web/controllers/api`; the bootstrap test freezes its complete top-level payload and the focused controller tests freeze each route's success/error shapes. `UserChannelTest` covers every inbound Channel command and every public pushed event. `RealtimeHandlerTest` now freezes the exact before/after translation for every engine realtime fact, every message destination, and all three message event types. React tests cover bootstrap parsing, reconnect cursors, missed history, command repair, and malformed recovery data.
+
+The current deployment artifacts remain intentionally separate from the future first-party split deployment:
+
+| Artifact | Current behavior |
+| --- | --- |
+| `Dockerfile` | Phoenix generated-style multi-stage build of the combined OTP release; suitable for Railway and other container platforms |
+| `docker-compose.prod.yml` | Combined app plus PostgreSQL sidecar for a personal VPS; app runs migrations once before server startup |
+| `docker-compose.yml` | Development PostgreSQL only |
+| `rel/overlays/bin/migrate*` and `Ircpipe.Release` | Explicit release migration entry point |
+| First-party topics.club deployment | Pull exact commit on destination, build bare releases there, migrate once, atomically select versioned release, and run systemd units; automation remains workstream 6 |
+
+The engine protocol compatibility window is web N with engine N-1. Version 1 request/reply and event envelopes remain accepted for at least one engine release after a compatible web release ships. An incompatible field or semantic change requires a new protocol version, additive dual-version handling, an N-1 integration test, and deployment of the accepting side before the producing side.
+
 ## OTP application and release layout
 
 After the pre-umbrella boundary gate passes, convert the repository into an umbrella with these applications:
@@ -604,35 +778,35 @@ Size: **M**. Risk: **Medium**. This prevents hidden coupling from being discover
 
 #### Runtime and code inventory
 
-- [ ] List every `IrcpipeWeb` call to `Session`, `SessionLocator`, `SessionSupervisor`, registries, and IRC process names.
-- [ ] List every non-web context or worker that assumes an IRC process is local.
-- [ ] Trace connect, disconnect, join, part, send, command, channel-list, and deletion flows from public entry point to session process.
-- [ ] Trace inbound message, presence, membership, command-result, and connection-status flows from IRC event through commit and PubSub.
-- [ ] Inventory every PubSub topic and payload currently consumed by `IrcpipeWeb.UserChannel`.
+- [x] List every `IrcpipeWeb` call to `Session`, `SessionLocator`, `SessionSupervisor`, registries, and IRC process names.
+- [x] List every non-web context or worker that assumes an IRC process is local.
+- [x] Trace connect, disconnect, join, part, send, command, channel-list, and deletion flows from public entry point to session process.
+- [x] Trace inbound message, presence, membership, command-result, and connection-status flows from IRC event through commit and PubSub.
+- [x] Inventory every PubSub topic and payload currently consumed by `IrcpipeWeb.UserChannel`.
 - [x] Inventory every Oban queue, plugin, cron entry, and worker, and assign each one to core, web, or engine.
-- [ ] Inventory all schemas and context modules and record their intended owning application.
-- [ ] Inventory compile-time and runtime configuration and classify it as shared, web-only, engine-only, or combined-only.
-- [ ] Inventory production secrets and identify which release genuinely requires each secret.
-- [ ] Inventory supervision children, restart strategies, registries, and globally or locally registered names.
-- [ ] Record the current browser REST and Channel payloads that must remain compatible.
-- [ ] Record the current release, migration, Docker, Compose, and service startup behavior.
+- [x] Inventory all schemas and context modules and record their intended owning application.
+- [x] Inventory compile-time and runtime configuration and classify it as shared, web-only, engine-only, or combined-only.
+- [x] Inventory production secrets and identify which release genuinely requires each secret.
+- [x] Inventory supervision children, restart strategies, registries, and globally or locally registered names.
+- [x] Record the current browser REST and Channel payloads that must remain compatible.
+- [x] Record the current release, migration, Docker, Compose, and service startup behavior.
 
 #### Baseline verification
 
 - [x] Run the current `mix precommit` suite successfully before structural changes.
 - [x] Build the current combined Docker image from the repository root.
 - [x] Validate the current production Compose configuration.
-- [ ] Add or preserve fixtures that exercise every engine operation before routing changes begin.
-- [ ] Add regression coverage for commit-before-broadcast behavior where it is not already explicit.
-- [ ] Add regression coverage for paused connections surviving bootstrap and process restarts.
-- [ ] Decide and document the supported engine protocol compatibility window; initial target is web N with engine N-1.
+- [x] Add or preserve fixtures that exercise every engine operation before routing changes begin.
+- [x] Add regression coverage for commit-before-broadcast behavior where it is not already explicit.
+- [x] Add regression coverage for paused connections surviving bootstrap and process restarts.
+- [x] Decide and document the supported engine protocol compatibility window; initial target is web N with engine N-1.
 
 #### Exit gate
 
-- [ ] Every direct web-to-IRC dependency has an owner and a planned replacement operation.
-- [ ] Every background job has exactly one intended execution role.
-- [ ] Every current public browser payload has a regression test or deterministic fixture.
-- [ ] The combined baseline is green before workstream 1 begins.
+- [x] Every direct web-to-IRC dependency has an owner and a planned replacement operation.
+- [x] Every background job has exactly one intended execution role.
+- [x] Every current public browser payload has a regression test or deterministic fixture.
+- [x] The combined baseline is green before workstream 1 begins.
 
 ### Workstream 1: Demarcate logical applications and introduce the engine boundary inside the monolith
 
@@ -642,11 +816,11 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 - [x] Create a checked-in ownership manifest covering every production module and assigning it to core, shared protocol/contracts, engine, web, assembly, or tooling.
 - [x] Assign every test-support module and fixture to the component whose public behavior it supports.
-- [ ] Classify every external dependency by the logical component that uses it.
-- [ ] Classify every application environment key by logical owner and compile-time versus runtime use.
-- [ ] Classify every registered process name, Registry, supervisor, and PubSub name by logical owner.
-- [ ] Mark the intended future source and test destination for each current directory.
-- [ ] Preserve existing module names when moving them later unless a rename is independently justified and tested.
+- [x] Classify every external dependency by the logical component that uses it.
+- [x] Classify every application environment key by logical owner and compile-time versus runtime use.
+- [x] Classify every registered process name, Registry, supervisor, and PubSub name by logical owner.
+- [x] Mark the intended future source and test destination for each current directory.
+- [x] Preserve existing module names when moving them later unless a rename is independently justified and tested.
 - [x] Record every temporary cross-boundary edge in a narrow allowlist with an owner and removal checklist item.
 - [x] Document the allowed dependency graph in contributor guidance.
 
@@ -654,10 +828,10 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 - [x] Identify the current pure IRC identifier, command metadata, and validation code needed by more than one component.
 - [x] Assign those current pure modules to the shared boundary even when their existing module name begins with `Ircpipe.Irc`.
-- [ ] Keep PIDs, process names, Registry lookups, supervisors, sockets, and `ircxd` runtime structs out of shared contracts.
+- [x] Keep PIDs, process names, Registry lookups, supervisors, sockets, and `ircxd` runtime structs out of shared contracts.
 - [x] Treat `ircxd` as an allowed shared library dependency while keeping all Ircpipe process ownership explicit.
-- [ ] Document which core, engine, and web modules directly use `ircxd` so each child application declares its actual dependency.
-- [ ] Add focused tests proving shared protocol modules run without engine supervision.
+- [x] Document which core, engine, and web modules directly use `ircxd` so each child application declares its actual dependency.
+- [x] Add focused tests proving shared protocol modules run without engine supervision.
 
 #### Enforce dependency direction in the monolith
 
@@ -667,7 +841,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 - [x] Reject new engine references to web modules outside the exact migration allowlist.
 - [x] Reject cycles in the permanent dependency policy and actual deployable cycles outside the explicit transition-cycle baseline.
 - [x] Keep the migration allowlist explicit, file-exact, label-sensitive, capped at the initial 36 edges, and free of namespace-wide exceptions.
-- [ ] Add the boundary gate to CI and enforce that exception, budget, and transition-cycle baseline changes only shrink against the base branch.
+- [x] Add the boundary gate to CI and enforce that exception, budget, and transition-cycle baseline changes only shrink once the base branch contains the manifest; the one-time initial-adoption PR runs the complete head policy because no base manifest exists to compare.
 - [x] Run the boundary check from `mix precommit`.
 
 #### Versioned request and reply contracts
@@ -707,6 +881,8 @@ The stable event slice now emits versioned plain-map facts after commit for mess
 
 The boundary graph now contains 237 owned files, no temporary dependency exceptions, and no deployable-component cycles. Dependency totals vary because Mix compiles environment-specific modules: the default environment currently reports 748 checked project edges and the test environment reports 763. An expanded set of 254 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair. After the first review fixes, full `mix precommit` passes with 686 Elixir tests, 227 frontend tests, type checking, the Storybook build, and the zero-exception boundary gate. The final reviewer reran 66 focused tests, both environment-specific boundary checks, and found no remaining correctness, SRP, or framework-building concern.
 
+Checkpoint 6 completes the monolith exit audit and passed its GPT-5.6 Sol xhigh checkpoint review with no blocking findings. The checked-in inventory now classifies runtime flows, data and behavior ownership, direct dependencies, configuration and secrets, registered processes, browser contracts, deployment artifacts, future paths, and test destinations. Pull-request CI always runs the head boundary gate and, once the base contains the manifest, rejects any exception, exception-budget, or temporary-cycle addition relative to that base; the initial-adoption path has no older policy to compare. Focused regressions prove lifecycle retry after a committed intent/process-effect failure, join reactivation, paused bootstrap immutability, engine-start restoration with autojoins, ordinary-message commit-before-broadcast without Oban, exact internal-event-to-browser translation, and the final Channel forwarding paths. The complete ownership-partitioned suite passes 692 ExUnit tests, and `mix precommit` passes those tests plus 227 frontend tests, type checking, Storybook, and the 237-file/763-edge/zero-exception test boundary graph. A production build using the Dockerfile's compile-before-assets order assembles the combined release, and starting all `:ircpipe` applications through the release succeeds against PostgreSQL without split-mode variables.
+
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
 - [x] Route disconnect/stop connection through the client.
@@ -745,11 +921,11 @@ The boundary graph now contains 237 owned files, no temporary dependency excepti
 - [x] Persist `paused` before stopping a connection.
 - [x] Persist `connected` before starting a connection.
 - [x] Re-read the authoritative connection during session startup and reject paused connections.
-- [ ] Move desired-state mutation and the corresponding process action behind one engine client operation.
-- [ ] Ensure join/topic operations deliberately set desired state to connected before requiring a session.
-- [ ] Define retry behavior when intent persists successfully but the process action fails.
-- [ ] Restore recent desired-connected sessions and persisted autojoins after engine startup.
-- [ ] Prove that passive browser bootstrap never changes paused intent.
+- [x] Move desired-state mutation and the corresponding process action behind one engine client operation.
+- [x] Ensure join/topic operations deliberately set desired state to connected before requiring a session.
+- [x] Define retry behavior when intent persists successfully but the process action fails.
+- [x] Restore recent desired-connected sessions and persisted autojoins after engine startup.
+- [x] Prove that passive browser bootstrap never changes paused intent.
 
 #### Stable internal event contract
 
@@ -764,7 +940,7 @@ The boundary graph now contains 237 owned files, no temporary dependency excepti
 - [x] Keep notification and deletion effects durable and retryable when the configured event adapter is unavailable.
 - [x] Keep browser-specific field names and formatting out of engine events.
 - [x] Convert internal events to the existing REST/Channel protocol in the web layer.
-- [ ] Add exact frozen before/after fixtures for every browser payload; representative compatibility assertions pass, but they are not exhaustive.
+- [x] Add exact frozen before/after fixtures for every browser payload crossing the internal event boundary; existing controller and Channel tests cover the remaining web-owned payloads.
 - [x] Verify browser history reconciliation recovers events missed while the web layer is unavailable.
 
 #### Combined-mode exit gate
@@ -778,12 +954,12 @@ The boundary graph now contains 237 owned files, no temporary dependency excepti
 - [x] No web-owned worker assumes an IRC process is local.
 - [x] Every engine operation uses the versioned request path in combined mode.
 - [x] The root application starts distinct logical core, engine, and web supervisor branches.
-- [ ] The ownership manifest maps cleanly to future `apps/ircpipe_core`, `apps/ircpipe_engine`, and `apps/ircpipe_web` destinations.
-- [ ] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
-- [ ] Ordinary messages still commit before broadcast and do not pass through Oban.
-- [ ] The browser protocol remains compatible.
-- [ ] `mix precommit` and a combined release smoke test pass.
-- [ ] Record the complete test count and per-component counts so the umbrella move cannot silently lose test discovery.
+- [x] The ownership manifest maps cleanly to future `apps/ircpipe_core`, `apps/ircpipe_engine`, and `apps/ircpipe_web` destinations.
+- [x] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
+- [x] Ordinary messages still commit before broadcast and do not pass through Oban.
+- [x] The browser protocol remains compatible.
+- [x] `mix precommit` and a combined release smoke test pass.
+- [x] Record the complete test count and per-component counts so the umbrella move cannot silently lose test discovery.
 
 ### Workstream 2: Mechanically extract the logical components into three OTP applications
 

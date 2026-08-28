@@ -33,6 +33,27 @@ defmodule Ircpipe.Chat.MessageIngestionTest do
     assert server_message.channel_membership_id == nil
   end
 
+  test "commits an ordinary message before direct publication without an Oban job" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
+    initial_jobs = Repo.aggregate(Oban.Job, :count)
+
+    assert {:ok, message} =
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "ordinary message"
+             )
+
+    assert_receive {:buffer_message, %{id: message_id, body: "ordinary message"}}
+    assert message_id == message.id
+    assert Repo.get!(Message, message_id).body == "ordinary message"
+    assert Repo.aggregate(Oban.Job, :count) == initial_jobs
+  end
+
   test "rejects outer transactions before persistence, delivery, or publication" do
     user = AccountsFixtures.user_fixture()
     connection = connection_fixture(user)
