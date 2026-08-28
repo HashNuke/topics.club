@@ -570,6 +570,11 @@ The checked-in version 1 contract currently defines these operations and expecta
 
 The engine API reloads the user, connection, membership, or direct-message thread needed by each operation and rechecks ownership before touching a local session. Per-connection API requests take an engine-owned orchestration lock around authorization, durable intent mutation, and the complete process effect. That lock is deliberately distinct from the session subsystem's connection lock, so opposing lifecycle requests are linearized without deadlocking session startup or shutdown. Ecto schemas, `Ircxd.Client.Info`, `MapSet` values, and timestamps are converted to plain maps, lists, and ISO 8601 strings before a reply crosses the adapter boundary. Local requests execute under an engine-owned task supervisor so the same per-operation timeout applies in combined mode without routing all work through the marker process.
 
+Version 1 is the first protocol, so there is no real N-1 implementation to support or test yet.
+Until a version 2 contract exists, gateway and engine releases must come from the same compatible
+source revision. Introducing version 2 requires retaining version 1 handling long enough to add a
+real web-N/engine-N-1 compatibility test before independent rolling upgrades are allowed.
+
 ### Initial operations
 
 The first version of the engine API must cover every current direct web-to-engine call:
@@ -757,6 +762,31 @@ An additional `docker-compose.split.yml` may be added as a development and CI in
 The web node attempts a static connection to the configured engine node. DNS-based automatic clustering and horizontal engine discovery are outside the first implementation.
 
 Distribution ports and EPMD must not be exposed publicly. A shared Erlang cookie grants powerful access to the cluster; use a high-entropy secret, private networking, and TLS distribution when the nodes communicate across an untrusted network.
+
+### Split distribution security and operations
+
+The initial first-party split topology is restricted to one host or a trusted private network.
+Within that boundary, TLS distribution is not required: the cookie, private routing, and firewall
+are the controls. If traffic must cross an untrusted network, the supported answer is to add a
+private tunnel/overlay or configure and verify TLS distribution before deployment; exposing raw
+Erlang distribution to the public Internet is never supported. The fixed port settings select
+ports but do not themselves bind a private interface, so host/network firewalling remains part of
+workstream 6.
+
+Generate one deployment-specific cookie with `openssl rand -hex 32`. Store the resulting value as
+`RELEASE_COOKIE` in both role-specific environment files outside the checkout, restrict those
+files to the runtime account, and never commit the value. Rotation is a coordinated maintenance
+operation because a node has one active cookie: stop the gateway, stop the engine, replace the
+cookie in both environment files, start the engine and verify marker ownership, then start the
+gateway and verify `/health` reports engine connectivity. This restarts IRC sessions once; do not
+attempt a rolling cookie change with mismatched nodes.
+
+The runtime emits redacted telemetry for marker acquisition/duplication, gateway-engine
+connection changes and retries, RPC result/timeout, IRC reconnects, ingestion failures, and
+cluster-event delivery. `EngineClient.protocol_info/1` reports the protocol version, operations,
+engine node, marker status, and active-session count. The eventual production monitoring backend
+must alert on engine disconnection, duplicate-marker attempts, sustained RPC timeouts, and
+ingestion failures; choosing and configuring that backend remains an explicit deployment task.
 
 ## Configuration contract
 
@@ -1176,8 +1206,8 @@ exclusion, and channel autojoin without turning the test harness into a deployme
 - [x] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
 - [x] Add static web-to-engine connection attempts during web startup.
 - [x] Add bounded reconnect/backoff behavior after node loss.
-- [ ] Decide whether production hosts need TLS distribution based on their network trust boundary.
-- [ ] Document cookie rotation as a coordinated web-and-engine restart.
+- [x] Decide whether production hosts need TLS distribution based on their network trust boundary.
+- [x] Document cookie rotation as a coordinated web-and-engine restart.
 
 #### Engine singleton and discovery
 
@@ -1233,8 +1263,8 @@ exclusion, and channel autojoin without turning the test harness into a deployme
 - [x] Restart engine and restore only desired-connected recent sessions and their autojoins.
 - [x] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
 - [x] Simulate a request timeout and prove errors are normalized without crashing callers.
-- [ ] Verify web N operates with the supported engine N-1 protocol.
-- [ ] Add an optional split Compose harness if it materially simplifies CI and local integration testing.
+- [x] Record that protocol v1 has no N-1; require a real compatibility test when v2 is introduced.
+- [x] Omit split Compose because it would duplicate the real-node tests and is not the deployment target.
 
 The focused integration test currently starts a real gateway-side BEAM peer and drives the
 production `EngineClient`/RPC boundary against the engine node, shared test database, and local
