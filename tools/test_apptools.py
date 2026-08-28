@@ -1,3 +1,4 @@
+import base64
 import subprocess
 import sys
 import unittest
@@ -75,6 +76,11 @@ class ReleaseTagTest(unittest.TestCase):
 
 
 class ValidationTest(unittest.TestCase):
+    def test_pseudo_vps_credentials_key_is_standard_base64(self) -> None:
+        encoded = testvps.base64_secret()
+
+        self.assertEqual(len(base64.b64decode(encoded, validate=True)), 32)
+
     def test_only_one_ssh_host_is_accepted(self) -> None:
         with self.assertRaisesRegex(ValueError, "exactly one"):
             apptools.split_host("root@one,root@two", None, None)

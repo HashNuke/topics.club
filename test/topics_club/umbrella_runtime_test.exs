@@ -206,6 +206,8 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
       for command <- ~w(start start_iex daemon daemon_iex) do
         output = release_env(env_script, release_name, release_node, engine_node, command)
         assert output =~ "sname|"
+        assert output =~ "inet_dist_use_interface {127,0,0,1}"
+        refute output =~ "'{127,0,0,1}'"
         assert output =~ "inet_dist_listen_min #{port} inet_dist_listen_max #{port}"
       end
 

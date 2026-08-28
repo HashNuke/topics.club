@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import secrets
 import subprocess
@@ -26,6 +27,11 @@ VPS_SSH_PORT = 45_122
 VPS_HTTP_PORT = 45_100
 VPS_MEMORY_BYTES = 1_610_612_736
 VPS_MEMORY_SWAP_BYTES = 5_905_580_032
+
+
+def base64_secret() -> str:
+    """Return the standard Base64 form expected by Elixir's Base.decode64/1."""
+    return base64.b64encode(secrets.token_bytes(32)).decode("ascii")
 
 
 def run(
@@ -183,7 +189,7 @@ class VpsCommands:
             run(["docker", "volume", "create", DOCKER_VOLUME])
 
         database_password = secrets.token_hex(24)
-        credentials_key = secrets.token_urlsafe(32)[:43] + "="
+        credentials_key = base64_secret()
         secret_key_base = secrets.token_urlsafe(64)
         release_cookie = secrets.token_hex(32)
         database_url = (
