@@ -420,9 +420,11 @@ Engine-to-web PubSub events also use versioned plain maps. They represent commit
 - Connection status changed
 - Presence synchronized or changed
 - Direct-message thread changed
-- Command result committed
+- Notification committed
 
 Browser payload formatting remains in `ircpipe_web`. Internal events must contain enough IDs and committed values for the web node to format the event without consulting engine process state.
+
+Synchronous command execution results remain in the versioned `EngineClient` reply. Command transcript rows and later status changes are canonical messages and therefore use `message_committed`; emitting a second command-result event would duplicate the request reply and the persisted message event without adding recoverable state.
 
 During monolith demarcation, `Ircpipe.InternalEvents` synchronously invokes one configured adapter. The combined configuration selects a web-owned adapter that translates committed internal facts into the existing Phoenix PubSub payloads and Web Push jobs. This is deliberately a small port, not a general event-bus framework. Workstream 4 will supply the split transport adapter that carries the same envelopes between nodes; event producers and browser serializers must not change for that transport move.
 
@@ -700,7 +702,7 @@ Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint 
 
 Checkpoint 5 is in progress. Connection deletion now enters the engine through a versioned `delete_connection` operation, and the engine-owned `Ircpipe.Chat.ConnectionDeletion` module owns quiescence, durable recovery, final deletion, and deletion-event dispatch. The web connection facade no longer constructs deletion jobs, mutates durable connection intent, or calls engine locks and session supervision. Durable deletion workers acquire the engine operation lock before resuming. Web connection snapshots are now query-only; casemapping reconciliation stays in engine registration and join paths.
 
-The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs. The boundary graph now contains 236 owned files and 746 checked project edges, with no temporary dependency exceptions or deployable-component cycles. An expanded set of 252 chat, notification, session, Channel, and event-contract tests passes. Command results and missed-event history reconciliation remain explicit follow-up work rather than unused speculative handlers.
+The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs. The boundary graph now contains 236 owned files and 746 checked project edges, with no temporary dependency exceptions or deployable-component cycles. An expanded set of 252 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite also passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair.
 
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
@@ -754,12 +756,12 @@ The stable event slice now emits versioned plain-map facts after commit for mess
 - [x] Define buffer joined and left events.
 - [x] Define presence synchronized and changed events.
 - [x] Define direct-message-thread events.
-- [ ] Define command-result events.
+- [x] Keep synchronous command results in versioned `EngineClient` replies and publish committed command transcript updates through `message_committed`, avoiding a duplicate event path.
 - [x] Publish only after the transaction containing the canonical data commits.
 - [x] Keep browser-specific field names and formatting out of engine events.
 - [x] Convert internal events to the existing REST/Channel protocol in the web layer.
 - [x] Preserve browser payload compatibility with deterministic tests.
-- [ ] Verify browser history reconciliation recovers events missed while the web layer is unavailable.
+- [x] Verify browser history reconciliation recovers events missed while the web layer is unavailable.
 
 #### Combined-mode exit gate
 
