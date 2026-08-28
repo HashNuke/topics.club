@@ -64,13 +64,13 @@ At minimum, set:
 
 ```text
 PHX_HOST=your-host.example.com
-IRCPIPE_POSTGRES_DATA=/srv/ircpipe/postgres
+TOPICS_CLUB_POSTGRES_DATA=/srv/ircpipe/postgres
 POSTGRES_PASSWORD=use-a-long-random-password
 SECRET_KEY_BASE=the-value-from-mix-phx-gen-secret
 IRC_CREDENTIALS_KEY=the-value-from-32-random-bytes-encoded-with-base64
 ```
 
-Generate `IRC_CREDENTIALS_KEY` with `mix ircpipe.gen_credentials_key`.
+Generate `IRC_CREDENTIALS_KEY` with `mix topics_club.gen_credentials_key`.
 
 Discovery refresh workers start automatically in development. They are disabled
 by default in production; set `ENABLE_DISCOVERY=true` on only the deployment that
@@ -81,7 +81,7 @@ should fetch the Netsplit server catalog and IRC channel lists.
 Generate a VAPID keypair once per deployment and keep the private key secret:
 
 ```bash
-mix ircpipe.gen_vapid_keys
+mix topics_club.gen_vapid_keys
 ```
 
 Copy the generated `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` into `.env`. Set
@@ -95,7 +95,7 @@ open. Delivery jobs are persisted in PostgreSQL through Oban and retried for
 temporary push-service failures. Subscription endpoints and browser keys are
 encrypted at rest using `IRC_CREDENTIALS_KEY`.
 
-`IRCPIPE_POSTGRES_DATA` is a host directory that you choose. Compose bind-mounts
+`TOPICS_CLUB_POSTGRES_DATA` is a host directory that you choose. Compose bind-mounts
 it to `/var/lib/postgresql/data`, so that directory is where all database data is
 stored.
 
@@ -106,8 +106,8 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d --build
 ```
 
 The app container waits for Postgres, runs migrations, and then starts Phoenix on
-container port `4000`. It binds host loopback by default; set `IRCPIPE_PORT` to
-choose the host port and change `IRCPIPE_BIND_IP` only when a reverse proxy on a
+container port `4000`. It binds host loopback by default; set `TOPICS_CLUB_PORT` to
+choose the host port and change `TOPICS_CLUB_BIND_IP` only when a reverse proxy on a
 private network cannot reach loopback.
 
 The Docker build uses this repository as its build context and fetches the
@@ -155,7 +155,7 @@ app.
 Populate any due Discover data manually with:
 
 ```bash
-mix ircpipe.refresh_discovery
+mix topics_club.refresh_discovery
 ```
 
 Production checks automatically every hour. It refreshes the IRC network catalog

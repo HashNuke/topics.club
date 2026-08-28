@@ -1,6 +1,6 @@
 import Config
 
-config :ircpipe_core, Ircpipe.Vault,
+config :topics_club_core, Ircpipe.Vault,
   ciphers: [
     default:
       {Cloak.Ciphers.AES.GCM,
@@ -17,7 +17,7 @@ config :bcrypt_elixir, :log_rounds, 1
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
-config :ircpipe_core, Ircpipe.Repo,
+config :topics_club_core, Ircpipe.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
@@ -27,18 +27,18 @@ config :ircpipe_core, Ircpipe.Repo,
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :ircpipe_web, IrcpipeWeb.Endpoint,
+config :topics_club_gateway, IrcpipeWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "0b9bBqpbhnwgHDcBUh2E0VAxbRR6WmpBIV6oXXkFqEb4vx/LzOUfAmWBwaJRs0VQ",
   server: false
 
-config :ircpipe_engine, irc_bouncer_enabled: false
+config :topics_club_engine, irc_bouncer_enabled: false
 
-config :ircpipe_engine, Ircpipe.EngineOban, testing: :manual, queues: false, plugins: false
-config :ircpipe_web, IrcpipeWeb.Oban, testing: :manual, queues: false, plugins: false
+config :topics_club_engine, Ircpipe.EngineOban, testing: :manual, queues: false, plugins: false
+config :topics_club_gateway, IrcpipeWeb.Oban, testing: :manual, queues: false, plugins: false
 
 # In test we don't send emails
-config :ircpipe_web, Ircpipe.Mailer, adapter: Swoosh.Adapters.Test
+config :topics_club_gateway, Ircpipe.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false

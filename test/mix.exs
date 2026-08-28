@@ -3,12 +3,12 @@ Path.join([__DIR__, "../lib/mix/**/*.ex"])
 |> Enum.sort()
 |> Enum.each(&Code.require_file/1)
 
-defmodule Ircpipe.IntegrationTest.MixProject do
+defmodule TopicsClub.IntegrationTest.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :ircpipe_integration_test,
+      app: :topics_club_integration_test,
       version: "0.1.0",
       build_path: "../_build",
       config_path: "../config/config.exs",
@@ -24,9 +24,9 @@ defmodule Ircpipe.IntegrationTest.MixProject do
 
   defp deps do
     [
-      {:ircpipe_core, path: "../apps/ircpipe_core", env: Mix.env()},
-      {:ircpipe_engine, path: "../apps/ircpipe_engine", env: Mix.env()},
-      {:ircpipe_web, path: "../apps/ircpipe_web", env: Mix.env()}
+      {:topics_club_core, path: "../apps/topics_club_core", env: Mix.env()},
+      {:topics_club_engine, path: "../apps/topics_club_engine", env: Mix.env()},
+      {:topics_club_gateway, path: "../apps/topics_club_gateway", env: Mix.env()}
     ]
   end
 end

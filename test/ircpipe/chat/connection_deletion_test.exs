@@ -42,10 +42,12 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
              })
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe_engine, :session_start_after_lookup_barrier)
+
+    previous_barrier =
+      Application.get_env(:topics_club_engine, :session_start_after_lookup_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :session_start_after_lookup_barrier,
       {self(), barrier_ref}
     )
@@ -144,10 +146,12 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
              })
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
+
+    previous_barrier =
+      Application.get_env(:topics_club_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_mark_barrier,
       {self(), barrier_ref}
     )
@@ -364,19 +368,19 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     delete_ref = make_ref()
 
     previous_connect_barrier =
-      Application.get_env(:ircpipe_engine, :session_connect_before_lock_barrier)
+      Application.get_env(:topics_club_engine, :session_connect_before_lock_barrier)
 
     previous_delete_barrier =
-      Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
+      Application.get_env(:topics_club_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :session_connect_before_lock_barrier,
       {self(), connect_ref}
     )
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_mark_barrier,
       {self(), delete_ref}
     )
@@ -428,19 +432,19 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     delete_ref = make_ref()
 
     previous_client_barrier =
-      Application.get_env(:ircpipe_engine, :session_client_after_start_barrier)
+      Application.get_env(:topics_club_engine, :session_client_after_start_barrier)
 
     previous_delete_barrier =
-      Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
+      Application.get_env(:topics_club_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :session_client_after_start_barrier,
       {self(), client_ref}
     )
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_mark_barrier,
       {self(), delete_ref}
     )
@@ -497,19 +501,19 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     delete_ref = make_ref()
 
     previous_effects_barrier =
-      Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
+      Application.get_env(:topics_club_core, :connection_effects_before_lock_barrier)
 
     previous_delete_barrier =
-      Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
+      Application.get_env(:topics_club_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe_core,
+      :topics_club_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_mark_barrier,
       {self(), delete_ref}
     )
@@ -570,10 +574,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     effects_ref = make_ref()
 
     previous_effects_barrier =
-      Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
+      Application.get_env(:topics_club_core, :connection_effects_before_lock_barrier)
 
     Application.put_env(
-      :ircpipe_core,
+      :topics_club_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
@@ -623,8 +627,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     _ = :sys.get_state(SessionLocator.via(connection))
     session_ref = Process.monitor(session_pid)
 
-    previous_pause = Application.get_env(:ircpipe_engine, :pause_session_stop_after_lookup)
-    Application.put_env(:ircpipe_engine, :pause_session_stop_after_lookup, self())
+    previous_pause = Application.get_env(:topics_club_engine, :pause_session_stop_after_lookup)
+    Application.put_env(:topics_club_engine, :pause_session_stop_after_lookup, self())
 
     on_exit(fn ->
       restore_env(:pause_session_stop_after_lookup, previous_pause)
@@ -665,10 +669,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     barrier_ref = make_ref()
 
     previous_barrier =
-      Application.get_env(:ircpipe_engine, :connection_delete_after_commit_barrier)
+      Application.get_env(:topics_club_engine, :connection_delete_after_commit_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_commit_barrier,
       {self(), barrier_ref}
     )
@@ -768,8 +772,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert {:ok, membership} = Chat.join_channel(user, connection, "#durable")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
-    previous_adapter = Application.get_env(:ircpipe_core, :internal_event_adapter)
-    Application.delete_env(:ircpipe_core, :internal_event_adapter)
+    previous_adapter = Application.get_env(:topics_club_core, :internal_event_adapter)
+    Application.delete_env(:topics_club_core, :internal_event_adapter)
 
     on_exit(fn -> restore_core_env(:internal_event_adapter, previous_adapter) end)
 
@@ -801,11 +805,11 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert Repo.get(ConnectionDeletionEventBatch, batch.id) == nil
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:topics_club_engine, key)
+  defp restore_env(key, value), do: Application.put_env(:topics_club_engine, key, value)
 
-  defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
-  defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
+  defp restore_core_env(key, nil), do: Application.delete_env(:topics_club_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:topics_club_core, key, value)
 
   defp send_after_disconnect(server, line) do
     IrcTestServer.send_line(server, line)

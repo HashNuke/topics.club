@@ -1,4 +1,4 @@
-if System.get_env("IRCPIPE_LOCAL_IRC_INTEGRATION") == "1" do
+if System.get_env("TOPICS_CLUB_LOCAL_IRC_INTEGRATION") == "1" do
   defmodule Ircpipe.Irc.LocalIntegrationTest do
     use Ircpipe.DataCase
 

@@ -25,21 +25,27 @@ defmodule Ircpipe.NotificationsTest do
   }
 
   setup do
-    previous_sender = Application.get_env(:ircpipe_web, :push_sender)
-    previous_pid = Application.get_env(:ircpipe_web, :push_test_pid)
-    previous_result = Application.get_env(:ircpipe_web, :push_test_result)
-    previous_pause = Application.get_env(:ircpipe_web, :pause_push_delivery)
-    previous_registration_pause = Application.get_env(:ircpipe_web, :pause_push_registration)
-    previous_rotation_pause = Application.get_env(:ircpipe_web, :pause_session_rotation)
-    previous_snapshot_pause = Application.get_env(:ircpipe_web, :pause_push_delivery_snapshot)
-    previous_reset_pause = Application.get_env(:ircpipe_web, :pause_session_reset)
+    previous_sender = Application.get_env(:topics_club_gateway, :push_sender)
+    previous_pid = Application.get_env(:topics_club_gateway, :push_test_pid)
+    previous_result = Application.get_env(:topics_club_gateway, :push_test_result)
+    previous_pause = Application.get_env(:topics_club_gateway, :pause_push_delivery)
+
+    previous_registration_pause =
+      Application.get_env(:topics_club_gateway, :pause_push_registration)
+
+    previous_rotation_pause = Application.get_env(:topics_club_gateway, :pause_session_rotation)
+
+    previous_snapshot_pause =
+      Application.get_env(:topics_club_gateway, :pause_push_delivery_snapshot)
+
+    previous_reset_pause = Application.get_env(:topics_club_gateway, :pause_session_reset)
 
     previous_delete_failure =
-      Application.get_env(:ircpipe_engine, :connection_final_delete_failure)
+      Application.get_env(:topics_club_engine, :connection_final_delete_failure)
 
-    Application.put_env(:ircpipe_web, :push_sender, Ircpipe.PushTestTransport)
-    Application.put_env(:ircpipe_web, :push_test_pid, self())
-    Application.put_env(:ircpipe_web, :push_test_result, :ok)
+    Application.put_env(:topics_club_gateway, :push_sender, Ircpipe.PushTestTransport)
+    Application.put_env(:topics_club_gateway, :push_test_pid, self())
+    Application.put_env(:topics_club_gateway, :push_test_result, :ok)
 
     on_exit(fn ->
       restore_env(:push_sender, previous_sender)
@@ -72,7 +78,7 @@ defmodule Ircpipe.NotificationsTest do
   test "registration and logout serialize on the authenticated session", %{scope: scope} do
     supervisor = start_supervised!(Task.Supervisor)
     session_token = Accounts.generate_user_session_token(scope.user)
-    Application.put_env(:ircpipe_web, :pause_push_registration, self())
+    Application.put_env(:topics_club_gateway, :pause_push_registration, self())
 
     registration =
       Task.Supervisor.async_nolink(supervisor, fn ->
@@ -111,7 +117,7 @@ defmodule Ircpipe.NotificationsTest do
                subscription_attrs("https://push.example.test/subscription/rotation-race")
              )
 
-    Application.put_env(:ircpipe_web, :pause_session_rotation, self())
+    Application.put_env(:topics_club_gateway, :pause_session_rotation, self())
 
     first_rotation =
       Task.Supervisor.async_nolink(supervisor, fn ->
@@ -152,7 +158,7 @@ defmodule Ircpipe.NotificationsTest do
                subscription_attrs("https://push.example.test/subscription/reset-rotation-race")
              )
 
-    Application.put_env(:ircpipe_web, :pause_session_reset, self())
+    Application.put_env(:topics_club_gateway, :pause_session_reset, self())
 
     reset =
       Task.Supervisor.async_nolink(supervisor, fn ->
@@ -189,7 +195,7 @@ defmodule Ircpipe.NotificationsTest do
                subscription_attrs("https://push.example.test/subscription/password-reset-race")
              )
 
-    Application.put_env(:ircpipe_web, :pause_session_reset, self())
+    Application.put_env(:topics_club_gateway, :pause_session_reset, self())
 
     reset =
       Task.Supervisor.async_nolink(supervisor, fn ->
@@ -503,7 +509,7 @@ defmodule Ircpipe.NotificationsTest do
     failure_ref = make_ref()
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_final_delete_failure,
       {self(), failure_ref}
     )
@@ -787,7 +793,7 @@ defmodule Ircpipe.NotificationsTest do
     connection: connection
   } do
     supervisor = start_supervised!(Task.Supervisor)
-    Application.put_env(:ircpipe_web, :pause_push_delivery, true)
+    Application.put_env(:topics_club_gateway, :pause_push_delivery, true)
 
     assert {:ok, _subscription} =
              upsert_subscription(
@@ -835,7 +841,7 @@ defmodule Ircpipe.NotificationsTest do
   } do
     supervisor = start_supervised!(Task.Supervisor)
     session_token = Accounts.generate_user_session_token(scope.user)
-    Application.put_env(:ircpipe_web, :pause_push_delivery, true)
+    Application.put_env(:topics_club_gateway, :pause_push_delivery, true)
 
     assert {:ok, _subscription} =
              PushRegistrations.register(
@@ -884,7 +890,7 @@ defmodule Ircpipe.NotificationsTest do
              )
 
     notification = mention_notification(connection, membership)
-    Application.put_env(:ircpipe_web, :pause_push_delivery_snapshot, self())
+    Application.put_env(:topics_club_gateway, :pause_push_delivery_snapshot, self())
 
     delivery =
       Task.Supervisor.async_nolink(supervisor, fn ->
@@ -1012,10 +1018,10 @@ defmodule Ircpipe.NotificationsTest do
     connection: connection,
     membership: membership
   } do
-    previous_config = Application.get_env(:ircpipe_web, WebPush)
+    previous_config = Application.get_env(:topics_club_gateway, WebPush)
     vapid = WebPush.generate_keypair()
 
-    Application.put_env(:ircpipe_web, WebPush,
+    Application.put_env(:topics_club_gateway, WebPush,
       public_key: vapid.public_key,
       private_key: vapid.private_key,
       subject: "mailto:notifications@example.com"
@@ -1075,7 +1081,7 @@ defmodule Ircpipe.NotificationsTest do
                subscription_attrs("https://push.example.test/subscription/retry")
              )
 
-    Application.put_env(:ircpipe_web, :push_test_result, {:error, :expired})
+    Application.put_env(:topics_club_gateway, :push_test_result, {:error, :expired})
     expired_notification = mention_notification(connection, membership)
 
     assert :ok = Delivery.deliver(expired_notification.id)
@@ -1087,7 +1093,7 @@ defmodule Ircpipe.NotificationsTest do
                subscription_attrs("https://push.example.test/subscription/retry")
              )
 
-    Application.put_env(:ircpipe_web, :push_test_result, {:error, {:retryable, 503}})
+    Application.put_env(:topics_club_gateway, :push_test_result, {:error, {:retryable, 503}})
     retry_notification = mention_notification(connection, membership)
 
     assert {:error, :push_service_unavailable} =
@@ -1119,9 +1125,9 @@ defmodule Ircpipe.NotificationsTest do
     PushRegistrations.register(scope, session_token, attrs, user_agent)
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_web, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe_web, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:topics_club_gateway, key)
+  defp restore_env(key, value), do: Application.put_env(:topics_club_gateway, key, value)
 
-  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
-  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
+  defp restore_engine_env(key, nil), do: Application.delete_env(:topics_club_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:topics_club_engine, key, value)
 end

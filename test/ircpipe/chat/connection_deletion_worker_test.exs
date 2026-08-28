@@ -29,10 +29,12 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
              })
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
+
+    previous_barrier =
+      Application.get_env(:topics_club_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_mark_barrier,
       {self(), barrier_ref}
     )
@@ -94,10 +96,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     barrier_ref = make_ref()
 
     previous_barrier =
-      Application.get_env(:ircpipe_engine, :connection_delete_after_quiesce_barrier)
+      Application.get_env(:topics_club_engine, :connection_delete_after_quiesce_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_quiesce_barrier,
       {self(), barrier_ref}
     )
@@ -124,7 +126,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     assert_receive {:DOWN, ^delete_monitor, :process, ^delete_pid, :killed}
 
     refute Repo.get!(ServerConnection, connection.id).deleting
-    Application.delete_env(:ircpipe_engine, :connection_delete_after_quiesce_barrier)
+    Application.delete_env(:topics_club_engine, :connection_delete_after_quiesce_barrier)
 
     assert :ok =
              perform_job(ConnectionDeletionWorker, %{
@@ -146,10 +148,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
              })
 
     failure_ref = make_ref()
-    previous_failure = Application.get_env(:ircpipe_engine, :connection_final_delete_failure)
+    previous_failure = Application.get_env(:topics_club_engine, :connection_final_delete_failure)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_final_delete_failure,
       {self(), failure_ref}
     )
@@ -184,7 +186,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     assert log =~ "Connection deletion failed; snoozing before retry"
     assert Repo.get!(ServerConnection, connection.id).deleting
 
-    Application.delete_env(:ircpipe_engine, :connection_final_delete_failure)
+    Application.delete_env(:topics_club_engine, :connection_final_delete_failure)
 
     assert :ok =
              perform_job(
@@ -208,11 +210,13 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
              })
 
     failure_ref = make_ref()
-    previous_failure = Application.get_env(:ircpipe_engine, :connection_final_delete_failure)
-    previous_exception = Application.get_env(:ircpipe_engine, :connection_final_delete_exception)
+    previous_failure = Application.get_env(:topics_club_engine, :connection_final_delete_failure)
+
+    previous_exception =
+      Application.get_env(:topics_club_engine, :connection_final_delete_exception)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_final_delete_failure,
       {self(), failure_ref}
     )
@@ -226,11 +230,11 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     assert_receive {:connection_final_delete_failed, _pid, ^failure_ref, connection_id}
     assert connection_id == connection.id
 
-    Application.delete_env(:ircpipe_engine, :connection_final_delete_failure)
+    Application.delete_env(:topics_club_engine, :connection_final_delete_failure)
     exception_ref = make_ref()
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_final_delete_exception,
       {self(), exception_ref}
     )
@@ -267,7 +271,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     assert Repo.get!(Oban.Job, job.id).state == "discarded"
     assert Repo.get!(ServerConnection, connection.id).deleting
 
-    Application.delete_env(:ircpipe_engine, :connection_final_delete_exception)
+    Application.delete_env(:topics_club_engine, :connection_final_delete_exception)
 
     assert :ok = perform_job(ConnectionDeletionReconcilerWorker, %{})
 
@@ -305,10 +309,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     exception_ref = make_ref()
 
     previous_exception =
-      Application.get_env(:ircpipe_engine, :connection_before_delete_mark_exception)
+      Application.get_env(:topics_club_engine, :connection_before_delete_mark_exception)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_before_delete_mark_exception,
       {self(), exception_ref}
     )
@@ -360,7 +364,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     assert Repo.get!(Oban.Job, job.id).state == "discarded"
     refute Repo.get!(ServerConnection, connection.id).deleting
 
-    Application.delete_env(:ircpipe_engine, :connection_before_delete_mark_exception)
+    Application.delete_env(:topics_club_engine, :connection_before_delete_mark_exception)
     assert :ok = perform_job(ConnectionDeletionReconcilerWorker, %{})
 
     replacement_job =
@@ -380,6 +384,6 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     refute Repo.get_by(ConnectionDeletionRequest, server_connection_id: connection.id)
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:topics_club_engine, key)
+  defp restore_env(key, value), do: Application.put_env(:topics_club_engine, key, value)
 end

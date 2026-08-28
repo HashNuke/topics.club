@@ -37,9 +37,9 @@ ENV MIX_ENV="prod"
 
 # install mix dependencies
 COPY mix.exs mix.lock ./
-COPY apps/ircpipe_core/mix.exs apps/ircpipe_core/mix.exs
-COPY apps/ircpipe_engine/mix.exs apps/ircpipe_engine/mix.exs
-COPY apps/ircpipe_web/mix.exs apps/ircpipe_web/mix.exs
+COPY apps/topics_club_core/mix.exs apps/topics_club_core/mix.exs
+COPY apps/topics_club_engine/mix.exs apps/topics_club_engine/mix.exs
+COPY apps/topics_club_gateway/mix.exs apps/topics_club_gateway/mix.exs
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 
@@ -51,23 +51,23 @@ RUN mix deps.compile
 
 RUN mix assets.setup
 
-COPY apps/ircpipe_web/assets/package.json apps/ircpipe_web/assets/package-lock.json apps/ircpipe_web/assets/
-RUN npm ci --prefix apps/ircpipe_web/assets --omit=dev
+COPY apps/topics_club_gateway/assets/package.json apps/topics_club_gateway/assets/package-lock.json apps/topics_club_gateway/assets/
+RUN npm ci --prefix apps/topics_club_gateway/assets --omit=dev
 
 COPY priv priv
 
-COPY apps/ircpipe_core apps/ircpipe_core
-COPY apps/ircpipe_engine apps/ircpipe_engine
-COPY apps/ircpipe_web/lib apps/ircpipe_web/lib
-COPY apps/ircpipe_web/priv/gettext apps/ircpipe_web/priv/gettext
+COPY apps/topics_club_core apps/topics_club_core
+COPY apps/topics_club_engine apps/topics_club_engine
+COPY apps/topics_club_gateway/lib apps/topics_club_gateway/lib
+COPY apps/topics_club_gateway/priv/gettext apps/topics_club_gateway/priv/gettext
 
 COPY lib lib
 
 # Compile the release
 RUN mix compile
 
-COPY apps/ircpipe_web/assets apps/ircpipe_web/assets
-COPY apps/ircpipe_web/priv/static apps/ircpipe_web/priv/static
+COPY apps/topics_club_gateway/assets apps/topics_club_gateway/assets
+COPY apps/topics_club_gateway/priv/static apps/topics_club_gateway/priv/static
 
 # compile assets
 RUN mix assets.deploy
@@ -86,7 +86,7 @@ RUN source_revision="${SOURCE_REVISION:-${RAILWAY_GIT_COMMIT_SHA:-}}" \
       | sha256sum \
       | cut -c1-40)"; \
   fi \
-  && IRCPIPE_SOURCE_REVISION="$source_revision" mix release ircpipe
+  && TOPICS_CLUB_SOURCE_REVISION="$source_revision" mix release topics_club
 
 # start a new build stage so that the final image will only contain
 # the compiled release and other runtime necessities
@@ -111,7 +111,7 @@ RUN chown nobody /app
 ENV MIX_ENV="prod"
 
 # Only copy the final release from the build stage
-COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/ircpipe ./
+COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/topics_club ./
 
 USER nobody
 

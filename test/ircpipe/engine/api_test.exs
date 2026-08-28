@@ -13,14 +13,14 @@ defmodule Ircpipe.Engine.APITest do
   alias Ircpipe.IrcTestServer
 
   setup do
-    previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
-    Application.put_env(:ircpipe_core, :engine_client_adapter, LocalAdapter)
+    previous_adapter = Application.get_env(:topics_club_core, :engine_client_adapter)
+    Application.put_env(:topics_club_core, :engine_client_adapter, LocalAdapter)
 
     on_exit(fn ->
       if previous_adapter do
-        Application.put_env(:ircpipe_core, :engine_client_adapter, previous_adapter)
+        Application.put_env(:topics_club_core, :engine_client_adapter, previous_adapter)
       else
-        Application.delete_env(:ircpipe_core, :engine_client_adapter)
+        Application.delete_env(:topics_club_core, :engine_client_adapter)
       end
     end)
 
@@ -189,12 +189,12 @@ defmodule Ircpipe.Engine.APITest do
     connection: connection
   } do
     previous_barrier =
-      Application.get_env(:ircpipe_engine, :engine_api_after_connection_load_barrier)
+      Application.get_env(:topics_club_engine, :engine_api_after_connection_load_barrier)
 
     barrier_ref = make_ref()
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :engine_api_after_connection_load_barrier,
       {self(), barrier_ref, :ensure_connection}
     )
@@ -202,12 +202,12 @@ defmodule Ircpipe.Engine.APITest do
     on_exit(fn ->
       if previous_barrier do
         Application.put_env(
-          :ircpipe_engine,
+          :topics_club_engine,
           :engine_api_after_connection_load_barrier,
           previous_barrier
         )
       else
-        Application.delete_env(:ircpipe_engine, :engine_api_after_connection_load_barrier)
+        Application.delete_env(:topics_club_engine, :engine_api_after_connection_load_barrier)
       end
     end)
 
@@ -268,17 +268,17 @@ defmodule Ircpipe.Engine.APITest do
       |> Ecto.Changeset.change(port: IrcTestServer.port(replacement_server))
       |> Repo.update()
 
-    previous_pause = Application.get_env(:ircpipe_engine, :pause_session_stop_after_lookup)
-    Application.put_env(:ircpipe_engine, :pause_session_stop_after_lookup, self())
+    previous_pause = Application.get_env(:topics_club_engine, :pause_session_stop_after_lookup)
+    Application.put_env(:topics_club_engine, :pause_session_stop_after_lookup, self())
 
     on_exit(fn ->
-      Application.delete_env(:ircpipe_engine, :pause_session_stop_after_lookup)
+      Application.delete_env(:topics_club_engine, :pause_session_stop_after_lookup)
       _ = SessionSupervisor.stop_session(connection)
 
       if previous_pause do
-        Application.put_env(:ircpipe_engine, :pause_session_stop_after_lookup, previous_pause)
+        Application.put_env(:topics_club_engine, :pause_session_stop_after_lookup, previous_pause)
       else
-        Application.delete_env(:ircpipe_engine, :pause_session_stop_after_lookup)
+        Application.delete_env(:topics_club_engine, :pause_session_stop_after_lookup)
       end
     end)
 
@@ -297,7 +297,7 @@ defmodule Ircpipe.Engine.APITest do
       end)
 
     refute Task.yield(ensure_task, 100)
-    Application.delete_env(:ircpipe_engine, :pause_session_stop_after_lookup)
+    Application.delete_env(:topics_club_engine, :pause_session_stop_after_lookup)
     send(stop_pid, {:continue_session_stop, session_pid})
 
     assert {:ok, %{connection: %{desired_state: "paused"}, status: "disconnected"}} =

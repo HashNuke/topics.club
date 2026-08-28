@@ -22,10 +22,10 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
     barrier_ref = make_ref()
 
     previous_barrier =
-      Application.get_env(:ircpipe_web, :connection_endpoint_create_barrier)
+      Application.get_env(:topics_club_gateway, :connection_endpoint_create_barrier)
 
     Application.put_env(
-      :ircpipe_web,
+      :topics_club_gateway,
       :connection_endpoint_create_barrier,
       {self(), barrier_ref}
     )
@@ -112,10 +112,12 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
       end)
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe_engine, :connection_delete_after_lock_barrier)
+
+    previous_barrier =
+      Application.get_env(:topics_club_engine, :connection_delete_after_lock_barrier)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :connection_delete_after_lock_barrier,
       {self(), barrier_ref}
     )
@@ -191,13 +193,17 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   end
 
   defp restore_barrier(nil) do
-    Application.delete_env(:ircpipe_web, :connection_endpoint_create_barrier)
+    Application.delete_env(:topics_club_gateway, :connection_endpoint_create_barrier)
   end
 
   defp restore_barrier(previous_barrier) do
-    Application.put_env(:ircpipe_web, :connection_endpoint_create_barrier, previous_barrier)
+    Application.put_env(
+      :topics_club_gateway,
+      :connection_endpoint_create_barrier,
+      previous_barrier
+    )
   end
 
-  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
-  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
+  defp restore_engine_env(key, nil), do: Application.delete_env(:topics_club_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:topics_club_engine, key, value)
 end

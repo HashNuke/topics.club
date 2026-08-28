@@ -26,7 +26,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     configure_engine_test_adapter()
 
     for code <- [:not_connected, :engine_unavailable, :timeout] do
-      Application.put_env(:ircpipe_core, :engine_client_test_reply, {:error, code})
+      Application.put_env(:topics_club_core, :engine_client_test_reply, {:error, code})
 
       response =
         build_conn()
@@ -51,7 +51,7 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     configure_engine_test_adapter()
 
     Application.put_env(
-      :ircpipe_core,
+      :topics_club_core,
       :engine_client_test_reply,
       {:error, :invalid_state, %{reason: "already_pending"}}
     )
@@ -145,12 +145,17 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
   end
 
   defp configure_engine_test_adapter do
-    previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
-    previous_test_pid = Application.get_env(:ircpipe_core, :engine_client_test_pid)
-    previous_test_reply = Application.get_env(:ircpipe_core, :engine_client_test_reply)
+    previous_adapter = Application.get_env(:topics_club_core, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:topics_club_core, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:topics_club_core, :engine_client_test_reply)
 
-    Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
-    Application.put_env(:ircpipe_core, :engine_client_test_pid, self())
+    Application.put_env(
+      :topics_club_core,
+      :engine_client_adapter,
+      Ircpipe.EngineClientTestAdapter
+    )
+
+    Application.put_env(:topics_club_core, :engine_client_test_pid, self())
 
     on_exit(fn ->
       restore_env(:engine_client_adapter, previous_adapter)
@@ -159,6 +164,6 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
     end)
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:topics_club_core, key)
+  defp restore_env(key, value), do: Application.put_env(:topics_club_core, key, value)
 end

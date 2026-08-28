@@ -5,14 +5,19 @@ defmodule Ircpipe.EngineClientTest do
   alias Ircpipe.EngineClient.Discovery
 
   setup do
-    previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
-    previous_test_pid = Application.get_env(:ircpipe_core, :engine_client_test_pid)
-    previous_test_reply = Application.get_env(:ircpipe_core, :engine_client_test_reply)
-    previous_local_api_module = Application.get_env(:ircpipe_engine, :engine_local_api_module)
+    previous_adapter = Application.get_env(:topics_club_core, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:topics_club_core, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:topics_club_core, :engine_client_test_reply)
+    previous_local_api_module = Application.get_env(:topics_club_engine, :engine_local_api_module)
 
-    Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
-    Application.put_env(:ircpipe_core, :engine_client_test_pid, self())
-    Application.delete_env(:ircpipe_core, :engine_client_test_reply)
+    Application.put_env(
+      :topics_club_core,
+      :engine_client_adapter,
+      Ircpipe.EngineClientTestAdapter
+    )
+
+    Application.put_env(:topics_club_core, :engine_client_test_pid, self())
+    Application.delete_env(:topics_club_core, :engine_client_test_reply)
 
     on_exit(fn ->
       restore_core_env(:engine_client_adapter, previous_adapter)
@@ -42,7 +47,7 @@ defmodule Ircpipe.EngineClientTest do
   end
 
   test "normalizes malformed adapter replies" do
-    Application.put_env(:ircpipe_core, :engine_client_test_reply, :malformed)
+    Application.put_env(:topics_club_core, :engine_client_test_reply, :malformed)
 
     assert {:error, %{code: :invalid_response}} =
              EngineClient.connection_info(1, 2)
@@ -88,8 +93,8 @@ defmodule Ircpipe.EngineClientTest do
   end
 
   test "the local adapter enforces the operation timeout" do
-    Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.Engine.LocalAdapter)
-    Application.put_env(:ircpipe_engine, :engine_local_api_module, Ircpipe.BlockedEngineAPI)
+    Application.put_env(:topics_club_core, :engine_client_adapter, Ircpipe.Engine.LocalAdapter)
+    Application.put_env(:topics_club_engine, :engine_local_api_module, Ircpipe.BlockedEngineAPI)
 
     assert {:error, %{code: :timeout, details: %{}}} =
              EngineClient.connection_info(1, 2, timeout: 10)
@@ -104,9 +109,9 @@ defmodule Ircpipe.EngineClientTest do
     end)
   end
 
-  defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
-  defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
+  defp restore_core_env(key, nil), do: Application.delete_env(:topics_club_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:topics_club_core, key, value)
 
-  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
-  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
+  defp restore_engine_env(key, nil), do: Application.delete_env(:topics_club_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:topics_club_engine, key, value)
 end

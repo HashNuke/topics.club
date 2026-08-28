@@ -145,10 +145,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     flush_mailbox()
 
     effects_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
+
+    previous_barrier =
+      Application.get_env(:topics_club_core, :connection_effects_before_lock_barrier)
 
     Application.put_env(
-      :ircpipe_core,
+      :topics_club_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
@@ -258,17 +260,22 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     assert thread.mutation_revision == 1
 
-    previous_pause = Application.get_env(:ircpipe_core, :pause_direct_message_closed_broadcast)
+    previous_pause =
+      Application.get_env(:topics_club_core, :pause_direct_message_closed_broadcast)
 
     on_exit(fn ->
       if is_nil(previous_pause) do
-        Application.delete_env(:ircpipe_core, :pause_direct_message_closed_broadcast)
+        Application.delete_env(:topics_club_core, :pause_direct_message_closed_broadcast)
       else
-        Application.put_env(:ircpipe_core, :pause_direct_message_closed_broadcast, previous_pause)
+        Application.put_env(
+          :topics_club_core,
+          :pause_direct_message_closed_broadcast,
+          previous_pause
+        )
       end
     end)
 
-    Application.put_env(:ircpipe_core, :pause_direct_message_closed_broadcast, {self(), 2})
+    Application.put_env(:topics_club_core, :pause_direct_message_closed_broadcast, {self(), 2})
     supervisor = start_supervised!(Task.Supervisor)
 
     close =
@@ -327,17 +334,22 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     assert thread.mutation_revision == 1
 
-    previous_pause = Application.get_env(:ircpipe_core, :pause_direct_message_thread_broadcast)
+    previous_pause =
+      Application.get_env(:topics_club_core, :pause_direct_message_thread_broadcast)
 
     on_exit(fn ->
       if is_nil(previous_pause) do
-        Application.delete_env(:ircpipe_core, :pause_direct_message_thread_broadcast)
+        Application.delete_env(:topics_club_core, :pause_direct_message_thread_broadcast)
       else
-        Application.put_env(:ircpipe_core, :pause_direct_message_thread_broadcast, previous_pause)
+        Application.put_env(
+          :topics_club_core,
+          :pause_direct_message_thread_broadcast,
+          previous_pause
+        )
       end
     end)
 
-    Application.put_env(:ircpipe_core, :pause_direct_message_thread_broadcast, {self(), 2})
+    Application.put_env(:topics_club_core, :pause_direct_message_thread_broadcast, {self(), 2})
     supervisor = start_supervised!(Task.Supervisor)
 
     block =
@@ -711,10 +723,10 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     pause_ref = make_ref()
 
     previous_pause =
-      Application.get_env(:ircpipe_web, :pause_direct_message_block_after_lock)
+      Application.get_env(:topics_club_gateway, :pause_direct_message_block_after_lock)
 
     Application.put_env(
-      :ircpipe_web,
+      :topics_club_gateway,
       :pause_direct_message_block_after_lock,
       {test_pid, pause_ref}
     )
@@ -811,10 +823,10 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         {user, scope, connection, thread}
       end)
 
-    Application.put_env(:ircpipe_engine, :pause_direct_message_send, test_pid)
+    Application.put_env(:topics_club_engine, :pause_direct_message_send, test_pid)
 
     on_exit(fn ->
-      Application.delete_env(:ircpipe_engine, :pause_direct_message_send)
+      Application.delete_env(:topics_club_engine, :pause_direct_message_send)
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
@@ -874,10 +886,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     test_pid = self()
     supervisor = start_supervised!(Task.Supervisor)
     pause_ref = make_ref()
-    previous_pause = Application.get_env(:ircpipe_engine, :pause_direct_message_rename_after_lock)
+
+    previous_pause =
+      Application.get_env(:topics_club_engine, :pause_direct_message_rename_after_lock)
 
     Application.put_env(
-      :ircpipe_engine,
+      :topics_club_engine,
       :pause_direct_message_rename_after_lock,
       {test_pid, pause_ref}
     )
@@ -1003,12 +1017,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     end
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_web, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe_web, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:topics_club_gateway, key)
+  defp restore_env(key, value), do: Application.put_env(:topics_club_gateway, key, value)
 
-  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
-  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
+  defp restore_engine_env(key, nil), do: Application.delete_env(:topics_club_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:topics_club_engine, key, value)
 
-  defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
-  defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
+  defp restore_core_env(key, nil), do: Application.delete_env(:topics_club_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:topics_club_core, key, value)
 end

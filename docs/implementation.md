@@ -354,7 +354,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] settings
 - [x] IRC runtime tests using local test server.
 - [x] Integration tests using local InspIRCd and irssi where useful.
-  - [x] Opt-in local check: `IRCPIPE_LOCAL_IRC_INTEGRATION=1 mix test test/ircpipe/irc/local_integration_test.exs`
+  - [x] Opt-in local check: `TOPICS_CLUB_LOCAL_IRC_INTEGRATION=1 mix test test/ircpipe/irc/local_integration_test.exs`
   - [x] Verifies `irssi` is installed and local InspIRCd relays messages between IRC clients on `127.0.0.1:6669`.
 - [x] Frontend hook/store tests for realtime event application.
 - [x] Frontend component tests for the chat shell.
@@ -362,7 +362,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Frontend tests for notification permission, preference, Web Push, and visible-window suppression states.
 - [x] Frontend tests for socket/backend failure states.
 - [x] Headless Chromium tests for local-only landing topics and auth-protected chat route.
-- [x] Run `npm test --prefix apps/ircpipe_web/assets` for React changes.
+- [x] Run `npm test --prefix apps/topics_club_gateway/assets` for React changes.
 - [x] Run targeted `mix test` during backend work.
 - [x] Run `mix precommit` before completing implementation changes.
 

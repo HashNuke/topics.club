@@ -7,7 +7,7 @@
 # General application configuration
 import Config
 
-config :ircpipe_web, :scopes,
+config :topics_club_gateway, :scopes,
   user: [
     default: true,
     module: Ircpipe.Accounts.Scope,
@@ -20,19 +20,19 @@ config :ircpipe_web, :scopes,
     test_setup_helper: :register_and_log_in_user
   ]
 
-config :ircpipe_core,
+config :topics_club_core,
   ecto_repos: [Ircpipe.Repo],
   engine_client_adapter: Ircpipe.Engine.LocalAdapter,
   internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
 
-config :ircpipe_web,
+config :topics_club_gateway,
   generators: [timestamp_type: :utc_datetime],
   discovery_refresh_enabled: config_env() == :dev
 
-config :ircpipe_engine,
+config :topics_club_engine,
   irc_bouncer_enabled: true
 
-config :ircpipe_engine, Ircpipe.EngineOban,
+config :topics_club_engine, Ircpipe.EngineOban,
   name: Ircpipe.EngineOban,
   repo: Ircpipe.Repo,
   queues: [connection_deletions: 2, internal_events: 5],
@@ -43,14 +43,14 @@ config :ircpipe_engine, Ircpipe.EngineOban,
     ]
   ]
 
-config :ircpipe_web, IrcpipeWeb.Oban,
+config :topics_club_gateway, IrcpipeWeb.Oban,
   name: IrcpipeWeb.Oban,
   repo: Ircpipe.Repo,
   queues: [notifications: 5],
   plugins: [Oban.Plugins.Pruner]
 
 # Configure the endpoint
-config :ircpipe_web, IrcpipeWeb.Endpoint,
+config :topics_club_gateway, IrcpipeWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
@@ -67,27 +67,27 @@ config :ircpipe_web, IrcpipeWeb.Endpoint,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :ircpipe_web, Ircpipe.Mailer, adapter: Swoosh.Adapters.Local
+config :topics_club_gateway, Ircpipe.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  ircpipe: [
+  topics_club: [
     args:
       ~w(js/app.ts --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../apps/ircpipe_web/assets", __DIR__),
+    cd: Path.expand("../apps/topics_club_gateway/assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.1.12",
-  ircpipe: [
+  topics_club: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css
     ),
-    cd: Path.expand("../apps/ircpipe_web", __DIR__)
+    cd: Path.expand("../apps/topics_club_gateway", __DIR__)
   ]
 
 # Configure Elixir's Logger

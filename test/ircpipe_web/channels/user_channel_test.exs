@@ -840,10 +840,10 @@ defmodule IrcpipeWeb.UserChannelTest do
     barrier_ref = make_ref()
 
     previous_barrier =
-      Application.get_env(:ircpipe_web, :read_state_before_server_lock_barrier)
+      Application.get_env(:topics_club_gateway, :read_state_before_server_lock_barrier)
 
     Application.put_env(
-      :ircpipe_web,
+      :topics_club_gateway,
       :read_state_before_server_lock_barrier,
       {self(), barrier_ref}
     )
@@ -1612,13 +1612,18 @@ defmodule IrcpipeWeb.UserChannelTest do
   end
 
   defp configure_engine_test_adapter(reply) do
-    previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
-    previous_test_pid = Application.get_env(:ircpipe_core, :engine_client_test_pid)
-    previous_test_reply = Application.get_env(:ircpipe_core, :engine_client_test_reply)
+    previous_adapter = Application.get_env(:topics_club_core, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:topics_club_core, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:topics_club_core, :engine_client_test_reply)
 
-    Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
-    Application.put_env(:ircpipe_core, :engine_client_test_pid, self())
-    Application.put_env(:ircpipe_core, :engine_client_test_reply, reply)
+    Application.put_env(
+      :topics_club_core,
+      :engine_client_adapter,
+      Ircpipe.EngineClientTestAdapter
+    )
+
+    Application.put_env(:topics_club_core, :engine_client_test_pid, self())
+    Application.put_env(:topics_club_core, :engine_client_test_reply, reply)
 
     on_exit(fn ->
       restore_env(:engine_client_adapter, previous_adapter)
@@ -1627,6 +1632,6 @@ defmodule IrcpipeWeb.UserChannelTest do
     end)
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:topics_club_core, key)
+  defp restore_env(key, value), do: Application.put_env(:topics_club_core, key, value)
 end

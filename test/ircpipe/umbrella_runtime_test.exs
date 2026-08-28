@@ -11,9 +11,9 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
 
     started_apps = Application.started_applications() |> Enum.map(&elem(&1, 0))
 
-    assert :ircpipe_core in started_apps
-    assert :ircpipe_engine in started_apps
-    assert :ircpipe_web in started_apps
+    assert :topics_club_core in started_apps
+    assert :topics_club_engine in started_apps
+    assert :topics_club_gateway in started_apps
     refute :ircpipe in started_apps
   end
 
@@ -29,14 +29,30 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
   end
 
   test "core owns the Ecto repository configuration" do
-    assert Application.fetch_env!(:ircpipe_core, :ecto_repos) == [Ircpipe.Repo]
+    assert Application.fetch_env!(:topics_club_core, :ecto_repos) == [Ircpipe.Repo]
     assert Application.get_env(:ircpipe, :ecto_repos) == nil
   end
 
-  test "engine owns its runtime configuration" do
-    assert Application.fetch_env!(:ircpipe_engine, :irc_bouncer_enabled) == false
+  test "legacy OTP application and release names are not accepted" do
+    for application <- [:ircpipe_core, :ircpipe_engine, :ircpipe_web] do
+      assert Application.get_all_env(application) == []
+    end
 
-    assert Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)[:name] ==
+    config_path = Path.expand("../../config/runtime.exs", __DIR__)
+
+    for release_name <- ["ircpipe", "ircpipe_web", "ircpipe_engine"] do
+      with_system_env(%{"RELEASE_NAME" => release_name}, fn ->
+        assert_raise RuntimeError, ~r/unsupported release name/, fn ->
+          Config.Reader.read!(config_path, env: :prod)
+        end
+      end)
+    end
+  end
+
+  test "engine owns its runtime configuration" do
+    assert Application.fetch_env!(:topics_club_engine, :irc_bouncer_enabled) == false
+
+    assert Application.fetch_env!(:topics_club_engine, Ircpipe.EngineOban)[:name] ==
              Ircpipe.EngineOban
 
     assert Application.get_env(:ircpipe, :irc_bouncer_enabled) == nil
@@ -89,8 +105,8 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
   end
 
   test "the combined tree uses named role-specific Oban instances" do
-    runtime_engine_config = Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)
-    runtime_web_config = Application.fetch_env!(:ircpipe_web, IrcpipeWeb.Oban)
+    runtime_engine_config = Application.fetch_env!(:topics_club_engine, Ircpipe.EngineOban)
+    runtime_web_config = Application.fetch_env!(:topics_club_gateway, IrcpipeWeb.Oban)
     {engine_config, web_config} = production_oban_configs()
     engine_queues = engine_config |> Keyword.fetch!(:queues) |> Keyword.keys() |> MapSet.new()
     web_queues = web_config |> Keyword.fetch!(:queues) |> Keyword.keys() |> MapSet.new()
@@ -120,12 +136,12 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
         "DATABASE_PASSWORD" => "pa:ss@word#x?/+",
         "DATABASE_NAME" => "ircpipe_prod",
         "IRC_CREDENTIALS_KEY" => credentials_key,
-        "RELEASE_NAME" => "ircpipe_engine"
+        "RELEASE_NAME" => "topics_club_engine"
       },
       fn ->
         config_path = Path.expand("../../config/runtime.exs", __DIR__)
         config = Config.Reader.read!(config_path, env: :prod)
-        repo_config = config[:ircpipe_core][Ircpipe.Repo]
+        repo_config = config[:topics_club_core][Ircpipe.Repo]
 
         refute Keyword.has_key?(repo_config, :url)
         assert repo_config[:hostname] == "postgres"
@@ -150,8 +166,8 @@ defmodule Ircpipe.UmbrellaRuntimeTest do
     config = Config.Reader.read!(config_path, env: :prod)
 
     {
-      config[:ircpipe_engine][Ircpipe.EngineOban],
-      config[:ircpipe_web][IrcpipeWeb.Oban]
+      config[:topics_club_engine][Ircpipe.EngineOban],
+      config[:topics_club_gateway][IrcpipeWeb.Oban]
     }
   end
 

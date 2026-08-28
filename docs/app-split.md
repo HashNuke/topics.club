@@ -116,7 +116,7 @@ Browser
    |
    v
 +-----------------------------+       Distributed Erlang       +-----------------------------+
-| ircpipe_web release         | <-----------------------------> | ircpipe_engine release      |
+| topics_club_gateway release         | <-----------------------------> | topics_club_engine release      |
 |                             |                                 |                             |
 | Phoenix + React + auth      |                                 | Engine API                  |
 | JSON APIs + Channels        |                                 | IRC sessions + bouncer      |
@@ -137,21 +137,21 @@ The first split-mode release supports one web node and one engine node. Addition
 
 ## Pre-umbrella logical boundaries
 
-The application must first behave like three cooperating OTP applications while it is still one Mix project and one BEAM node. Physical source paths do not enforce ownership: an Elixir module keeps the same name regardless of which OTP application compiles it. For example, `Ircpipe.Irc.Session` can move from `lib/ircpipe/irc/session.ex` to `apps/ircpipe_engine/lib/ircpipe/irc/session.ex` without changing its module name or its internal callers.
+The application must first behave like three cooperating OTP applications while it is still one Mix project and one BEAM node. Physical source paths do not enforce ownership: an Elixir module keeps the same name regardless of which OTP application compiles it. For example, `Ircpipe.Irc.Session` can move from `lib/ircpipe/irc/session.ex` to `apps/topics_club_engine/lib/ircpipe/irc/session.ex` without changing its module name or its internal callers.
 
 Use the following logical ownership before creating the umbrella:
 
 | Logical component | Current/future namespaces | Allowed dependencies | Future OTP application |
 | --- | --- | --- | --- |
-| Core/data | `Ircpipe.Repo`, `Ircpipe.Vault`, shared identity/data schemas, migration modules, and persistence primitives | External libraries and other core modules only | `ircpipe_core` |
-| Shared protocol/contracts | Versioned request, reply, and event envelopes; pure IRC identifiers, command metadata, and validation needed by more than one role | Standard library, `:telemetry`, and `ircxd`; never Repo, Ecto schemas, or another Ircpipe component | `ircpipe_core` initially; split further only if justified |
-| Engine | `Ircpipe.Irc` process ownership, per-user session orchestration, ingestion, hosted server | Core and shared contracts | `ircpipe_engine` |
-| Web | `IrcpipeWeb`, browser auth, controllers, Channels, serializers, frontend, directory discovery workers, web-owned jobs | Core, shared contracts, `Ircpipe.EngineClient`, and `ircxd` for discovery | `ircpipe_web` |
+| Core/data | `Ircpipe.Repo`, `Ircpipe.Vault`, shared identity/data schemas, migration modules, and persistence primitives | External libraries and other core modules only | `topics_club_core` |
+| Shared protocol/contracts | Versioned request, reply, and event envelopes; pure IRC identifiers, command metadata, and validation needed by more than one role | Standard library, `:telemetry`, and `ircxd`; never Repo, Ecto schemas, or another Ircpipe component | `topics_club_core` initially; split further only if justified |
+| Engine | `Ircpipe.Irc` process ownership, per-user session orchestration, ingestion, hosted server | Core and shared contracts | `topics_club_engine` |
+| Web | `IrcpipeWeb`, browser auth, controllers, Channels, serializers, frontend, directory discovery workers, web-owned jobs | Core, shared contracts, `Ircpipe.EngineClient`, and `ircxd` for discovery | `topics_club_gateway` |
 
 The required dependency direction is:
 
 ```text
-ircpipe_web -------> ircpipe_core <------- ircpipe_engine
+topics_club_gateway -------> topics_club_core <------- topics_club_engine
       |
       +----> Ircpipe.EngineClient ----> configured adapter
                                            |          |
@@ -175,7 +175,7 @@ Boundary enforcement must be automated. Local precommit fails when web code refe
 
 The authoritative ownership and transition manifest is `config/boundaries.exs`. It tracks compiled production files, all 29 migration modules, and test-support files under the four deployable logical components plus `tooling` for root Mix tasks. The temporary `assembly` source owner disappeared with the empty root OTP application during the umbrella conversion; combined assembly is now release metadata rather than production code. Tooling is not an OTP application and is excluded from deployable-component cycle analysis. Migration files receive an owner, but Mix does not compile them into the application xref graph; their internal references therefore require migration tests and review rather than xref enforcement.
 
-Run `mix ircpipe.check_boundaries` to validate the manifest against Mix's direct xref graph. The checker fails on unowned or multiply owned files, unknown components, cycles in the permanent allowed-dependency policy, actual deployable cycles outside the explicit transition-cycle baseline, new forbidden file edges, dependency-label escalation, malformed or duplicate exceptions, stale exceptions or transition cycles, and compiled production files missing from xref. `mix precommit` runs this check immediately after warning-free compilation.
+Run `mix topics_club.check_boundaries` to validate the manifest against Mix's direct xref graph. The checker fails on unowned or multiply owned files, unknown components, cycles in the permanent allowed-dependency policy, actual deployable cycles outside the explicit transition-cycle baseline, new forbidden file edges, dependency-label escalation, malformed or duplicate exceptions, stale exceptions or transition cycles, and compiled production files missing from xref. `mix precommit` runs this check immediately after warning-free compilation.
 
 The initial graph already has one temporary strongly connected component containing core, engine, and web because the monolith has allowlisted reverse edges in all three components. The checker records that component set explicitly and rejects a different or additional deployable strongly connected component. This baseline must disappear when the reverse edges are removed; it is not a permitted final umbrella topology.
 
@@ -276,8 +276,8 @@ Direct production `ircxd` use is intentionally narrow:
 
 - Shared: `Ircpipe.Chat.MentionDetection`, `Ircpipe.Irc.CommandRegistry`, and `Ircpipe.Irc.Identifier`.
 - Engine: `Ircpipe.Engine.Serialization`, `Ircpipe.Irc.CommandResult`, `EventFormatting`, `SessionLocator`, and the `Ircpipe.Irc.Session` protocol modules.
-- Web: `Ircpipe.Discovery.ServerChannelLister`, whose short-lived workers are why `ircpipe_web` still requires `ircxd` after the application split.
-- Tooling: `Mix.Tasks.Ircpipe.SetupLocalIrc`.
+- Web: `Ircpipe.Discovery.ServerChannelLister`, whose short-lived workers are why `topics_club_gateway` still requires `ircxd` after the application split.
+- Tooling: `Mix.Tasks.TopicsClub.SetupLocalIrc`.
 - Core data/persistence has no direct `ircxd` use.
 
 #### Configuration, environment, and secrets
@@ -304,8 +304,8 @@ Test-only application keys are not release configuration. They are narrow synchr
 | `SMTP_*`, `EMAIL_FROM_*` | Combined and web |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Combined and web |
 | `ENABLE_DISCOVERY` | Combined and web |
-| `RELEASE_NODE`, `RELEASE_COOKIE`; later `IRCPIPE_ENGINE_NODE` on web | Split runtime/distribution as described in the configuration contract |
-| `POSTGRES_PASSWORD`, `IRCPIPE_POSTGRES_DATA`, `IRCPIPE_PORT` | Compose interpolation only, not application configuration |
+| `RELEASE_NODE`, `RELEASE_COOKIE`; later `TOPICS_CLUB_ENGINE_NODE` on web | Split runtime/distribution as described in the configuration contract |
+| `POSTGRES_PASSWORD`, `TOPICS_CLUB_POSTGRES_DATA`, `TOPICS_CLUB_PORT` | Compose interpolation only, not application configuration |
 
 #### Supervision and registered names
 
@@ -325,9 +325,9 @@ Extraction preserves module names and relative paths. No module rename is bundle
 
 | Current ownership/path | Future source destination | Future focused-test destination |
 | --- | --- | --- |
-| Core and shared entries in `config/boundaries.exs` | `apps/ircpipe_core/lib/...` | `apps/ircpipe_core/test/...` |
-| Engine entries, including selected `lib/ircpipe/chat` files | `apps/ircpipe_engine/lib/...` | `apps/ircpipe_engine/test/...` |
-| Web entries in both `lib/ircpipe` and `lib/ircpipe_web` plus assets | `apps/ircpipe_web/lib/...`, `apps/ircpipe_web/assets/...` | `apps/ircpipe_web/test/...` |
+| Core and shared entries in `config/boundaries.exs` | `apps/topics_club_core/lib/...` | `apps/topics_club_core/test/...` |
+| Engine entries, including selected `lib/ircpipe/chat` files | `apps/topics_club_engine/lib/...` | `apps/topics_club_engine/test/...` |
+| Web entries in both `lib/ircpipe` and `lib/ircpipe_web` plus assets | `apps/topics_club_gateway/lib/...`, `apps/topics_club_gateway/assets/...` | `apps/topics_club_gateway/test/...` |
 | Root `mix.exs` release metadata | Umbrella combined-release assembly; no production module | Root integration tests |
 | `lib/mix/**` | Umbrella root tooling | Root tooling tests |
 | Cross-component release, boundary, and distributed integration tests | No child source owner | Umbrella root integration test directory |
@@ -336,10 +336,10 @@ The pre-umbrella discovery baseline partitions every current ExUnit file exactly
 
 | Logical test owner | Files | Tests | Future physical expectation |
 | --- | ---: | ---: | --- |
-| Core data/persistence | 9 | 27 | `ircpipe_core` |
-| Shared protocol/contracts | 7 | 35 | `ircpipe_core` |
-| Engine | 57 | 269 | `ircpipe_engine` |
-| Web | 50 | 319 | `ircpipe_web` |
+| Core data/persistence | 9 | 27 | `topics_club_core` |
+| Shared protocol/contracts | 7 | 35 | `topics_club_core` |
+| Engine | 57 | 269 | `topics_club_engine` |
+| Web | 50 | 319 | `topics_club_gateway` |
 | Combined assembly | 1 | 6 | Umbrella root |
 | Tooling | 2 | 14 | Umbrella root |
 | Cross-component integration | 2 | 22 | Umbrella root |
@@ -371,12 +371,14 @@ After the pre-umbrella boundary gate passes, convert the repository into an umbr
 
 ```text
 apps/
-  ircpipe_core/
-  ircpipe_engine/
-  ircpipe_web/
+  topics_club_core/
+  topics_club_engine/
+  topics_club_gateway/
 ```
 
-### `ircpipe_core`
+The OTP application and release names use the `topics_club` product name. The existing `Ircpipe` and `IrcpipeWeb` module namespaces remain unchanged in this mechanical naming checkpoint; changing production module names is a separate migration. The gateway therefore owns the conventional Phoenix `lib/ircpipe_web` source directory without also being named `ircpipe_web` as an OTP application.
+
+### `topics_club_core`
 
 Stable code needed by both releases:
 
@@ -389,9 +391,9 @@ Stable code needed by both releases:
 - `Ircpipe.EngineClient`
 - Shared database primitives that do not own web or IRC policy
 
-`ircpipe_core` must not depend on `ircpipe_engine` or `ircpipe_web`.
+`topics_club_core` must not depend on `topics_club_engine` or `topics_club_gateway`.
 
-### `ircpipe_engine`
+### `topics_club_engine`
 
 The small, long-lived connection and ingestion runtime:
 
@@ -409,7 +411,7 @@ The small, long-lived connection and ingestion runtime:
 
 The engine must not depend on Phoenix Endpoint, controllers, browser authentication, HTML, React assets, or frontend event serialization.
 
-### `ircpipe_web`
+### `topics_club_gateway`
 
 Frequently changed product and presentation code:
 
@@ -430,9 +432,9 @@ Define three releases:
 
 | Release | Applications | Intended use |
 | --- | --- | --- |
-| `ircpipe` | core + engine + web | Default Docker, Railway, and simple self-hosting; development uses the same combined supervision tree under Mix |
-| `ircpipe_web` | core + web | Frequently deployed web tier in split mode |
-| `ircpipe_engine` | core + engine | Small long-lived engine in split mode |
+| `topics_club` | core + engine + gateway | Default Docker, Railway, and simple self-hosting; development uses the same combined supervision tree under Mix |
+| `topics_club_gateway` | core + web | Frequently deployed web tier in split mode |
+| `topics_club_engine` | core + engine | Small long-lived engine in split mode |
 
 `ircxd` is a shared library dependency, not an ownership boundary. The engine uses it for long-lived outbound sessions and the hosted server; the web role uses it for short-lived directory channel-list workers; shared protocol primitives also use its casemapping and validation types. Both split releases therefore include `ircxd`, while only the engine release starts the user-session and hosted-server supervision trees. Until `ircxd` is published on Hex, builds fetch it from the `HashNuke/ircxd` GitHub repository rather than relying on a sibling checkout.
 
@@ -466,7 +468,7 @@ The engine is more than a socket holder, but less than a second web backend. It 
 
 Both releases use the same Ecto schemas, but behavior modules should reflect ownership. Engine ingestion modules should not call web modules, and web contexts should not access local engine registries or supervisors.
 
-The current `Ircpipe.Chat` namespace may be separated gradually during monolith demarcation. Moving a schema into `ircpipe_core` does not require moving every context that uses that schema into the core application. By the time physical extraction begins, each context must already depend only on public APIs owned by its declared logical component.
+The current `Ircpipe.Chat` namespace may be separated gradually during monolith demarcation. Moving a schema into `topics_club_core` does not require moving every context that uses that schema into the core application. By the time physical extraction begins, each context must already depend only on public APIs owned by its declared logical component.
 
 ### Desired state versus observed status
 
@@ -598,7 +600,7 @@ Engine-to-web PubSub events also use versioned plain maps. They represent commit
 - Direct-message thread changed
 - Notification committed
 
-Browser payload formatting remains in `ircpipe_web`. Internal events must contain enough IDs and committed values for the web node to format the event without consulting engine process state.
+Browser payload formatting remains in `topics_club_gateway`. Internal events must contain enough IDs and committed values for the web node to format the event without consulting engine process state.
 
 Synchronous command execution results remain in the versioned `EngineClient` reply. Command transcript rows and later status changes are canonical messages and therefore use `message_committed`; emitting a second command-result event would duplicate the request reply and the persisted message event without adding recoverable state.
 
@@ -607,7 +609,7 @@ During monolith demarcation, `Ircpipe.InternalEvents` synchronously invokes one 
 ## PostgreSQL and migrations
 
 - Both nodes connect to the same PostgreSQL database with independent Repo pools.
-- There is one canonical migrations directory under `ircpipe_core`.
+- There is one canonical migrations directory under `topics_club_core`.
 - Only the combined release or a dedicated web/migrator invocation runs migrations.
 - The engine container never runs migrations automatically.
 - Production deployment runs migrations once before starting code that requires them.
@@ -701,7 +703,7 @@ The monolith currently starts `IrcpipeWeb.Telemetry`, a web-owned engine-restore
 The default remains one application service plus PostgreSQL:
 
 ```text
-app (combined ircpipe release)
+app (combined topics_club release)
 postgres
 ```
 
@@ -709,7 +711,7 @@ Requirements:
 
 - Existing Docker and Railway users do not set a deployment-mode variable.
 - Existing `mix setup` and `mix phx.server` development workflows remain available.
-- The default Dockerfile produces the combined `ircpipe` release.
+- The default Dockerfile produces the combined `topics_club` release.
 - `docker-compose.prod.yml` keeps one application service and one PostgreSQL service.
 - The combined startup command may continue to run migrations before starting the application.
 - No Erlang node name, cookie, clustering hostname, or second health check is required.
@@ -721,7 +723,7 @@ Railway and similar platforms can continue replacing the single combined service
 
 `docker-compose.prod.yml` is the supported self-hosted VPS package. It contains:
 
-- One combined `ircpipe` application service.
+- One combined `topics_club` application service.
 - One PostgreSQL service that is not exposed publicly.
 - Persistent PostgreSQL storage chosen explicitly by the operator.
 - A database health check before the application starts.
@@ -738,11 +740,11 @@ The topics.club production deployment uses bare OTP releases built from source o
 - One shared PostgreSQL database is managed separately from the application releases.
 - The destination fetches and checks out an exact Git commit rather than deploying an unrecorded moving branch state.
 - Production dependencies and assets are built on the destination host with pinned Erlang, Elixir, Node.js, and npm versions.
-- `ircpipe_web` and `ircpipe_engine` are assembled into separate versioned directories.
+- `topics_club_gateway` and `topics_club_engine` are assembled into separate versioned directories.
 - Stable `current` symlinks select the active web and engine release directories.
 - Separate systemd units run web and engine under a dedicated unprivileged account.
 - The new web release runs migrations once before its symlink is activated.
-- Ordinary web deployments restart only `ircpipe_web`; the engine and its IRC sessions remain running.
+- Ordinary web deployments restart only `topics_club_gateway`; the engine and its IRC sessions remain running.
 - Engine deployments are explicit maintenance operations and reconnect IRC sessions.
 - Rollback repoints the affected symlink to a compatible previous release and restarts that service.
 
@@ -761,9 +763,9 @@ Distribution ports and EPMD must not be exposed publicly. A shared Erlang cookie
 Combined mode should work with the existing required environment variables. Split mode adds explicit cluster configuration, with names to be finalized during implementation:
 
 ```text
-RELEASE_NODE=ircpipe_web@web.internal
+RELEASE_NODE=topics_club_gateway@web.internal
 RELEASE_COOKIE=<high-entropy-cookie>
-IRCPIPE_ENGINE_NODE=ircpipe_engine@engine.internal
+TOPICS_CLUB_ENGINE_NODE=topics_club_engine@engine.internal
 ```
 
 The engine uses its own `RELEASE_NODE` and the same cookie. Secrets should be injected independently into each release; the web release should not receive engine-only secrets unless it genuinely needs them.
@@ -956,7 +958,7 @@ Checkpoint 6 completes the monolith exit audit and passed its GPT-5.6 Sol xhigh 
 - [x] No web-owned worker assumes an IRC process is local.
 - [x] Every engine operation uses the versioned request path in combined mode.
 - [x] The root application starts distinct logical core, engine, and web supervisor branches.
-- [x] The ownership manifest maps cleanly to future `apps/ircpipe_core`, `apps/ircpipe_engine`, and `apps/ircpipe_web` destinations.
+- [x] The ownership manifest maps cleanly to future `apps/topics_club_core`, `apps/topics_club_engine`, and `apps/topics_club_gateway` destinations.
 - [x] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
 - [x] Ordinary messages still commit before broadcast and do not pass through Oban.
 - [x] The browser protocol remains compatible.
@@ -969,15 +971,15 @@ Size: **M**. Risk: **Medium** after the workstream 1 exit gate passes. This work
 
 Checkpoint 7, the core ownership slice, started from `app-split` at `f232f00`. The pre-move baseline passes 692 ExUnit tests, 229 frontend tests, type checking, Storybook, and the 237-file/763-edge/zero-exception test boundary graph. Core-focused tests that currently construct fixtures through web- or engine-owned contexts must be given core-owned setup during the move or explicitly reclassified as root integration tests; child-application dependency cycles will not be introduced merely to preserve their current setup path.
 
-The first physical core move is committed at `789036e`. `ircpipe_core` now owns its OTP application callback, Repo, Vault, PubSub supervisor, canonical migrations, shared schemas and persistence primitives, `EngineClient`, internal-event contracts, and shared IRC policy. The development seed script remains root tooling because it populates the web-owned `Topic` schema. The child application's 37 already-independent focused tests pass. The remaining 25 tests in the recorded future-core baseline still use combined web/engine setup and remain in the root suite until that setup is removed or the tests are explicitly classified as integration coverage. Root `mix test` runs 37 child tests plus 658 root tests with no failures; the increase from 692 to 695 is three focused regressions rather than duplicate discovery. Two exercise nested-child boundary enforcement: one proves graph prefixing and merging, and the other compiles an isolated child fixture with a forbidden call to a root web module and proves warnings-as-errors rejects the crossing. The third asserts that only `ircpipe_core` owns the Ecto repository configuration. The boundary gate now tracks and merges root and nested-child xref graphs, independently compiles every child in an isolated build path, and covers 238 owned files with zero temporary dependencies. Root `mix precommit` passes with the same 695 ExUnit tests, 229 frontend tests, type checking, Storybook, and the boundary gate. A production compile, asset build, and combined `ircpipe` release assembly also pass with `ircpipe_core` included as an OTP dependency. A clean, no-cache Docker build and image-content smoke check prove that the child Mix project, source, migrations, and release application are present in the image. Playwright's setup commands and Phoenix's development repository-status plug now explicitly resolve `Ircpipe.Repo` through `ircpipe_core`.
+The first physical core move is committed at `789036e`. `topics_club_core` now owns its OTP application callback, Repo, Vault, PubSub supervisor, canonical migrations, shared schemas and persistence primitives, `EngineClient`, internal-event contracts, and shared IRC policy. The development seed script remains root tooling because it populates the web-owned `Topic` schema. The child application's 37 already-independent focused tests pass. The remaining 25 tests in the recorded future-core baseline still use combined web/engine setup and remain in the root suite until that setup is removed or the tests are explicitly classified as integration coverage. Root `mix test` runs 37 child tests plus 658 root tests with no failures; the increase from 692 to 695 is three focused regressions rather than duplicate discovery. Two exercise nested-child boundary enforcement: one proves graph prefixing and merging, and the other compiles an isolated child fixture with a forbidden call to a root web module and proves warnings-as-errors rejects the crossing. The third asserts that only `topics_club_core` owns the Ecto repository configuration. The boundary gate now tracks and merges root and nested-child xref graphs, independently compiles every child in an isolated build path, and covers 238 owned files with zero temporary dependencies. Root `mix precommit` passes with the same 695 ExUnit tests, 229 frontend tests, type checking, Storybook, and the boundary gate. A production compile, asset build, and combined `topics_club` release assembly also pass with `topics_club_core` included as an OTP dependency. A clean, no-cache Docker build and image-content smoke check prove that the child Mix project, source, migrations, and release application are present in the image. Playwright's setup commands and Phoenix's development repository-status plug now explicitly resolve `Ircpipe.Repo` through `topics_club_core`.
 
 GPT-5.6 Sol xhigh approved the immutable core checkpoint at `703c785` with no remaining blocking, SRP, or over-engineering findings. It was merged into `app-split` at `eb04c34`. The engine ownership checkpoint proceeds from that merge on `app-split-umbrella-engine`; it will move only the files already assigned to engine ownership, preserve their module names and behavior, and retain combined-mode startup through the existing root composition application until the complete umbrella root is ready.
 
-The engine production move is committed at `737f446`, with the isolated disabled hosted-server supervisor branch added at `fc979f9`. `ircpipe_engine` now owns the outbound IRC session tree, registries, protocol handlers, bouncer, connection restoration and autojoin behavior, canonical IRC ingestion and state updates, and engine-owned Oban workers. It declares only its direct core, Ecto, Oban, and Git-pinned `ircxd` dependencies and compiles 74 production files without Phoenix, Endpoint, or frontend dependencies. Its 67 independently runnable focused tests moved with it; 202 database-heavy tests from the recorded engine baseline remain root integration coverage because their setup crosses the future web boundary. Root `mix test` now runs 37 core tests, 67 engine tests, and 593 root tests, for 697 passing ExUnit tests in total. The boundary gate now merges compiler-manifest references with the per-project xref graphs so an available path dependency cannot hide a forbidden cross-application call; a real two-project fixture proves that a root web call into its engine path dependency is rejected. Root `mix precommit` passes with the same 697 ExUnit tests, 229 frontend tests, type checking, Storybook, and a 240-file/764-edge/zero-exception boundary graph. Production compilation, asset deployment, combined release assembly, a clean no-cache Docker build, image-content inspection, production Compose resolution, and a fresh-database release boot smoke all pass. The boot smoke proves the combined release runs the extracted engine application and both the outbound session and disabled hosted-server supervisor branches. GPT-5.6 Sol xhigh approved the immutable engine checkpoint at `37e89ad` with no remaining blocking, SRP, or over-engineering findings; it was merged into `app-split` at `0e6c728`.
+The engine production move is committed at `737f446`, with the isolated disabled hosted-server supervisor branch added at `fc979f9`. `topics_club_engine` now owns the outbound IRC session tree, registries, protocol handlers, bouncer, connection restoration and autojoin behavior, canonical IRC ingestion and state updates, and engine-owned Oban workers. It declares only its direct core, Ecto, Oban, and Git-pinned `ircxd` dependencies and compiles 74 production files without Phoenix, Endpoint, or frontend dependencies. Its 67 independently runnable focused tests moved with it; 202 database-heavy tests from the recorded engine baseline remain root integration coverage because their setup crosses the future web boundary. Root `mix test` now runs 37 core tests, 67 engine tests, and 593 root tests, for 697 passing ExUnit tests in total. The boundary gate now merges compiler-manifest references with the per-project xref graphs so an available path dependency cannot hide a forbidden cross-application call; a real two-project fixture proves that a root web call into its engine path dependency is rejected. Root `mix precommit` passes with the same 697 ExUnit tests, 229 frontend tests, type checking, Storybook, and a 240-file/764-edge/zero-exception boundary graph. Production compilation, asset deployment, combined release assembly, a clean no-cache Docker build, image-content inspection, production Compose resolution, and a fresh-database release boot smoke all pass. The boot smoke proves the combined release runs the extracted engine application and both the outbound session and disabled hosted-server supervisor branches. GPT-5.6 Sol xhigh approved the immutable engine checkpoint at `37e89ad` with no remaining blocking, SRP, or over-engineering findings; it was merged into `app-split` at `0e6c728`.
 
-The web ownership slice is committed at `400056c`. It moves all Phoenix, authentication, browser serialization, notifications, directory discovery, frontend, static, gettext, and web-owned worker code into `ircpipe_web` without changing production module names. The web child declares core and its direct libraries, including the Git-pinned `ircxd` needed by short-lived directory listing. Its 31 independently runnable files pass 172 tests without any engine implementation dependency; tests whose setup genuinely crosses application boundaries remain root integration coverage rather than forcing a test-only child dependency.
+The web ownership slice is committed at `400056c`. It moves all Phoenix, authentication, browser serialization, notifications, directory discovery, frontend, static, gettext, and web-owned worker code into `topics_club_gateway` without changing production module names. The web child declares core and its direct libraries, including the Git-pinned `ircxd` needed by short-lived directory listing. Its 31 independently runnable files pass 172 tests without any engine implementation dependency; tests whose setup genuinely crosses application boundaries remain root integration coverage rather than forcing a test-only child dependency.
 
-The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_engine`, and `ircpipe_web` under `apps/`. Root aliases explicitly orchestrate the three child suites and the non-deployable integration harness. The obsolete empty `Ircpipe.Application` and `Ircpipe.Supervisor` are removed. `mix precommit` passes 37 core, 67 engine, 172 web, and 421 root tests (697 total), 229 frontend tests, type checking, Storybook, warning-free compilation, and the 242-file/763-edge/zero-exception boundary graph. A clean combined release contains and starts exactly the three child applications, and its boot smoke starts all three role supervisors with no root supervisor. A no-cache Docker build exposed and fixed the last stale monolith reference in the colocated-hook import; the rebuilt image runs as `nobody`, contains no build toolchain or fourth Ircpipe application, and boots the same three supervisors. Production Compose resolution passes. GPT-5.6 Sol xhigh approved the implementation at `14c1ab6` with no blocking correctness, SRP, complexity, supervision, test-discovery, release-membership, CI, or container findings. Its two non-blocking documentation findings were fixed, and the reviewer explicitly approved the resulting clean checkpoint at `6adc488` with no remaining findings. The checkpoint was merged into `app-split` at `f659c8a`.
+The repository root is now a true umbrella with only `topics_club_core`, `topics_club_engine`, and `topics_club_gateway` under `apps/`. Root aliases explicitly orchestrate the three child suites and the non-deployable integration harness. The obsolete empty `Ircpipe.Application` and `Ircpipe.Supervisor` are removed. `mix precommit` passes 37 core, 67 engine, 172 web, and 421 root tests (697 total), 229 frontend tests, type checking, Storybook, warning-free compilation, and the 242-file/763-edge/zero-exception boundary graph. A clean combined release contains and starts exactly the three child applications, and its boot smoke starts all three role supervisors with no root supervisor. A no-cache Docker build exposed and fixed the last stale monolith reference in the colocated-hook import; the rebuilt image runs as `nobody`, contains no build toolchain or fourth Ircpipe application, and boots the same three supervisors. Production Compose resolution passes. GPT-5.6 Sol xhigh approved the implementation at `14c1ab6` with no blocking correctness, SRP, complexity, supervision, test-discovery, release-membership, CI, or container findings. Its two non-blocking documentation findings were fixed, and the reviewer explicitly approved the resulting clean checkpoint at `6adc488` with no remaining findings. The checkpoint was merged into `app-split` at `f659c8a`.
 
 #### Extraction rules
 
@@ -995,9 +997,9 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 #### Umbrella scaffolding
 
 - [x] Create an umbrella root project with shared aliases and build paths.
-- [x] Create `apps/ircpipe_core`.
-- [x] Create `apps/ircpipe_engine`.
-- [x] Create `apps/ircpipe_web`.
+- [x] Create `apps/topics_club_core`.
+- [x] Create `apps/topics_club_engine`.
+- [x] Create `apps/topics_club_gateway`.
 - [x] Preserve the existing `Ircpipe` and `IrcpipeWeb` module namespaces where renaming adds no value.
 - [x] Move frontend assets and Storybook under the web application while preserving existing npm commands.
 - [x] Update formatter inputs for the umbrella and all child applications.
@@ -1069,9 +1071,9 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 
 Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a release that merely boots is not sufficient.
 
-The first release slice defines three explicit Unix releases without adding a deployment-mode application or switch. `ircpipe` remains the default and contains core, engine, and web; `ircpipe_web` contains core and web; and `ircpipe_engine` contains core and engine. Release versions combine application version `0.1.0` with a normalized source revision. Fresh artifact inspection proves that only the web-capable releases contain digested assets plus release-name-aware `server` and `migrate` commands. Runtime smoke checks prove that combined mode starts all three supervisors with the local engine adapter, web-only mode starts no engine supervisor and selects the RPC adapter, and engine-only mode starts no web supervisor or Endpoint and does not require web secrets. In every artifact core starts before the role application, so Repo is available before either named role-owned Oban instance starts. `Ircpipe.Release` is now web-owned, leaving the engine artifact without the migration helper as well as without a migration command. CI assembles and inspects all three role boundaries, while focused runtime tests prove the production Oban queue sets are disjoint and the existing notification pipeline proves engine-owned work can insert web-owned work through the shared PostgreSQL job table.
+The first release slice defines three explicit Unix releases without adding a deployment-mode application or switch. `topics_club` is the default and contains core, engine, and gateway; `topics_club_gateway` contains core and gateway; and `topics_club_engine` contains core and engine. Release versions combine application version `0.1.0` with a normalized source revision. Fresh artifact inspection proves that only the web-capable releases contain digested assets plus release-name-aware `server` and `migrate` commands. Runtime smoke checks prove that combined mode starts all three supervisors with the local engine adapter, gateway-only mode starts no engine supervisor and selects the RPC adapter, and engine-only mode starts no web supervisor or Endpoint and does not require web secrets. In every artifact core starts before the role application, so Repo is available before either named role-owned Oban instance starts. `Ircpipe.Release` is gateway-owned, leaving the engine artifact without the migration helper as well as without a migration command. CI assembles and inspects all three role boundaries, while focused runtime tests prove the production Oban queue sets are disjoint and the existing notification pipeline proves engine-owned work can insert gateway-owned work through the shared PostgreSQL job table.
 
-The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the umbrella and assembles the explicit `ircpipe` release. Source-revision arguments are declared immediately before release assembly so a new commit does not invalidate dependency, compilation, or asset layers. The final image runs as `nobody`, contains no build launchers or compiler toolchain, and has a database-backed `/health` readiness endpoint plus an image health check. A fresh external-PostgreSQL smoke ran every migration and booted core, engine, and web without node, cookie, engine-node, or clustering variables. The production Compose package builds the same image, keeps PostgreSQL unpublished, binds Phoenix to host loopback by default, waits for database health, migrates before startup, and passed an isolated clean-data installation with 29 migrations and a healthy endpoint. `docs/deployment.md` records required variables, current Railway service settings, the one-replica constraint, safe reverse-proxy binding, backup/restore, upgrades, migration failure handling, and compatible rollback. A project-blind Railway IaC file is deliberately omitted because Railway's replacement configuration owns the complete linked project and can delete omitted resources; operators import and plan against the real project instead.
+The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the umbrella and assembles the explicit `topics_club` release. Source-revision arguments are declared immediately before release assembly so a new commit does not invalidate dependency, compilation, or asset layers. The final image runs as `nobody`, contains no build launchers or compiler toolchain, and has a database-backed `/health` readiness endpoint plus an image health check. A fresh external-PostgreSQL smoke ran every migration and booted core, engine, and gateway without node, cookie, engine-node, or clustering variables. The production Compose package builds the same image, keeps PostgreSQL unpublished, binds Phoenix to host loopback by default, waits for database health, migrates before startup, and passed an isolated clean-data installation with 29 migrations and a healthy endpoint. `docs/deployment.md` records required variables, current Railway service settings, the one-replica constraint, safe reverse-proxy binding, backup/restore, upgrades, migration failure handling, and compatible rollback. A project-blind Railway IaC file is deliberately omitted because Railway's replacement configuration owns the complete linked project and can delete omitted resources; operators import and plan against the real project instead.
 
 The final local CI reproduction starts from a source-only Git archive with no `.git`, dependencies, build output, or frontend installation. It exposed that production assets had relied on an earlier compile to generate Phoenix colocated hooks; `assets.deploy` now declares that compile prerequisite directly. The repaired clean gate installs locked dependencies, builds digested assets, assembles all three releases with the same source-derived version, and enforces their application, asset, and migration-command boundaries. Root `mix precommit` passes 37 core, 67 engine, 174 web, and 422 root tests (700 total), 229 frontend tests, type checking, Storybook, warning-free compilation, and the 243-file/769-edge/zero-exception boundary graph.
 
@@ -1081,10 +1083,10 @@ GPT-5.6 Sol xhigh re-reviewed and approved the immutable repaired checkpoint at 
 
 #### Release definitions
 
-- [x] Define `ircpipe` with core, engine, and web applications.
-- [x] Define `ircpipe_web` with core and web applications only.
-- [x] Define `ircpipe_engine` with core and engine applications only.
-- [x] Set `ircpipe` as the default release for simple builds.
+- [x] Define `topics_club` with core, engine, and gateway applications.
+- [x] Define `topics_club_gateway` with core and web applications only.
+- [x] Define `topics_club_engine` with core and engine applications only.
+- [x] Set `topics_club` as the default release for simple builds.
 - [x] Use a traceable release version derived from the application version and source revision.
 - [x] Generate Unix release executables required by the supported deployment hosts.
 - [x] Add release-specific runtime configuration without a generic deployment-mode switch.
@@ -1092,7 +1094,7 @@ GPT-5.6 Sol xhigh re-reviewed and approved the immutable repaired checkpoint at 
 - [x] Add web and combined server commands that set `PHX_SERVER=true`.
 - [x] Add migration commands only to combined and web/migrator artifacts.
 - [x] Keep migration execution out of engine startup and engine artifacts.
-- [x] Make release wrappers release-name aware rather than hard-coding `ircpipe`.
+- [x] Make release wrappers release-name aware rather than hard-coding one release name.
 - [x] Include digested frontend assets in combined and web releases only.
 - [x] Build all three releases from a clean checkout.
 
@@ -1122,7 +1124,7 @@ Publishing `ircxd` and replacing its Git source are intentionally deferred until
 - [x] Build the current combined release from the repository root.
 - [x] Fetch the GitHub `ircxd` dependency without a sibling checkout.
 - [x] Adapt Docker copy/cache layers to the umbrella layout.
-- [x] Build the explicit combined `ircpipe` release.
+- [x] Build the explicit combined `topics_club` release.
 - [x] Keep build-only Erlang, Elixir, Node.js, npm, and compiler tools out of the final image.
 - [x] Run the final image as an unprivileged user.
 - [x] Add a container health endpoint and platform health-check configuration.
@@ -1157,7 +1159,7 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 
 #### Distribution and network configuration
 
-- [ ] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `IRCPIPE_ENGINE_NODE` names.
+- [ ] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
 - [ ] Use stable long node names resolvable on the private network.
 - [ ] Generate and store a high-entropy deployment-specific cookie.
 - [ ] Configure fixed distribution port ranges for firewalling.
@@ -1294,8 +1296,8 @@ Size: **L**. Risk: **High**. The web/engine split has little operational value u
 - [ ] Fetch only production Mix dependencies and verify `mix.lock`.
 - [ ] Install frontend dependencies with `npm ci` for web-capable releases.
 - [ ] Build digested frontend assets for combined and web releases.
-- [ ] Assemble `ircpipe_web` into a new versioned directory.
-- [ ] Assemble `ircpipe_engine` into a new versioned directory only during an explicit engine deployment.
+- [ ] Assemble `topics_club_gateway` into a new versioned directory.
+- [ ] Assemble `topics_club_engine` into a new versioned directory only during an explicit engine deployment.
 - [ ] Record commit, release version, toolchain versions, and build timestamp with each artifact.
 - [ ] Keep a bounded number of prior release directories for rollback.
 
