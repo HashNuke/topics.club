@@ -1077,6 +1077,8 @@ The final local CI reproduction starts from a source-only Git archive with no `.
 
 The first Sol checkpoint review rejected the candidate after reproducing two deployment defects: production SSL redirection intercepted Railway's plain-HTTP health probe, and Compose embedded an unescaped PostgreSQL password in `DATABASE_URL`. The health path is now the sole path-based SSL-redirection exclusion while ordinary browser HTTP requests still redirect. Compose now passes discrete database fields, so PostgreSQL passwords containing URL-reserved characters remain exact. Focused regressions exercise both cases, and the stale pre-umbrella migration-wrapper path in this document is corrected.
 
+GPT-5.6 Sol xhigh re-reviewed and approved the immutable repaired checkpoint at `91a96e0` with no remaining blocking or non-blocking findings. The reviewer independently verified the production health behavior, reserved-character database password handling, all three role-specific release boundaries and versions, and the zero-exception dependency graph. The checkpoint was merged into `app-split` at `ce106ad`.
+
 #### Release definitions
 
 - [x] Define `ircpipe` with core, engine, and web applications.
