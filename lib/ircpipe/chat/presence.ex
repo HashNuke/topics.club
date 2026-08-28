@@ -8,6 +8,7 @@ defmodule Ircpipe.Chat.Presence do
     ChannelUser,
     PresenceDiff,
     PresenceMembershipLookup,
+    PresenceQueries,
     ServerConnection,
     ServerConnectionLock
   }
@@ -16,13 +17,7 @@ defmodule Ircpipe.Chat.Presence do
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
 
-  def list_users(%ChannelMembership{} = membership) do
-    ChannelUser
-    |> where([user], user.channel_membership_id == ^membership.id)
-    |> order_by([user], asc: user.nick)
-    |> Repo.all()
-    |> Enum.map(&user_json/1)
-  end
+  defdelegate list_users(membership), to: PresenceQueries
 
   def sync(%ServerConnection{} = connection, channel, names, casemapping) do
     assert_no_outer_transaction!()
@@ -171,17 +166,6 @@ defmodule Ircpipe.Chat.Presence do
       status: "online",
       hostmask: Map.get(name, :raw_source),
       last_observed_at: DateTime.utc_now(:second)
-    }
-  end
-
-  defp user_json(%ChannelUser{} = user) do
-    %{
-      nick: user.nick,
-      nick_key: user.nick_key,
-      role: user.role,
-      status: user.status,
-      hostmask: user.hostmask,
-      last_observed_at: user.last_observed_at
     }
   end
 

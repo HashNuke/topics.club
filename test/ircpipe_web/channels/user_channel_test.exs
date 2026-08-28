@@ -1320,6 +1320,26 @@ defmodule IrcpipeWeb.UserChannelTest do
     assert :ok = Session.quit(connection)
   end
 
+  test "retains list_in_progress through the routed engine error envelope" do
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "listing",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    configure_engine_test_adapter({:error, :invalid_state, %{reason: "list_in_progress"}})
+
+    socket = join_user_channel(user)
+    ref = push(socket, "server:list", %{"server_connection_id" => connection.id})
+
+    assert_reply ref, :error, %{reason: "list_in_progress"}
+  end
+
   test "runs a parsed quote query and persists correlated command results" do
     server = start_supervised!({IrcTestServer, self()})
     user = AccountsFixtures.user_fixture()
@@ -1553,6 +1573,22 @@ defmodule IrcpipeWeb.UserChannelTest do
       session_token_inserted_at: DateTime.utc_now(:second),
       session_socket_id: UserSocket.id_for_session_token(token)
     })
+  end
+
+  defp configure_engine_test_adapter(reply) do
+    previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:ircpipe, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:ircpipe, :engine_client_test_reply)
+
+    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
+    Application.put_env(:ircpipe, :engine_client_test_pid, self())
+    Application.put_env(:ircpipe, :engine_client_test_reply, reply)
+
+    on_exit(fn ->
+      restore_env(:engine_client_adapter, previous_adapter)
+      restore_env(:engine_client_test_pid, previous_test_pid)
+      restore_env(:engine_client_test_reply, previous_test_reply)
+    end)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)

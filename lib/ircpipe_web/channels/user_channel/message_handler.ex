@@ -1,8 +1,7 @@
 defmodule IrcpipeWeb.UserChannel.MessageHandler do
   @moduledoc false
 
-  alias Ircpipe.Chat.SystemMessages
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.EngineClient
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
   alias IrcpipeWeb.UserChannel.ErrorResponse
@@ -18,22 +17,14 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
 
     with true <- String.trim(body) != "",
          {:ok, membership} <- BufferResolver.membership(user, membership_id) do
-      case say(membership, body) do
-        {:ok, message} ->
+      case say(user, membership, body) do
+        {:ok, %{message: message}} ->
           Reply.ok(socket, %{
             client_message_id: client_message_id,
             message: Event.message(message, "channel:#{membership.id}")
           })
 
         {:error, reason} ->
-          SystemMessages.record(
-            membership.server_connection,
-            membership.channel,
-            "error",
-            nil,
-            ErrorResponse.send_body(reason)
-          )
-
           Reply.error(socket, %{
             reason: ErrorResponse.reason(reason),
             client_message_id: client_message_id
@@ -61,7 +52,7 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
 
     with true <- String.trim(body) != "",
          {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
-         {:ok, %{thread: sent_thread, message: message}} <- direct_message(thread, body) do
+         {:ok, %{thread: sent_thread, message: message}} <- direct_message(user, thread, body) do
       Reply.ok(socket, %{
         client_message_id: client_message_id,
         message:
@@ -99,19 +90,25 @@ defmodule IrcpipeWeb.UserChannel.MessageHandler do
     Reply.error(socket, %{reason: "invalid_arguments"})
   end
 
-  defp say(membership, body) do
-    Session.say(membership.server_connection, membership.channel, body)
-  catch
-    :exit, _reason -> {:error, :not_connected}
-  end
+  defp say(user, membership, body),
+    do:
+      EngineClient.send_channel_message(
+        user.id,
+        membership.server_connection_id,
+        membership.id,
+        body
+      )
 
-  defp direct_message(thread, body) do
+  defp direct_message(user, thread, body) do
     if not is_nil(thread.closed_at) or String.starts_with?(thread.peer_key, "archived:") do
       {:error, :direct_message_closed}
     else
-      Session.privmsg_thread(thread.server_connection, thread.id, body)
+      EngineClient.send_direct_message(
+        user.id,
+        thread.server_connection_id,
+        thread.id,
+        body
+      )
     end
-  catch
-    :exit, _reason -> {:error, :not_connected}
   end
 end

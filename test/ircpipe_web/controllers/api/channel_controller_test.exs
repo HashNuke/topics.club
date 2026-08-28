@@ -11,6 +11,59 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
 
   setup :register_and_log_in_user
 
+  test "returns service unavailable for unavailable and timed-out engine joins", %{
+    user: user
+  } do
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "degraded",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    configure_engine_test_adapter()
+
+    for code <- [:not_connected, :engine_unavailable, :timeout] do
+      Application.put_env(:ircpipe, :engine_client_test_reply, {:error, code})
+
+      response =
+        build_conn()
+        |> log_in_user(user)
+        |> post(~p"/api/connections/#{connection.id}/channels", %{channel: "#elixir"})
+
+      assert %{"error" => error} = json_response(response, 503)
+      assert error == Atom.to_string(code)
+    end
+  end
+
+  test "retains the concrete engine reason for an invalid-state join", %{user: user} do
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "pending",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    configure_engine_test_adapter()
+
+    Application.put_env(
+      :ircpipe,
+      :engine_client_test_reply,
+      {:error, :invalid_state, %{reason: "already_pending"}}
+    )
+
+    response =
+      build_conn()
+      |> log_in_user(user)
+      |> post(~p"/api/connections/#{connection.id}/channels", %{channel: "#elixir"})
+
+    assert %{"error" => "already_pending"} = json_response(response, 422)
+  end
+
   test "rejects multi-target HTTP joins before persistence or transmission", %{
     conn: conn,
     user: user
@@ -90,4 +143,22 @@ defmodule IrcpipeWeb.Api.ChannelControllerTest do
       post(conn, ~p"/api/channel_memberships/#{membership.id}/leave")
     end
   end
+
+  defp configure_engine_test_adapter do
+    previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:ircpipe, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:ircpipe, :engine_client_test_reply)
+
+    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
+    Application.put_env(:ircpipe, :engine_client_test_pid, self())
+
+    on_exit(fn ->
+      restore_env(:engine_client_adapter, previous_adapter)
+      restore_env(:engine_client_test_pid, previous_test_pid)
+      restore_env(:engine_client_test_reply, previous_test_reply)
+    end)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 end

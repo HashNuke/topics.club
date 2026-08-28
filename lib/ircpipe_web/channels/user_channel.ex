@@ -6,10 +6,9 @@ defmodule IrcpipeWeb.UserChannel do
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Chat.DirectMessageLifecycle
   alias Ircpipe.Chat.ReadState
-  alias Ircpipe.Irc.Session
-  alias Ircpipe.Irc.SessionLocator
-  alias Ircpipe.Irc.SessionSupervisor
+  alias Ircpipe.EngineClient
   alias Ircpipe.Realtime.Event
+  alias IrcpipeWeb.EngineStatuses
   alias IrcpipeWeb.UserChannel.BufferResolver
   alias IrcpipeWeb.UserChannel.ChannelDirectory
   alias IrcpipeWeb.UserChannel.CommandHandler
@@ -86,11 +85,14 @@ defmodule IrcpipeWeb.UserChannel do
   end
 
   def handle_info({:sync_server_statuses, user}, socket) do
-    Enum.each(Connections.list(user), fn connection ->
+    connections = Connections.list(user)
+    statuses = EngineStatuses.fetch(user, connections)
+
+    Enum.each(connections, fn connection ->
       push(
         socket,
         "server:status",
-        Event.server_status(connection, SessionLocator.status(connection))
+        Event.server_status(connection, EngineStatuses.get(statuses, connection))
       )
     end)
 
@@ -253,11 +255,17 @@ defmodule IrcpipeWeb.UserChannel do
     reason = Map.get(payload, "reason", "leaving")
 
     with {:ok, membership} <- BufferResolver.membership(user, membership_id),
-         :ok <- part(membership, reason) do
+         {:ok, %{status: status}} <-
+           EngineClient.part_channel(
+             user.id,
+             membership.server_connection_id,
+             membership.id,
+             reason: reason
+           ) do
       Reply.ok(
         socket,
         %{
-          status: "sent",
+          status: status,
           buffer_id: "channel:#{membership.id}",
           server_connection_id: membership.server_connection_id,
           channel_membership_id: membership.id
@@ -276,7 +284,7 @@ defmodule IrcpipeWeb.UserChannel do
     user = socket.assigns.current_user
     connection = Connections.get!(user, connection_id)
 
-    case ChannelDirectory.fetch(connection) do
+    case ChannelDirectory.fetch(user, connection) do
       {:ok, directory} ->
         Reply.ok(socket, %{directory: directory})
 
@@ -293,10 +301,11 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in("server:disconnect", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
+    connection = Connections.get!(user, connection_id)
 
-    with {:ok, connection} <- Connections.request_disconnect(user, connection_id),
-         :ok <- SessionSupervisor.stop_session(connection) do
-      Reply.ok(socket, Event.server_status(connection, SessionLocator.status(connection)))
+    with {:ok, %{status: status}} <-
+           EngineClient.disconnect_connection(user.id, connection.id) do
+      Reply.ok(socket, Event.server_status(connection, status))
     else
       _error -> Reply.error(socket, %{reason: "disconnect_failed"})
     end
@@ -306,20 +315,14 @@ defmodule IrcpipeWeb.UserChannel do
 
   def handle_in("server:reconnect", %{"server_connection_id" => connection_id}, socket) do
     user = socket.assigns.current_user
+    connection = Connections.get!(user, connection_id)
 
-    with {:ok, connection} <- Connections.request_connect(user, connection_id),
-         {:ok, _pid} <- SessionSupervisor.start_session(connection) do
-      Reply.ok(socket, Event.server_status(connection, SessionLocator.status(connection)))
+    with {:ok, %{status: status}} <- EngineClient.ensure_connection(user.id, connection.id) do
+      Reply.ok(socket, Event.server_status(connection, status))
     else
       _error -> Reply.error(socket, %{reason: "reconnect_failed"})
     end
   rescue
     Ecto.NoResultsError -> Reply.error(socket, %{reason: "invalid_server"})
-  end
-
-  defp part(membership, reason) do
-    Session.part(membership.server_connection, membership.channel, reason)
-  catch
-    :exit, _reason -> {:error, :not_connected}
   end
 end

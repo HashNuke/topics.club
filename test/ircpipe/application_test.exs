@@ -46,6 +46,12 @@ defmodule Ircpipe.ApplicationTest do
     assert direct_child_pid(IrcpipeWeb.Supervisor, IrcpipeWeb.Telemetry) ==
              Process.whereis(IrcpipeWeb.Telemetry)
 
+    assert direct_child_pid(IrcpipeWeb.Supervisor, IrcpipeWeb.EngineRestoreTaskSupervisor) ==
+             Process.whereis(IrcpipeWeb.EngineRestoreTaskSupervisor)
+
+    assert direct_child_pid(IrcpipeWeb.Supervisor, IrcpipeWeb.EngineRestorer) ==
+             Process.whereis(IrcpipeWeb.EngineRestorer)
+
     assert direct_child_pid(IrcpipeWeb.Supervisor, IrcpipeWeb.Oban) ==
              Oban.whereis(IrcpipeWeb.Oban)
 

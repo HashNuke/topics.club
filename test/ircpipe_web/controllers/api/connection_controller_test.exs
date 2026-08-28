@@ -9,6 +9,66 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
   setup :register_and_log_in_user
 
+  test "returns a degraded response when connection operations cannot reach the engine", %{
+    user: user
+  } do
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "degraded",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    configure_engine_test_adapter()
+
+    for code <- [:engine_unavailable, :timeout] do
+      Application.put_env(:ircpipe, :engine_client_test_reply, {:error, code})
+
+      for path <- [
+            ~p"/api/connections/#{connection.id}/connect",
+            ~p"/api/connections/#{connection.id}/disconnect"
+          ] do
+        response = build_conn() |> log_in_user(user) |> post(path)
+        assert %{"error" => error} = json_response(response, 503)
+        assert error == Atom.to_string(code)
+      end
+
+      response =
+        build_conn()
+        |> log_in_user(user)
+        |> post(~p"/api/connections", %{
+          "connection" => %{
+            "name" => "degraded",
+            "host" => "127.0.0.1",
+            "port" => 6667,
+            "use_tls" => false,
+            "nickname" => "mira"
+          }
+        })
+
+      assert %{"error" => error} = json_response(response, 503)
+      assert error == Atom.to_string(code)
+    end
+  end
+
+  test "returns connection validation errors as an HTTP response", %{conn: conn} do
+    response =
+      post(conn, ~p"/api/connections", %{
+        "connection" => %{
+          "name" => "",
+          "host" => "",
+          "nickname" => ""
+        }
+      })
+
+    assert %{
+             "error" => "invalid_connection",
+             "errors" => %{"host" => [_], "name" => [_]}
+           } = json_response(response, 422)
+  end
+
   test "creates and lists an owned server connection", %{conn: conn, user: user} do
     server = start_supervised!({IrcTestServer, self()})
 
@@ -240,4 +300,22 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
       post(conn, ~p"/api/connections/#{connection.id}/disconnect")
     end
   end
+
+  defp configure_engine_test_adapter do
+    previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:ircpipe, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:ircpipe, :engine_client_test_reply)
+
+    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
+    Application.put_env(:ircpipe, :engine_client_test_pid, self())
+
+    on_exit(fn ->
+      restore_env(:engine_client_adapter, previous_adapter)
+      restore_env(:engine_client_test_pid, previous_test_pid)
+      restore_env(:engine_client_test_reply, previous_test_reply)
+    end)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
 end

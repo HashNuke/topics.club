@@ -511,7 +511,7 @@ The future hosted server supervisor will also be a sibling of `SessionSystemSupe
 
 ### Web supervision
 
-The monolith currently starts `IrcpipeWeb.Telemetry`, the named web Oban instance, optional `Ircpipe.Discovery.Refresher`, and then `IrcpipeWeb.Endpoint` under `IrcpipeWeb.Supervisor`. Endpoint remains the final web child. The web release starts the same branch after Repo, PubSub, and the engine client monitor are available. Engine unavailability must put IRC mutations into a clear degraded state; it must not prevent the web application from serving login, settings, or persisted history.
+The monolith currently starts `IrcpipeWeb.Telemetry`, a web-owned engine-restore task supervisor and coalescing restore coordinator, the named web Oban instance, optional `Ircpipe.Discovery.Refresher`, and then `IrcpipeWeb.Endpoint` under `IrcpipeWeb.Supervisor`. Endpoint remains the final web child. Bootstrap schedules desired-session restoration off the response path through the coordinator. It deduplicates the same user/connection across overlapping bootstrap requests and enforces one web-wide limit of eight concurrent engine restoration requests. The web release starts the same branch after Repo, PubSub, and the engine client monitor are available. Engine unavailability must put IRC mutations into a clear degraded state; it must not prevent the web application from serving login, settings, or persisted history.
 
 ## Deployment experience
 
@@ -694,19 +694,21 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 #### Route all operations through `EngineClient`
 
-- [ ] Route batch live-status lookup through the client.
-- [ ] Route ensure/start connection through the client.
-- [ ] Route disconnect/stop connection through the client.
+Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint review. Live REST operations other than deletion quiescence, bootstrap restoration/status, and Phoenix Channel operations now use `EngineClient`; live-status formatting uses the batch status operation, send-failure persistence occurs inside the engine API, and bootstrap presence reads use a core-owned query module. No module under `IrcpipeWeb` directly references an engine implementation module. The temporary dependency budget has fallen from 36 to 14; the remaining context/deletion and engine-to-web edges belong to checkpoint 5. The reviewed checkpoint passed `mix precommit` with 680 Elixir tests, 227 frontend tests, the Storybook build, and the boundary gate.
+
+- [x] Route batch live-status lookup through the client.
+- [x] Route ensure/start connection through the client.
+- [x] Route disconnect/stop connection through the client.
 - [ ] Route connection deletion quiescence through the client.
-- [ ] Route channel join and topic join through the client.
-- [ ] Route channel part through the client.
-- [ ] Route channel messages and actions through the client.
-- [ ] Route direct messages through the client.
-- [ ] Route validated command intents through the client.
-- [ ] Route live server channel-list requests through the client.
-- [ ] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
-- [ ] Remove session locator and registry lookups from REST payload formatting.
-- [ ] Remove session locator and registry lookups from Channel payload formatting.
+- [x] Route channel join and topic join through the client.
+- [x] Route channel part through the client.
+- [x] Route channel messages and actions through the client.
+- [x] Route direct messages through the client.
+- [x] Route command lines through the client and re-resolve and revalidate their intent inside the engine API.
+- [x] Route live server channel-list requests through the client.
+- [x] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
+- [x] Remove session locator and registry lookups from REST payload formatting.
+- [x] Remove session locator and registry lookups from Channel payload formatting.
 - [ ] Refactor deletion and reconciliation workers so they do not assume a local session registry outside the engine role.
 - [ ] Refactor any remaining context functions that combine database writes with direct local process actions.
 - [ ] Split `Ircpipe.Chat.Connections` persistence primitives from engine-owned connection quiescence and deletion orchestration.

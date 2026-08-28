@@ -1,12 +1,22 @@
 defmodule IrcpipeWeb.UserChannel.ChannelDirectoryTest do
-  use ExUnit.Case, async: true
+  use Ircpipe.DataCase
 
-  alias Ircpipe.Chat.ServerConnection
+  alias Ircpipe.AccountsFixtures
+  alias Ircpipe.Chat.Connections
   alias IrcpipeWeb.UserChannel.ChannelDirectory
 
   test "reports a disconnected server without leaking the session exit" do
-    connection = %ServerConnection{id: System.unique_integer([:positive])}
+    user = AccountsFixtures.user_fixture()
 
-    assert {:error, :not_connected} = ChannelDirectory.fetch(connection)
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "offline",
+        "host" => "127.0.0.1",
+        "port" => 6667,
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    assert {:error, :not_connected} = ChannelDirectory.fetch(user, connection)
   end
 end

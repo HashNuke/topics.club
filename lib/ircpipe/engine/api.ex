@@ -10,6 +10,7 @@ defmodule Ircpipe.Engine.API do
   alias Ircpipe.Chat.ChannelMembership
   alias Ircpipe.Chat.DirectMessageThread
   alias Ircpipe.Chat.ServerConnection
+  alias Ircpipe.Chat.SystemMessages
   alias Ircpipe.Engine.OperationLock
   alias Ircpipe.Engine.Serialization
   alias Ircpipe.EngineClient.Contract
@@ -65,6 +66,7 @@ defmodule Ircpipe.Engine.API do
   defp dispatch_connection_operation(operation, request) do
     with {:ok, user, connection} <- load_user_connection(request.user_id, request.connection_id),
          :ok <- ensure_available(connection, operation),
+         :ok <- maybe_pause_after_connection_load(connection, operation),
          result <- execute(operation, request, user, connection) do
       result_reply(request, result)
     else
@@ -122,7 +124,8 @@ defmodule Ircpipe.Engine.API do
       {:ok,
        %{
          membership: Serialization.membership(membership),
-         status: Atom.to_string(status)
+         status: Atom.to_string(status),
+         connection_status: SessionLocator.status(connection)
        }}
     end
   end
@@ -140,9 +143,8 @@ defmodule Ircpipe.Engine.API do
 
   defp execute(:send_channel_message, request, _user, connection) do
     with {:ok, membership} <-
-           load_membership(request.user_id, connection.id, request.payload.membership_id),
-         {:ok, message} <-
-           safe_session_call(fn ->
+           load_membership(request.user_id, connection.id, request.payload.membership_id) do
+      case safe_session_call(fn ->
              send_channel_message(
                connection,
                membership.channel,
@@ -150,7 +152,13 @@ defmodule Ircpipe.Engine.API do
                request.payload.kind
              )
            end) do
-      {:ok, %{message: Serialization.message(message)}}
+        {:ok, message} ->
+          {:ok, %{message: Serialization.message(message)}}
+
+        {:error, reason} = error ->
+          _result = record_send_failure(connection, membership, reason)
+          error
+      end
     end
   end
 
@@ -268,7 +276,7 @@ defmodule Ircpipe.Engine.API do
   defp ensure_available(%ServerConnection{deleting: true}, :quiesce_connection), do: :ok
 
   defp ensure_available(%ServerConnection{deleting: true}, _operation),
-    do: {:error, :invalid_state}
+    do: {:error, :connection_deleting}
 
   defp ensure_available(%ServerConnection{}, _operation), do: :ok
 
@@ -291,7 +299,7 @@ defmodule Ircpipe.Engine.API do
           |> Repo.update()
 
         %ServerConnection{deleting: true} ->
-          {:error, :invalid_state}
+          {:error, :connection_deleting}
 
         nil ->
           {:error, :unauthorized}
@@ -304,6 +312,28 @@ defmodule Ircpipe.Engine.API do
 
   defp send_channel_message(connection, channel, body, "action"),
     do: Session.action(connection, channel, body)
+
+  defp record_send_failure(connection, membership, reason) do
+    SystemMessages.record(
+      connection,
+      membership.channel,
+      "error",
+      nil,
+      send_failure_body(reason)
+    )
+  end
+
+  defp send_failure_body(:not_connected),
+    do: "Message could not be sent: not connected."
+
+  defp send_failure_body(:joining_channel),
+    do: "Message could not be sent: still joining the channel."
+
+  defp send_failure_body(:not_joined),
+    do: "Message could not be sent: not joined to the channel."
+
+  defp send_failure_body(%{message: message}) when is_binary(message), do: message
+  defp send_failure_body(_reason), do: "Message could not be sent."
 
   defp authorize_buffer(_user_id, connection_id, "server:" <> id) do
     if cast_id(id) == {:ok, connection_id}, do: :ok, else: {:error, :unauthorized}
@@ -343,6 +373,30 @@ defmodule Ircpipe.Engine.API do
     :exit, {:noproc, _call} -> {:error, :not_connected}
     :exit, :noproc -> {:error, :not_connected}
     :exit, _reason -> {:error, :not_connected}
+  end
+
+  defp maybe_pause_after_connection_load(connection, operation) do
+    case Application.get_env(:ircpipe, :engine_api_after_connection_load_barrier) do
+      {test_pid, barrier_ref, ^operation} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+
+        send(
+          test_pid,
+          {:engine_api_connection_loaded, self(), barrier_ref, operation, connection.id}
+        )
+
+        receive do
+          {:continue_engine_api_connection, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
   end
 
   defp request_id(%{request_id: request_id}) when is_binary(request_id), do: request_id
