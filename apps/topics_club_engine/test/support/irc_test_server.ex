@@ -37,6 +37,7 @@ defmodule TopicsClub.IrcTestServer do
       labeled_responses?: Keyword.get(opts, :labeled_responses?, false),
       join_replies?: Keyword.get(opts, :join_replies?, true),
       part_replies?: Keyword.get(opts, :part_replies?, true),
+      accept_reconnects?: Keyword.get(opts, :accept_reconnects?, false),
       motd_end?: Keyword.get(opts, :motd_end?, true),
       isupport_lines:
         Keyword.get(opts, :isupport_lines, [
@@ -44,18 +45,7 @@ defmodule TopicsClub.IrcTestServer do
         ])
     }
 
-    parent = self()
-
-    Task.start_link(fn ->
-      case :gen_tcp.accept(listener) do
-        {:ok, socket} ->
-          :ok = :gen_tcp.controlling_process(socket, parent)
-          send(parent, {:accepted, {:ok, socket}})
-
-        {:error, reason} ->
-          send(parent, {:accepted, {:error, reason}})
-      end
-    end)
+    accept_next(listener)
 
     {:ok, state}
   end
@@ -108,6 +98,10 @@ defmodule TopicsClub.IrcTestServer do
       {:error, :timeout} ->
         send(self(), :read)
         {:noreply, state}
+
+      {:error, _reason} when state.accept_reconnects? ->
+        accept_next(state.listener)
+        {:noreply, %{state | socket: nil}}
 
       {:error, _reason} ->
         {:stop, :normal, state}
@@ -212,5 +206,20 @@ defmodule TopicsClub.IrcTestServer do
     else
       lines
     end
+  end
+
+  defp accept_next(listener) do
+    parent = self()
+
+    Task.start_link(fn ->
+      case :gen_tcp.accept(listener) do
+        {:ok, socket} ->
+          :ok = :gen_tcp.controlling_process(socket, parent)
+          send(parent, {:accepted, {:ok, socket}})
+
+        {:error, reason} ->
+          send(parent, {:accepted, {:error, reason}})
+      end
+    end)
   end
 end

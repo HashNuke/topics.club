@@ -1,76 +1,62 @@
 defmodule TopicsClub.Irc.Session.EventRecorder do
   @moduledoc false
 
+  require Logger
+
   alias TopicsClub.Chat.{MessageIngestion, SystemMessages}
   alias TopicsClub.Irc.Session.Targets
 
+  @recoverable_errors [
+    DBConnection.ConnectionError,
+    DBConnection.OwnershipError,
+    Ecto.ConstraintError,
+    Ecto.NoResultsError,
+    Ecto.StaleEntryError
+  ]
+
   def server_line(connection, body, kind \\ "system", metadata \\ %{}) do
-    MessageIngestion.record_server(connection, body, kind, nil, metadata)
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
+    recover(:server_line, connection, fn ->
+      MessageIngestion.record_server(connection, body, kind, nil, metadata)
+    end)
   end
 
   def channel_line(state, channel, kind, nick, body) do
-    SystemMessages.record(
-      state.connection,
-      channel,
-      kind,
-      nick,
-      body,
-      %{},
-      Targets.casemapping(state)
-    )
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
+    recover(:channel_line, state.connection, fn ->
+      SystemMessages.record(
+        state.connection,
+        channel,
+        kind,
+        nick,
+        body,
+        %{},
+        Targets.casemapping(state)
+      )
+    end)
   end
 
   def present_nick_line(state, kind, nick, body_fun) do
-    SystemMessages.record_for_present_nick(
-      state.connection,
-      kind,
-      nick,
-      body_fun,
-      Targets.casemapping(state)
-    )
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
+    recover(:present_nick_line, state.connection, fn ->
+      SystemMessages.record_for_present_nick(
+        state.connection,
+        kind,
+        nick,
+        body_fun,
+        Targets.casemapping(state)
+      )
+    end)
   end
 
   def present_nick_line(state, kind, present_nick, message_nick, body_fun) do
-    SystemMessages.record_for_present_nick(
-      state.connection,
-      kind,
-      present_nick,
-      message_nick,
-      body_fun,
-      Targets.casemapping(state)
-    )
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
+    recover(:present_nick_line, state.connection, fn ->
+      SystemMessages.record_for_present_nick(
+        state.connection,
+        kind,
+        present_nick,
+        message_nick,
+        body_fun,
+        Targets.casemapping(state)
+      )
+    end)
   end
 
   def irc_error(state, %{target: target} = payload) when is_binary(target) do
@@ -88,13 +74,22 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
       server_line(state.connection, irc_error_body(payload), "error")
     end
   rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> server_line(state.connection, irc_error_body(payload), "error")
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
+    exception in [
+      DBConnection.ConnectionError,
+      DBConnection.OwnershipError,
+      Ecto.ConstraintError,
+      Ecto.StaleEntryError
+    ] ->
+      report_ingestion_failure(:irc_error, state.connection, exception.__struct__)
+      {:ok, nil}
+
+    Ecto.NoResultsError ->
+      report_ingestion_failure(:irc_error, state.connection, Ecto.NoResultsError)
+      server_line(state.connection, irc_error_body(payload), "error")
   catch
-    :exit, _reason -> {:ok, nil}
+    :exit, _reason ->
+      report_ingestion_failure(:irc_error, state.connection, :exit)
+      {:ok, nil}
   end
 
   def irc_error(state, payload) do
@@ -104,4 +99,32 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
   defp irc_error_body(%{reason: reason}) when is_binary(reason), do: reason
   defp irc_error_body(%{code: code}), do: "IRC error #{code}."
   defp irc_error_body(_payload), do: "IRC error."
+
+  defp recover(operation, connection, callback) do
+    callback.()
+  rescue
+    exception in @recoverable_errors ->
+      report_ingestion_failure(operation, connection, exception.__struct__)
+      {:ok, nil}
+  catch
+    :exit, _reason ->
+      report_ingestion_failure(operation, connection, :exit)
+      {:ok, nil}
+  end
+
+  defp report_ingestion_failure(operation, connection, reason) do
+    metadata = %{
+      connection_id: Map.get(connection, :id),
+      operation: operation,
+      reason: reason
+    }
+
+    Logger.warning("IRC event persistence failed", Map.to_list(metadata))
+
+    :telemetry.execute(
+      [:topics_club, :irc, :ingestion, :failure],
+      %{system_time: System.system_time()},
+      metadata
+    )
+  end
 end

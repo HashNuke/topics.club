@@ -109,6 +109,31 @@ defmodule TopicsClubWeb.InternalEvents.SubscriberTest do
                       channel: "#distributed"
                     }}
 
+    first_subscriber = :global.whereis_name(elem(subscriber_name, 1))
+    assert is_pid(first_subscriber)
+    assert :ok = stop_supervised(Subscriber)
+
+    second_subscriber = start_supervised!({Subscriber, name: subscriber_name})
+    refute second_subscriber == first_subscriber
+
+    restarted_event =
+      InternalEvent.new!(
+        "buffer_left",
+        user_id,
+        %{connection_id: 17, membership_id: 19, channel: "#after-restart"},
+        event_id: "cross-node-after-subscriber-restart",
+        occurred_at: ~U[2026-08-28 10:11:13Z]
+      )
+
+    assert :ok = :peer.call(peer_pid, PubSubAdapter, :dispatch, [restarted_event])
+
+    assert_receive {:buffer_left,
+                    %{
+                      event_id: "cross-node-after-subscriber-restart",
+                      buffer_id: "channel:19",
+                      channel: "#after-restart"
+                    }}
+
     assert :ok =
              :peer.call(peer_pid, :supervisor, :terminate_child, [
                :kernel_sup,

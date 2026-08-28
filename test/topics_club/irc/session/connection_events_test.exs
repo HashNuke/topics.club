@@ -78,6 +78,20 @@ defmodule TopicsClub.Irc.Session.ConnectionEventsTest do
   end
 
   test "clears connection-scoped state while reconnecting", context do
+    telemetry_id = "connection-reconnect-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        telemetry_id,
+        [:topics_club, :irc, :session, :reconnect],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(telemetry_id) end)
+
     state = %{
       context.state
       | registered?: true,
@@ -101,6 +115,12 @@ defmodule TopicsClub.Irc.Session.ConnectionEventsTest do
     assert returned.joined_channels == MapSet.new()
 
     assert_receive {:server_status, %{status: "connecting"}}
+
+    assert_receive {:telemetry, [:topics_club, :irc, :session, :reconnect],
+                    %{system_time: system_time}, %{connection_id: connection_id}}
+
+    assert is_integer(system_time)
+    assert connection_id == context.connection.id
 
     assert [%{kind: "system", body: "Reconnecting to irc.example.test:6697."}] =
              messages(context)

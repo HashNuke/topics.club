@@ -1158,6 +1158,14 @@ Publishing `ircxd` and replacing its Git source are intentionally deferred until
 
 Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-safety cases that do not exist in combined mode.
 
+The implemented runtime stays intentionally small: one statically configured engine node, one
+globally registered singleton marker, one versioned RPC entry point, and one PubSub bridge. There
+is no dynamic cluster membership layer, routing table, lease service, or multi-engine scheduler.
+The focused cross-node test drives the production client boundary from a gateway-side peer, while
+an application lifecycle test stops and restarts the complete engine application. Together they
+prove normalized failure, process isolation, desired-session restoration, paused-session
+exclusion, and channel autojoin without turning the test harness into a deployment framework.
+
 #### Distribution and network configuration
 
 - [x] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
@@ -1200,7 +1208,7 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 - [x] Start identically named PubSub instances on web and engine.
 - [x] Verify engine broadcasts reach the web node through Distributed Erlang.
 - [x] Verify combined mode still uses the same publish calls locally.
-- [ ] Verify web restart and resubscription do not require engine restart.
+- [x] Verify web restart and resubscription do not require engine restart.
 - [x] Verify missed events are recovered through browser bootstrap/history rather than a new raw-event journal.
 - [x] Document the compatible rolling procedure required before any future PubSub pool-size change.
 
@@ -1210,7 +1218,7 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 - [x] Return a clear degraded error for IRC mutations while the engine is unavailable.
 - [x] Keep pending browser sends recoverable or retryable according to operation semantics.
 - [x] Expose web-to-engine connection state in health and telemetry.
-- [ ] Expose engine marker ownership, active sessions, reconnects, and ingestion failures.
+- [x] Expose engine marker ownership, active sessions, reconnects, and ingestion failures.
 - [ ] Add alerts for engine loss, duplicate-engine attempts, and sustained RPC timeouts.
 - [x] Ensure web startup is not permanently blocked by temporary engine unavailability.
 
@@ -1221,8 +1229,8 @@ Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-
 - [x] Confirm engine PubSub events reach a user channel on the web node.
 - [x] Stop web and prove the engine session PID remains alive.
 - [ ] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
-- [ ] Stop engine and verify persisted web features remain available with degraded mutation errors.
-- [ ] Restart engine and restore only desired-connected recent sessions and their autojoins.
+- [x] Stop engine and verify persisted web features remain available with degraded mutation errors.
+- [x] Restart engine and restore only desired-connected recent sessions and their autojoins.
 - [x] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
 - [x] Simulate a request timeout and prove errors are normalized without crashing callers.
 - [ ] Verify web N operates with the supported engine N-1 protocol.

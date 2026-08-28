@@ -99,6 +99,12 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
   end
 
   def reconnecting(state) do
+    :telemetry.execute(
+      [:topics_club, :irc, :session, :reconnect],
+      %{system_time: System.system_time()},
+      %{connection_id: state.connection.id}
+    )
+
     EventRecorder.server_line(
       state.connection,
       "Reconnecting to #{state.connection.host}:#{state.connection.port}."
