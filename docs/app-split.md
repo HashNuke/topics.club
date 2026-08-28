@@ -332,6 +332,21 @@ Extraction preserves module names and relative paths. No module rename is bundle
 | `lib/mix/**` | Umbrella root tooling | Root tooling tests |
 | Cross-component release, boundary, and distributed integration tests | No child source owner | Umbrella root integration test directory |
 
+The pre-umbrella discovery baseline partitions every current ExUnit file exactly once:
+
+| Logical test owner | Files | Tests | Future physical expectation |
+| --- | ---: | ---: | --- |
+| Core data/persistence | 9 | 27 | `ircpipe_core` |
+| Shared protocol/contracts | 7 | 35 | `ircpipe_core` |
+| Engine | 57 | 269 | `ircpipe_engine` |
+| Web | 50 | 318 | `ircpipe_web` |
+| Combined assembly | 1 | 6 | Umbrella root |
+| Tooling | 2 | 14 | Umbrella root |
+| Cross-component integration | 2 | 22 | Umbrella root |
+| **Total** | **128** | **691** | **691 discovered from the umbrella root** |
+
+The future child expectations are therefore core 62, engine 269, and web 318, with 42 root assembly/tooling/integration tests. The two explicitly cross-component files are `connections_concurrency_test.exs` and `direct_messages_test.exs`; keeping them at the root avoids inventing a false child owner. This is a discovery baseline, not a requirement that a child test suite boot unrelated child applications after extraction.
+
 #### Browser and deployment compatibility baseline
 
 Every current JSON route in the router has a controller test under `test/ircpipe_web/controllers/api`; the bootstrap test freezes its complete top-level payload and the focused controller tests freeze each route's success/error shapes. `UserChannelTest` covers every inbound Channel command and every public pushed event. `RealtimeHandlerTest` now freezes the exact before/after translation for every engine realtime fact, every message destination, and all three message event types. React tests cover bootstrap parsing, reconnect cursors, missed history, command repair, and malformed recovery data.
@@ -938,11 +953,11 @@ The boundary graph now contains 237 owned files, no temporary dependency excepti
 - [x] Every engine operation uses the versioned request path in combined mode.
 - [x] The root application starts distinct logical core, engine, and web supervisor branches.
 - [x] The ownership manifest maps cleanly to future `apps/ircpipe_core`, `apps/ircpipe_engine`, and `apps/ircpipe_web` destinations.
-- [ ] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
-- [ ] Ordinary messages still commit before broadcast and do not pass through Oban.
-- [ ] The browser protocol remains compatible.
+- [x] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
+- [x] Ordinary messages still commit before broadcast and do not pass through Oban.
+- [x] The browser protocol remains compatible.
 - [ ] `mix precommit` and a combined release smoke test pass.
-- [ ] Record the complete test count and per-component counts so the umbrella move cannot silently lose test discovery.
+- [x] Record the complete test count and per-component counts so the umbrella move cannot silently lose test discovery.
 
 ### Workstream 2: Mechanically extract the logical components into three OTP applications
 
