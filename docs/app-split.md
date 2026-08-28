@@ -465,7 +465,7 @@ Oban configuration is release-specific even though all jobs use the same Postgre
 - Engine release executes connection-deletion and other jobs that require local access to live IRC sessions.
 - Cron entries run only in the release that owns the corresponding work.
 
-Engine ingestion may insert a notification job into an Oban queue that the web release executes. Queue insertion and queue execution are separate responsibilities.
+Engine ingestion atomically inserts an engine-owned `NotificationEventsWorker` job with the canonical notification row. That worker publishes the stable internal notification event after commit and snoozes without consuming attempts while the event adapter is unavailable. The web event handler then inserts the web-owned `PushWorker` job into the web queue. Engine code never inserts a web worker directly.
 
 No queue may be enabled on a node where its worker assumes a local IRC registry unless the worker has first been refactored through `Ircpipe.EngineClient`.
 
@@ -474,6 +474,7 @@ The combined monolith now runs two named Oban instances so queue execution alrea
 | Instance owner | Queue/plugin | Workers or purpose |
 | --- | --- | --- |
 | Engine | `connection_deletions` queue | `ConnectionDeletionWorker`, `ConnectionDeletionEventsWorker`, and `ConnectionDeletionReconcilerWorker` |
+| Engine | `internal_events` queue | `NotificationEventsWorker` durably publishes committed notification facts to the configured internal event adapter |
 | Engine | Cron | Enqueues `ConnectionDeletionReconcilerWorker` once per minute |
 | Web | `notifications` queue | `PushWorker` |
 | Web | `Oban.Plugins.Pruner` | Prunes the shared jobs table exactly once in combined mode |
