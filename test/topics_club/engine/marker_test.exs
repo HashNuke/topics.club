@@ -1,6 +1,8 @@
 defmodule TopicsClub.Engine.MarkerTest do
   use TopicsClub.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias TopicsClub.AccountsFixtures
   alias TopicsClub.Chat.Connections
   alias TopicsClub.Engine.Marker
@@ -15,7 +17,14 @@ defmodule TopicsClub.Engine.MarkerTest do
     assert %{status: :owner, owner_node: owner_node, started_at: started_at} = Marker.status()
     assert owner_node == Atom.to_string(node())
     assert {:ok, _timestamp, 0} = DateTime.from_iso8601(started_at)
-    assert {:error, {:already_started, ^marker}} = Marker.start_link([])
+
+    log =
+      capture_log(fn ->
+        assert {:error, {:already_started, ^marker}} = Marker.start_link([])
+      end)
+
+    assert log =~ "event=engine_marker_duplicate"
+    assert log =~ "owner_node=#{node(marker)}"
   end
 
   test "a visible duplicate marker stops engine supervision before later children start" do

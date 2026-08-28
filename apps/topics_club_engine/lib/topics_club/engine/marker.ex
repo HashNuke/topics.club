@@ -12,9 +12,10 @@ defmodule TopicsClub.Engine.Marker do
 
     case GenServer.start_link(__MODULE__, opts, name: name) do
       {:error, {:already_started, owner}} = error ->
-        Logger.error(
-          "IRC engine marker is already held " <>
-            "owner_node=#{inspect(node(owner))} attempted_node=#{inspect(node())}"
+        Logger.error("IRC engine marker is already held",
+          event: :engine_marker_duplicate,
+          owner_node: node(owner),
+          attempted_node: node()
         )
 
         :telemetry.execute(
@@ -39,7 +40,11 @@ defmodule TopicsClub.Engine.Marker do
   @impl true
   def init(_opts) do
     state = %{started_at: DateTime.utc_now(:second) |> DateTime.to_iso8601()}
-    Logger.info("Acquired IRC engine marker owner_node=#{inspect(node())}")
+
+    Logger.info("Acquired IRC engine marker",
+      event: :engine_marker_acquired,
+      owner_node: node()
+    )
 
     :telemetry.execute(
       [:topics_club, :engine, :marker],

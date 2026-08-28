@@ -1,6 +1,8 @@
 defmodule TopicsClub.EngineClient do
   @moduledoc false
 
+  require Logger
+
   alias TopicsClub.EngineClient.Contract
   alias TopicsClub.EngineClient.Reply
 
@@ -90,6 +92,7 @@ defmodule TopicsClub.EngineClient do
     started_at = System.monotonic_time()
     reply = invoke_adapter(request, timeout)
     result = Reply.decode(reply, request)
+    result_code = result_code(result)
 
     :telemetry.execute(
       [:topics_club, :engine_client, :request],
@@ -97,12 +100,13 @@ defmodule TopicsClub.EngineClient do
       %{
         operation: request.operation,
         request_id: request.request_id,
-        result: result_code(result),
+        result: result_code,
         retry: Contract.retry_policy(request.operation),
         timeout: timeout
       }
     )
 
+    log_timeout(result_code, request, timeout)
     result
   end
 
@@ -126,4 +130,15 @@ defmodule TopicsClub.EngineClient do
 
   defp result_code({:ok, _data}), do: :ok
   defp result_code({:error, %{code: code}}), do: code
+
+  defp log_timeout(:timeout, request, timeout) do
+    Logger.warning("Engine RPC request timed out",
+      event: :engine_rpc_timeout,
+      operation: request.operation,
+      request_id: request.request_id,
+      timeout_ms: timeout
+    )
+  end
+
+  defp log_timeout(_result, _request, _timeout), do: :ok
 end

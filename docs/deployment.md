@@ -69,9 +69,9 @@ deployments must leave IRC connections alone. It runs `topics_club_gateway` and
 support a second engine host or horizontal replicas. The two BEAM nodes use short names and bind
 EPMD plus distribution ports `4369`, `4370`, and `4371` to loopback.
 
-The destination must be reachable as `root@IP` with an existing SSH key. PostgreSQL and its backup
-policy are provisioned separately; the application deploy never creates, replaces, or restores the
-database. The local operator machine needs `uv`, while the destination needs no preinstalled
+The destination must be reachable as `root@IP` with an existing SSH key. PostgreSQL is provisioned
+separately; the application deploy never creates, replaces, backs up, or restores the database.
+The local operator machine needs `uv`, while the destination needs no preinstalled
 Erlang, Elixir, Node.js, or npm. Provisioning installs Docker and builds every release on the
 destination in a pinned Ubuntu 26.04 builder, so NIFs match the target userspace. A host below the
 recommended build memory gets a persistent 4 GiB `/swapfile` when it has less than 4 GiB of swap;
@@ -145,6 +145,39 @@ cat /srv/topics-club/current-engine/deploy-manifest
 curl --fail http://127.0.0.1:4000/health
 ```
 
+## Health, logs, and external alerts
+
+The application writes logs to standard output. Railway and Docker collect that stream directly;
+the split systemd services send it to journald. No log collector, dashboard, or alert-delivery
+provider is built into TopicsClub.
+
+In split mode `/health` keeps returning HTTP 200 while PostgreSQL and the gateway are available,
+even when the engine is disconnected. Its top-level `status` is then `degraded`, and the nested
+`engine.status` explains whether the engine is `disconnected` or `unavailable`. This prevents an
+engine outage from making a platform restart the healthy gateway. An external monitor should parse
+the response and require the top-level status to be `ok`; the deployment program uses the same
+rule. Combined mode reports the engine as `local`.
+
+Operational failures have stable, searchable event names:
+
+| Event | Meaning |
+|---|---|
+| `event=engine_node_disconnected` | The split gateway lost its engine node. |
+| `event=engine_marker_duplicate` | A second visible engine attempted to start and was rejected. |
+| `event=engine_rpc_timeout` | One gateway-to-engine request exceeded its operation timeout. |
+| `event=irc_ingestion_failed` | An inbound IRC event could not be persisted. |
+
+Connection and marker acquisition use the corresponding informational
+`event=engine_node_connected` and `event=engine_marker_acquired` entries. Event logs contain IDs,
+operation names, nodes, timeout values, and failure classes; they do not contain IRC credentials or
+message bodies.
+
+For the first production deployment, point one operator-selected external monitor at `/health` and
+alert after repeated `degraded` responses. If a log service is added later, alert immediately on a
+duplicate marker and use a short rolling count for RPC timeouts and ingestion failures so one
+transient failure does not page anyone. Alert destinations and thresholds belong to that deployment,
+not to the open-source application.
+
 Roll back one application role to its recorded previous release with:
 
 ```bash
@@ -174,7 +207,10 @@ The `file:///mnt/topics-club.git` repository is a test-only read-only mount. Pro
 uses the public HTTPS remote. Reset and destroy affect only the exact named pseudo-VPS containers,
 network, PostgreSQL data volume, Docker build-data volume, and ignored `.apptools/vps` test state.
 
-## Back up and restore PostgreSQL
+## Optional PostgreSQL backup and restore
+
+Backup automation and restore rehearsal are deferred and are not part of the current deployment
+work. The following manual procedure is retained as operator guidance for when backups are enabled.
 
 Create logical backups outside `TOPICS_CLUB_POSTGRES_DATA`; copying the live data directory is not a safe backup procedure:
 

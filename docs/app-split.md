@@ -810,12 +810,14 @@ cookie in both environment files, start the engine and verify marker status, the
 gateway and verify `/health` reports the engine ready through a protocol request. This restarts IRC sessions once; do not
 attempt a rolling cookie change with mismatched nodes.
 
-The runtime emits redacted telemetry for marker acquisition/duplication, gateway-engine
-connection changes and retries, RPC result/timeout, IRC reconnects, ingestion failures, and
+The runtime emits redacted telemetry and stable log event names for marker
+acquisition/duplication, gateway-engine connection changes, RPC timeouts, and ingestion failures;
+the broader telemetry contract also covers connection retries, RPC results, IRC reconnects, and
 cluster-event delivery. `EngineClient.protocol_info/1` reports the protocol version, operations,
-engine node, marker status, and active-session count. The eventual production monitoring backend
-must alert on engine disconnection, duplicate-marker attempts, sustained RPC timeouts, and
-ingestion failures; choosing and configuring that backend remains an explicit deployment task.
+engine node, marker status, and active-session count. The application does not embed an alert
+delivery system. The TopicsClub production deployment will use one operator-selected external
+monitor for `/health`; any later log backend can alert on the documented event names. Choosing that
+backend and its destination is optional, deferred deployment configuration.
 
 ## Configuration contract
 
@@ -1283,7 +1285,9 @@ no substitute lease or scheduler and still do not support a second engine host.
 - [x] Keep pending browser sends recoverable or retryable according to operation semantics.
 - [x] Expose transport state in telemetry and require a successful engine protocol request for healthy split readiness.
 - [x] Expose engine marker status, active sessions, reconnects, and ingestion failures.
-- [ ] Add alerts for engine loss, duplicate-engine attempts, and sustained RPC timeouts.
+- [x] Emit stable, redacted log events for engine loss, duplicate-engine attempts, RPC timeouts, and ingestion failures.
+- [x] Document the external `/health` monitoring contract and suggested log-alert policies.
+- [ ] Optional/deferred: connect the signals to the TopicsClub production monitor and alert destination.
 - [x] Ensure web startup is not permanently blocked by temporary engine unavailability.
 
 #### Split integration harness and tests
@@ -1411,7 +1415,7 @@ operator runbook is in `docs/deployment.md`.
 - [x] Commit only a placeholder environment example; never commit a production environment file in plaintext or encrypted form.
 - [x] Keep `/etc/topics-club/gateway.env` and `/etc/topics-club/engine.env` solely on the destination host with role-specific ownership and mode `0600`.
 - [x] Make pyinfra verify the environment files and their metadata without reading, logging, replacing, or transferring their contents.
-- [x] Provision the shared PostgreSQL database and backup policy separately from application releases.
+- [x] Keep shared PostgreSQL provisioning and any future backup policy separate from application releases.
 - [x] Restrict EPMD and distribution ports to the loopback path on the single supported host.
 
 #### Repeatable build commands
@@ -1532,11 +1536,12 @@ Size: **L**. Risk: **High**. These checks turn a working demo into a supportable
 - [ ] Threat-model Erlang cookie compromise and distribution-port exposure.
 - [ ] Verify private firewall rules from production-like hosts.
 - [ ] Verify release users cannot read secrets belonging only to the other role unless required.
-- [ ] Document PostgreSQL backup, restore, and recovery testing.
+- [ ] Optional/deferred: configure and test PostgreSQL backup, restore, and recovery.
 - [ ] Document expand-and-contract migrations and destructive-change coordination.
 - [ ] Document web deployment, engine deployment, rollback, and combined-mode recovery.
 - [ ] Document cookie rotation and node-name changes.
-- [ ] Document health signals, dashboards, logs, and alerts.
+- [x] Document health responses, log collection, stable operational events, and external alerting.
+- [ ] Optional/deferred: select a production log backend or dashboard if operating experience justifies one.
 - [ ] Update README with combined Docker and Compose first, and split deployment as an advanced operator workflow.
 - [x] Run `mix precommit` after all implementation and documentation changes.
 
@@ -1554,7 +1559,7 @@ Size: **L**. Risk: **High**. These checks turn a working demo into a supportable
 The first transition from combined to split mode requires one planned IRC reconnect. Do not overlap the combined engine and standalone engine.
 
 - [ ] Confirm all workstream 0 through 4, 6, and 7 exit gates are complete.
-- [ ] Confirm a fresh PostgreSQL backup and tested restore path.
+- [ ] Optional/deferred: establish and test a PostgreSQL backup and restore path.
 - [ ] Confirm the selected combined, web, and engine artifacts come from the same compatible source version.
 - [ ] Deploy the combined release containing the engine boundary and additive schema.
 - [ ] Verify combined production behavior before cutover.

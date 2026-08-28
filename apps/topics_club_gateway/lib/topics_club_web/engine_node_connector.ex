@@ -67,7 +67,10 @@ defmodule TopicsClubWeb.EngineNodeConnector do
   end
 
   def handle_info({:nodedown, engine_node, _info}, %{engine_node: engine_node} = state) do
-    Logger.warning("Engine node disconnected: #{inspect(engine_node)}")
+    Logger.warning("Engine node disconnected",
+      event: :engine_node_disconnected,
+      engine_node: engine_node
+    )
 
     :telemetry.execute(
       [:topics_club, :engine_node, :connection],
@@ -86,7 +89,10 @@ defmodule TopicsClubWeb.EngineNodeConnector do
     cancel_timer(state.timer)
 
     if state.status != :connected do
-      Logger.info("Connected to engine node #{inspect(state.engine_node)}")
+      Logger.info("Connected to engine node",
+        event: :engine_node_connected,
+        engine_node: state.engine_node
+      )
 
       :telemetry.execute(
         [:topics_club, :engine_node, :connection],

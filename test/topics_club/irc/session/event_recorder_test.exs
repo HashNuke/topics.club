@@ -78,9 +78,13 @@ defmodule TopicsClub.Irc.Session.EventRecorderTest do
 
     connection = %ServerConnection{id: -1, user_id: -1, host: "irc.invalid.test"}
 
-    capture_log(fn ->
-      assert {:ok, nil} = EventRecorder.server_line(connection, "not persisted")
-    end)
+    log =
+      capture_log(fn ->
+        assert {:ok, nil} = EventRecorder.server_line(connection, "not persisted")
+      end)
+
+    assert log =~ "event=irc_ingestion_failed"
+    refute log =~ "not persisted"
 
     assert_receive {:telemetry, [:topics_club, :irc, :ingestion, :failure],
                     %{system_time: system_time},

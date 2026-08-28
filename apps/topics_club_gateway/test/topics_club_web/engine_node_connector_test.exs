@@ -1,6 +1,8 @@
 defmodule TopicsClubWeb.EngineNodeConnectorTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias TopicsClubWeb.EngineNodeConnector
 
   test "starts without blocking and caps retries while the engine is unavailable" do
@@ -34,12 +36,19 @@ defmodule TopicsClubWeb.EngineNodeConnectorTest do
     )
 
     _ = :sys.get_state(connector_name)
-    send(connector_name, {:nodeup, engine_node, [node_type: :visible]})
-    _ = :sys.get_state(connector_name)
-    assert EngineNodeConnector.status(connector_name).connected?
 
-    send(connector_name, {:nodedown, engine_node, [node_type: :visible]})
-    _ = :sys.get_state(connector_name)
+    log =
+      capture_log(fn ->
+        send(connector_name, {:nodeup, engine_node, [node_type: :visible]})
+        _ = :sys.get_state(connector_name)
+        assert EngineNodeConnector.status(connector_name).connected?
+
+        send(connector_name, {:nodedown, engine_node, [node_type: :visible]})
+        _ = :sys.get_state(connector_name)
+      end)
+
+    assert log =~ "event=engine_node_disconnected"
+    assert log =~ "engine_node=engine_transition_test@localhost"
 
     assert EngineNodeConnector.status(connector_name) == %{
              connected?: false,

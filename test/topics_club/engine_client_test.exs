@@ -1,6 +1,8 @@
 defmodule TopicsClub.EngineClientTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias TopicsClub.EngineClient
   alias TopicsClub.EngineClient.Discovery
 
@@ -101,8 +103,19 @@ defmodule TopicsClub.EngineClientTest do
       TopicsClub.BlockedEngineAPI
     )
 
-    assert {:error, %{code: :timeout, details: %{}}} =
-             EngineClient.connection_info(1, 2, timeout: 10)
+    log =
+      capture_log(fn ->
+        assert {:error, %{code: :timeout, details: %{}}} =
+                 EngineClient.connection_info(1, 2,
+                   timeout: 10,
+                   request_id: "timeout-request"
+                 )
+      end)
+
+    assert log =~ "event=engine_rpc_timeout"
+    assert log =~ "operation=connection_info"
+    assert log =~ "request_id=timeout-request"
+    assert log =~ "timeout_ms=10"
   end
 
   defp direct_child_pid(supervisor, child_id) do

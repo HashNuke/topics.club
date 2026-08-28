@@ -119,10 +119,11 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
       reason: reason
     }
 
-    Logger.warning(
-      "IRC event persistence failed " <>
-        "connection_id=#{inspect(metadata.connection_id)} " <>
-        "operation=#{inspect(operation)} reason=#{inspect(reason)}"
+    Logger.warning("IRC event persistence failed",
+      event: :irc_ingestion_failed,
+      connection_id: metadata.connection_id,
+      operation: operation,
+      reason: reason
     )
 
     :telemetry.execute(

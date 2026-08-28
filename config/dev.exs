@@ -77,8 +77,8 @@ config :topics_club_gateway, TopicsClubWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :topics_club_gateway, dev_routes: true
 
-# Do not include metadata nor timestamps in development logs
-config :logger, :default_formatter, format: "[$level] $message\n"
+# Keep development logs compact while retaining searchable operational metadata.
+config :logger, :default_formatter, format: "[$level] $metadata$message\n"
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.
