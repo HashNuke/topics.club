@@ -24,7 +24,7 @@ import {createRoot} from "react-dom/client"
 // Establish Phoenix Socket and LiveView configuration.
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
-import {hooks as colocatedHooks} from "phoenix-colocated/ircpipe"
+import {hooks as colocatedHooks} from "phoenix-colocated/ircpipe_web"
 import topbar from "../vendor/topbar.cjs"
 import {createApiClient} from "./api_client.ts"
 import IrcpipeApp from "./ircpipe_app.tsx"

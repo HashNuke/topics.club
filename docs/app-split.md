@@ -977,7 +977,7 @@ The engine production move is committed at `737f446`, with the isolated disabled
 
 The web ownership slice is committed at `400056c`. It moves all Phoenix, authentication, browser serialization, notifications, directory discovery, frontend, static, gettext, and web-owned worker code into `ircpipe_web` without changing production module names. The web child declares core and its direct libraries, including the Git-pinned `ircxd` needed by short-lived directory listing. Its 31 independently runnable files pass 172 tests without any engine implementation dependency; tests whose setup genuinely crosses application boundaries remain root integration coverage rather than forcing a test-only child dependency.
 
-The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_engine`, and `ircpipe_web` under `apps/`. Root aliases explicitly orchestrate the three child suites and the non-deployable integration harness. The obsolete empty `Ircpipe.Application` and `Ircpipe.Supervisor` are removed. A clean combined release contains and starts exactly the three child applications, and its boot smoke starts all three role supervisors with no root supervisor. Final checkpoint review and approval remain pending until the complete precommit, Docker, and Compose validation is recorded.
+The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_engine`, and `ircpipe_web` under `apps/`. Root aliases explicitly orchestrate the three child suites and the non-deployable integration harness. The obsolete empty `Ircpipe.Application` and `Ircpipe.Supervisor` are removed. `mix precommit` passes 37 core, 67 engine, 172 web, and 421 root tests (697 total), 229 frontend tests, type checking, Storybook, warning-free compilation, and the 242-file/763-edge/zero-exception boundary graph. A clean combined release contains and starts exactly the three child applications, and its boot smoke starts all three role supervisors with no root supervisor. A no-cache Docker build exposed and fixed the last stale monolith reference in the colocated-hook import; the rebuilt image runs as `nobody`, contains no build toolchain or fourth Ircpipe application, and boots the same three supervisors. Production Compose resolution passes. Final GPT-5.6 Sol xhigh checkpoint review and approval remain pending.
 
 #### Extraction rules
 
@@ -1063,7 +1063,7 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 - [x] The combined application behaves the same as before the umbrella conversion.
 - [x] Root and per-component test counts match the recorded pre-umbrella expectations.
 - [x] The boundary checker passes without new exceptions or child-application dependency cycles.
-- [ ] Root `mix precommit` passes.
+- [x] Root `mix precommit` passes.
 
 ### Workstream 3: Build release and container artifacts
 
