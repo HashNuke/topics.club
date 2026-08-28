@@ -66,6 +66,7 @@ defmodule Ircpipe.Engine.API do
   defp dispatch_connection_operation(operation, request) do
     with {:ok, user, connection} <- load_user_connection(request.user_id, request.connection_id),
          :ok <- ensure_available(connection, operation),
+         :ok <- maybe_pause_after_connection_load(connection, operation),
          result <- execute(operation, request, user, connection) do
       result_reply(request, result)
     else
@@ -298,7 +299,7 @@ defmodule Ircpipe.Engine.API do
           |> Repo.update()
 
         %ServerConnection{deleting: true} ->
-          {:error, :invalid_state}
+          {:error, :connection_deleting}
 
         nil ->
           {:error, :unauthorized}
@@ -372,6 +373,30 @@ defmodule Ircpipe.Engine.API do
     :exit, {:noproc, _call} -> {:error, :not_connected}
     :exit, :noproc -> {:error, :not_connected}
     :exit, _reason -> {:error, :not_connected}
+  end
+
+  defp maybe_pause_after_connection_load(connection, operation) do
+    case Application.get_env(:ircpipe, :engine_api_after_connection_load_barrier) do
+      {test_pid, barrier_ref, ^operation} when is_pid(test_pid) ->
+        test_ref = Process.monitor(test_pid)
+
+        send(
+          test_pid,
+          {:engine_api_connection_loaded, self(), barrier_ref, operation, connection.id}
+        )
+
+        receive do
+          {:continue_engine_api_connection, ^barrier_ref} ->
+            Process.demonitor(test_ref, [:flush])
+            :ok
+
+          {:DOWN, ^test_ref, :process, ^test_pid, _reason} ->
+            :ok
+        end
+
+      _not_paused ->
+        :ok
+    end
   end
 
   defp request_id(%{request_id: request_id}) when is_binary(request_id), do: request_id

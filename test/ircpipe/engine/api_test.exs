@@ -156,6 +156,51 @@ defmodule Ircpipe.Engine.APITest do
              EngineClient.connection_info(user.id, connection.id)
   end
 
+  test "a connection marked deleting after authorization retains the stable reason", %{
+    user: user,
+    connection: connection
+  } do
+    previous_barrier = Application.get_env(:ircpipe, :engine_api_after_connection_load_barrier)
+    barrier_ref = make_ref()
+
+    Application.put_env(
+      :ircpipe,
+      :engine_api_after_connection_load_barrier,
+      {self(), barrier_ref, :ensure_connection}
+    )
+
+    on_exit(fn ->
+      if previous_barrier do
+        Application.put_env(:ircpipe, :engine_api_after_connection_load_barrier, previous_barrier)
+      else
+        Application.delete_env(:ircpipe, :engine_api_after_connection_load_barrier)
+      end
+    end)
+
+    task_supervisor = start_supervised!(Task.Supervisor)
+
+    ensure_task =
+      Task.Supervisor.async_nolink(task_supervisor, fn ->
+        EngineClient.ensure_connection(user.id, connection.id)
+      end)
+
+    assert_receive {:engine_api_connection_loaded, engine_pid, ^barrier_ref, :ensure_connection,
+                    connection_id}
+
+    assert connection_id == connection.id
+
+    assert {:ok, deleting} =
+             connection
+             |> Ecto.Changeset.change(deleting: true)
+             |> Repo.update()
+
+    assert deleting.deleting
+    send(engine_pid, {:continue_engine_api_connection, barrier_ref})
+
+    assert {:error, %{code: :invalid_state, details: %{reason: "connection_deleting"}}} =
+             Task.await(ensure_task)
+  end
+
   test "opposing connection intents serialize through their process effects", %{
     user: user,
     connection: connection
