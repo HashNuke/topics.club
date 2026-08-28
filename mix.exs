@@ -82,6 +82,7 @@ defmodule Ircpipe.MixProject do
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind ircpipe", "esbuild ircpipe"],
       "assets.deploy": [
+        "compile",
         "tailwind ircpipe --minify",
         "esbuild ircpipe --minify",
         &digest_assets/1

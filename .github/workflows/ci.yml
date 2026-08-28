@@ -98,6 +98,6 @@ jobs:
           has_path "$engine/lib/ircpipe_core-*"
           has_path "$engine/lib/ircpipe_engine-*"
           ! has_path "$engine/lib/ircpipe_web-*"
-          ! has_path "$engine/lib/ircpipe_core-*/ebin/Elixir.Ircpipe.Release.beam"
+          ! has_path "$engine/lib/*/ebin/Elixir.Ircpipe.Release.beam"
           test ! -e "$engine/bin/server"
           test ! -e "$engine/bin/migrate"
