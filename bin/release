@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${script_dir}/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Create the next UTC date-based Git release tag.
+
+Usage:
+  bin/release [--dry-run]
+  bin/release --help
+
+The tag format is YYYYMMDD.N. YYYYMMDD is the current UTC date. N starts at
+0 each day and increments from the highest matching local or origin tag.
+
+Options:
+  --dry-run  Print the next tag without creating it.
+  -h, --help Show this help.
+
+Examples:
+  bin/release --dry-run
+  bin/release
+EOF
+}
+
+dry_run=false
+
+case "${1:-}" in
+  "") ;;
+  --dry-run)
+    dry_run=true
+    shift
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 64
+    ;;
+esac
+
+if [[ $# -ne 0 ]]; then
+  usage >&2
+  exit 64
+fi
+
+cd "${repo_root}"
+
+git rev-parse --is-inside-work-tree >/dev/null
+
+release_day="$(date -u +%Y%m%d)"
+highest_release=-1
+
+list_release_tags() {
+  git tag --list "${release_day}.*"
+
+  if git remote get-url origin >/dev/null 2>&1; then
+    if ! git ls-remote --quiet --tags origin "refs/tags/${release_day}.*"; then
+      printf 'error: could not read release tags from origin\n' >&2
+      return 1
+    fi
+  fi
+}
+
+release_tags="$(list_release_tags | awk '{print $NF}')"
+
+while IFS= read -r tag; do
+  tag="${tag#refs/tags/}"
+  tag="${tag%%^*}"
+
+  if [[ "${tag}" =~ ^${release_day}\.([0-9]+)$ ]]; then
+    release_number=$((10#${BASH_REMATCH[1]}))
+
+    if ((release_number > highest_release)); then
+      highest_release=${release_number}
+    fi
+  fi
+done <<< "${release_tags}"
+
+next_release=$((highest_release + 1))
+tag="${release_day}.${next_release}"
+
+if [[ "${dry_run}" == true ]]; then
+  printf 'would create tag %s\n' "${tag}"
+  exit 0
+fi
+
+git tag "${tag}"
+printf 'created tag %s\n' "${tag}"
