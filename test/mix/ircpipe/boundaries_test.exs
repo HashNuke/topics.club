@@ -274,6 +274,49 @@ defmodule Mix.Ircpipe.BoundariesTest do
     assert :ok = Mix.Tasks.Ircpipe.CheckBoundaries.run([])
   end
 
+  test "isolated child compilation rejects a call to an unavailable sibling module" do
+    fixture_path =
+      Path.join(
+        System.tmp_dir!(),
+        "ircpipe-boundary-child-#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(Path.join(fixture_path, "lib"))
+
+    File.write!(
+      Path.join(fixture_path, "mix.exs"),
+      """
+      defmodule BoundaryChildFixture.MixProject do
+        use Mix.Project
+
+        def project do
+          [app: :boundary_child_fixture, version: "0.1.0", elixir: "~> 1.15"]
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(fixture_path, "lib/crossing.ex"),
+      """
+      defmodule BoundaryChildFixture.Crossing do
+        def call, do: IrcpipeWeb.Endpoint.url()
+      end
+      """
+    )
+
+    on_exit(fn -> File.rm_rf!(fixture_path) end)
+
+    assert {:error, _status, output} =
+             Mix.Tasks.Ircpipe.CheckBoundaries.check_child_compilation(
+               fixture_path,
+               Path.join(fixture_path, "isolated_build")
+             )
+
+    assert output =~ "IrcpipeWeb.Endpoint.url/0 is undefined"
+    assert output =~ "Compilation failed due to warnings"
+  end
+
   defp manifest do
     %{
       version: 1,

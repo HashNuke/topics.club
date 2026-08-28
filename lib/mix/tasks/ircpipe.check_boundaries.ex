@@ -14,7 +14,9 @@ defmodule Mix.Tasks.Ircpipe.CheckBoundaries do
     Mix.Task.run("compile")
 
     manifest = Mix.Ircpipe.Boundaries.load!("config/boundaries.exs")
-    graph = xref_graph()
+    child_paths = child_project_paths()
+    Enum.each(child_paths, &compile_child!/1)
+    graph = xref_graph(child_paths)
 
     with {:ok, summary} <- Mix.Ircpipe.Boundaries.check(manifest, graph),
          :ok <- check_baseline(opts[:baseline_ref], manifest) do
@@ -46,14 +48,55 @@ defmodule Mix.Tasks.Ircpipe.CheckBoundaries do
     end
   end
 
-  defp xref_graph do
+  @doc false
+  def check_child_compilation(child_path, build_path) do
+    case System.cmd("mix", ["compile", "--warnings-as-errors"],
+           cd: child_path,
+           env: [
+             {"MIX_BUILD_PATH", Path.expand(build_path)},
+             {"MIX_ENV", Atom.to_string(Mix.env())}
+           ],
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} -> :ok
+      {output, status} -> {:error, status, output}
+    end
+  end
+
+  defp child_project_paths do
+    "apps/*/mix.exs"
+    |> Path.wildcard()
+    |> Enum.map(&Path.dirname/1)
+    |> Enum.sort()
+  end
+
+  defp compile_child!(child_path) do
+    build_path =
+      Path.join([
+        File.cwd!(),
+        "_build",
+        "boundary",
+        Atom.to_string(Mix.env()),
+        Path.basename(child_path)
+      ])
+
+    case check_child_compilation(child_path, build_path) do
+      :ok ->
+        :ok
+
+      {:error, status, output} ->
+        Mix.raise(
+          "isolated warnings-as-errors compile failed for #{child_path} " <>
+            "(exit #{status}):\n#{output}"
+        )
+    end
+  end
+
+  defp xref_graph(child_paths) do
     root_graph = xref_graph_for_current_project()
 
     child_graphs =
-      "apps/*/mix.exs"
-      |> Path.wildcard()
-      |> Enum.map(&Path.dirname/1)
-      |> Enum.map(fn child_path ->
+      Enum.map(child_paths, fn child_path ->
         child_path
         |> xref_graph_for_child()
         |> Mix.Ircpipe.Boundaries.prefix_graph(child_path)
