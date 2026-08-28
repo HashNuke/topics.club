@@ -42,10 +42,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
              })
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :session_start_after_lookup_barrier)
+    previous_barrier = Application.get_env(:ircpipe_engine, :session_start_after_lookup_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :session_start_after_lookup_barrier,
       {self(), barrier_ref}
     )
@@ -144,10 +144,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
              })
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_delete_after_mark_barrier)
+    previous_barrier = Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :connection_delete_after_mark_barrier,
       {self(), barrier_ref}
     )
@@ -362,17 +362,21 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     connect_ref = make_ref()
     delete_ref = make_ref()
-    previous_connect_barrier = Application.get_env(:ircpipe, :session_connect_before_lock_barrier)
-    previous_delete_barrier = Application.get_env(:ircpipe, :connection_delete_after_mark_barrier)
+
+    previous_connect_barrier =
+      Application.get_env(:ircpipe_engine, :session_connect_before_lock_barrier)
+
+    previous_delete_barrier =
+      Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :session_connect_before_lock_barrier,
       {self(), connect_ref}
     )
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :connection_delete_after_mark_barrier,
       {self(), delete_ref}
     )
@@ -424,18 +428,19 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     delete_ref = make_ref()
 
     previous_client_barrier =
-      Application.get_env(:ircpipe, :session_client_after_start_barrier)
+      Application.get_env(:ircpipe_engine, :session_client_after_start_barrier)
 
-    previous_delete_barrier = Application.get_env(:ircpipe, :connection_delete_after_mark_barrier)
+    previous_delete_barrier =
+      Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :session_client_after_start_barrier,
       {self(), client_ref}
     )
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :connection_delete_after_mark_barrier,
       {self(), delete_ref}
     )
@@ -494,7 +499,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     previous_effects_barrier =
       Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
-    previous_delete_barrier = Application.get_env(:ircpipe, :connection_delete_after_mark_barrier)
+    previous_delete_barrier =
+      Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier)
 
     Application.put_env(
       :ircpipe_core,
@@ -503,7 +509,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     )
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :connection_delete_after_mark_barrier,
       {self(), delete_ref}
     )
@@ -617,8 +623,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     _ = :sys.get_state(SessionLocator.via(connection))
     session_ref = Process.monitor(session_pid)
 
-    previous_pause = Application.get_env(:ircpipe, :pause_session_stop_after_lookup)
-    Application.put_env(:ircpipe, :pause_session_stop_after_lookup, self())
+    previous_pause = Application.get_env(:ircpipe_engine, :pause_session_stop_after_lookup)
+    Application.put_env(:ircpipe_engine, :pause_session_stop_after_lookup, self())
 
     on_exit(fn ->
       restore_env(:pause_session_stop_after_lookup, previous_pause)
@@ -657,10 +663,12 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_delete_after_commit_barrier)
+
+    previous_barrier =
+      Application.get_env(:ircpipe_engine, :connection_delete_after_commit_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :connection_delete_after_commit_barrier,
       {self(), barrier_ref}
     )
@@ -793,8 +801,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert Repo.get(ConnectionDeletionEventBatch, batch.id) == nil
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
 
   defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
   defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)

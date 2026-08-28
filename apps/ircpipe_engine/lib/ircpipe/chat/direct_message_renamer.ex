@@ -74,7 +74,7 @@ defmodule Ircpipe.Chat.DirectMessageRenamer do
   end
 
   defp maybe_pause_after_lock(connection_id) do
-    case Application.get_env(:ircpipe, :pause_direct_message_rename_after_lock) do
+    case Application.get_env(:ircpipe_engine, :pause_direct_message_rename_after_lock) do
       {test_pid, pause_ref} when is_pid(test_pid) ->
         send(test_pid, {:direct_message_rename_paused, self(), pause_ref, connection_id})
 

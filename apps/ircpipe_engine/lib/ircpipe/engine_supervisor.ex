@@ -13,7 +13,7 @@ defmodule Ircpipe.EngineSupervisor do
       {Ircpipe.Engine.Marker, []},
       {Ircpipe.Engine.OperationLock, []},
       {Task.Supervisor, name: Ircpipe.Engine.RequestTaskSupervisor},
-      {Oban, Application.fetch_env!(:ircpipe, Ircpipe.EngineOban)},
+      {Oban, Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)},
       {Ircpipe.Irc.SessionSystemSupervisor, []}
     ]
 

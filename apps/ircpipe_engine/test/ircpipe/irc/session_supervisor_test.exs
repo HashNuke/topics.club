@@ -6,13 +6,13 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
   alias Ircpipe.Irc.SessionSupervisor
 
   setup do
-    previous_pause = Application.get_env(:ircpipe, :pause_session_stop_after_lookup)
+    previous_pause = Application.get_env(:ircpipe_engine, :pause_session_stop_after_lookup)
 
     on_exit(fn ->
       if is_nil(previous_pause) do
-        Application.delete_env(:ircpipe, :pause_session_stop_after_lookup)
+        Application.delete_env(:ircpipe_engine, :pause_session_stop_after_lookup)
       else
-        Application.put_env(:ircpipe, :pause_session_stop_after_lookup, previous_pause)
+        Application.put_env(:ircpipe_engine, :pause_session_stop_after_lookup, previous_pause)
       end
     end)
 
@@ -62,13 +62,13 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
       )
 
     on_exit(fn ->
-      Application.delete_env(:ircpipe, :pause_session_stop_after_lookup)
+      Application.delete_env(:ircpipe_engine, :pause_session_stop_after_lookup)
       _ = terminate_test_session(original_pid)
       stop_named_test_session(connection, 3)
     end)
 
     assert_receive {:restarting_irc_session_started, ^original_pid}
-    Application.put_env(:ircpipe, :pause_session_stop_after_lookup, self())
+    Application.put_env(:ircpipe_engine, :pause_session_stop_after_lookup, self())
     task_supervisor = start_supervised!(Task.Supervisor)
 
     stop_task =
@@ -82,7 +82,7 @@ defmodule Ircpipe.Irc.SessionSupervisorTest do
     assert_receive {:DOWN, ^original_ref, :process, ^original_pid, :session_crashed}
     assert_receive {:restarting_irc_session_start_paused, supervisor_pid}, 1_000
 
-    Application.delete_env(:ircpipe, :pause_session_stop_after_lookup)
+    Application.delete_env(:ircpipe_engine, :pause_session_stop_after_lookup)
     send(stop_pid, {:continue_session_stop, original_pid})
     refute Task.yield(stop_task, 100)
     send(supervisor_pid, {:continue_restarting_irc_session_start, connection.id})

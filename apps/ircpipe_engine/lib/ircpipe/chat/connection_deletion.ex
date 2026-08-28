@@ -224,7 +224,7 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
   end
 
   defp maybe_pause_delete_after_quiesce(connection) do
-    case Application.get_env(:ircpipe, :connection_delete_after_quiesce_barrier) do
+    case Application.get_env(:ircpipe_engine, :connection_delete_after_quiesce_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         test_ref = Process.monitor(test_pid)
         send(test_pid, {:connection_delete_quiesced, self(), barrier_ref, connection.id})
@@ -244,7 +244,7 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
   end
 
   defp maybe_raise_before_delete_mark(connection) do
-    case Application.get_env(:ircpipe, :connection_before_delete_mark_exception) do
+    case Application.get_env(:ircpipe_engine, :connection_before_delete_mark_exception) do
       {test_pid, exception_ref} when is_pid(test_pid) ->
         send(
           test_pid,
@@ -259,7 +259,7 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
   end
 
   defp maybe_pause_delete_after_mark(connection) do
-    case Application.get_env(:ircpipe, :connection_delete_after_mark_barrier) do
+    case Application.get_env(:ircpipe_engine, :connection_delete_after_mark_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         test_ref = Process.monitor(test_pid)
         send(test_pid, {:connection_delete_marked, self(), barrier_ref, connection.id})
@@ -281,7 +281,7 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
   defp maybe_fail_final_delete(connection) do
     maybe_raise_final_delete(connection)
 
-    case Application.get_env(:ircpipe, :connection_final_delete_failure) do
+    case Application.get_env(:ircpipe_engine, :connection_final_delete_failure) do
       {test_pid, failure_ref} when is_pid(test_pid) ->
         send(test_pid, {:connection_final_delete_failed, self(), failure_ref, connection.id})
         Repo.rollback(:forced_final_delete_failure)
@@ -292,7 +292,7 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
   end
 
   defp maybe_raise_final_delete(connection) do
-    case Application.get_env(:ircpipe, :connection_final_delete_exception) do
+    case Application.get_env(:ircpipe_engine, :connection_final_delete_exception) do
       {test_pid, exception_ref} when is_pid(test_pid) ->
         send(test_pid, {:connection_final_delete_raised, self(), exception_ref, connection.id})
         raise "forced connection final-delete exception"
@@ -303,7 +303,7 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
   end
 
   defp maybe_pause_delete_after_commit(event_batch) do
-    case Application.get_env(:ircpipe, :connection_delete_after_commit_barrier) do
+    case Application.get_env(:ircpipe_engine, :connection_delete_after_commit_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         test_ref = Process.monitor(test_pid)
         send(test_pid, {:connection_delete_committed, self(), barrier_ref, event_batch.id})
@@ -323,7 +323,7 @@ defmodule Ircpipe.Chat.ConnectionDeletion do
   end
 
   defp maybe_pause_delete_after_lock(connection) do
-    case Application.get_env(:ircpipe, :connection_delete_after_lock_barrier) do
+    case Application.get_env(:ircpipe_engine, :connection_delete_after_lock_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         test_ref = Process.monitor(test_pid)
         send(test_pid, {:connection_delete_paused, self(), barrier_ref, connection.id})

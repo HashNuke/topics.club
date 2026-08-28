@@ -33,7 +33,9 @@ defmodule Ircpipe.NotificationsTest do
     previous_rotation_pause = Application.get_env(:ircpipe, :pause_session_rotation)
     previous_snapshot_pause = Application.get_env(:ircpipe, :pause_push_delivery_snapshot)
     previous_reset_pause = Application.get_env(:ircpipe, :pause_session_reset)
-    previous_delete_failure = Application.get_env(:ircpipe, :connection_final_delete_failure)
+
+    previous_delete_failure =
+      Application.get_env(:ircpipe_engine, :connection_final_delete_failure)
 
     Application.put_env(:ircpipe, :push_sender, Ircpipe.PushTestTransport)
     Application.put_env(:ircpipe, :push_test_pid, self())
@@ -48,7 +50,7 @@ defmodule Ircpipe.NotificationsTest do
       restore_env(:pause_session_rotation, previous_rotation_pause)
       restore_env(:pause_push_delivery_snapshot, previous_snapshot_pause)
       restore_env(:pause_session_reset, previous_reset_pause)
-      restore_env(:connection_final_delete_failure, previous_delete_failure)
+      restore_engine_env(:connection_final_delete_failure, previous_delete_failure)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -501,7 +503,7 @@ defmodule Ircpipe.NotificationsTest do
     failure_ref = make_ref()
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :connection_final_delete_failure,
       {self(), failure_ref}
     )
@@ -1119,4 +1121,7 @@ defmodule Ircpipe.NotificationsTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
   defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+
+  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
 end

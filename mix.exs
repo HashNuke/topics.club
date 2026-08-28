@@ -41,6 +41,7 @@ defmodule Ircpipe.MixProject do
   defp deps do
     [
       {:ircpipe_core, path: "apps/ircpipe_core", env: Mix.env()},
+      {:ircpipe_engine, path: "apps/ircpipe_engine", env: Mix.env()},
       {:bcrypt_elixir, "~> 3.0"},
       {:cloak_ecto, "~> 1.3"},
       {:phoenix, "~> 1.8.7"},
@@ -96,6 +97,7 @@ defmodule Ircpipe.MixProject do
         "ecto.create --quiet -r Ircpipe.Repo",
         "ecto.migrate --quiet -r Ircpipe.Repo",
         "cmd --cd apps/ircpipe_core mix test",
+        "cmd --cd apps/ircpipe_engine mix test",
         "test"
       ],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],

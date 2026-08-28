@@ -27,10 +27,12 @@ config :ircpipe_core,
 
 config :ircpipe,
   generators: [timestamp_type: :utc_datetime],
-  irc_bouncer_enabled: true,
   discovery_refresh_enabled: config_env() == :dev
 
-config :ircpipe, Ircpipe.EngineOban,
+config :ircpipe_engine,
+  irc_bouncer_enabled: true
+
+config :ircpipe_engine, Ircpipe.EngineOban,
   name: Ircpipe.EngineOban,
   repo: Ircpipe.Repo,
   queues: [connection_deletions: 2, internal_events: 5],

@@ -238,7 +238,7 @@ defmodule Ircpipe.Irc.SessionSupervisor do
   end
 
   defp maybe_pause_stop_after_lookup(pid) do
-    case Application.get_env(:ircpipe, :pause_session_stop_after_lookup) do
+    case Application.get_env(:ircpipe_engine, :pause_session_stop_after_lookup) do
       test_pid when is_pid(test_pid) ->
         test_ref = Process.monitor(test_pid)
         send(test_pid, {:session_stop_paused, self(), pid})

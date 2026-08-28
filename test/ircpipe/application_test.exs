@@ -7,8 +7,8 @@ defmodule Ircpipe.ApplicationTest do
     assert is_pid(Process.whereis(Ircpipe.CoreSupervisor))
     assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.CoreSupervisor) == nil
 
-    assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.EngineSupervisor) ==
-             Process.whereis(Ircpipe.EngineSupervisor)
+    assert is_pid(Process.whereis(Ircpipe.EngineSupervisor))
+    assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.EngineSupervisor) == nil
 
     assert direct_child_pid(Ircpipe.Supervisor, IrcpipeWeb.Supervisor) ==
              Process.whereis(IrcpipeWeb.Supervisor)
@@ -28,6 +28,16 @@ defmodule Ircpipe.ApplicationTest do
   test "core owns the Ecto repository configuration" do
     assert Application.fetch_env!(:ircpipe_core, :ecto_repos) == [Ircpipe.Repo]
     assert Application.get_env(:ircpipe, :ecto_repos) == nil
+  end
+
+  test "engine owns its runtime configuration" do
+    assert Application.fetch_env!(:ircpipe_engine, :irc_bouncer_enabled) == false
+
+    assert Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)[:name] ==
+             Ircpipe.EngineOban
+
+    assert Application.get_env(:ircpipe, :irc_bouncer_enabled) == nil
+    assert Application.get_env(:ircpipe, Ircpipe.EngineOban) == nil
   end
 
   test "engine runtime and its Oban instance are direct engine children" do
@@ -73,7 +83,7 @@ defmodule Ircpipe.ApplicationTest do
   end
 
   test "the combined tree uses named role-specific Oban instances" do
-    engine_config = Application.fetch_env!(:ircpipe, Ircpipe.EngineOban)
+    engine_config = Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)
     web_config = Application.fetch_env!(:ircpipe, IrcpipeWeb.Oban)
 
     assert engine_config[:name] == Ircpipe.EngineOban
