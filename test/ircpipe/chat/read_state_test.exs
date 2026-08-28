@@ -44,10 +44,10 @@ defmodule Ircpipe.Chat.ReadStateTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     effects_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+    previous_barrier = Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
@@ -67,7 +67,7 @@ defmodule Ircpipe.Chat.ReadStateTest do
     assert connection_id == connection.id
     assert Repo.reload!(membership).unread_count == 1
 
-    Application.delete_env(:ircpipe, :connection_effects_before_lock_barrier)
+    Application.delete_env(:ircpipe_core, :connection_effects_before_lock_barrier)
     assert :ok = ReadState.mark(user, Repo.reload!(membership))
     assert_receive {:buffer_read, %{unread_count: 0, mention_count: 0}}
 
@@ -88,10 +88,10 @@ defmodule Ircpipe.Chat.ReadStateTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     effects_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+    previous_barrier = Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
@@ -111,7 +111,7 @@ defmodule Ircpipe.Chat.ReadStateTest do
     assert connection_id == connection.id
     assert Repo.reload!(membership).unread_count == 0
 
-    Application.delete_env(:ircpipe, :connection_effects_before_lock_barrier)
+    Application.delete_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     assert {:ok, _message} =
              MessageIngestion.record_channel(connection, membership.channel, "akash", "newer")
@@ -176,10 +176,10 @@ defmodule Ircpipe.Chat.ReadStateTest do
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
     effects_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+    previous_barrier = Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
@@ -251,6 +251,6 @@ defmodule Ircpipe.Chat.ReadStateTest do
     connection
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
 end

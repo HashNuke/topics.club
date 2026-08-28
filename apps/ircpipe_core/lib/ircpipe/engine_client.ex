@@ -103,7 +103,7 @@ defmodule Ircpipe.EngineClient do
   end
 
   defp invoke_adapter(request, timeout) when is_integer(timeout) and timeout > 0 do
-    adapter = Application.get_env(:ircpipe, :engine_client_adapter)
+    adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
 
     if is_atom(adapter) and Code.ensure_loaded?(adapter) and
          function_exported?(adapter, :request, 2) do

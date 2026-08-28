@@ -13,14 +13,14 @@ defmodule Ircpipe.Engine.APITest do
   alias Ircpipe.IrcTestServer
 
   setup do
-    previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
-    Application.put_env(:ircpipe, :engine_client_adapter, LocalAdapter)
+    previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
+    Application.put_env(:ircpipe_core, :engine_client_adapter, LocalAdapter)
 
     on_exit(fn ->
       if previous_adapter do
-        Application.put_env(:ircpipe, :engine_client_adapter, previous_adapter)
+        Application.put_env(:ircpipe_core, :engine_client_adapter, previous_adapter)
       else
-        Application.delete_env(:ircpipe, :engine_client_adapter)
+        Application.delete_env(:ircpipe_core, :engine_client_adapter)
       end
     end)
 

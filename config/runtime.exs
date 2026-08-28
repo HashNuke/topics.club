@@ -82,7 +82,7 @@ if config_env() == :prod do
         raise "IRC_CREDENTIALS_KEY must be a Base64-encoded 32-byte key"
     end
 
-  config :ircpipe, Ircpipe.Vault,
+  config :ircpipe_core, Ircpipe.Vault,
     ciphers: [
       default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: credentials_key, iv_length: 12}
     ]
@@ -96,7 +96,7 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :ircpipe, Ircpipe.Repo,
+  config :ircpipe_core, Ircpipe.Repo,
     # ssl: true,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),

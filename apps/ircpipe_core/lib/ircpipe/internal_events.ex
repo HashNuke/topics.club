@@ -14,7 +14,8 @@ defmodule Ircpipe.InternalEvents do
   def publish(event) do
     result =
       with :ok <- InternalEvent.validate(event),
-           adapter when is_atom(adapter) <- Application.get_env(:ircpipe, :internal_event_adapter),
+           adapter when is_atom(adapter) <-
+             Application.get_env(:ircpipe_core, :internal_event_adapter),
            true <- Code.ensure_loaded?(adapter) and function_exported?(adapter, :dispatch, 1) do
         apply(adapter, :dispatch, [event])
       else

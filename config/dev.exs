@@ -1,6 +1,6 @@
 import Config
 
-config :ircpipe, Ircpipe.Vault,
+config :ircpipe_core, Ircpipe.Vault,
   ciphers: [
     default:
       {Cloak.Ciphers.AES.GCM,
@@ -10,7 +10,7 @@ config :ircpipe, Ircpipe.Vault,
   ]
 
 # Configure your database
-config :ircpipe, Ircpipe.Repo,
+config :ircpipe_core, Ircpipe.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",

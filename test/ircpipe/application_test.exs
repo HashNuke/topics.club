@@ -3,9 +3,9 @@ defmodule Ircpipe.ApplicationTest do
 
   alias Ircpipe.Discovery.Refresher
 
-  test "the combined root starts the core, engine, and web supervisor branches" do
-    assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.CoreSupervisor) ==
-             Process.whereis(Ircpipe.CoreSupervisor)
+  test "the combined runtime starts core plus the root engine and web branches" do
+    assert is_pid(Process.whereis(Ircpipe.CoreSupervisor))
+    assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.CoreSupervisor) == nil
 
     assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.EngineSupervisor) ==
              Process.whereis(Ircpipe.EngineSupervisor)
@@ -23,6 +23,11 @@ defmodule Ircpipe.ApplicationTest do
 
     assert is_pid(direct_child_pid(Ircpipe.CoreSupervisor, Phoenix.PubSub.Supervisor))
     assert is_pid(Process.whereis(Ircpipe.PubSub))
+  end
+
+  test "core owns the Ecto repository configuration" do
+    assert Application.fetch_env!(:ircpipe_core, :ecto_repos) == [Ircpipe.Repo]
+    assert Application.get_env(:ircpipe, :ecto_repos) == nil
   end
 
   test "engine runtime and its Oban instance are direct engine children" do

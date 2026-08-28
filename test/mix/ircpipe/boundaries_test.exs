@@ -45,6 +45,24 @@ defmodule Mix.Ircpipe.BoundariesTest do
     end
   end
 
+  test "prefixes and merges child-application graphs without losing edges" do
+    child_graph = %{
+      "lib/core.ex" => %{"lib/shared.ex" => "runtime"},
+      "lib/shared.ex" => %{}
+    }
+
+    assert Boundaries.merge_graphs([
+             %{"lib/web.ex" => %{}},
+             Boundaries.prefix_graph(child_graph, "apps/ircpipe_core")
+           ]) == %{
+             "lib/web.ex" => %{},
+             "apps/ircpipe_core/lib/core.ex" => %{
+               "apps/ircpipe_core/lib/shared.ex" => "runtime"
+             },
+             "apps/ircpipe_core/lib/shared.ex" => %{}
+           }
+  end
+
   test "accepts the allowed deployable dependency directions" do
     graph =
       graph(%{
@@ -248,12 +266,55 @@ defmodule Mix.Ircpipe.BoundariesTest do
              Boundaries.check(project_manifest, production_graph, files)
 
     assert file_count == length(files)
-    assert Enum.any?(files, &String.starts_with?(&1, "priv/repo/migrations/"))
+    assert Enum.any?(files, &String.contains?(&1, "/priv/repo/migrations/"))
   end
 
   test "the project boundary Mix task passes" do
     Mix.Task.reenable("ircpipe.check_boundaries")
     assert :ok = Mix.Tasks.Ircpipe.CheckBoundaries.run([])
+  end
+
+  test "isolated child compilation rejects a call to an unavailable sibling module" do
+    fixture_path =
+      Path.join(
+        System.tmp_dir!(),
+        "ircpipe-boundary-child-#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(Path.join(fixture_path, "lib"))
+
+    File.write!(
+      Path.join(fixture_path, "mix.exs"),
+      """
+      defmodule BoundaryChildFixture.MixProject do
+        use Mix.Project
+
+        def project do
+          [app: :boundary_child_fixture, version: "0.1.0", elixir: "~> 1.15"]
+        end
+      end
+      """
+    )
+
+    File.write!(
+      Path.join(fixture_path, "lib/crossing.ex"),
+      """
+      defmodule BoundaryChildFixture.Crossing do
+        def call, do: IrcpipeWeb.Endpoint.url()
+      end
+      """
+    )
+
+    on_exit(fn -> File.rm_rf!(fixture_path) end)
+
+    assert {:error, _status, output} =
+             Mix.Tasks.Ircpipe.CheckBoundaries.check_child_compilation(
+               fixture_path,
+               Path.join(fixture_path, "isolated_build")
+             )
+
+    assert output =~ "IrcpipeWeb.Endpoint.url/0 is undefined"
+    assert output =~ "Compilation failed due to warnings"
   end
 
   defp manifest do

@@ -145,16 +145,16 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     flush_mailbox()
 
     effects_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+    previous_barrier = Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
 
     on_exit(fn ->
-      restore_env(:connection_effects_before_lock_barrier, previous_barrier)
+      restore_core_env(:connection_effects_before_lock_barrier, previous_barrier)
     end)
 
     supervisor = start_supervised!(Task.Supervisor)
@@ -258,17 +258,17 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     assert thread.mutation_revision == 1
 
-    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_closed_broadcast)
+    previous_pause = Application.get_env(:ircpipe_core, :pause_direct_message_closed_broadcast)
 
     on_exit(fn ->
       if is_nil(previous_pause) do
-        Application.delete_env(:ircpipe, :pause_direct_message_closed_broadcast)
+        Application.delete_env(:ircpipe_core, :pause_direct_message_closed_broadcast)
       else
-        Application.put_env(:ircpipe, :pause_direct_message_closed_broadcast, previous_pause)
+        Application.put_env(:ircpipe_core, :pause_direct_message_closed_broadcast, previous_pause)
       end
     end)
 
-    Application.put_env(:ircpipe, :pause_direct_message_closed_broadcast, {self(), 2})
+    Application.put_env(:ircpipe_core, :pause_direct_message_closed_broadcast, {self(), 2})
     supervisor = start_supervised!(Task.Supervisor)
 
     close =
@@ -327,17 +327,17 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     assert {:ok, thread} = DirectMessageLifecycle.open(user, connection, "akash")
     assert thread.mutation_revision == 1
 
-    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_thread_broadcast)
+    previous_pause = Application.get_env(:ircpipe_core, :pause_direct_message_thread_broadcast)
 
     on_exit(fn ->
       if is_nil(previous_pause) do
-        Application.delete_env(:ircpipe, :pause_direct_message_thread_broadcast)
+        Application.delete_env(:ircpipe_core, :pause_direct_message_thread_broadcast)
       else
-        Application.put_env(:ircpipe, :pause_direct_message_thread_broadcast, previous_pause)
+        Application.put_env(:ircpipe_core, :pause_direct_message_thread_broadcast, previous_pause)
       end
     end)
 
-    Application.put_env(:ircpipe, :pause_direct_message_thread_broadcast, {self(), 2})
+    Application.put_env(:ircpipe_core, :pause_direct_message_thread_broadcast, {self(), 2})
     supervisor = start_supervised!(Task.Supervisor)
 
     block =
@@ -1003,4 +1003,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
   defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+
+  defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
 end

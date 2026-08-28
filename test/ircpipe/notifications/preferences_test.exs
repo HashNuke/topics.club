@@ -11,11 +11,11 @@ defmodule Ircpipe.Notifications.PreferencesTest do
     previous_pause = Application.get_env(:ircpipe, :pause_notification_preference_broadcast)
 
     previous_effects_barrier =
-      Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+      Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     on_exit(fn ->
       restore_env(:pause_notification_preference_broadcast, previous_pause)
-      restore_env(:connection_effects_before_lock_barrier, previous_effects_barrier)
+      restore_core_env(:connection_effects_before_lock_barrier, previous_effects_barrier)
     end)
 
     user = AccountsFixtures.user_fixture()
@@ -149,7 +149,7 @@ defmodule Ircpipe.Notifications.PreferencesTest do
     effects_ref = make_ref()
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
@@ -221,4 +221,7 @@ defmodule Ircpipe.Notifications.PreferencesTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
   defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+
+  defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
 end
