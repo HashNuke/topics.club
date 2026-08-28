@@ -10,7 +10,8 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorker do
       states: :incomplete
     ]
 
-  alias Ircpipe.Chat.Connections
+  alias Ircpipe.Chat.ConnectionDeletion
+  alias Ircpipe.Engine.OperationLock
 
   @retry_interval {1, :minute}
 
@@ -18,7 +19,12 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorker do
   def perform(%Oban.Job{
         args: %{"user_id" => user_id, "connection_id" => connection_id}
       }) do
-    case Connections.resume_deletion(user_id, connection_id) do
+    result =
+      OperationLock.run(user_id, connection_id, fn ->
+        ConnectionDeletion.resume(user_id, connection_id)
+      end)
+
+    case result do
       :ok ->
         :ok
 

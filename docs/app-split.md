@@ -27,8 +27,8 @@ Sizing used by this document:
 - [x] Production Docker Compose provides one combined application service and one persistent PostgreSQL service.
 - [x] `ircxd` is fetched from `HashNuke/ircxd` and pinned by `mix.lock` until it is published on Hex.
 - [x] Every current module has a documented logical owner: core, shared protocol, engine, web, combined assembly, or tooling.
-- [ ] All web-to-IRC calls pass through `Ircpipe.EngineClient`.
-- [ ] Core and web modules have no direct dependency on engine implementation modules.
+- [x] All web-to-IRC calls pass through `Ircpipe.EngineClient`.
+- [x] Core and web modules have no direct dependency on engine implementation modules.
 - [x] The combined supervision tree is divided into logical core, engine, and web supervisors.
 - [ ] The repository is an umbrella containing core, engine, and web OTP applications.
 - [ ] The three release artifacts build independently.
@@ -379,7 +379,7 @@ The checked-in version 1 contract currently defines these operations and expecta
 | Connection info | 5 seconds | Safe |
 | Ensure/start connection | 15 seconds | Safe |
 | Disconnect connection | 10 seconds | Safe |
-| Quiesce for deletion | 10 seconds | Safe |
+| Delete connection | 30 seconds | Unsafe |
 | Request channel join | 15 seconds | Safe |
 | Part channel | 10 seconds | Unsafe |
 | Send channel message/action | 10 seconds | Unsafe |
@@ -387,7 +387,7 @@ The checked-in version 1 contract currently defines these operations and expecta
 | Execute validated command line | 15 seconds | Unsafe |
 | Fetch live channel list | 12 seconds | Safe |
 
-“Safe” means the operation is designed to tolerate a retry after an unavailable/timeout result; callers still use bounded attempts and the same request ID. Message, command, and part operations are unsafe because an ambiguous timeout can follow successful IRC transmission or persistence. The client does not retry automatically in this phase—it exposes the classification in telemetry for the later RPC policy.
+“Safe” means the operation is designed to tolerate a retry after an unavailable/timeout result; callers still use bounded attempts and the same request ID. Message, command, part, and deletion operations are unsafe because an ambiguous timeout can follow successful IRC transmission, persistence, or deletion without enough retained result state to reproduce the original success reply. The client does not retry automatically in this phase—it exposes the classification in telemetry for the later RPC policy.
 
 `Ircpipe.EngineClient` builds and validates envelopes, invokes the configured adapter dynamically, validates the versioned reply, and returns plain success data or a stable error map. Combined mode selects the engine-owned local adapter without any split-mode environment variables. The web-owned RPC adapter resolves the global engine marker and calls the engine API using a runtime-resolved module name, so it has no compile-time dependency on engine implementation modules.
 
@@ -401,7 +401,7 @@ The first version of the engine API must cover every current direct web-to-engin
 - Current connection info needed by shared IRC validation
 - Ensure/start connection
 - Disconnect connection
-- Quiesce connection for deletion
+- Delete connection, including engine-owned quiescence
 - Request channel join
 - Part channel
 - Send channel message or action
@@ -420,9 +420,13 @@ Engine-to-web PubSub events also use versioned plain maps. They represent commit
 - Connection status changed
 - Presence synchronized or changed
 - Direct-message thread changed
-- Command result committed
+- Notification committed
 
 Browser payload formatting remains in `ircpipe_web`. Internal events must contain enough IDs and committed values for the web node to format the event without consulting engine process state.
+
+Synchronous command execution results remain in the versioned `EngineClient` reply. Command transcript rows and later status changes are canonical messages and therefore use `message_committed`; emitting a second command-result event would duplicate the request reply and the persisted message event without adding recoverable state.
+
+During monolith demarcation, `Ircpipe.InternalEvents` synchronously invokes one configured adapter. The combined configuration selects a web-owned adapter that translates committed internal facts into the existing Phoenix PubSub payloads and Web Push jobs. This is deliberately a small port, not a general event-bus framework. Workstream 4 will supply the split transport adapter that carries the same envelopes between nodes; event producers and browser serializers must not change for that transport move.
 
 ## PostgreSQL and migrations
 
@@ -461,7 +465,7 @@ Oban configuration is release-specific even though all jobs use the same Postgre
 - Engine release executes connection-deletion and other jobs that require local access to live IRC sessions.
 - Cron entries run only in the release that owns the corresponding work.
 
-Engine ingestion may insert a notification job into an Oban queue that the web release executes. Queue insertion and queue execution are separate responsibilities.
+Engine ingestion atomically inserts an engine-owned `NotificationEventsWorker` job with the canonical notification row. That worker publishes the stable internal notification event after commit and snoozes without consuming attempts while the event adapter is unavailable. The web event handler then inserts the web-owned `PushWorker` job into the web queue. Engine code never inserts a web worker directly.
 
 No queue may be enabled on a node where its worker assumes a local IRC registry unless the worker has first been refactored through `Ircpipe.EngineClient`.
 
@@ -470,6 +474,7 @@ The combined monolith now runs two named Oban instances so queue execution alrea
 | Instance owner | Queue/plugin | Workers or purpose |
 | --- | --- | --- |
 | Engine | `connection_deletions` queue | `ConnectionDeletionWorker`, `ConnectionDeletionEventsWorker`, and `ConnectionDeletionReconcilerWorker` |
+| Engine | `internal_events` queue | `NotificationEventsWorker` durably publishes committed notification facts to the configured internal event adapter |
 | Engine | Cron | Enqueues `ConnectionDeletionReconcilerWorker` once per minute |
 | Web | `notifications` queue | `PushWorker` |
 | Web | `Oban.Plugins.Pruner` | Prunes the shared jobs table exactly once in combined mode |
@@ -683,7 +688,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 - [x] Add the engine API module that accepts versioned requests and reloads authoritative database records.
 - [x] Reauthorize every operation using `user_id` and `connection_id` inside the engine API.
 - [x] Add an engine marker process without serializing all operations through that process.
-- [ ] Add `Ircpipe.EngineClient` as the only application-facing IRC operations interface.
+- [x] Add `Ircpipe.EngineClient` as the only application-facing IRC operations interface.
 - [x] Add the combined-mode local adapter.
 - [x] Treat the local adapter as engine-owned implementation code rather than core or web code.
 - [x] Define the RPC adapter module boundary without adding a compile-time dependency on engine implementation modules.
@@ -696,10 +701,16 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint review. Live REST operations other than deletion quiescence, bootstrap restoration/status, and Phoenix Channel operations now use `EngineClient`; live-status formatting uses the batch status operation, send-failure persistence occurs inside the engine API, and bootstrap presence reads use a core-owned query module. No module under `IrcpipeWeb` directly references an engine implementation module. The temporary dependency budget has fallen from 36 to 14; the remaining context/deletion and engine-to-web edges belong to checkpoint 5. The reviewed checkpoint passed `mix precommit` with 680 Elixir tests, 227 frontend tests, the Storybook build, and the boundary gate.
 
+Checkpoint 5 is implemented and passed its GPT-5.6 Sol xhigh checkpoint review. Connection deletion now enters the engine through a versioned `delete_connection` operation, and the engine-owned `Ircpipe.Chat.ConnectionDeletion` module owns quiescence, durable recovery, final deletion, and deletion-event dispatch. The web connection facade no longer constructs deletion jobs, mutates durable connection intent, or calls engine locks and session supervision. Durable deletion workers acquire the engine operation lock before resuming. Web connection snapshots are now query-only; casemapping reconciliation stays in engine registration and join paths.
+
+The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. Each version-one event type validates its exact top-level payload and canonical nested record shapes before dispatch. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs directly. Notification event jobs are inserted atomically with their notification rows and retry adapter failures through the engine-owned `internal_events` Oban queue. A failed deletion-event dispatch retains its committed batch and scheduled recovery job instead of acknowledging and deleting the batch.
+
+The boundary graph now contains 237 owned files, no temporary dependency exceptions, and no deployable-component cycles. Dependency totals vary because Mix compiles environment-specific modules: the default environment currently reports 748 checked project edges and the test environment reports 763. An expanded set of 254 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair. After the first review fixes, full `mix precommit` passes with 686 Elixir tests, 227 frontend tests, type checking, the Storybook build, and the zero-exception boundary gate. The final reviewer reran 66 focused tests, both environment-specific boundary checks, and found no remaining correctness, SRP, or framework-building concern.
+
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
 - [x] Route disconnect/stop connection through the client.
-- [ ] Route connection deletion quiescence through the client.
+- [x] Route connection deletion through the client while keeping quiescence internal to deletion orchestration.
 - [x] Route channel join and topic join through the client.
 - [x] Route channel part through the client.
 - [x] Route channel messages and actions through the client.
@@ -709,11 +720,12 @@ Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint 
 - [x] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
 - [x] Remove session locator and registry lookups from REST payload formatting.
 - [x] Remove session locator and registry lookups from Channel payload formatting.
-- [ ] Refactor deletion and reconciliation workers so they do not assume a local session registry outside the engine role.
-- [ ] Refactor any remaining context functions that combine database writes with direct local process actions.
-- [ ] Split `Ircpipe.Chat.Connections` persistence primitives from engine-owned connection quiescence and deletion orchestration.
-- [ ] Remove `Ircpipe.Chat.Connections` calls to `Ircpipe.Irc.ConnectionLock` and `SessionSupervisor`.
-- [ ] Ensure live-session deletion jobs execute only in the engine role while calling core-owned persistence APIs.
+- [x] Refactor deletion workers so they execute in the engine role rather than assuming a local session registry from web code.
+- [x] Make web connection snapshots query-only and keep membership reconciliation in engine-owned registration and join paths.
+- [x] Refactor any remaining context functions that combine database writes with direct local process actions.
+- [x] Split `Ircpipe.Chat.Connections` persistence primitives from engine-owned connection quiescence and deletion orchestration.
+- [x] Remove `Ircpipe.Chat.Connections` calls to `Ircpipe.Irc.ConnectionLock` and `SessionSupervisor`.
+- [x] Ensure live-session deletion jobs execute only in the engine role while calling persistence APIs owned below the engine boundary.
 
 #### Demarcate supervision before extraction
 
@@ -741,29 +753,30 @@ Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint 
 
 #### Stable internal event contract
 
-- [ ] Define a versioned internal event envelope with event ID, type, occurred-at value, and committed IDs/data.
-- [ ] Define message-committed events.
-- [ ] Define connection-status events.
-- [ ] Define buffer joined and left events.
-- [ ] Define presence synchronized and changed events.
-- [ ] Define direct-message-thread events.
-- [ ] Define command-result events.
-- [ ] Publish only after the transaction containing the canonical data commits.
-- [ ] Keep browser-specific field names and formatting out of engine events.
-- [ ] Convert internal events to the existing REST/Channel protocol in the web layer.
-- [ ] Preserve browser payload compatibility with deterministic tests.
-- [ ] Verify browser history reconciliation recovers events missed while the web layer is unavailable.
+- [x] Define a versioned internal event envelope with event ID, type, occurred-at value, and committed IDs/data.
+- [x] Define message-committed events.
+- [x] Define connection-status events.
+- [x] Define buffer joined and left events.
+- [x] Define presence synchronized and changed events.
+- [x] Define direct-message-thread events.
+- [x] Keep synchronous command results in versioned `EngineClient` replies and publish committed command transcript updates through `message_committed`, avoiding a duplicate event path.
+- [x] Publish only after the transaction containing the canonical data commits.
+- [x] Keep notification and deletion effects durable and retryable when the configured event adapter is unavailable.
+- [x] Keep browser-specific field names and formatting out of engine events.
+- [x] Convert internal events to the existing REST/Channel protocol in the web layer.
+- [ ] Add exact frozen before/after fixtures for every browser payload; representative compatibility assertions pass, but they are not exhaustive.
+- [x] Verify browser history reconciliation recovers events missed while the web layer is unavailable.
 
 #### Combined-mode exit gate
 
-- [ ] Every production module and runtime child has exactly one logical owner.
-- [ ] The temporary dependency-edge allowlist is empty.
-- [ ] Automated boundary checks pass with the intended core <- web and core <- engine dependency direction.
-- [ ] No module under `IrcpipeWeb` calls an IRC session, locator, registry, or supervisor directly.
-- [ ] No core module calls an engine process, Registry, supervisor, or adapter implementation directly except through the configured `EngineClient` adapter contract.
-- [ ] No engine module references `IrcpipeWeb`.
-- [ ] No web-owned worker assumes an IRC process is local.
-- [ ] Every engine operation uses the versioned request path in combined mode.
+- [x] Every production module and runtime child has exactly one logical owner.
+- [x] The temporary dependency-edge allowlist is empty.
+- [x] Automated boundary checks pass with the intended core <- web and core <- engine dependency direction.
+- [x] No module under `IrcpipeWeb` calls an IRC session, locator, registry, or supervisor directly.
+- [x] No core module calls an engine process, Registry, supervisor, or adapter implementation directly except through the configured `EngineClient` adapter contract.
+- [x] No engine module references `IrcpipeWeb`.
+- [x] No web-owned worker assumes an IRC process is local.
+- [x] Every engine operation uses the versioned request path in combined mode.
 - [x] The root application starts distinct logical core, engine, and web supervisor branches.
 - [ ] The ownership manifest maps cleanly to future `apps/ircpipe_core`, `apps/ircpipe_engine`, and `apps/ircpipe_web` destinations.
 - [ ] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.

@@ -50,6 +50,14 @@ defmodule IrcpipeWeb.Api.ConnectionControllerTest do
 
       assert %{"error" => error} = json_response(response, 503)
       assert error == Atom.to_string(code)
+
+      delete_response =
+        build_conn()
+        |> log_in_user(user)
+        |> delete(~p"/api/connections/#{connection.id}")
+
+      assert %{"error" => delete_error} = json_response(delete_response, 503)
+      assert delete_error == Atom.to_string(code)
     end
   end
 

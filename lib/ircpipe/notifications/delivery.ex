@@ -44,6 +44,10 @@ defmodule Ircpipe.Notifications.Delivery do
   def eligible?(_scope, _session_token, _notification_id, _generation), do: false
 
   def enqueue(%Notification{id: notification_id}) do
+    enqueue(notification_id)
+  end
+
+  def enqueue(notification_id) when is_integer(notification_id) and notification_id > 0 do
     if WebPush.configured?() do
       %{"notification_id" => notification_id}
       |> PushWorker.new()

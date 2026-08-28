@@ -7,6 +7,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
   alias Ircpipe.AccountsFixtures
 
   alias Ircpipe.Chat.{
+    ConnectionDeletion,
     ConnectionDeletionRequest,
     ConnectionDeletionReconcilerWorker,
     ConnectionDeletionWorker
@@ -42,7 +43,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
 
     _delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:connection_delete_marked, delete_pid, ^barrier_ref, connection_id}, 5_000
@@ -105,7 +106,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
 
     _delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:connection_delete_quiesced, delete_pid, ^barrier_ref, connection_id}, 5_000
@@ -155,7 +156,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
       restore_env(:connection_final_delete_failure, previous_failure)
     end)
 
-    assert {:error, :forced_final_delete_failure} = Connections.delete(user, connection.id)
+    assert {:error, :forced_final_delete_failure} = ConnectionDeletion.delete(user, connection.id)
 
     assert_receive {:connection_final_delete_failed, _delete_pid, ^failure_ref, connection_id}
     assert connection_id == connection.id
@@ -219,7 +220,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
       restore_env(:connection_final_delete_exception, previous_exception)
     end)
 
-    assert {:error, :forced_final_delete_failure} = Connections.delete(user, connection.id)
+    assert {:error, :forced_final_delete_failure} = ConnectionDeletion.delete(user, connection.id)
     assert_receive {:connection_final_delete_failed, _pid, ^failure_ref, connection_id}
     assert connection_id == connection.id
 
@@ -313,7 +314,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionWorkerTest do
     end)
 
     assert_raise RuntimeError, "forced pre-marker deletion exception", fn ->
-      Connections.delete(user, connection.id)
+      ConnectionDeletion.delete(user, connection.id)
     end
 
     assert_receive {:connection_before_delete_mark_raised, _pid, ^exception_ref, connection_id}

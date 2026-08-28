@@ -26,17 +26,25 @@ defmodule Ircpipe.Chat.ConnectionDeletionEventsWorker do
         :ok
 
       batch ->
-        batch.payloads
-        |> Map.fetch!("events")
-        |> Enum.each(&broadcast(batch.user_id, &1))
+        with :ok <- dispatch_all(batch.user_id, Map.fetch!(batch.payloads, "events")) do
+          _deleted_count =
+            ConnectionDeletionEventBatch
+            |> where([event_batch], event_batch.id == ^batch.id)
+            |> Repo.delete_all()
 
-        _deleted_count =
-          ConnectionDeletionEventBatch
-          |> where([event_batch], event_batch.id == ^batch.id)
-          |> Repo.delete_all()
-
-        :ok
+          :ok
+        end
     end
+  end
+
+  defp dispatch_all(user_id, payloads) do
+    Enum.reduce_while(payloads, :ok, fn payload, :ok ->
+      case broadcast(user_id, payload) do
+        :ok -> {:cont, :ok}
+        {:ok, _result} -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp broadcast(user_id, payload) do

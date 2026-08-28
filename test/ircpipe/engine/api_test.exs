@@ -100,7 +100,7 @@ defmodule Ircpipe.Engine.APITest do
       {:connection_info, connection.id, %{}},
       {:ensure_connection, connection.id, %{intent: "restore"}},
       {:disconnect_connection, connection.id, %{}},
-      {:quiesce_connection, connection.id, %{}},
+      {:delete_connection, connection.id, %{}},
       {:join_channel, connection.id, %{channel: "#elixir"}},
       {:part_channel, connection.id, %{membership_id: 1}},
       {:send_channel_message, connection.id, %{membership_id: 1, body: "hello", kind: "message"}},
@@ -134,7 +134,11 @@ defmodule Ircpipe.Engine.APITest do
   end
 
   test "restore mode respects paused durable intent", %{user: user, connection: connection} do
-    assert {:ok, paused} = Connections.request_disconnect(user, connection.id)
+    assert {:ok, paused} =
+             connection
+             |> Ecto.Changeset.change(desired_state: "paused")
+             |> Repo.update()
+
     assert paused.desired_state == "paused"
 
     assert {:error, %{code: :invalid_state, details: %{reason: "connection_paused"}}} =
@@ -393,8 +397,5 @@ defmodule Ircpipe.Engine.APITest do
              EngineClient.disconnect_connection(user.id, connection.id)
 
     assert_receive {:irc_server_line, "QUIT leaving"}, 1_000
-
-    assert {:ok, %{quiesced: true}} =
-             EngineClient.quiesce_connection(user.id, connection.id)
   end
 end

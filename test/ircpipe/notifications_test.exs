@@ -12,6 +12,7 @@ defmodule Ircpipe.NotificationsTest do
   alias Ircpipe.Chat.MessageIngestion
   alias Ircpipe.Chat.ReadState
   alias Ircpipe.Chat.Notification
+  alias Ircpipe.Chat.NotificationEventsWorker
 
   alias Ircpipe.Notifications.{
     Delivery,
@@ -505,7 +506,7 @@ defmodule Ircpipe.NotificationsTest do
       {self(), failure_ref}
     )
 
-    assert {:error, :forced_final_delete_failure} =
+    assert {:error, %{code: :invalid_state, details: %{reason: "forced_final_delete_failure"}}} =
              Connections.delete(scope.user, connection.id)
 
     assert_receive {:connection_final_delete_failed, _pid, ^failure_ref, connection_id}
@@ -1041,6 +1042,23 @@ defmodule Ircpipe.NotificationsTest do
     notification = Repo.get_by!(Notification, message_id: mention.id)
     refute ordinary.mentioned
     assert mention.mentioned
+
+    assert_enqueued(
+      worker: NotificationEventsWorker,
+      args: %{
+        notification_id: notification.id,
+        user_id: connection.user_id,
+        occurred_at: DateTime.to_iso8601(mention.occurred_at)
+      }
+    )
+
+    assert :ok =
+             perform_job(NotificationEventsWorker, %{
+               notification_id: notification.id,
+               user_id: connection.user_id,
+               occurred_at: DateTime.to_iso8601(mention.occurred_at)
+             })
+
     assert_enqueued(worker: PushWorker, args: %{notification_id: notification.id})
   end
 

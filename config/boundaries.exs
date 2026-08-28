@@ -11,6 +11,10 @@
         "lib/ircpipe/engine_client/contract.ex",
         "lib/ircpipe/engine_client/discovery.ex",
         "lib/ircpipe/engine_client/reply.ex",
+        "lib/ircpipe/internal_event.ex",
+        "lib/ircpipe/internal_event/adapter.ex",
+        "lib/ircpipe/internal_event/data.ex",
+        "lib/ircpipe/internal_events.ex",
         "lib/ircpipe/chat/mention_detection.ex",
         "lib/ircpipe/irc/command_registry.ex",
         "lib/ircpipe/irc/commands.ex",
@@ -28,6 +32,7 @@
         "lib/ircpipe/chat/command_messages.ex",
         "lib/ircpipe/chat/connection_activity.ex",
         "lib/ircpipe/chat/connection_casemapping.ex",
+        "lib/ircpipe/chat/connection_deletion.ex",
         "lib/ircpipe/chat/connection_deletion_batch_store.ex",
         "lib/ircpipe/chat/connection_deletion_event_batch.ex",
         "lib/ircpipe/chat/connection_deletion_events_worker.ex",
@@ -40,6 +45,7 @@
         "lib/ircpipe/chat/direct_message_sender.ex",
         "lib/ircpipe/chat/membership_reconciler.ex",
         "lib/ircpipe/chat/message_ingestion.ex",
+        "lib/ircpipe/chat/notification_events_worker.ex",
         "lib/ircpipe/chat/presence.ex",
         "lib/ircpipe/chat/presence_diff.ex",
         "lib/ircpipe/chat/presence_membership_lookup.ex",
@@ -141,127 +147,7 @@
     assembly: [:assembly, :core, :engine, :shared, :web],
     tooling: [:assembly, :core, :engine, :shared, :tooling, :web]
   },
-  temporary_component_cycles: [
-    %{
-      components: [:core, :engine, :web],
-      reason:
-        "The initial monolith inventory contains explicitly allowlisted transition edges in both directions",
-      remove_in: "checkpoint 5: all core/web and engine/web reverse edges removed"
-    }
-  ],
-  temporary_dependency_budget: 14,
-  temporary_dependencies: [
-    %{
-      from: "lib/ircpipe/chat/buffer_events.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :core,
-      reason: "Core PubSub publishing still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: stable internal event boundary"
-    },
-    %{
-      from: "lib/ircpipe/chat/connection_deletion_worker.ex",
-      to: "lib/ircpipe/chat/connections.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine deletion recovery still calls the web connection facade",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/connection_lifecycle.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine connection lifecycle still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/direct_message_ingestion.ex",
-      to: "lib/ircpipe/notifications/delivery.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Canonical ingestion still invokes web-owned push enqueueing directly",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/membership_reconciler.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine membership reconciliation still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/message_ingestion.ex",
-      to: "lib/ircpipe/notifications/delivery.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Canonical ingestion still invokes web-owned push enqueueing directly",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/presence.ex",
-      to: "lib/ircpipe/realtime/event.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine presence persistence still constructs browser-shaped payloads",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_request.ex",
-      label: "export",
-      owner: :web,
-      reason: "The web connection facade still constructs an engine-owned deletion request",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connection_snapshot.ex",
-      to: "lib/ircpipe/chat/membership_reconciler.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Web bootstrap snapshots still trigger engine-owned reconciliation",
-      remove_in: "checkpoint 5: query and reconciliation split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_batch_store.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still persists engine-owned deletion batches",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_events_worker.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still dispatches an engine-owned deletion worker",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_worker.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still schedules engine-owned deletion work",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/irc/connection_lock.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still owns engine process serialization",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still quiesces the local engine directly",
-      remove_in: "checkpoint 5: connection orchestration split"
-    }
-  ]
+  temporary_component_cycles: [],
+  temporary_dependency_budget: 0,
+  temporary_dependencies: []
 }

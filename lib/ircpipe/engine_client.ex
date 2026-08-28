@@ -23,8 +23,8 @@ defmodule Ircpipe.EngineClient do
     request(:disconnect_connection, user_id, connection_id, payload, opts)
   end
 
-  def quiesce_connection(user_id, connection_id, opts \\ []) do
-    request(:quiesce_connection, user_id, connection_id, %{}, opts)
+  def delete_connection(user_id, connection_id, opts \\ []) do
+    request(:delete_connection, user_id, connection_id, %{}, opts)
   end
 
   def join_channel(user_id, connection_id, channel, opts \\ []) do

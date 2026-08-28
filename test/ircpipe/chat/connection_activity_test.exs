@@ -24,7 +24,9 @@ defmodule Ircpipe.Chat.ConnectionActivityTest do
     {:ok, membership} = Chat.join_channel(active_user, active_alpha, "#elixir")
 
     assert {:ok, paused_connection} =
-             Connections.request_disconnect(active_user, paused_connection.id)
+             paused_connection
+             |> Ecto.Changeset.change(desired_state: "paused")
+             |> Repo.update()
 
     assert [recent_alpha, recent_zulu, recent_at_cutoff] =
              ConnectionActivity.recently_seen(cutoff)

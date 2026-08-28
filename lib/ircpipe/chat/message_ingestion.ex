@@ -11,13 +11,13 @@ defmodule Ircpipe.Chat.MessageIngestion do
     MentionDetection,
     Message,
     Notification,
+    NotificationEventsWorker,
     PresenceMembershipLookup,
     Retention,
     ServerConnection,
     ServerConnectionLock
   }
 
-  alias Ircpipe.Notifications.Delivery
   alias Ircpipe.Repo
 
   def record_channel(
@@ -95,15 +95,23 @@ defmodule Ircpipe.Chat.MessageIngestion do
           notification
         end
 
+      if notification do
+        %{
+          notification_id: notification.id,
+          user_id: active_connection.user_id,
+          occurred_at: DateTime.to_iso8601(message.occurred_at)
+        }
+        |> NotificationEventsWorker.new()
+        |> then(&Oban.insert!(Ircpipe.EngineOban, &1))
+      end
+
       Retention.prune(user)
       {message, notification, active_connection, membership}
     end)
     |> case do
-      {:ok, {message, notification, active_connection, membership}} ->
+      {:ok, {message, _notification, active_connection, membership}} ->
         _effects =
           ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
-            if notification, do: Delivery.enqueue(notification)
-
             case Repo.get(ChannelMembership, membership.id) do
               %ChannelMembership{} = current_membership ->
                 BufferEvents.attention_message(message, current_membership, effect_connection)

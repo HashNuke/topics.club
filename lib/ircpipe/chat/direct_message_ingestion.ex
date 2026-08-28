@@ -8,13 +8,13 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
     DirectMessageStore,
     Message,
     Notification,
+    NotificationEventsWorker,
     PeerIdentity,
     Retention,
     ServerConnection,
     ServerConnectionLock
   }
 
-  alias Ircpipe.Notifications.Delivery
   alias Ircpipe.Repo
 
   def record(
@@ -114,6 +114,16 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
                   |> Repo.insert!()
                 end
 
+              if notification do
+                %{
+                  notification_id: notification.id,
+                  user_id: active_connection.user_id,
+                  occurred_at: DateTime.to_iso8601(message.occurred_at)
+                }
+                |> NotificationEventsWorker.new()
+                |> then(&Oban.insert!(Ircpipe.EngineOban, &1))
+              end
+
               Retention.prune(user)
 
               %{
@@ -144,13 +154,11 @@ defmodule Ircpipe.Chat.DirectMessageIngestion do
        %{
          thread: thread,
          message: message,
-         notification: notification,
          archived_threads: archived_threads
        } = recorded} ->
         _effects =
           ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->
             Enum.each(archived_threads, &BufferEvents.direct_message_closed/1)
-            if notification, do: Delivery.enqueue(notification)
             BufferEvents.direct_message_thread(thread)
             BufferEvents.direct_message(message, thread)
           end)

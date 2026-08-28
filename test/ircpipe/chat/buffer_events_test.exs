@@ -96,10 +96,10 @@ defmodule Ircpipe.Chat.BufferEventsTest do
 
     direct_message = message_fixture(user.id, connection.id, nil, "message")
 
-    assert %{buffer_id: "direct:303", peer_nick: "akash", blocked: false} =
-             BufferEvents.direct_message(direct_message, thread)
+    assert :ok = BufferEvents.direct_message(direct_message, thread)
 
-    assert_receive {:buffer_message, %{buffer_id: "direct:303", peer_nick: "akash"}}
+    assert_receive {:buffer_message,
+                    %{buffer_id: "direct:303", peer_nick: "akash", blocked: false}}
   end
 
   test "broadcasts direct-message thread lifecycle events" do
