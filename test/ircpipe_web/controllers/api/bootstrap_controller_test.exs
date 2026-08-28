@@ -64,6 +64,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     assert %{"connections" => [%{"status" => "disconnected"}]} =
              conn |> get(~p"/api/bootstrap") |> json_response(200)
 
+    assert Repo.get!(Ircpipe.Chat.ServerConnection, connection.id).desired_state == "paused"
     assert SessionLocator.status(connection) == "disconnected"
     refute_receive {:irc_server_line, "NICK mira"}
   end
