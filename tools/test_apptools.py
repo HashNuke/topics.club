@@ -8,6 +8,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import apptools  # noqa: E402
+import testvps  # noqa: E402
 
 
 class ReleaseTagTest(unittest.TestCase):
@@ -83,9 +84,9 @@ class ValidationTest(unittest.TestCase):
 
         self.assertEqual((host, user, port), ("127.0.0.1", "root", 45_122))
         self.assertEqual(key, str(apptools.PRIVATE_KEY))
-        self.assertEqual(apptools.STATE_DIR.name, "vps")
-        self.assertEqual(apptools.VPS_CONTAINER, "topics-club-vps")
-        self.assertIsInstance(apptools.AppTools.testvps, apptools.VpsCommands)
+        self.assertEqual(testvps.STATE_DIR.name, "vps")
+        self.assertEqual(testvps.VPS_CONTAINER, "topics-club-vps")
+        self.assertIsInstance(apptools.AppTools.testvps, testvps.VpsCommands)
 
     def test_repository_rejects_credentials_and_non_https_remotes(self) -> None:
         apptools.validate_repository("https://github.com/HashNuke/topics.club.git")
