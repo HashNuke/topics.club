@@ -89,7 +89,7 @@ defmodule Ircpipe.MixProject do
       "ecto.setup": [
         "ecto.create -r Ircpipe.Repo",
         "ecto.migrate -r Ircpipe.Repo",
-        "run apps/ircpipe_core/priv/repo/seeds.exs"
+        "run priv/repo/seeds.exs"
       ],
       "ecto.reset": ["ecto.drop -r Ircpipe.Repo", "ecto.setup"],
       test: [
