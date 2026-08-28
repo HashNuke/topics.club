@@ -22,7 +22,7 @@ declare module "phoenix" {
   }
 }
 
-declare module "phoenix-colocated/ircpipe" {
+declare module "phoenix-colocated/ircpipe_web" {
   export const hooks: Record<string, any>
 }
 
