@@ -967,7 +967,7 @@ Size: **M**. Risk: **Medium** after the workstream 1 exit gate passes. This work
 
 Checkpoint 7, the core ownership slice, started from `app-split` at `f232f00`. The pre-move baseline passes 692 ExUnit tests, 229 frontend tests, type checking, Storybook, and the 237-file/763-edge/zero-exception test boundary graph. Core-focused tests that currently construct fixtures through web- or engine-owned contexts must be given core-owned setup during the move or explicitly reclassified as root integration tests; child-application dependency cycles will not be introduced merely to preserve their current setup path.
 
-The first physical core move is committed at `789036e`. `ircpipe_core` now owns its OTP application callback, Repo, Vault, PubSub supervisor, canonical migrations and seeds, shared schemas and persistence primitives, `EngineClient`, internal-event contracts, and shared IRC policy. Its 37 already-independent focused tests run from the child application. The remaining 25 tests in the recorded future-core baseline still use combined web/engine setup and remain in the root suite until that setup is removed or the tests are explicitly classified as integration coverage. Root `mix test` runs 37 child tests plus 656 root tests with no failures; the increase from 692 to 693 is the new nested-child boundary-graph regression test, not duplicate discovery. The boundary checker now tracks and merges root and nested-child xref graphs and covers 238 owned files with zero temporary dependencies.
+The first physical core move is committed at `789036e`. `ircpipe_core` now owns its OTP application callback, Repo, Vault, PubSub supervisor, canonical migrations and seeds, shared schemas and persistence primitives, `EngineClient`, internal-event contracts, and shared IRC policy. Its 37 already-independent focused tests run from the child application. The remaining 25 tests in the recorded future-core baseline still use combined web/engine setup and remain in the root suite until that setup is removed or the tests are explicitly classified as integration coverage. Root `mix test` runs 37 child tests plus 656 root tests with no failures; the increase from 692 to 693 is the new nested-child boundary-graph regression test, not duplicate discovery. The boundary checker now tracks and merges root and nested-child xref graphs and covers 238 owned files with zero temporary dependencies. Root `mix precommit` passes with the same 693 ExUnit tests, 229 frontend tests, type checking, Storybook, and the boundary gate. A production compile, asset build, and combined `ircpipe` release assembly also pass with `ircpipe_core` included as an OTP dependency.
 
 #### Extraction rules
 
@@ -977,7 +977,7 @@ The first physical core move is committed at `789036e`. `ircpipe_core` now owns 
 - [ ] Keep cross-component integration tests at the umbrella root or assign them an explicit owning application.
 - [ ] Make one ownership move at a time and run its focused tests before the next move.
 - [x] Run the root boundary check after every component move.
-- [ ] Run root `mix precommit` after every completed ownership slice.
+- [x] Run root `mix precommit` after every completed ownership slice.
 - [x] Compare discovered test counts with the recorded monolith baseline after every test-path change.
 - [x] Do not introduce temporary child-application dependency cycles to make an intermediate move compile.
 - [ ] Do not combine module renaming or behavior changes with filesystem extraction.
