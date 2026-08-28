@@ -25,6 +25,11 @@ defmodule Ircpipe.ApplicationTest do
     assert is_pid(Process.whereis(Ircpipe.PubSub))
   end
 
+  test "core owns the Ecto repository configuration" do
+    assert Application.fetch_env!(:ircpipe_core, :ecto_repos) == [Ircpipe.Repo]
+    assert Application.get_env(:ircpipe, :ecto_repos) == nil
+  end
+
   test "engine runtime and its Oban instance are direct engine children" do
     assert direct_child_pid(Ircpipe.EngineSupervisor, Ircpipe.Engine.Marker) ==
              elem(Ircpipe.EngineClient.Discovery.whereis(), 1)

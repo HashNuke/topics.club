@@ -37,6 +37,7 @@ ENV MIX_ENV="prod"
 
 # install mix dependencies
 COPY mix.exs mix.lock ./
+COPY apps/ircpipe_core/mix.exs apps/ircpipe_core/mix.exs
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 
@@ -52,6 +53,8 @@ COPY assets/package.json assets/package-lock.json assets/
 RUN npm ci --prefix assets --omit=dev
 
 COPY priv priv
+
+COPY apps apps
 
 COPY lib lib
 

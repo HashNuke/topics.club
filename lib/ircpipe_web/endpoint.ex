@@ -37,7 +37,7 @@ defmodule IrcpipeWeb.Endpoint do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
     plug Phoenix.LiveReloader
     plug Phoenix.CodeReloader
-    plug Phoenix.Ecto.CheckRepoStatus, otp_app: :ircpipe
+    plug Phoenix.Ecto.CheckRepoStatus, otp_app: :ircpipe_core
   end
 
   plug Phoenix.LiveDashboard.RequestLogger,
