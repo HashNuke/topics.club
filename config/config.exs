@@ -7,7 +7,7 @@
 # General application configuration
 import Config
 
-config :ircpipe, :scopes,
+config :ircpipe_web, :scopes,
   user: [
     default: true,
     module: Ircpipe.Accounts.Scope,
@@ -25,7 +25,7 @@ config :ircpipe_core,
   engine_client_adapter: Ircpipe.Engine.LocalAdapter,
   internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
 
-config :ircpipe,
+config :ircpipe_web,
   generators: [timestamp_type: :utc_datetime],
   discovery_refresh_enabled: config_env() == :dev
 
@@ -43,14 +43,14 @@ config :ircpipe_engine, Ircpipe.EngineOban,
     ]
   ]
 
-config :ircpipe, IrcpipeWeb.Oban,
+config :ircpipe_web, IrcpipeWeb.Oban,
   name: IrcpipeWeb.Oban,
   repo: Ircpipe.Repo,
   queues: [notifications: 5],
   plugins: [Oban.Plugins.Pruner]
 
 # Configure the endpoint
-config :ircpipe, IrcpipeWeb.Endpoint,
+config :ircpipe_web, IrcpipeWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
@@ -67,7 +67,7 @@ config :ircpipe, IrcpipeWeb.Endpoint,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :ircpipe, Ircpipe.Mailer, adapter: Swoosh.Adapters.Local
+config :ircpipe_web, Ircpipe.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,
@@ -75,7 +75,7 @@ config :esbuild,
   ircpipe: [
     args:
       ~w(js/app.ts --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../assets", __DIR__),
+    cd: Path.expand("../apps/ircpipe_web/assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
@@ -87,7 +87,7 @@ config :tailwind,
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css
     ),
-    cd: Path.expand("..", __DIR__)
+    cd: Path.expand("../apps/ircpipe_web", __DIR__)
   ]
 
 # Configure Elixir's Logger

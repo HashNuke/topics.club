@@ -42,39 +42,7 @@ defmodule Ircpipe.MixProject do
     [
       {:ircpipe_core, path: "apps/ircpipe_core", env: Mix.env()},
       {:ircpipe_engine, path: "apps/ircpipe_engine", env: Mix.env()},
-      {:bcrypt_elixir, "~> 3.0"},
-      {:cloak_ecto, "~> 1.3"},
-      {:phoenix, "~> 1.8.7"},
-      {:phoenix_ecto, "~> 4.5"},
-      {:ecto_sql, "~> 3.13"},
-      {:postgrex, ">= 0.0.0"},
-      {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:phoenix_live_view, "~> 1.1.0"},
-      {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
-      {:ueberauth, "~> 0.10"},
-      {:ueberauth_google, "~> 0.12"},
-      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
-      {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
-      {:heroicons,
-       github: "tailwindlabs/heroicons",
-       tag: "v2.2.0",
-       sparse: "optimized",
-       app: false,
-       compile: false,
-       depth: 1},
-      {:swoosh, "~> 1.16"},
-      {:gen_smtp, "~> 1.3"},
-      {:floki, "~> 0.38.4"},
-      {:req, "~> 0.5"},
-      {:ircxd, github: "HashNuke/ircxd", branch: "main"},
-      {:telemetry_metrics, "~> 1.0"},
-      {:telemetry_poller, "~> 1.0"},
-      {:gettext, "~> 1.0"},
-      {:jason, "~> 1.2"},
-      {:oban, "~> 2.24"},
-      {:bandit, "~> 1.5"}
+      {:ircpipe_web, path: "apps/ircpipe_web", env: Mix.env()}
     ]
   end
 
@@ -98,6 +66,7 @@ defmodule Ircpipe.MixProject do
         "ecto.migrate --quiet -r Ircpipe.Repo",
         "cmd --cd apps/ircpipe_core mix test",
         "cmd --cd apps/ircpipe_engine mix test",
+        "cmd --cd apps/ircpipe_web mix test",
         "test"
       ],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
@@ -105,16 +74,16 @@ defmodule Ircpipe.MixProject do
       "assets.deploy": [
         "tailwind ircpipe --minify",
         "esbuild ircpipe --minify",
-        "phx.digest"
+        "phx.digest apps/ircpipe_web/priv/static"
       ],
       precommit: [
         "compile --warnings-as-errors",
         "ircpipe.check_boundaries",
         "deps.unlock --unused",
         "format",
-        "cmd --cd assets npm run typecheck",
-        "cmd --cd assets npm test",
-        "cmd --cd assets npm run build-storybook",
+        "cmd --cd apps/ircpipe_web/assets npm run typecheck",
+        "cmd --cd apps/ircpipe_web/assets npm test",
+        "cmd --cd apps/ircpipe_web/assets npm run build-storybook",
         "test"
       ]
     ]

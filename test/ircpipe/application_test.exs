@@ -3,15 +3,16 @@ defmodule Ircpipe.ApplicationTest do
 
   alias Ircpipe.Discovery.Refresher
 
-  test "the combined runtime starts core plus the root engine and web branches" do
+  test "the combined runtime starts each extracted application once" do
     assert is_pid(Process.whereis(Ircpipe.CoreSupervisor))
     assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.CoreSupervisor) == nil
 
     assert is_pid(Process.whereis(Ircpipe.EngineSupervisor))
     assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.EngineSupervisor) == nil
 
-    assert direct_child_pid(Ircpipe.Supervisor, IrcpipeWeb.Supervisor) ==
-             Process.whereis(IrcpipeWeb.Supervisor)
+    assert is_pid(Process.whereis(IrcpipeWeb.Supervisor))
+    assert direct_child_pid(Ircpipe.Supervisor, IrcpipeWeb.Supervisor) == nil
+    assert Supervisor.which_children(Ircpipe.Supervisor) == []
   end
 
   test "shared infrastructure starts once under the core branch" do
@@ -87,7 +88,7 @@ defmodule Ircpipe.ApplicationTest do
 
   test "the combined tree uses named role-specific Oban instances" do
     engine_config = Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)
-    web_config = Application.fetch_env!(:ircpipe, IrcpipeWeb.Oban)
+    web_config = Application.fetch_env!(:ircpipe_web, IrcpipeWeb.Oban)
 
     assert engine_config[:name] == Ircpipe.EngineOban
 

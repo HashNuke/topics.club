@@ -39,6 +39,7 @@ ENV MIX_ENV="prod"
 COPY mix.exs mix.lock ./
 COPY apps/ircpipe_core/mix.exs apps/ircpipe_core/mix.exs
 COPY apps/ircpipe_engine/mix.exs apps/ircpipe_engine/mix.exs
+COPY apps/ircpipe_web/mix.exs apps/ircpipe_web/mix.exs
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 
@@ -50,19 +51,23 @@ RUN mix deps.compile
 
 RUN mix assets.setup
 
-COPY assets/package.json assets/package-lock.json assets/
-RUN npm ci --prefix assets --omit=dev
+COPY apps/ircpipe_web/assets/package.json apps/ircpipe_web/assets/package-lock.json apps/ircpipe_web/assets/
+RUN npm ci --prefix apps/ircpipe_web/assets --omit=dev
 
 COPY priv priv
 
-COPY apps apps
+COPY apps/ircpipe_core apps/ircpipe_core
+COPY apps/ircpipe_engine apps/ircpipe_engine
+COPY apps/ircpipe_web/lib apps/ircpipe_web/lib
+COPY apps/ircpipe_web/priv/gettext apps/ircpipe_web/priv/gettext
 
 COPY lib lib
 
 # Compile the release
 RUN mix compile
 
-COPY assets assets
+COPY apps/ircpipe_web/assets apps/ircpipe_web/assets
+COPY apps/ircpipe_web/priv/static apps/ircpipe_web/priv/static
 
 # compile assets
 RUN mix assets.deploy

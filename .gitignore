@@ -29,12 +29,12 @@ erl_crash.dump
 ircpipe-*.tar
 
 # Ignore assets that are produced by build tools.
-/priv/static/assets/
+/apps/ircpipe_web/priv/static/assets/
 
 # Ignore digested assets cache.
-/priv/static/cache_manifest.json
+/apps/ircpipe_web/priv/static/cache_manifest.json
 
 # In case you use Node.js/npm, you want to ignore these.
 npm-debug.log
-/assets/node_modules/
-/assets/storybook-static/
+/apps/ircpipe_web/assets/node_modules/
+/apps/ircpipe_web/assets/storybook-static/

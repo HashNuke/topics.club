@@ -709,10 +709,12 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     test_pid = self()
     supervisor = start_supervised!(Task.Supervisor)
     pause_ref = make_ref()
-    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_block_after_lock)
+
+    previous_pause =
+      Application.get_env(:ircpipe_web, :pause_direct_message_block_after_lock)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_web,
       :pause_direct_message_block_after_lock,
       {test_pid, pause_ref}
     )
@@ -1001,8 +1003,8 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     end
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_web, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe_web, key, value)
 
   defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
   defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)

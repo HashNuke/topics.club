@@ -27,7 +27,7 @@ config :ircpipe_core, Ircpipe.Repo,
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :ircpipe, IrcpipeWeb.Endpoint,
+config :ircpipe_web, IrcpipeWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "0b9bBqpbhnwgHDcBUh2E0VAxbRR6WmpBIV6oXXkFqEb4vx/LzOUfAmWBwaJRs0VQ",
   server: false
@@ -35,10 +35,10 @@ config :ircpipe, IrcpipeWeb.Endpoint,
 config :ircpipe_engine, irc_bouncer_enabled: false
 
 config :ircpipe_engine, Ircpipe.EngineOban, testing: :manual, queues: false, plugins: false
-config :ircpipe, IrcpipeWeb.Oban, testing: :manual, queues: false, plugins: false
+config :ircpipe_web, IrcpipeWeb.Oban, testing: :manual, queues: false, plugins: false
 
 # In test we don't send emails
-config :ircpipe, Ircpipe.Mailer, adapter: Swoosh.Adapters.Test
+config :ircpipe_web, Ircpipe.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
