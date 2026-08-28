@@ -1,10 +1,9 @@
 defmodule IrcpipeWeb.UserChannel.CommandHandler do
   @moduledoc false
 
-  alias Ircpipe.Irc.CommandRegistry
+  alias Ircpipe.EngineClient
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Irc.Identifier
-  alias Ircpipe.Irc.Session
   alias Ircpipe.Realtime.Event
   alias IrcpipeWeb.UserChannel.BufferResolver
   alias IrcpipeWeb.UserChannel.ChannelDirectory
@@ -61,8 +60,8 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
         |> Map.put(:buffer_id, "channel:#{membership.id}")
       )
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -71,11 +70,11 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
 
   defp run_command(%{name: "list", args: []} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, directory} <- ChannelDirectory.fetch(connection) do
+         {:ok, directory} <- ChannelDirectory.fetch(user, connection) do
       Reply.ok(socket, %{command: command, directory: directory})
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -99,8 +98,8 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
         |> Map.put(:buffer_id, "channel:#{membership.id}")
       )
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -129,8 +128,8 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
         message: Event.message(message, "channel:#{membership.id}")
       })
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -142,12 +141,11 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
 
   defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, client_info} <- session_connection_info(connection),
+         {:ok, %{connection_info: client_info}} <- session_connection_info(user, connection),
          true <- Identifier.valid_nick?(target, Map.get(client_info, :isupport, %{})),
          {:ok, result} <-
-           resolve_and_execute_intent(
+           execute_intent(
              connection,
-             client_info,
              "PRIVMSG #{target} :#{body}",
              "server:#{connection.id}",
              socket
@@ -168,8 +166,8 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
       false ->
         Reply.error(socket, %{reason: "invalid_nick", command: command})
 
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -186,8 +184,8 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
          {:ok, result} <- execute_intent(connection, "NICK #{nick}", buffer_id, socket) do
       Reply.ok(socket, Map.put(result, :command, command))
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -197,19 +195,17 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
   defp run_command(%{name: "topic", args: [channel]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
          {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel),
-         {:ok, client_info} <- session_connection_info(connection),
-         {:ok, intent} <- CommandRegistry.resolve("TOPIC #{membership.channel}", client_info),
          {:ok, result} <-
-           Session.execute(
+           execute_intent(
              connection,
-             intent,
-             socket.assigns.command_id,
-             "channel:#{membership.id}"
+             "TOPIC #{membership.channel}",
+             "channel:#{membership.id}",
+             socket
            ) do
       Reply.ok(socket, Map.put(result, :command, command))
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -233,8 +229,8 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
         |> Map.put(:buffer_id, "channel:#{membership.id}")
       )
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -243,10 +239,7 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
 
   defp run_command(%{name: "quote", args: [line]} = command, user, buffer_id, socket) do
     with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, client_info} <- session_connection_info(connection),
-         {:ok, intent} <- CommandRegistry.resolve(line, client_info),
-         {:ok, result} <-
-           Session.execute(connection, intent, socket.assigns.command_id, buffer_id) do
+         {:ok, result} <- execute_intent(connection, line, buffer_id, socket) do
       reply =
         result
         |> Map.drop([:channel_messages, :direct_messages])
@@ -254,8 +247,8 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
 
       Reply.ok(socket, reply)
     else
-      {:error, %{code: code} = error} ->
-        Reply.error(socket, %{reason: code, error: error, command: command})
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
 
       {:error, reason} ->
         Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
@@ -270,23 +263,29 @@ defmodule IrcpipeWeb.UserChannel.CommandHandler do
     {:reply, {status, Map.put(payload, :command_id, command_id)}, socket}
   end
 
-  defp session_connection_info(connection) do
-    Session.connection_info(connection)
-  catch
-    :exit, _reason -> {:error, :not_connected}
+  defp command_error(socket, command, error) do
+    Reply.error(socket, %{
+      reason: ErrorResponse.reason(error),
+      error: ErrorResponse.public_error(error),
+      command: command
+    })
   end
+
+  defp session_connection_info(user, connection),
+    do: EngineClient.connection_info(user.id, connection.id)
 
   defp execute_intent(connection, line, buffer_id, socket) do
-    with {:ok, client_info} <- session_connection_info(connection),
-         {:ok, result} <-
-           resolve_and_execute_intent(connection, client_info, line, buffer_id, socket) do
-      {:ok, result}
-    end
-  end
+    user = socket.assigns.current_user
 
-  defp resolve_and_execute_intent(connection, client_info, line, buffer_id, socket) do
-    with {:ok, intent} <- CommandRegistry.resolve(line, client_info) do
-      Session.execute(connection, intent, socket.assigns.command_id, buffer_id)
+    with {:ok, %{result: result}} <-
+           EngineClient.execute_command(
+             user.id,
+             connection.id,
+             line,
+             socket.assigns.command_id,
+             buffer_id
+           ) do
+      {:ok, result}
     end
   end
 end

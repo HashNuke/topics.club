@@ -694,21 +694,21 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 #### Route all operations through `EngineClient`
 
-Checkpoint 4 is in progress. REST connection, channel, topic, discovery, and bootstrap session operations now use `EngineClient`; their live-status formatting uses the batch status operation. This first routing slice reduced the temporary dependency budget from 36 to 23. Phoenix Channel handlers and the web-owned presence read remain to be migrated before the checkpoint is complete.
+Checkpoint 4 routing is implemented and awaiting its checkpoint review. REST, bootstrap, and Phoenix Channel operations now use `EngineClient`; live-status formatting uses the batch status operation, send-failure persistence occurs inside the engine API, and bootstrap presence reads use a core-owned query module. No module under `IrcpipeWeb` directly references an engine implementation module. The temporary dependency budget has fallen from 36 to 14; the remaining context/deletion and engine-to-web edges belong to checkpoint 5.
 
-- [ ] Route batch live-status lookup through the client.
-- [ ] Route ensure/start connection through the client.
-- [ ] Route disconnect/stop connection through the client.
+- [x] Route batch live-status lookup through the client.
+- [x] Route ensure/start connection through the client.
+- [x] Route disconnect/stop connection through the client.
 - [ ] Route connection deletion quiescence through the client.
-- [ ] Route channel join and topic join through the client.
-- [ ] Route channel part through the client.
-- [ ] Route channel messages and actions through the client.
-- [ ] Route direct messages through the client.
-- [ ] Route validated command intents through the client.
-- [ ] Route live server channel-list requests through the client.
-- [ ] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
+- [x] Route channel join and topic join through the client.
+- [x] Route channel part through the client.
+- [x] Route channel messages and actions through the client.
+- [x] Route direct messages through the client.
+- [x] Route validated command intents through the client.
+- [x] Route live server channel-list requests through the client.
+- [x] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
 - [x] Remove session locator and registry lookups from REST payload formatting.
-- [ ] Remove session locator and registry lookups from Channel payload formatting.
+- [x] Remove session locator and registry lookups from Channel payload formatting.
 - [ ] Refactor deletion and reconciliation workers so they do not assume a local session registry outside the engine role.
 - [ ] Refactor any remaining context functions that combine database writes with direct local process actions.
 - [ ] Split `Ircpipe.Chat.Connections` persistence primitives from engine-owned connection quiescence and deletion orchestration.

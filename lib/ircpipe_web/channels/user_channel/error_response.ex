@@ -12,8 +12,15 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponse do
   def reason(:list_timeout), do: "list_timeout"
   def reason(:joining_channel), do: "joining_channel"
   def reason(:not_joined), do: "not_joined"
+  def reason(%{code: :invalid_state, details: %{code: code}}), do: code
+  def reason(%{code: code}) when is_atom(code), do: Atom.to_string(code)
   def reason(%{code: code}), do: code
   def reason(_reason), do: "send_failed"
+
+  def public_error(%{code: :invalid_state, details: details}) when map_size(details) > 0,
+    do: details
+
+  def public_error(error), do: error
 
   def send_body(:not_connected), do: "Message could not be sent: not connected."
 

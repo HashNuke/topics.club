@@ -10,6 +10,7 @@ defmodule Ircpipe.Engine.API do
   alias Ircpipe.Chat.ChannelMembership
   alias Ircpipe.Chat.DirectMessageThread
   alias Ircpipe.Chat.ServerConnection
+  alias Ircpipe.Chat.SystemMessages
   alias Ircpipe.Engine.OperationLock
   alias Ircpipe.Engine.Serialization
   alias Ircpipe.EngineClient.Contract
@@ -141,9 +142,8 @@ defmodule Ircpipe.Engine.API do
 
   defp execute(:send_channel_message, request, _user, connection) do
     with {:ok, membership} <-
-           load_membership(request.user_id, connection.id, request.payload.membership_id),
-         {:ok, message} <-
-           safe_session_call(fn ->
+           load_membership(request.user_id, connection.id, request.payload.membership_id) do
+      case safe_session_call(fn ->
              send_channel_message(
                connection,
                membership.channel,
@@ -151,7 +151,13 @@ defmodule Ircpipe.Engine.API do
                request.payload.kind
              )
            end) do
-      {:ok, %{message: Serialization.message(message)}}
+        {:ok, message} ->
+          {:ok, %{message: Serialization.message(message)}}
+
+        {:error, reason} = error ->
+          _result = record_send_failure(connection, membership, reason)
+          error
+      end
     end
   end
 
@@ -305,6 +311,28 @@ defmodule Ircpipe.Engine.API do
 
   defp send_channel_message(connection, channel, body, "action"),
     do: Session.action(connection, channel, body)
+
+  defp record_send_failure(connection, membership, reason) do
+    SystemMessages.record(
+      connection,
+      membership.channel,
+      "error",
+      nil,
+      send_failure_body(reason)
+    )
+  end
+
+  defp send_failure_body(:not_connected),
+    do: "Message could not be sent: not connected."
+
+  defp send_failure_body(:joining_channel),
+    do: "Message could not be sent: still joining the channel."
+
+  defp send_failure_body(:not_joined),
+    do: "Message could not be sent: not joined to the channel."
+
+  defp send_failure_body(%{message: message}) when is_binary(message), do: message
+  defp send_failure_body(_reason), do: "Message could not be sent."
 
   defp authorize_buffer(_user_id, connection_id, "server:" <> id) do
     if cast_id(id) == {:ok, connection_id}, do: :ok, else: {:error, :unauthorized}

@@ -18,7 +18,25 @@ defmodule IrcpipeWeb.UserChannel.ErrorResponseTest do
     assert ErrorResponse.reason(:joining_channel) == "joining_channel"
     assert ErrorResponse.reason(:not_joined) == "not_joined"
     assert ErrorResponse.reason(%{code: "protocol_owned"}) == "protocol_owned"
+    assert ErrorResponse.reason(%{code: :not_connected, details: %{}}) == "not_connected"
+
+    assert ErrorResponse.reason(%{
+             code: :invalid_state,
+             details: %{code: "protocol_owned"}
+           }) == "protocol_owned"
+
     assert ErrorResponse.reason(:unexpected) == "send_failed"
+  end
+
+  test "unwraps stable engine errors for the existing browser payload" do
+    details = %{code: "protocol_owned", message: "The engine owns PING."}
+
+    assert ErrorResponse.public_error(%{code: :invalid_state, details: details}) == details
+
+    assert ErrorResponse.public_error(%{code: :not_connected, details: %{}}) == %{
+             code: :not_connected,
+             details: %{}
+           }
   end
 
   test "builds useful message-send failure text" do

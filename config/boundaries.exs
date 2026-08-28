@@ -108,6 +108,7 @@
         "lib/ircpipe/chat/message.ex",
         "lib/ircpipe/chat/notification.ex",
         "lib/ircpipe/chat/peer_identity.ex",
+        "lib/ircpipe/chat/presence_queries.ex",
         "lib/ircpipe/chat/retention.ex",
         "lib/ircpipe/chat/server_connection.ex",
         "lib/ircpipe/chat/server_connection_lock.ex",
@@ -148,7 +149,7 @@
       remove_in: "checkpoint 5: all core/web and engine/web reverse edges removed"
     }
   ],
-  temporary_dependency_budget: 23,
+  temporary_dependency_budget: 14,
   temporary_dependencies: [
     %{
       from: "lib/ircpipe/chat/buffer_events.ex",
@@ -261,78 +262,6 @@
       owner: :web,
       reason: "The web connection facade still quiesces the local engine directly",
       remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Channel operations have not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel.ex",
-      to: "lib/ircpipe/irc/session_locator.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Channel status lookup has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Channel connection lifecycle has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel/buffer_resolver.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Buffer resolution still reads local session state",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel/channel_directory.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Live channel listing has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel/command_handler.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Command execution has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel/message_handler.ex",
-      to: "lib/ircpipe/chat/system_messages.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Web send failures still persist engine-owned system messages directly",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/channels/user_channel/message_handler.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Message sending has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/bootstrap_controller.ex",
-      to: "lib/ircpipe/chat/presence.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Web bootstrap still invokes engine-owned presence reconciliation",
-      remove_in: "checkpoint 4: web EngineClient routing"
     }
   ]
 }

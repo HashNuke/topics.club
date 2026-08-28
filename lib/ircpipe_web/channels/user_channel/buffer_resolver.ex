@@ -1,6 +1,6 @@
 defmodule IrcpipeWeb.UserChannel.BufferResolver do
   alias Ircpipe.Chat.{Connections, DirectMessageLifecycle, MembershipLookup}
-  alias Ircpipe.Irc.Session
+  alias Ircpipe.EngineClient
 
   def membership(user, membership_id) do
     membership = MembershipLookup.get!(user, membership_id)
@@ -55,8 +55,8 @@ defmodule IrcpipeWeb.UserChannel.BufferResolver do
 
   def channel_membership(user, connection, channel) do
     casemapping =
-      case connection_info(connection) do
-        {:ok, client_info} -> client_info.casemapping
+      case connection_info(user, connection) do
+        {:ok, %{connection_info: client_info}} -> client_info.casemapping
         {:error, _reason} -> nil
       end
 
@@ -69,9 +69,6 @@ defmodule IrcpipeWeb.UserChannel.BufferResolver do
     Ecto.NoResultsError -> {:error, :invalid_buffer}
   end
 
-  defp connection_info(connection) do
-    Session.connection_info(connection)
-  catch
-    :exit, _reason -> {:error, :not_connected}
-  end
+  defp connection_info(user, connection),
+    do: EngineClient.connection_info(user.id, connection.id)
 end

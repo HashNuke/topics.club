@@ -3,9 +3,9 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
   alias Ircpipe.Chat.ConnectionSnapshot
   alias Ircpipe.Chat.MessageHistory
-  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Chat.Topics
+  alias Ircpipe.Chat.PresenceQueries
   alias Ircpipe.EngineClient
   alias Ircpipe.Irc.Commands
   alias Ircpipe.Notifications.PushRegistrations
@@ -158,7 +158,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   defp users_by_buffer(connections) do
     connections
     |> Enum.flat_map(&BootstrapBuffers.visible_memberships/1)
-    |> Map.new(&{BootstrapBuffers.channel_id(&1), Presence.list_users(&1)})
+    |> Map.new(&{BootstrapBuffers.channel_id(&1), PresenceQueries.list_users(&1)})
   end
 
   defp topic_json(topic) do
