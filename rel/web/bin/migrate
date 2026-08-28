@@ -2,4 +2,4 @@
 set -eu
 
 script_dir=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
-exec "$script_dir/release-exec" eval Ircpipe.Release.migrate
+exec "$script_dir/release-exec" eval TopicsClub.Release.migrate

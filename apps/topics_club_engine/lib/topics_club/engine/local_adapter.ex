@@ -1,0 +1,27 @@
+defmodule TopicsClub.Engine.LocalAdapter do
+  @moduledoc false
+
+  @behaviour TopicsClub.EngineClient.Adapter
+
+  @impl true
+  def request(request, timeout) do
+    task =
+      Task.Supervisor.async_nolink(TopicsClub.Engine.RequestTaskSupervisor, fn ->
+        api_module().dispatch(request)
+      end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, reply} -> reply
+      {:exit, _reason} -> TopicsClub.EngineClient.Reply.error(request, :internal_error)
+      nil -> TopicsClub.EngineClient.Reply.error(request, :timeout)
+    end
+  end
+
+  defp api_module do
+    Application.get_env(
+      :topics_club_engine,
+      :engine_local_api_module,
+      Module.concat(["TopicsClub", "Engine", "API"])
+    )
+  end
+end

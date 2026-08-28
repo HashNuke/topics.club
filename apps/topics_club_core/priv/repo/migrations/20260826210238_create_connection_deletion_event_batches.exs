@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.CreateConnectionDeletionEventBatches do
+defmodule TopicsClub.Repo.Migrations.CreateConnectionDeletionEventBatches do
   use Ecto.Migration
 
   def change do

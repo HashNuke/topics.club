@@ -1,4 +1,4 @@
-# Ircpipe
+# TopicsClub
 
 To start your Phoenix server:
 
@@ -9,11 +9,11 @@ Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 
 ## What this app does
 
-Ircpipe is a web-based IRC client. Users register or sign in, connect to arbitrary IRC networks, join channels, and chat from a React client backed by Phoenix JSON APIs and Phoenix Channels.
+TopicsClub is a web-based IRC client. Users register or sign in, connect to arbitrary IRC networks, join channels, and chat from a React client backed by Phoenix JSON APIs and Phoenix Channels.
 
 The backend persists channel messages for a short configurable window. Each user can choose 1, 2, or 3 days of scrollback. The authenticated user socket carries in-app updates; mention browser notifications are delivered only through Web Push. Users can mute mentions per server and per channel.
 
-IRC connections are modeled as one supervised process per user/server connection under `Ircpipe.Irc.SessionSupervisor`.
+IRC connections are modeled as one supervised process per user/server connection under `TopicsClub.Irc.SessionSupervisor`.
 
 ## OAuth sign in
 
@@ -30,7 +30,7 @@ Use this callback URL in the Google OAuth client:
 http://localhost:4100/auth/google/callback
 ```
 
-For development and test, Ircpipe also exposes `/auth/developer`, a local Ueberauth strategy similar to OmniAuth's developer strategy. It presents a simple name/email form and signs in without calling an external provider. This provider is not configured in production.
+For development and test, TopicsClub also exposes `/auth/developer`, a local Ueberauth strategy similar to OmniAuth's developer strategy. It presents a simple name/email form and signs in without calling an external provider. This provider is not configured in production.
 
 In production, the Google sign-in button is shown only when both `GOOGLE_CLIENT_ID`
 and `GOOGLE_CLIENT_SECRET` are set. Email registration and magic-link login need
@@ -38,13 +38,13 @@ SMTP configuration so the app can deliver confirmation and login links.
 
 ## Self-hosting with Docker
 
-Ircpipe ships a Phoenix release Dockerfile and a production Compose file. The app
+TopicsClub ships a Phoenix release Dockerfile and a production Compose file. The app
 uses PostgreSQL in production; SQLite is not a runtime option because the repo is
 compiled with `Ecto.Adapters.Postgres` and the dependency set includes `postgrex`.
 Adding SQLite later would mean adding a second adapter dependency, changing repo
 configuration, and testing migrations and queries against both databases.
 
-Run exactly one Ircpipe app container/replica. IRC session ownership is
+Run exactly one TopicsClub app container/replica. IRC session ownership is
 intentionally node-local, and the app disables its IRC session subsystem while
 another visible BEAM node is connected. Do not horizontally scale the app until
 database-backed session ownership leases and fencing are implemented.
@@ -64,7 +64,7 @@ At minimum, set:
 
 ```text
 PHX_HOST=your-host.example.com
-TOPICS_CLUB_POSTGRES_DATA=/srv/ircpipe/postgres
+TOPICS_CLUB_POSTGRES_DATA=/srv/topics_club/postgres
 POSTGRES_PASSWORD=use-a-long-random-password
 SECRET_KEY_BASE=the-value-from-mix-phx-gen-secret
 IRC_CREDENTIALS_KEY=the-value-from-32-random-bytes-encoded-with-base64
@@ -85,12 +85,12 @@ mix topics_club.gen_vapid_keys
 ```
 
 Copy the generated `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` into `.env`. Set
-`VAPID_SUBJECT` to the plain contact email address for the deployment; Ircpipe
+`VAPID_SUBJECT` to the plain contact email address for the deployment; TopicsClub
 adds the required `mailto:` prefix. Push setup is unavailable in the UI until all
 three values are configured.
 
 Web Push requires HTTPS in production (browsers allow localhost for development).
-The service worker only shows notifications when no visible Ircpipe window is
+The service worker only shows notifications when no visible TopicsClub window is
 open. Delivery jobs are persisted in PostgreSQL through Oban and retried for
 temporary push-service failures. Subscription endpoints and browser keys are
 encrypted at rest using `IRC_CREDENTIALS_KEY`.
@@ -128,7 +128,7 @@ SMTP_PORT=587
 SMTP_USERNAME=...
 SMTP_PASSWORD=...
 SMTP_TLS=if_available
-EMAIL_FROM_ADDRESS=ircpipe@example.com
+EMAIL_FROM_ADDRESS=topics.club@example.com
 ```
 
 With SMTP configured, users can register and log in by email magic link, then set
@@ -166,8 +166,8 @@ The repo includes a systemd unit for this development IRC server:
 
 ```bash
 sudo install -m 0644 dev/systemd/irc-server-dev.service /etc/systemd/system/irc-server-dev.service
-sudo install -m 0644 dev/inspircd/inspircd.conf /etc/inspircd/ircpipe-dev.conf
-sudo install -m 0644 dev/inspircd/inspircd.motd /etc/inspircd/ircpipe-dev.motd
+sudo install -m 0644 dev/inspircd/inspircd.conf /etc/inspircd/topics-club-dev.conf
+sudo install -m 0644 dev/inspircd/inspircd.motd /etc/inspircd/topics-club-dev.motd
 sudo systemctl daemon-reload
 sudo systemctl enable --now irc-server-dev.service
 ```

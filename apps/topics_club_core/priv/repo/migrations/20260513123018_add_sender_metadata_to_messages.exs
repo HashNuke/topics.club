@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddSenderMetadataToMessages do
+defmodule TopicsClub.Repo.Migrations.AddSenderMetadataToMessages do
   use Ecto.Migration
 
   def change do

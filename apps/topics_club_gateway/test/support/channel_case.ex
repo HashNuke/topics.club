@@ -1,4 +1,4 @@
-defmodule IrcpipeWeb.ChannelCase do
+defmodule TopicsClubWeb.ChannelCase do
   @moduledoc """
   Test case for Phoenix channels.
   """
@@ -7,17 +7,17 @@ defmodule IrcpipeWeb.ChannelCase do
 
   using do
     quote do
-      @endpoint IrcpipeWeb.Endpoint
+      @endpoint TopicsClubWeb.Endpoint
 
-      use IrcpipeWeb, :verified_routes
+      use TopicsClubWeb, :verified_routes
 
       import Phoenix.ChannelTest
-      import IrcpipeWeb.ChannelCase
+      import TopicsClubWeb.ChannelCase
     end
   end
 
   setup tags do
-    IrcpipeWeb.DataCase.setup_sandbox(tags)
+    TopicsClubWeb.DataCase.setup_sandbox(tags)
     :ok
   end
 end

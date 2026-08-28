@@ -7,7 +7,7 @@ import {
 import type {NotificationControlState} from "./components/notification_bell.tsx"
 import type {EntityId, PushConfig} from "./types.ts"
 
-const INSTALLATION_KEY = "ircpipe.notification-installation"
+const INSTALLATION_KEY = "topics-club.notification-installation"
 let inMemoryInstallation: NotificationInstallation | null = null
 let latestSynchronizationEpoch = 0
 let latestSynchronizationGeneration: string | null = null

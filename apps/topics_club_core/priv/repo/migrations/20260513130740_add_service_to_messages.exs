@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddServiceToMessages do
+defmodule TopicsClub.Repo.Migrations.AddServiceToMessages do
   use Ecto.Migration
 
   def change do

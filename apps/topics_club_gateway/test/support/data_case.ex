@@ -1,26 +1,26 @@
-defmodule IrcpipeWeb.DataCase do
+defmodule TopicsClubWeb.DataCase do
   @moduledoc false
 
   use ExUnit.CaseTemplate
 
   using do
     quote do
-      alias Ircpipe.Repo
+      alias TopicsClub.Repo
 
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import IrcpipeWeb.DataCase
+      import TopicsClubWeb.DataCase
     end
   end
 
   setup tags do
-    IrcpipeWeb.DataCase.setup_sandbox(tags)
+    TopicsClubWeb.DataCase.setup_sandbox(tags)
     :ok
   end
 
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Ircpipe.Repo, shared: not tags[:async])
+    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(TopicsClub.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
   end
 

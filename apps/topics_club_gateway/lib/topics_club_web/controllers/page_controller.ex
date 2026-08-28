@@ -1,0 +1,7 @@
+defmodule TopicsClubWeb.PageController do
+  use TopicsClubWeb, :controller
+
+  def home(conn, _params) do
+    render(conn, :home)
+  end
+end

@@ -5,13 +5,13 @@
 # Inside the script, you can read and write to any of your
 # repositories directly:
 #
-#     Ircpipe.Repo.insert!(%Ircpipe.SomeSchema{})
+#     TopicsClub.Repo.insert!(%TopicsClub.SomeSchema{})
 #
 # We recommend using the bang functions (`insert!`, `update!`
 # and so on) as they will fail if something goes wrong.
 
-alias Ircpipe.Chat.{ServerConnection, Topic}
-alias Ircpipe.Repo
+alias TopicsClub.Chat.{ServerConnection, Topic}
+alias TopicsClub.Repo
 import Ecto.Query
 
 dev_irc_port = 6669

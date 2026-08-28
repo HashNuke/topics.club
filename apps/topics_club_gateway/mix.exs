@@ -20,7 +20,7 @@ defmodule TopicsClubGateway.MixProject do
 
   def application do
     [
-      mod: {IrcpipeWeb.Application, []},
+      mod: {TopicsClubWeb.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end

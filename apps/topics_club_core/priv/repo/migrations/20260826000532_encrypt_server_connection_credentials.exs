@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.EncryptServerConnectionCredentials do
+defmodule TopicsClub.Repo.Migrations.EncryptServerConnectionCredentials do
   use Ecto.Migration
 
   def up do
@@ -80,13 +80,13 @@ defmodule Ircpipe.Repo.Migrations.EncryptServerConnectionCredentials do
   end
 
   defp encrypt(nil), do: nil
-  defp encrypt(plaintext), do: Ircpipe.Vault.encrypt!(plaintext)
+  defp encrypt(plaintext), do: TopicsClub.Vault.encrypt!(plaintext)
 
   defp decrypt(nil), do: nil
-  defp decrypt(ciphertext), do: Ircpipe.Vault.decrypt!(ciphertext)
+  defp decrypt(ciphertext), do: TopicsClub.Vault.decrypt!(ciphertext)
 
   defp ensure_vault_started! do
-    case Ircpipe.Vault.start_link() do
+    case TopicsClub.Vault.start_link() do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
     end

@@ -1,7 +1,7 @@
-defmodule IrcpipeWeb.EngineClientTestAdapter do
+defmodule TopicsClubWeb.EngineClientTestAdapter do
   @moduledoc false
 
-  @behaviour Ircpipe.EngineClient.Adapter
+  @behaviour TopicsClub.EngineClient.Adapter
 
   @impl true
   def request(request, timeout) do
@@ -10,27 +10,27 @@ defmodule IrcpipeWeb.EngineClientTestAdapter do
 
     case Application.get_env(:topics_club_core, :engine_client_test_reply, :ok) do
       :ok ->
-        Ircpipe.EngineClient.Reply.ok(request, %{accepted: true})
+        TopicsClub.EngineClient.Reply.ok(request, %{accepted: true})
 
       :malformed ->
         %{status: :ok, data: self()}
 
       {:error, error} ->
-        Ircpipe.EngineClient.Reply.error(request, error)
+        TopicsClub.EngineClient.Reply.error(request, error)
 
       {:error, error, details} ->
-        Ircpipe.EngineClient.Reply.error(request, error, details)
+        TopicsClub.EngineClient.Reply.error(request, error, details)
 
       {:block_operation, operation} when request.operation == operation ->
         send(test_pid, {:engine_client_blocked, self(), request})
 
         receive do
           {:release_engine_client, request_id} when request_id == request.request_id ->
-            Ircpipe.EngineClient.Reply.ok(request, %{accepted: true})
+            TopicsClub.EngineClient.Reply.ok(request, %{accepted: true})
         end
 
       {:block_operation, _operation} ->
-        Ircpipe.EngineClient.Reply.ok(request, %{accepted: true})
+        TopicsClub.EngineClient.Reply.ok(request, %{accepted: true})
     end
   end
 end

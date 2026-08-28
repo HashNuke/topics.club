@@ -1,4 +1,4 @@
-defmodule Ircpipe.IrcTestServer do
+defmodule TopicsClub.IrcTestServer do
   use GenServer
 
   def start_link({test_pid, opts}) when is_list(opts) do
@@ -39,7 +39,7 @@ defmodule Ircpipe.IrcTestServer do
       motd_end?: Keyword.get(opts, :motd_end?, true),
       isupport_lines:
         Keyword.get(opts, :isupport_lines, [
-          ":ircpipe-test 005 ircpipe CHANTYPES=# PREFIX=(ov)@+ :are supported"
+          ":topics_club-test 005 topics_club CHANTYPES=# PREFIX=(ov)@+ :are supported"
         ])
     }
 
@@ -98,7 +98,7 @@ defmodule Ircpipe.IrcTestServer do
         Enum.each(reply(line, state), &:gen_tcp.send(socket, [&1, "\r\n"]))
 
         if String.starts_with?(line, "PING ") do
-          :ok = :gen_tcp.send(socket, "PONG :ircpipe-test\r\n")
+          :ok = :gen_tcp.send(socket, "PONG :topics_club-test\r\n")
         end
 
         send(self(), :read)
@@ -121,11 +121,11 @@ defmodule Ircpipe.IrcTestServer do
   end
 
   defp reply("CAP LS" <> _rest, %{labeled_responses?: true}) do
-    [":ircpipe-test CAP * LS :message-tags labeled-response batch"]
+    [":topics_club-test CAP * LS :message-tags labeled-response batch"]
   end
 
   defp reply("CAP REQ :" <> capabilities, %{labeled_responses?: true}) do
-    [":ircpipe-test CAP * ACK :#{capabilities}"]
+    [":topics_club-test CAP * ACK :#{capabilities}"]
   end
 
   defp reply("USER " <> _rest, %{labeled_responses?: true}), do: []
@@ -140,10 +140,10 @@ defmodule Ircpipe.IrcTestServer do
     case command do
       "WHOIS " <> nick ->
         [
-          "@label=#{label} :ircpipe-test BATCH +whois-batch labeled-response",
-          "@batch=whois-batch :ircpipe-test 311 ircpipe #{nick} user example.test * :Mira Example",
-          "@batch=whois-batch :ircpipe-test NOTE WHOIS CACHED #{nick} :Result served from cache.",
-          ":ircpipe-test BATCH -whois-batch"
+          "@label=#{label} :topics_club-test BATCH +whois-batch labeled-response",
+          "@batch=whois-batch :topics_club-test 311 topics_club #{nick} user example.test * :Mira Example",
+          "@batch=whois-batch :topics_club-test NOTE WHOIS CACHED #{nick} :Result served from cache.",
+          ":topics_club-test BATCH -whois-batch"
         ]
 
       _command ->
@@ -152,7 +152,7 @@ defmodule Ircpipe.IrcTestServer do
   end
 
   defp reply("CAP LS" <> _rest, _state) do
-    [":ircpipe-test CAP * LS :server-time echo-message multi-prefix userhost-in-names"]
+    [":topics_club-test CAP * LS :server-time echo-message multi-prefix userhost-in-names"]
   end
 
   defp reply("USER " <> _rest, state) do
@@ -163,47 +163,49 @@ defmodule Ircpipe.IrcTestServer do
 
   defp reply("JOIN " <> channel, _state) do
     [
-      ":ircpipe!user@test JOIN :#{channel}",
-      ":ircpipe-test 353 ircpipe = #{channel} :@ircpipe akash +mira",
-      ":ircpipe-test 366 ircpipe #{channel} :End of /NAMES list"
+      ":topics_club!user@test JOIN :#{channel}",
+      ":topics_club-test 353 topics_club = #{channel} :@topics_club akash +mira",
+      ":topics_club-test 366 topics_club #{channel} :End of /NAMES list"
     ]
   end
 
   defp reply("PART " <> rest, _state) do
     [channel | reason] = String.split(rest, " ", parts: 2)
     suffix = if reason == [], do: "", else: " :#{List.first(reason)}"
-    [":ircpipe!user@test PART #{channel}#{suffix}"]
+    [":topics_club!user@test PART #{channel}#{suffix}"]
   end
 
   defp reply("NICK " <> nick, _state) do
-    [":ircpipe!user@test NICK :#{nick}"]
+    [":topics_club!user@test NICK :#{nick}"]
   end
 
   defp reply("LIST", _state) do
     [
-      ":ircpipe-test 321 ircpipe Channel :Users Name",
-      ":ircpipe-test 322 ircpipe #quiet 4 :A smaller conversation",
-      ":ircpipe-test 322 ircpipe &local 3 :A local-only channel",
-      ":ircpipe-test 322 ircpipe #elixir 42 :Elixir, OTP, and Phoenix",
-      ":ircpipe-test 323 ircpipe :End of /LIST"
+      ":topics_club-test 321 topics_club Channel :Users Name",
+      ":topics_club-test 322 topics_club #quiet 4 :A smaller conversation",
+      ":topics_club-test 322 topics_club &local 3 :A local-only channel",
+      ":topics_club-test 322 topics_club #elixir 42 :Elixir, OTP, and Phoenix",
+      ":topics_club-test 323 topics_club :End of /LIST"
     ]
   end
 
   defp reply("WHOIS " <> nick, _state) do
     [
-      ":ircpipe-test 311 ircpipe #{nick} user example.test * :Mira Example",
-      ":ircpipe-test 312 ircpipe #{nick} ircpipe-test :Test server",
-      ":ircpipe-test 318 ircpipe #{nick} :End of /WHOIS list"
+      ":topics_club-test 311 topics_club #{nick} user example.test * :Mira Example",
+      ":topics_club-test 312 topics_club #{nick} topics_club-test :Test server",
+      ":topics_club-test 318 topics_club #{nick} :End of /WHOIS list"
     ]
   end
 
   defp reply(_line, _state), do: []
 
   defp registration_lines(state) do
-    lines = [":ircpipe-test 001 ircpipe :Welcome to the test server" | state.isupport_lines]
+    lines = [
+      ":topics_club-test 001 topics_club :Welcome to the test server" | state.isupport_lines
+    ]
 
     if state.motd_end? do
-      lines ++ [":ircpipe-test 376 ircpipe :End of /MOTD command"]
+      lines ++ [":topics_club-test 376 topics_club :End of /MOTD command"]
     else
       lines
     end

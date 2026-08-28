@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.CreateConnectionDeletionRequests do
+defmodule TopicsClub.Repo.Migrations.CreateConnectionDeletionRequests do
   use Ecto.Migration
 
   def change do

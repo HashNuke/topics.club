@@ -1,7 +1,7 @@
-defmodule Ircpipe.CrashingIrcSession do
+defmodule TopicsClub.CrashingIrcSession do
   use GenServer
 
-  alias Ircpipe.Irc.SessionLocator
+  alias TopicsClub.Irc.SessionLocator
 
   def child_spec(connection) do
     %{

@@ -18,7 +18,7 @@ defmodule TopicsClubEngine.MixProject do
 
   def application do
     [
-      mod: {Ircpipe.Engine.Application, []},
+      mod: {TopicsClub.Engine.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end

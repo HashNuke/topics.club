@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.RenameIrcChannelsToIrcServerChannels do
+defmodule TopicsClub.Repo.Migrations.RenameIrcChannelsToIrcServerChannels do
   use Ecto.Migration
 
   def change do

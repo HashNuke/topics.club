@@ -1,7 +1,7 @@
 const NOTIFICATION_ICON = "/images/pwa-192.png"
 const POSTGRES_BIGINT_MAX = "9223372036854775807"
-const NOTIFICATION_ACCOUNT_CACHE = "ircpipe-notification-account-v1"
-const NOTIFICATION_ACCOUNT_KEY = "/__ircpipe-notification-account__"
+const NOTIFICATION_ACCOUNT_CACHE = "topics-club-notification-account-v1"
+const NOTIFICATION_ACCOUNT_KEY = "/__topics-club-notification-account__"
 let notificationAccountRefresh = Promise.resolve()
 const notificationClientLeases = new Map()
 const NOTIFICATION_CLIENT_LEASE_MS = 30_000

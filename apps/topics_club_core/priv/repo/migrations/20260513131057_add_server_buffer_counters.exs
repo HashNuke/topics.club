@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddServerBufferCounters do
+defmodule TopicsClub.Repo.Migrations.AddServerBufferCounters do
   use Ecto.Migration
 
   def change do

@@ -7,7 +7,7 @@ import {
 } from "./push_notifications.ts"
 import type {NotificationDeviceState} from "./browser_notifications.ts"
 
-const INSTALLATION_KEY = "ircpipe.notification-installation"
+const INSTALLATION_KEY = "topics-club.notification-installation"
 const originalNotification = window.Notification
 const originalPushManager = window.PushManager
 const originalServiceWorker = navigator.serviceWorker

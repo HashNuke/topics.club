@@ -1,2 +1,2 @@
 ExUnit.start()
-Ecto.Adapters.SQL.Sandbox.mode(Ircpipe.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(TopicsClub.Repo, :manual)

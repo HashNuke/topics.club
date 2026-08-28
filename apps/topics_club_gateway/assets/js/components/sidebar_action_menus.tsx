@@ -26,8 +26,8 @@ function ActionMenu({ariaLabel, buttonClass, items}: {ariaLabel: string; buttonC
       if ((event as CustomEvent<string>).detail !== menuId) setOpen(false)
     }
 
-    document.addEventListener("ircpipe:action-menu-open", closeForOtherMenu)
-    return () => document.removeEventListener("ircpipe:action-menu-open", closeForOtherMenu)
+    document.addEventListener("topics-club:action-menu-open", closeForOtherMenu)
+    return () => document.removeEventListener("topics-club:action-menu-open", closeForOtherMenu)
   }, [menuId])
 
   useEffect(() => {
@@ -50,7 +50,7 @@ function ActionMenu({ariaLabel, buttonClass, items}: {ariaLabel: string; buttonC
 
   function openMenu() {
     focusFirstItemRef.current = true
-    document.dispatchEvent(new CustomEvent("ircpipe:action-menu-open", {detail: menuId}))
+    document.dispatchEvent(new CustomEvent("topics-club:action-menu-open", {detail: menuId}))
     setOpen(true)
   }
 

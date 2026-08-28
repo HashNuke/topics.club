@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.CreateUsersAuthTables do
+defmodule TopicsClub.Repo.Migrations.CreateUsersAuthTables do
   use Ecto.Migration
 
   def change do

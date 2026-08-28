@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddDirectMessageBlockIdentities do
+defmodule TopicsClub.Repo.Migrations.AddDirectMessageBlockIdentities do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddNotificationAndDirectMessageRevisions do
+defmodule TopicsClub.Repo.Migrations.AddNotificationAndDirectMessageRevisions do
   use Ecto.Migration
 
   def change do

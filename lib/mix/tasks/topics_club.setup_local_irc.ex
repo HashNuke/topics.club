@@ -25,7 +25,7 @@ defmodule Mix.Tasks.TopicsClub.SetupLocalIrc do
   end
 
   defp local_topics do
-    Ircpipe.Chat.Topics.list()
+    TopicsClub.Chat.Topics.list()
     |> Enum.filter(&(&1.server_host in ["127.0.0.1", "localhost"] and &1.use_tls == false))
   end
 

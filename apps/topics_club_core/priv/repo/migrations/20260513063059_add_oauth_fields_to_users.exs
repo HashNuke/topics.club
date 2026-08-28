@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddOauthFieldsToUsers do
+defmodule TopicsClub.Repo.Migrations.AddOauthFieldsToUsers do
   use Ecto.Migration
 
   def change do

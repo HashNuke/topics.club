@@ -37,15 +37,15 @@ The production Compose package binds the application to `127.0.0.1:4000` by defa
 On a clean VPS with Git, Docker Engine, and the Compose plugin:
 
 ```bash
-git clone <your-ircpipe-repository> /srv/ircpipe/source
-cd /srv/ircpipe/source
+git clone git@github.com:HashNuke/topics.club.git /srv/topics_club/source
+cd /srv/topics_club/source
 cp env.example .env
 ```
 
 Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`, and choose a persistent absolute host path. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported:
 
 ```text
-TOPICS_CLUB_POSTGRES_DATA=/srv/ircpipe/postgres
+TOPICS_CLUB_POSTGRES_DATA=/srv/topics_club/postgres
 TOPICS_CLUB_BIND_IP=127.0.0.1
 TOPICS_CLUB_PORT=4000
 ```
@@ -67,15 +67,15 @@ Create logical backups outside `TOPICS_CLUB_POSTGRES_DATA`; copying the live dat
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U postgres -d ircpipe_prod -Fc > ircpipe-$(date +%Y%m%d-%H%M%S).dump
+  pg_dump -U postgres -d topics_club_prod -Fc > topics_club-$(date +%Y%m%d-%H%M%S).dump
 ```
 
-Test restores on another PostgreSQL instance regularly. Restoring over the production database is destructive: stop the application, preserve a second current backup, recreate or clean the target database, restore with `pg_restore`, and start the application only after `pg_restore` succeeds. For example, against an already empty `ircpipe_prod` database:
+Test restores on another PostgreSQL instance regularly. Restoring over the production database is destructive: stop the application, preserve a second current backup, recreate or clean the target database, restore with `pg_restore`, and start the application only after `pg_restore` succeeds. For example, against an already empty `topics_club_prod` database:
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml stop app
 docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
-  pg_restore -U postgres -d ircpipe_prod --exit-on-error < ircpipe-backup.dump
+  pg_restore -U postgres -d topics_club_prod --exit-on-error < topics_club-backup.dump
 docker compose --env-file .env -f docker-compose.prod.yml up -d app
 ```
 

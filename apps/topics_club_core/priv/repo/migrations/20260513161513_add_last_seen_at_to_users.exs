@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddLastSeenAtToUsers do
+defmodule TopicsClub.Repo.Migrations.AddLastSeenAtToUsers do
   use Ecto.Migration
 
   def change do

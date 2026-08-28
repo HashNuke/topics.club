@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddServerConnectionCasemapping do
+defmodule TopicsClub.Repo.Migrations.AddServerConnectionCasemapping do
   use Ecto.Migration
 
   def change do

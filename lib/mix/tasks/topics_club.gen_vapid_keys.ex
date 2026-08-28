@@ -5,7 +5,7 @@ defmodule Mix.Tasks.TopicsClub.GenVapidKeys do
 
   @impl Mix.Task
   def run(_args) do
-    keys = Ircpipe.Notifications.WebPush.generate_keypair()
+    keys = TopicsClub.Notifications.WebPush.generate_keypair()
 
     Mix.shell().info("VAPID_PUBLIC_KEY=#{keys.public_key}")
     Mix.shell().info("VAPID_PRIVATE_KEY=#{keys.private_key}")

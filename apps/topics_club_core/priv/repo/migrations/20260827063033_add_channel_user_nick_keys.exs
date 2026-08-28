@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddChannelUserNickKeys do
+defmodule TopicsClub.Repo.Migrations.AddChannelUserNickKeys do
   use Ecto.Migration
 
   def up do

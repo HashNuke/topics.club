@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddDirectMessageNotifications do
+defmodule TopicsClub.Repo.Migrations.AddDirectMessageNotifications do
   use Ecto.Migration
 
   def up do

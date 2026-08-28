@@ -102,7 +102,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] `body`
   - [x] local draft metadata if needed
 - [x] Backend validates buffer ownership through `current_scope.user`.
-- [x] Backend routes channel messages to `Ircpipe.Irc.Session.say/3`.
+- [x] Backend routes channel messages to `TopicsClub.Irc.Session.say/3`.
 - [x] Backend persists the user's outgoing message after IRC send acceptance.
 - [x] Backend replies `ok` with canonical message payload.
 - [x] Backend replies `error` with a typed reason if the buffer is unavailable.
@@ -232,7 +232,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Persist unread mention state and per-server/per-channel notification preferences.
 - [x] Register each browser installation with an encrypted Push API subscription.
 - [x] Queue eligible mention deliveries in Oban and send them with VAPID-authenticated Web Push.
-- [x] Display push notifications in the service worker only when no visible Ircpipe window is open.
+- [x] Display push notifications in the service worker only when no visible TopicsClub window is open.
 - [x] Request browser permission only after the user clicks a server or channel notification bell.
 - [x] Represent enabled, muted, available-but-disabled, and unavailable notification control states.
 - [x] Push authoritative `notification:preference` events to keep open clients synchronized.
@@ -255,8 +255,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## Phoenix channel checklist
 
-- [x] Keep `IrcpipeWeb.UserSocket` authenticated by session cookie.
-- [x] Keep `IrcpipeWeb.UserChannel` as the single realtime bus.
+- [x] Keep `TopicsClubWeb.UserSocket` authenticated by session cookie.
+- [x] Keep `TopicsClubWeb.UserChannel` as the single realtime bus.
 - [x] Add `handle_in/3` handlers:
   - [x] `message:send`
   - [x] `command:run`
@@ -280,8 +280,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 
 ## IRC runtime checklist
 
-- [x] Replace or adapt `Ircpipe.Irc.Session` to use `~/projects/ircxd`.
-- [x] Keep sessions supervised by `Ircpipe.Irc.SessionSupervisor`.
+- [x] Replace or adapt `TopicsClub.Irc.Session` to use `~/projects/ircxd`.
+- [x] Keep sessions supervised by `TopicsClub.Irc.SessionSupervisor`.
 - [x] Keep sessions registered by `{user_id, server_connection_id}`.
 - [x] Emit server-buffer messages for:
   - [x] connect start
@@ -307,7 +307,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] IRC names replies
   - [x] membership events
 - [x] Handle reconnect by rejoining persisted channels.
-- [x] Broadcast normalized events through `Ircpipe.Chat` or a dedicated realtime boundary.
+- [x] Broadcast normalized events through `TopicsClub.Chat` or a dedicated realtime boundary.
 
 ## React state checklist
 
@@ -354,7 +354,7 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
   - [x] settings
 - [x] IRC runtime tests using local test server.
 - [x] Integration tests using local InspIRCd and irssi where useful.
-  - [x] Opt-in local check: `TOPICS_CLUB_LOCAL_IRC_INTEGRATION=1 mix test test/ircpipe/irc/local_integration_test.exs`
+  - [x] Opt-in local check: `TOPICS_CLUB_LOCAL_IRC_INTEGRATION=1 mix test test/topics_club/irc/local_integration_test.exs`
   - [x] Verifies `irssi` is installed and local InspIRCd relays messages between IRC clients on `127.0.0.1:6669`.
 - [x] Frontend hook/store tests for realtime event application.
 - [x] Frontend component tests for the chat shell.

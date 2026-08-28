@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddDirectMessageThreads do
+defmodule TopicsClub.Repo.Migrations.AddDirectMessageThreads do
   use Ecto.Migration
 
   def change do

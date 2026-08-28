@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddIrcDiscoveryCatalog do
+defmodule TopicsClub.Repo.Migrations.AddIrcDiscoveryCatalog do
   use Ecto.Migration
 
   def change do

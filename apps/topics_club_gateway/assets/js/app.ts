@@ -27,7 +27,7 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/topics_club_gateway"
 import topbar from "../vendor/topbar.cjs"
 import {createApiClient} from "./api_client.ts"
-import IrcpipeApp from "./ircpipe_app.tsx"
+import TopicsClubApp from "./topics_club_app.tsx"
 import {createRealtimeClient, type RealtimeHandlers} from "./realtime_client.ts"
 import type {CurrentUser} from "./types.ts"
 
@@ -58,7 +58,7 @@ liveSocket.connect()
 // >> liveSocket.disableLatencySim()
 window.liveSocket = liveSocket
 
-const root = document.getElementById("ircpipe-root")
+const root = document.getElementById("topics-club-root")
 
 if (root) {
   const currentUser = root.dataset.currentUser ? JSON.parse(root.dataset.currentUser) as CurrentUser : null
@@ -69,7 +69,7 @@ if (root) {
     ? ({handlers}: {handlers: RealtimeHandlers}) => createRealtimeClient({SocketClass: Socket, csrfToken, userId: currentUser.id, handlers})
     : null
 
-  createRoot(root).render(React.createElement(IrcpipeApp, {apiClient, appMode, currentUser, developerOauth, realtimeClientFactory}))
+  createRoot(root).render(React.createElement(TopicsClubApp, {apiClient, appMode, currentUser, developerOauth, realtimeClientFactory}))
 }
 
 // The lines below enable quality of life phoenix_live_reload

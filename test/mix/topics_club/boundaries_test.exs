@@ -284,7 +284,7 @@ defmodule Mix.TopicsClub.BoundariesTest do
     fixture_path =
       Path.join(
         System.tmp_dir!(),
-        "ircpipe-boundary-child-#{System.unique_integer([:positive, :monotonic])}"
+        "topics_club-boundary-child-#{System.unique_integer([:positive, :monotonic])}"
       )
 
     File.mkdir_p!(Path.join(fixture_path, "lib"))
@@ -306,7 +306,7 @@ defmodule Mix.TopicsClub.BoundariesTest do
       Path.join(fixture_path, "lib/crossing.ex"),
       """
       defmodule BoundaryChildFixture.Crossing do
-        def call, do: IrcpipeWeb.Endpoint.url()
+        def call, do: TopicsClubWeb.Endpoint.url()
       end
       """
     )
@@ -319,7 +319,7 @@ defmodule Mix.TopicsClub.BoundariesTest do
                Path.join(fixture_path, "isolated_build")
              )
 
-    assert output =~ "IrcpipeWeb.Endpoint.url/0 is undefined"
+    assert output =~ "TopicsClubWeb.Endpoint.url/0 is undefined"
     assert output =~ "Compilation failed due to warnings"
   end
 
@@ -327,7 +327,7 @@ defmodule Mix.TopicsClub.BoundariesTest do
     fixture_path =
       Path.join(
         System.tmp_dir!(),
-        "ircpipe-boundary-path-dependency-#{System.unique_integer([:positive, :monotonic])}"
+        "topics_club-boundary-path-dependency-#{System.unique_integer([:positive, :monotonic])}"
       )
 
     engine_path = Path.join(fixture_path, "engine")

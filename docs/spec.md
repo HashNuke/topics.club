@@ -89,8 +89,8 @@ Use the Elixir IRC client library being built in `~/projects/ircxd`.
 Runtime expectations:
 
 - Keep one IRC session process per `{user_id, server_connection_id}`.
-- Supervise sessions under `Ircpipe.Irc.SessionSupervisor`.
-- Register sessions in `Ircpipe.Irc.SessionRegistry`.
+- Supervise sessions under `TopicsClub.Irc.SessionSupervisor`.
+- Register sessions in `TopicsClub.Irc.SessionRegistry`.
 - Run exactly one BEAM application node/replica. The IRC runtime is intentionally single-node; horizontal application scaling requires database-backed session ownership leases and fencing first.
 - Reuse an existing session when the same user joins another channel on the same server.
 - Use local InspIRCd and irssi installations for development and integration testing.
@@ -112,7 +112,7 @@ Messages are persisted per user and channel for short-term continuity.
 
 - User-configurable retention is from 1 to 3 days.
 - The maximum retention is 3 days.
-- `Ircpipe.Chat.Retention.prune/1` enforces retention after inbound message persistence.
+- `TopicsClub.Chat.Retention.prune/1` enforces retention after inbound message persistence.
 - Message history older than the user's configured retention should be deleted.
 
 ## Notifications
@@ -123,7 +123,7 @@ The PWA and desktop browser experience supports mention-only notifications.
 - Each control shows one of four states: enabled, muted, available but not enabled on this device, or unavailable in the current browser context.
 - The user requests browser permission explicitly by clicking a notification control.
 - Per-server and per-channel preferences are persisted independently; a muted server suppresses its channel notifications.
-- The backend queues eligible mentions for Web Push. The service worker displays them only when no visible Ircpipe window is open.
+- The backend queues eligible mentions for Web Push. The service worker displays them only when no visible TopicsClub window is open.
 - Realtime socket events update in-app state and notification preferences, but never create browser notifications.
 
 ## Backend API
@@ -147,8 +147,8 @@ HTTP client code in Phoenix should use the included `Req` library when external 
 
 Realtime browser updates flow through:
 
-- `IrcpipeWeb.UserSocket`
-- `IrcpipeWeb.UserChannel`
+- `TopicsClubWeb.UserSocket`
+- `TopicsClubWeb.UserChannel`
 
 Expected realtime events include:
 
@@ -191,6 +191,6 @@ Frontend tests should cover:
 - Left sidebar server/channel navigation.
 - Right sidebar channel user list rendering.
 - Notification bell permission states.
-- Web Push notification suppression while an Ircpipe window is visible.
+- Web Push notification suppression while an TopicsClub window is visible.
 
 Integration testing can use the local InspIRCd server and irssi as a second IRC client to verify realistic IRC behavior.

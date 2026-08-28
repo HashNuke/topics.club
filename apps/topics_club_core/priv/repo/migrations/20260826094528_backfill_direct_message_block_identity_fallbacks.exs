@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.BackfillDirectMessageBlockIdentityFallbacks do
+defmodule TopicsClub.Repo.Migrations.BackfillDirectMessageBlockIdentityFallbacks do
   use Ecto.Migration
 
   def up do
@@ -88,7 +88,7 @@ defmodule Ircpipe.Repo.Migrations.BackfillDirectMessageBlockIdentityFallbacks do
   end
 
   defp available_dollar_delimiter(statements, suffix) do
-    delimiter = "$ircpipe_migration_#{suffix}$"
+    delimiter = "$topics_club_migration_#{suffix}$"
 
     if String.contains?(statements, delimiter) do
       available_dollar_delimiter(statements, suffix + 1)

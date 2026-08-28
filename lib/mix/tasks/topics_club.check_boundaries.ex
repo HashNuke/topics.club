@@ -144,7 +144,7 @@ defmodule Mix.Tasks.TopicsClub.CheckBoundaries do
     output_path =
       Path.join(
         System.tmp_dir!(),
-        "ircpipe-xref-#{System.unique_integer([:positive, :monotonic])}.dot"
+        "topics_club-xref-#{System.unique_integer([:positive, :monotonic])}.dot"
       )
 
     try do
@@ -172,7 +172,7 @@ defmodule Mix.Tasks.TopicsClub.CheckBoundaries do
     output_path =
       Path.join(
         System.tmp_dir!(),
-        "ircpipe-xref-child-#{System.unique_integer([:positive, :monotonic])}.dot"
+        "topics_club-xref-child-#{System.unique_integer([:positive, :monotonic])}.dot"
       )
 
     args = [

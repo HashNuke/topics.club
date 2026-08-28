@@ -1,6 +1,6 @@
 import type {AppView, EntityId, ServerConnection} from "./types.ts"
 
-const STORAGE_PREFIX = "ircpipe.active-buffer"
+const STORAGE_PREFIX = "topics-club.active-buffer"
 
 export interface ActiveBufferSelection {
   activeChannelId: string | null

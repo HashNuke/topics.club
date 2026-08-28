@@ -1,4 +1,4 @@
-defmodule Ircpipe.PushTestTransport do
+defmodule TopicsClub.PushTestTransport do
   @moduledoc false
   import Kernel, except: [send: 2]
 

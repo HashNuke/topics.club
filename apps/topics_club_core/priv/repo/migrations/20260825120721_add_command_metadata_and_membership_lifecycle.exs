@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddCommandMetadataAndMembershipLifecycle do
+defmodule TopicsClub.Repo.Migrations.AddCommandMetadataAndMembershipLifecycle do
   use Ecto.Migration
 
   def change do

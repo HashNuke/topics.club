@@ -15,11 +15,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: ircpipe_test
+          POSTGRES_DB: topics_club_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d ircpipe_test"
+          --health-cmd "pg_isready -U postgres -d topics_club_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -98,6 +98,6 @@ jobs:
           has_path "$engine/lib/topics_club_core-*"
           has_path "$engine/lib/topics_club_engine-*"
           ! has_path "$engine/lib/topics_club_gateway-*"
-          ! has_path "$engine/lib/*/ebin/Elixir.Ircpipe.Release.beam"
+          ! has_path "$engine/lib/*/ebin/Elixir.TopicsClub.Release.beam"
           test ! -e "$engine/bin/server"
           test ! -e "$engine/bin/migrate"

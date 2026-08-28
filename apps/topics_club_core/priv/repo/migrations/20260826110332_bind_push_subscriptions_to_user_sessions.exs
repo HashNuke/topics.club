@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.BindPushSubscriptionsToUserSessions do
+defmodule TopicsClub.Repo.Migrations.BindPushSubscriptionsToUserSessions do
   use Ecto.Migration
 
   def change do

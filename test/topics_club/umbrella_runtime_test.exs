@@ -1,0 +1,196 @@
+defmodule TopicsClub.UmbrellaRuntimeTest do
+  use ExUnit.Case, async: false
+
+  alias TopicsClub.Discovery.Refresher
+
+  test "the combined runtime starts each extracted application once" do
+    assert is_pid(Process.whereis(TopicsClub.CoreSupervisor))
+    assert is_pid(Process.whereis(TopicsClub.EngineSupervisor))
+    assert is_pid(Process.whereis(TopicsClubWeb.Supervisor))
+    assert Process.whereis(TopicsClub.Supervisor) == nil
+
+    started_apps = Application.started_applications() |> Enum.map(&elem(&1, 0))
+
+    assert :topics_club_core in started_apps
+    assert :topics_club_engine in started_apps
+    assert :topics_club_gateway in started_apps
+    refute :topics_club in started_apps
+    refute :ircpipe in started_apps
+  end
+
+  test "shared infrastructure starts once under the core branch" do
+    assert direct_child_pid(TopicsClub.CoreSupervisor, TopicsClub.Vault) ==
+             Process.whereis(TopicsClub.Vault)
+
+    assert direct_child_pid(TopicsClub.CoreSupervisor, TopicsClub.Repo) ==
+             Process.whereis(TopicsClub.Repo)
+
+    assert is_pid(direct_child_pid(TopicsClub.CoreSupervisor, Phoenix.PubSub.Supervisor))
+    assert is_pid(Process.whereis(TopicsClub.PubSub))
+  end
+
+  test "core owns the Ecto repository configuration" do
+    assert Application.fetch_env!(:topics_club_core, :ecto_repos) == [TopicsClub.Repo]
+    assert Application.get_env(:topics_club, :ecto_repos) == nil
+    assert Application.get_env(:ircpipe, :ecto_repos) == nil
+  end
+
+  test "legacy OTP application and release names are not accepted" do
+    for application <- [:ircpipe_core, :ircpipe_engine, :ircpipe_web] do
+      assert Application.get_all_env(application) == []
+    end
+
+    config_path = Path.expand("../../config/runtime.exs", __DIR__)
+
+    for release_name <- ["ircpipe", "ircpipe_web", "ircpipe_engine"] do
+      with_system_env(%{"RELEASE_NAME" => release_name}, fn ->
+        assert_raise RuntimeError, ~r/unsupported release name/, fn ->
+          Config.Reader.read!(config_path, env: :prod)
+        end
+      end)
+    end
+  end
+
+  test "engine owns its runtime configuration" do
+    assert Application.fetch_env!(:topics_club_engine, :irc_bouncer_enabled) == false
+
+    assert Application.fetch_env!(:topics_club_engine, TopicsClub.EngineOban)[:name] ==
+             TopicsClub.EngineOban
+
+    assert Application.get_env(:topics_club, :irc_bouncer_enabled) == nil
+    assert Application.get_env(:topics_club, TopicsClub.EngineOban) == nil
+    assert Application.get_env(:ircpipe, :irc_bouncer_enabled) == nil
+    assert Application.get_env(:ircpipe, TopicsClub.EngineOban) == nil
+  end
+
+  test "engine runtime and its Oban instance are direct engine children" do
+    assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Engine.Marker) ==
+             elem(TopicsClub.EngineClient.Discovery.whereis(), 1)
+
+    assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Engine.OperationLock) ==
+             Process.whereis(TopicsClub.Engine.OperationLock)
+
+    assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Engine.RequestTaskSupervisor) ==
+             Process.whereis(TopicsClub.Engine.RequestTaskSupervisor)
+
+    assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.EngineOban) ==
+             Oban.whereis(TopicsClub.EngineOban)
+
+    assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Irc.SessionSystemSupervisor) ==
+             Process.whereis(TopicsClub.Irc.SessionSystemSupervisor)
+
+    assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Irc.HostedServerSupervisor) ==
+             Process.whereis(TopicsClub.Irc.HostedServerSupervisor)
+  end
+
+  test "web runtime and its Oban instance are direct web children" do
+    assert direct_child_pid(TopicsClubWeb.Supervisor, TopicsClubWeb.Telemetry) ==
+             Process.whereis(TopicsClubWeb.Telemetry)
+
+    assert direct_child_pid(TopicsClubWeb.Supervisor, TopicsClubWeb.EngineRestoreTaskSupervisor) ==
+             Process.whereis(TopicsClubWeb.EngineRestoreTaskSupervisor)
+
+    assert direct_child_pid(TopicsClubWeb.Supervisor, TopicsClubWeb.EngineRestorer) ==
+             Process.whereis(TopicsClubWeb.EngineRestorer)
+
+    assert direct_child_pid(TopicsClubWeb.Supervisor, TopicsClubWeb.Oban) ==
+             Oban.whereis(TopicsClubWeb.Oban)
+
+    assert direct_child_pid(TopicsClubWeb.Supervisor, TopicsClubWeb.Endpoint) ==
+             Process.whereis(TopicsClubWeb.Endpoint)
+  end
+
+  test "the web branch controls discovery and keeps Endpoint last" do
+    assert TopicsClubWeb.Supervisor.discovery_children(true) == [{Refresher, []}]
+    assert TopicsClubWeb.Supervisor.discovery_children(false) == []
+
+    assert List.last(TopicsClubWeb.Supervisor.children(discovery_enabled?: true)) ==
+             TopicsClubWeb.Endpoint
+  end
+
+  test "the combined tree uses named role-specific Oban instances" do
+    runtime_engine_config = Application.fetch_env!(:topics_club_engine, TopicsClub.EngineOban)
+    runtime_web_config = Application.fetch_env!(:topics_club_gateway, TopicsClubWeb.Oban)
+    {engine_config, web_config} = production_oban_configs()
+    engine_queues = engine_config |> Keyword.fetch!(:queues) |> Keyword.keys() |> MapSet.new()
+    web_queues = web_config |> Keyword.fetch!(:queues) |> Keyword.keys() |> MapSet.new()
+
+    assert runtime_engine_config[:name] == TopicsClub.EngineOban
+    assert runtime_web_config[:name] == TopicsClubWeb.Oban
+    assert engine_config[:plugins] == []
+
+    assert get_in(engine_config, [:cron, :crontab]) == [
+             {"* * * * *", TopicsClub.Chat.ConnectionDeletionReconcilerWorker}
+           ]
+
+    assert web_config[:plugins] == [Oban.Plugins.Pruner]
+    assert web_config[:cron] == nil
+    assert MapSet.disjoint?(engine_queues, web_queues)
+    assert Application.get_env(:topics_club, Oban) == nil
+    assert Application.get_env(:ircpipe, Oban) == nil
+  end
+
+  test "production config accepts discrete database credentials without URL encoding" do
+    credentials_key = Base.encode64(:binary.copy(<<0>>, 32))
+
+    with_system_env(
+      %{
+        "DATABASE_URL" => nil,
+        "DATABASE_HOST" => "postgres",
+        "DATABASE_USER" => "postgres",
+        "DATABASE_PASSWORD" => "pa:ss@word#x?/+",
+        "DATABASE_NAME" => "topics_club_prod",
+        "IRC_CREDENTIALS_KEY" => credentials_key,
+        "RELEASE_NAME" => "topics_club_engine"
+      },
+      fn ->
+        config_path = Path.expand("../../config/runtime.exs", __DIR__)
+        config = Config.Reader.read!(config_path, env: :prod)
+        repo_config = config[:topics_club_core][TopicsClub.Repo]
+
+        refute Keyword.has_key?(repo_config, :url)
+        assert repo_config[:hostname] == "postgres"
+        assert repo_config[:username] == "postgres"
+        assert repo_config[:password] == "pa:ss@word#x?/+"
+        assert repo_config[:database] == "topics_club_prod"
+      end
+    )
+  end
+
+  defp direct_child_pid(supervisor, child_id) do
+    supervisor
+    |> Supervisor.which_children()
+    |> Enum.find_value(fn
+      {^child_id, pid, _type, _modules} -> pid
+      _child -> nil
+    end)
+  end
+
+  defp production_oban_configs do
+    config_path = Path.expand("../../config/config.exs", __DIR__)
+    config = Config.Reader.read!(config_path, env: :prod)
+
+    {
+      config[:topics_club_engine][TopicsClub.EngineOban],
+      config[:topics_club_gateway][TopicsClubWeb.Oban]
+    }
+  end
+
+  defp with_system_env(overrides, callback) do
+    previous = Map.new(Map.keys(overrides), &{&1, System.get_env(&1)})
+    set_system_env(overrides)
+
+    try do
+      callback.()
+    after
+      set_system_env(previous)
+    end
+  end
+
+  defp set_system_env(environment) do
+    Enum.each(environment, fn
+      {name, nil} -> System.delete_env(name)
+      {name, value} -> System.put_env(name, value)
+    end)
+  end
+end

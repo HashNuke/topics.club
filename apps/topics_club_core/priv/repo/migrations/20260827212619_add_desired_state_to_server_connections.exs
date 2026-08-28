@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddDesiredStateToServerConnections do
+defmodule TopicsClub.Repo.Migrations.AddDesiredStateToServerConnections do
   use Ecto.Migration
 
   def change do

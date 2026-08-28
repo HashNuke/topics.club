@@ -16,7 +16,7 @@ defmodule Mix.Tasks.TopicsClub.RefreshDiscovery do
   def run(_args) do
     Mix.Task.run("app.start")
 
-    case Ircpipe.Discovery.Refresher.run() do
+    case TopicsClub.Discovery.Refresher.run() do
       :ok -> Mix.shell().info("IRC discovery data is up to date.")
       {:error, reason} -> Mix.raise("IRC discovery refresh failed: #{inspect(reason)}")
     end

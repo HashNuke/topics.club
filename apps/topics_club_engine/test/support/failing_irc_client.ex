@@ -1,4 +1,4 @@
-defmodule Ircpipe.FailingIrcClient do
+defmodule TopicsClub.FailingIrcClient do
   use GenServer
 
   def start_link(reason) do

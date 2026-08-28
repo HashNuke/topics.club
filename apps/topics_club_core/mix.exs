@@ -18,7 +18,7 @@ defmodule TopicsClubCore.MixProject do
 
   def application do
     [
-      mod: {Ircpipe.Core.Application, []},
+      mod: {TopicsClub.Core.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -31,6 +31,7 @@ defmodule TopicsClubCore.MixProject do
       {:bcrypt_elixir, "~> 3.0"},
       {:cloak_ecto, "~> 1.3"},
       {:ecto_sql, "~> 3.13"},
+      {:oban, "~> 2.24", runtime: false},
       {:postgrex, ">= 0.0.0"},
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.2"},

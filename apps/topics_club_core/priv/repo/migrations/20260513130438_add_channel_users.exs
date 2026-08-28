@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddChannelUsers do
+defmodule TopicsClub.Repo.Migrations.AddChannelUsers do
   use Ecto.Migration
 
   def change do

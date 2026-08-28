@@ -13,18 +13,18 @@ if config_env() == :prod do
   case release_name do
     "topics_club_gateway" ->
       config :topics_club_core,
-        engine_client_adapter: Ircpipe.EngineClient.RpcAdapter,
-        internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+        engine_client_adapter: TopicsClub.EngineClient.RpcAdapter,
+        internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter
 
     "topics_club_engine" ->
       config :topics_club_core,
-        engine_client_adapter: Ircpipe.Engine.LocalAdapter,
+        engine_client_adapter: TopicsClub.Engine.LocalAdapter,
         internal_event_adapter: nil
 
     _combined_or_mix ->
       config :topics_club_core,
-        engine_client_adapter: Ircpipe.Engine.LocalAdapter,
-        internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+        engine_client_adapter: TopicsClub.Engine.LocalAdapter,
+        internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter
   end
 end
 
@@ -45,7 +45,7 @@ end
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if web_capable? and System.get_env("PHX_SERVER") do
-  config :topics_club_gateway, IrcpipeWeb.Endpoint, server: true
+  config :topics_club_gateway, TopicsClubWeb.Endpoint, server: true
 end
 
 if web_capable? do
@@ -65,7 +65,7 @@ if web_capable? do
     end
 
   if smtp_relay && smtp_username && smtp_password do
-    config :topics_club_gateway, Ircpipe.Mailer,
+    config :topics_club_gateway, TopicsClub.Mailer,
       adapter: Swoosh.Adapters.SMTP,
       relay: smtp_relay,
       port: String.to_integer(System.get_env("SMTP_PORT") || "587"),
@@ -77,7 +77,7 @@ if web_capable? do
   end
 
   config :topics_club_gateway, :email_from,
-    name: System.get_env("EMAIL_FROM_NAME") || "Ircpipe",
+    name: System.get_env("EMAIL_FROM_NAME") || "TopicsClub",
     address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
 
   vapid_subject =
@@ -87,7 +87,7 @@ if web_capable? do
       subject -> if String.contains?(subject, ":"), do: subject, else: "mailto:#{subject}"
     end
 
-  config :topics_club_gateway, Ircpipe.Notifications.WebPush,
+  config :topics_club_gateway, TopicsClub.Notifications.WebPush,
     public_key: System.get_env("VAPID_PUBLIC_KEY"),
     private_key: System.get_env("VAPID_PRIVATE_KEY"),
     subject: vapid_subject
@@ -116,7 +116,7 @@ if config_env() == :prod do
         raise "IRC_CREDENTIALS_KEY must be a Base64-encoded 32-byte key"
     end
 
-  config :topics_club_core, Ircpipe.Vault,
+  config :topics_club_core, TopicsClub.Vault,
     ciphers: [
       default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: credentials_key, iv_length: 12}
     ]
@@ -151,7 +151,7 @@ if config_env() == :prod do
       socket_options: maybe_ipv6
     )
 
-  config :topics_club_core, Ircpipe.Repo, repo_options
+  config :topics_club_core, TopicsClub.Repo, repo_options
 
   if web_capable? do
     # The secret key base is used to sign/encrypt cookies and other secrets.
@@ -168,7 +168,7 @@ if config_env() == :prod do
 
     host = System.get_env("PHX_HOST") || "example.com"
 
-    config :topics_club_gateway, IrcpipeWeb.Endpoint,
+    config :topics_club_gateway, TopicsClubWeb.Endpoint,
       url: [host: host, port: 443, scheme: "https"],
       http: [
         # Enable IPv6 and bind on all interfaces.
@@ -186,7 +186,7 @@ if config_env() == :prod do
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
   #
-  #     config :topics_club_gateway, IrcpipeWeb.Endpoint,
+  #     config :topics_club_gateway, TopicsClubWeb.Endpoint,
   #       https: [
   #         ...,
   #         port: 443,
@@ -208,7 +208,7 @@ if config_env() == :prod do
   # We also recommend setting `force_ssl` in your config/prod.exs,
   # ensuring no data is ever sent via http, always redirecting to https:
   #
-  #     config :topics_club_gateway, IrcpipeWeb.Endpoint,
+  #     config :topics_club_gateway, TopicsClubWeb.Endpoint,
   #       force_ssl: [hsts: true]
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
@@ -218,7 +218,7 @@ if config_env() == :prod do
   # In production you need to configure the mailer to use a different adapter.
   # Here is an example configuration for Mailgun:
   #
-  #     config :topics_club_gateway, Ircpipe.Mailer,
+  #     config :topics_club_gateway, TopicsClub.Mailer,
   #       adapter: Swoosh.Adapters.Mailgun,
   #       api_key: System.get_env("MAILGUN_API_KEY"),
   #       domain: System.get_env("MAILGUN_DOMAIN")

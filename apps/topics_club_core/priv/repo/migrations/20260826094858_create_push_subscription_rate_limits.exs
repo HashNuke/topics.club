@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.CreatePushSubscriptionRateLimits do
+defmodule TopicsClub.Repo.Migrations.CreatePushSubscriptionRateLimits do
   use Ecto.Migration
 
   def change do

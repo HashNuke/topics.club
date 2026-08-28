@@ -18,7 +18,7 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      "cd ../../.. && MIX_ENV=test mix ecto.create --quiet -r Ircpipe.Repo && MIX_ENV=test mix ecto.migrate --quiet -r Ircpipe.Repo && MIX_ENV=test mix run priv/repo/seeds.exs && mix assets.build && MIX_ENV=test PHX_SERVER=true mix phx.server",
+      "cd ../../.. && MIX_ENV=test mix ecto.create --quiet -r TopicsClub.Repo && MIX_ENV=test mix ecto.migrate --quiet -r TopicsClub.Repo && MIX_ENV=test mix run priv/repo/seeds.exs && mix assets.build && MIX_ENV=test PHX_SERVER=true mix phx.server",
     url: "http://127.0.0.1:4002",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

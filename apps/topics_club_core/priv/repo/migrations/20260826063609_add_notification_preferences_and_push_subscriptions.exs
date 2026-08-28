@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AddNotificationPreferencesAndPushSubscriptions do
+defmodule TopicsClub.Repo.Migrations.AddNotificationPreferencesAndPushSubscriptions do
   use Ecto.Migration
 
   def change do

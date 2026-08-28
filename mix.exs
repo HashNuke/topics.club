@@ -111,19 +111,19 @@ defmodule TopicsClub.MixProject do
   end
 
   defp ecto_setup(_args) do
-    run_mix!("apps/topics_club_core", ["ecto.create", "-r", "Ircpipe.Repo"])
-    run_mix!("apps/topics_club_core", ["ecto.migrate", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.create", "-r", "TopicsClub.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.migrate", "-r", "TopicsClub.Repo"])
     run_mix!("apps/topics_club_gateway", ["run", "../../priv/repo/seeds.exs"])
   end
 
   defp ecto_reset(_args) do
-    run_mix!("apps/topics_club_core", ["ecto.drop", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.drop", "-r", "TopicsClub.Repo"])
     ecto_setup([])
   end
 
   defp test(args) do
-    run_mix!("apps/topics_club_core", ["ecto.create", "--quiet", "-r", "Ircpipe.Repo"])
-    run_mix!("apps/topics_club_core", ["ecto.migrate", "--quiet", "-r", "Ircpipe.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.create", "--quiet", "-r", "TopicsClub.Repo"])
+    run_mix!("apps/topics_club_core", ["ecto.migrate", "--quiet", "-r", "TopicsClub.Repo"])
 
     case test_target(args) do
       {:child, child_path, child_args} ->

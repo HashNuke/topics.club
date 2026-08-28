@@ -1,4 +1,4 @@
-defmodule Ircpipe.Repo.Migrations.AllowServerBufferMessages do
+defmodule TopicsClub.Repo.Migrations.AllowServerBufferMessages do
   use Ecto.Migration
 
   def change do
