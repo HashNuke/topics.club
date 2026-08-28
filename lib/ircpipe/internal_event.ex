@@ -2,6 +2,7 @@ defmodule Ircpipe.InternalEvent do
   @moduledoc false
 
   alias Ircpipe.EngineClient.Contract
+  alias Ircpipe.InternalEvent.Data
 
   @version 1
   @keys MapSet.new([:data, :event_id, :occurred_at, :type, :user_id, :version])
@@ -28,7 +29,7 @@ defmodule Ircpipe.InternalEvent do
     event = %{
       version: @version,
       event_id: Keyword.get_lazy(opts, :event_id, fn -> generate_event_id(type, occurred_at) end),
-      type: to_string(type),
+      type: normalize_type(type),
       occurred_at: occurred_at,
       user_id: user_id,
       data: data
@@ -53,7 +54,8 @@ defmodule Ircpipe.InternalEvent do
          true <- Contract.valid_request_id?(event.event_id),
          true <- is_integer(event.user_id) and event.user_id > 0,
          true <- valid_occurred_at?(event.occurred_at),
-         true <- is_map(event.data) and Contract.plain_term?(event.data) do
+         true <- is_map(event.data) and Contract.plain_term?(event.data),
+         true <- Data.valid_event_data?(event.type, event.data) do
       :ok
     else
       _invalid -> {:error, :invalid_event}
@@ -71,6 +73,10 @@ defmodule Ircpipe.InternalEvent do
   end
 
   defp valid_occurred_at?(_occurred_at), do: false
+
+  defp normalize_type(type) when is_atom(type), do: Atom.to_string(type)
+  defp normalize_type(type) when is_binary(type), do: type
+  defp normalize_type(_type), do: nil
 
   defp generate_event_id(type, occurred_at) do
     random = :crypto.strong_rand_bytes(12) |> Base.url_encode64(padding: false)
