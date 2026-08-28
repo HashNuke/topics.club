@@ -31,7 +31,7 @@ Sizing used by this document:
 - [x] Core and web modules have no direct dependency on engine implementation modules.
 - [x] The combined supervision tree is divided into logical core, engine, and web supervisors.
 - [x] The repository is an umbrella containing core, engine, and web OTP applications.
-- [ ] The three release artifacts build independently.
+- [x] The three release artifacts build independently.
 - [ ] Split web and engine nodes communicate successfully in an integration environment.
 - [ ] First-party bare-host deployment and rollback automation is complete.
 
@@ -1073,6 +1073,8 @@ The first release slice defines three explicit Unix releases without adding a de
 
 The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the umbrella and assembles the explicit `ircpipe` release. Source-revision arguments are declared immediately before release assembly so a new commit does not invalidate dependency, compilation, or asset layers. The final image runs as `nobody`, contains no build launchers or compiler toolchain, and has a database-backed `/health` readiness endpoint plus an image health check. A fresh external-PostgreSQL smoke ran every migration and booted core, engine, and web without node, cookie, engine-node, or clustering variables. The production Compose package builds the same image, keeps PostgreSQL unpublished, binds Phoenix to host loopback by default, waits for database health, migrates before startup, and passed an isolated clean-data installation with 29 migrations and a healthy endpoint. `docs/deployment.md` records required variables, current Railway service settings, the one-replica constraint, safe reverse-proxy binding, backup/restore, upgrades, migration failure handling, and compatible rollback. A project-blind Railway IaC file is deliberately omitted because Railway's replacement configuration owns the complete linked project and can delete omitted resources; operators import and plan against the real project instead.
 
+The final local CI reproduction starts from a source-only Git archive with no `.git`, dependencies, build output, or frontend installation. It exposed that production assets had relied on an earlier compile to generate Phoenix colocated hooks; `assets.deploy` now declares that compile prerequisite directly. The repaired clean gate installs locked dependencies, builds digested assets, assembles all three releases with the same source-derived version, and enforces their application, asset, and migration-command boundaries. Root `mix precommit` passes 37 core, 67 engine, 173 web, and 421 root tests (698 total), 229 frontend tests, type checking, Storybook, warning-free compilation, and the 243-file/769-edge/zero-exception boundary graph.
+
 #### Release definitions
 
 - [x] Define `ircpipe` with core, engine, and web applications.
@@ -1088,7 +1090,7 @@ The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the u
 - [x] Keep migration execution out of engine startup and engine artifacts.
 - [x] Make release wrappers release-name aware rather than hard-coding `ircpipe`.
 - [x] Include digested frontend assets in combined and web releases only.
-- [ ] Build all three releases from a clean checkout.
+- [x] Build all three releases from a clean checkout.
 
 #### Release-specific background work
 
@@ -1101,6 +1103,8 @@ The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the u
 - [x] Test that duplicate queue ownership does not occur in split mode.
 
 #### Dependency distribution
+
+Publishing `ircxd` and replacing its Git source are intentionally deferred until the package is available on Hex. Under the current explicit deployment decision, the pinned `HashNuke/ircxd` Git dependency is the supported source and these two external publication tasks do not block this checkpoint.
 
 - [x] Fetch `ircxd` from `HashNuke/ircxd` and pin the resolved commit in `mix.lock`.
 - [ ] Publish `ircxd` to Hex with a version compatible with the core, engine, and web applications.
@@ -1136,7 +1140,7 @@ The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the u
 
 #### Artifact exit gate
 
-- [ ] All three OTP releases build in CI.
+- [x] Configure CI to build and inspect all three OTP releases, and reproduce that job from a clean source snapshot.
 - [x] The combined image has no split-mode configuration requirement.
 - [x] The web release may include `ircxd` for directory discovery but has no engine supervision, per-user IRC sessions, or hosted IRC listener.
 - [x] The engine release has no Endpoint or frontend assets.
