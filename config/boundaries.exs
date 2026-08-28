@@ -126,11 +126,6 @@
       ]
     },
     %{
-      component: :assembly,
-      description: "Temporary combined-application composition root",
-      paths: ["lib/ircpipe/application.ex"]
-    },
-    %{
       component: :tooling,
       description: "Development and release tooling that is not runtime domain code",
       paths: ["lib/mix/**/*.ex"]
@@ -141,8 +136,7 @@
     core: [:core, :shared],
     engine: [:engine, :core, :shared],
     web: [:web, :core, :shared],
-    assembly: [:assembly, :core, :engine, :shared, :web],
-    tooling: [:assembly, :core, :engine, :shared, :tooling, :web]
+    tooling: [:core, :engine, :shared, :tooling, :web]
   },
   temporary_component_cycles: [],
   temporary_dependency_budget: 0,

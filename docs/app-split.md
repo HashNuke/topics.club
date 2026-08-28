@@ -173,7 +173,7 @@ The monolith should expose three logical supervisors—core, engine, and web—u
 
 Boundary enforcement must be automated. Local precommit fails when web code references engine implementation modules, core code references engine or web modules, engine code references web modules, or an unapproved dependency cycle is introduced. The same gate must be added to CI before the workstream exit gate can close. The check operates on compiler/xref information where possible, with a narrow explicit allowlist for temporary migration edges. Every temporary edge needs an owner and removal task.
 
-The authoritative ownership and transition manifest is `config/boundaries.exs`. It currently tracks compiled production files, all 29 migration modules, and test-support files under six owners: the four deployable logical components plus `assembly` for the temporary combined composition root and `tooling` for Mix tasks. `assembly` and `tooling` are not future OTP applications and are excluded from deployable-component cycle analysis. Migration files receive an owner, but Mix does not compile them into the application xref graph; their internal references therefore require migration tests and review rather than xref enforcement.
+The authoritative ownership and transition manifest is `config/boundaries.exs`. It tracks compiled production files, all 29 migration modules, and test-support files under the four deployable logical components plus `tooling` for root Mix tasks. The temporary `assembly` source owner disappeared with the empty root OTP application during the umbrella conversion; combined assembly is now release metadata rather than production code. Tooling is not an OTP application and is excluded from deployable-component cycle analysis. Migration files receive an owner, but Mix does not compile them into the application xref graph; their internal references therefore require migration tests and review rather than xref enforcement.
 
 Run `mix ircpipe.check_boundaries` to validate the manifest against Mix's direct xref graph. The checker fails on unowned or multiply owned files, unknown components, cycles in the permanent allowed-dependency policy, actual deployable cycles outside the explicit transition-cycle baseline, new forbidden file edges, dependency-label escalation, malformed or duplicate exceptions, stale exceptions or transition cycles, and compiled production files missing from xref. `mix precommit` runs this check immediately after warning-free compilation.
 
@@ -249,7 +249,7 @@ The ownership manifest deliberately assigns files rather than relying on the mix
 | Shared protocol | `EngineClient` and its request/reply contracts, `InternalEvent` and its data contract, pure IRC command/identifier policy, and mention detection |
 | Engine | Connection lifecycle/deletion, deletion request/event-batch schemas, join/part, ingestion, command/system messages, IRC-derived presence and direct-message behavior, engine API/local adapter, all per-user session processes, and engine-owned workers |
 | Web | Accounts/session behavior, connection endpoint/snapshots and browser queries, read state, topics, notifications/Web Push, discovery, realtime serializers, RPC adapter, and all `IrcpipeWeb` modules |
-| Assembly/tooling | Root `Ircpipe.Application` only; Mix tasks and release-development helpers respectively |
+| Tooling | Root Mix tasks, release metadata, and the non-deployable root integration-test project |
 
 The less obvious web-owned schemas are `UserToken`, `Topic`, discovery `Network`/`ServerChannel`, `PushSubscription`, and `PushSubscriptionRateLimit`. The authoritative exact path list remains `config/boundaries.exs`, which fails on an unowned or multiply owned production, migration, or test-support file.
 
@@ -311,7 +311,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 
 | Owner | Tree, strategy, and stable names |
 | --- | --- |
-| Assembly | `Ircpipe.Supervisor`, `:one_for_one`; starts the three logical branches |
+| Combined release | The release boot script starts the core, engine, and web OTP applications directly; there is no empty assembly supervisor or fourth production application |
 | Core | `Ircpipe.CoreSupervisor`, `:one_for_one`; `Ircpipe.Vault`, `Ircpipe.Repo`, and `Ircpipe.PubSub` |
 | Engine | `Ircpipe.EngineSupervisor`, `:one_for_one`; global engine marker, `Ircpipe.Engine.OperationLock`, `Ircpipe.Engine.RequestTaskSupervisor`, `Ircpipe.EngineOban`, and `Ircpipe.Irc.SessionSystemSupervisor` |
 | Engine session subsystem | `:one_for_all`; `SingleNodeGuard`, `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
@@ -328,7 +328,7 @@ Extraction preserves module names and relative paths. No module rename is bundle
 | Core and shared entries in `config/boundaries.exs` | `apps/ircpipe_core/lib/...` | `apps/ircpipe_core/test/...` |
 | Engine entries, including selected `lib/ircpipe/chat` files | `apps/ircpipe_engine/lib/...` | `apps/ircpipe_engine/test/...` |
 | Web entries in both `lib/ircpipe` and `lib/ircpipe_web` plus assets | `apps/ircpipe_web/lib/...`, `apps/ircpipe_web/assets/...` | `apps/ircpipe_web/test/...` |
-| `lib/ircpipe/application.ex` | Umbrella combined-release assembly | Root integration tests |
+| Root `mix.exs` release metadata | Umbrella combined-release assembly; no production module | Root integration tests |
 | `lib/mix/**` | Umbrella root tooling | Root tooling tests |
 | Cross-component release, boundary, and distributed integration tests | No child source owner | Umbrella root integration test directory |
 
@@ -346,6 +346,8 @@ The pre-umbrella discovery baseline partitions every current ExUnit file exactly
 | **Total** | **128** | **692** | **692 discovered from the umbrella root** |
 
 The future child expectations are therefore core 62, engine 269, and web 319, with 42 root assembly/tooling/integration tests. The two explicitly cross-component files are `connections_concurrency_test.exs` and `direct_messages_test.exs`; keeping them at the root avoids inventing a false child owner. This is a discovery baseline, not a requirement that a child test suite boot unrelated child applications after extraction.
+
+The mechanical extraction ultimately classified tests by whether their setup can run against one child application without a false dependency. The umbrella command now discovers 37 core tests, 67 engine tests, 172 web tests, and 421 root integration/tooling tests: 697 tests in total, including the five boundary regressions added during extraction. The root tests run through `test/mix.exs`, a test-only Mix project outside `apps/`; it starts all three real applications but is not included in any release.
 
 #### Browser and deployment compatibility baseline
 
@@ -973,30 +975,34 @@ GPT-5.6 Sol xhigh approved the immutable core checkpoint at `703c785` with no re
 
 The engine production move is committed at `737f446`, with the isolated disabled hosted-server supervisor branch added at `fc979f9`. `ircpipe_engine` now owns the outbound IRC session tree, registries, protocol handlers, bouncer, connection restoration and autojoin behavior, canonical IRC ingestion and state updates, and engine-owned Oban workers. It declares only its direct core, Ecto, Oban, and Git-pinned `ircxd` dependencies and compiles 74 production files without Phoenix, Endpoint, or frontend dependencies. Its 67 independently runnable focused tests moved with it; 202 database-heavy tests from the recorded engine baseline remain root integration coverage because their setup crosses the future web boundary. Root `mix test` now runs 37 core tests, 67 engine tests, and 593 root tests, for 697 passing ExUnit tests in total. The boundary gate now merges compiler-manifest references with the per-project xref graphs so an available path dependency cannot hide a forbidden cross-application call; a real two-project fixture proves that a root web call into its engine path dependency is rejected. Root `mix precommit` passes with the same 697 ExUnit tests, 229 frontend tests, type checking, Storybook, and a 240-file/764-edge/zero-exception boundary graph. Production compilation, asset deployment, combined release assembly, a clean no-cache Docker build, image-content inspection, production Compose resolution, and a fresh-database release boot smoke all pass. The boot smoke proves the combined release runs the extracted engine application and both the outbound session and disabled hosted-server supervisor branches. GPT-5.6 Sol xhigh approved the immutable engine checkpoint at `37e89ad` with no remaining blocking, SRP, or over-engineering findings; it was merged into `app-split` at `0e6c728`.
 
+The web ownership slice is committed at `400056c`. It moves all Phoenix, authentication, browser serialization, notifications, directory discovery, frontend, static, gettext, and web-owned worker code into `ircpipe_web` without changing production module names. The web child declares core and its direct libraries, including the Git-pinned `ircxd` needed by short-lived directory listing. Its 31 independently runnable files pass 172 tests without any engine implementation dependency; tests whose setup genuinely crosses application boundaries remain root integration coverage rather than forcing a test-only child dependency.
+
+The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_engine`, and `ircpipe_web` under `apps/`. Root aliases explicitly orchestrate the three child suites and the non-deployable integration harness. The obsolete empty `Ircpipe.Application` and `Ircpipe.Supervisor` are removed. A clean combined release contains and starts exactly the three child applications, and its boot smoke starts all three role supervisors with no root supervisor. Final checkpoint review and approval remain pending until the complete precommit, Docker, and Compose validation is recorded.
+
 #### Extraction rules
 
 - [x] Do not begin the umbrella conversion until every workstream 1 exit-gate item passes.
-- [ ] Keep production module names unchanged during physical moves.
-- [ ] Move source modules and their focused tests as one coherent component slice.
-- [ ] Keep cross-component integration tests at the umbrella root or assign them an explicit owning application.
-- [ ] Make one ownership move at a time and run its focused tests before the next move.
+- [x] Keep production module names unchanged during physical moves.
+- [x] Move source modules and their focused tests as one coherent component slice.
+- [x] Keep cross-component integration tests at the umbrella root or assign them an explicit owning application.
+- [x] Make one ownership move at a time and run its focused tests before the next move.
 - [x] Run the root boundary check after every component move.
 - [x] Run root `mix precommit` after every completed ownership slice.
 - [x] Compare discovered test counts with the recorded monolith baseline after every test-path change.
 - [x] Do not introduce temporary child-application dependency cycles to make an intermediate move compile.
-- [ ] Do not combine module renaming or behavior changes with filesystem extraction.
+- [x] Do not combine module renaming or behavior changes with filesystem extraction.
 
 #### Umbrella scaffolding
 
-- [ ] Create an umbrella root project with shared aliases and build paths.
+- [x] Create an umbrella root project with shared aliases and build paths.
 - [x] Create `apps/ircpipe_core`.
 - [x] Create `apps/ircpipe_engine`.
-- [ ] Create `apps/ircpipe_web`.
-- [ ] Preserve the existing `Ircpipe` and `IrcpipeWeb` module namespaces where renaming adds no value.
-- [ ] Move frontend assets and Storybook under the web application while preserving existing npm commands.
-- [ ] Update formatter inputs for the umbrella and all child applications.
-- [ ] Update test support paths and shared fixtures without introducing cross-application test coupling.
-- [ ] Update `mix setup`, asset, test, and `mix precommit` aliases at the umbrella root.
+- [x] Create `apps/ircpipe_web`.
+- [x] Preserve the existing `Ircpipe` and `IrcpipeWeb` module namespaces where renaming adds no value.
+- [x] Move frontend assets and Storybook under the web application while preserving existing npm commands.
+- [x] Update formatter inputs for the umbrella and all child applications.
+- [x] Update test support paths and shared fixtures without introducing cross-application test coupling.
+- [x] Update `mix setup`, asset, test, and `mix precommit` aliases at the umbrella root.
 - [x] Prove root `mix test` discovers all previously recorded tests before moving the next component.
 
 #### Core ownership
@@ -1024,39 +1030,39 @@ The engine production move is committed at `737f446`, with the isolated disabled
 
 #### Web ownership
 
-- [ ] Move Endpoint, router, controllers, Channels, socket, authentication, HTML, and mailer into web.
-- [ ] Move React, CSS, service worker, and Storybook assets into web.
-- [ ] Keep browser payload serializers in web.
-- [ ] Keep bootstrap, history, read-state, settings, and notification-preference behavior in web.
-- [ ] Keep Web Push delivery and other web-owned Oban workers in web.
-- [ ] Move directory discovery refresh and `ServerChannelLister` into web and declare its direct `ircxd` dependency.
-- [ ] Configure the web side of `EngineClient` without a compile-time dependency on engine implementation modules.
+- [x] Move Endpoint, router, controllers, Channels, socket, authentication, HTML, and mailer into web.
+- [x] Move React, CSS, service worker, and Storybook assets into web.
+- [x] Keep browser payload serializers in web.
+- [x] Keep bootstrap, history, read-state, settings, and notification-preference behavior in web.
+- [x] Keep Web Push delivery and other web-owned Oban workers in web.
+- [x] Move directory discovery refresh and `ServerChannelLister` into web and declare its direct `ircxd` dependency.
+- [x] Configure the web side of `EngineClient` without a compile-time dependency on engine implementation modules.
 
 #### Dependency and supervision enforcement
 
-- [ ] Give each child application only the Hex/Git dependencies it uses.
-- [ ] Translate the already-green logical dependency graph into child `deps/0` declarations without adding new edges.
-- [ ] Make web compile without engine implementation modules while retaining `ircxd` for directory discovery.
+- [x] Give each child application only the Hex/Git dependencies it uses.
+- [x] Translate the already-green logical dependency graph into child `deps/0` declarations without adding new edges.
+- [x] Make web compile without engine implementation modules while retaining `ircxd` for directory discovery.
 - [x] Make engine compile without Phoenix Endpoint and frontend dependencies.
 - [x] Check compile-connected dependency graphs for accidental cycles.
 - [x] Start Vault, Repo, and PubSub exactly once per node.
 - [ ] Start engine supervision only in combined and engine releases.
 - [ ] Start Endpoint only in combined and web releases.
 - [ ] Start release-owned Oban queues only after Repo is available.
-- [ ] Start Endpoint last in the web supervision tree.
-- [ ] Preserve configuration-change handling for Endpoint in the web application.
+- [x] Start Endpoint last in the web supervision tree.
+- [x] Preserve configuration-change handling for Endpoint in the web application.
 
 #### Umbrella exit gate
 
-- [ ] No production module was renamed solely because its file moved into a child application.
-- [ ] No product behavior or public payload changed as part of the extraction.
-- [ ] Each child application compiles and tests independently where practical.
-- [ ] The web application contains no engine implementation modules or long-lived user-session ownership.
-- [ ] The engine application contains no Endpoint, router, controller, HEEx, or React assets.
-- [ ] The combined supervision tree starts shared infrastructure once.
-- [ ] The combined application behaves the same as before the umbrella conversion.
-- [ ] Root and per-component test counts match the recorded pre-umbrella expectations.
-- [ ] The boundary checker passes without new exceptions or child-application dependency cycles.
+- [x] No production module was renamed solely because its file moved into a child application.
+- [x] No product behavior or public payload changed as part of the extraction.
+- [x] Each child application compiles and tests independently where practical.
+- [x] The web application contains no engine implementation modules or long-lived user-session ownership.
+- [x] The engine application contains no Endpoint, router, controller, HEEx, or React assets.
+- [x] The combined supervision tree starts shared infrastructure once.
+- [x] The combined application behaves the same as before the umbrella conversion.
+- [x] Root and per-component test counts match the recorded pre-umbrella expectations.
+- [x] The boundary checker passes without new exceptions or child-application dependency cycles.
 - [ ] Root `mix precommit` passes.
 
 ### Workstream 3: Build release and container artifacts

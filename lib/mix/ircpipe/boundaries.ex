@@ -8,7 +8,7 @@ defmodule Mix.Ircpipe.Boundaries do
 
   @dot_edge ~r/^\s*"([^"]+)" -> "([^"]+)"(?: \[label="\((compile|export)\)"\])?$/
   @dot_node ~r/^\s*"([^"]+)"$/
-  @components MapSet.new([:assembly, :core, :engine, :shared, :tooling, :web])
+  @components MapSet.new([:core, :engine, :shared, :tooling, :web])
   @deployable_components MapSet.new([:core, :engine, :shared, :web])
 
   def load!(path) do
@@ -38,7 +38,7 @@ defmodule Mix.Ircpipe.Boundaries do
     if errors == [], do: :ok, else: {:error, Enum.sort(errors)}
   end
 
-  def tracked_files do
+  def tracked_files(root \\ File.cwd!()) do
     [
       "lib/**/*.ex",
       "apps/*/lib/**/*.ex",
@@ -46,7 +46,8 @@ defmodule Mix.Ircpipe.Boundaries do
       "test/support/**/*.ex",
       "apps/*/test/support/**/*.ex"
     ]
-    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.flat_map(&Path.wildcard(Path.join(root, &1)))
+    |> Enum.map(&Path.relative_to(&1, root))
     |> Enum.map(&normalize_path/1)
     |> Enum.uniq()
     |> Enum.sort()
@@ -403,7 +404,11 @@ defmodule Mix.Ircpipe.Boundaries do
           Map.has_key?(ownership, normalize_path(sink)),
           do: {normalize_path(source), normalize_path(sink), label}
 
-    production_files = ownership |> Map.keys() |> Enum.filter(&production_file?/1)
+    production_files =
+      for {file, component} <- ownership,
+          MapSet.member?(@deployable_components, component),
+          production_file?(file),
+          do: file
 
     missing_graph_files = Enum.reject(production_files, &Map.has_key?(graph, &1))
 

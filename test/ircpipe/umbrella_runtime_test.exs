@@ -1,18 +1,20 @@
-defmodule Ircpipe.ApplicationTest do
+defmodule Ircpipe.UmbrellaRuntimeTest do
   use ExUnit.Case, async: true
 
   alias Ircpipe.Discovery.Refresher
 
   test "the combined runtime starts each extracted application once" do
     assert is_pid(Process.whereis(Ircpipe.CoreSupervisor))
-    assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.CoreSupervisor) == nil
-
     assert is_pid(Process.whereis(Ircpipe.EngineSupervisor))
-    assert direct_child_pid(Ircpipe.Supervisor, Ircpipe.EngineSupervisor) == nil
-
     assert is_pid(Process.whereis(IrcpipeWeb.Supervisor))
-    assert direct_child_pid(Ircpipe.Supervisor, IrcpipeWeb.Supervisor) == nil
-    assert Supervisor.which_children(Ircpipe.Supervisor) == []
+    assert Process.whereis(Ircpipe.Supervisor) == nil
+
+    started_apps = Application.started_applications() |> Enum.map(&elem(&1, 0))
+
+    assert :ircpipe_core in started_apps
+    assert :ircpipe_engine in started_apps
+    assert :ircpipe_web in started_apps
+    refute :ircpipe in started_apps
   end
 
   test "shared infrastructure starts once under the core branch" do

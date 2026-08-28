@@ -38,14 +38,14 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: assets/package-lock.json
+          cache-dependency-path: apps/ircpipe_web/assets/package-lock.json
 
       - name: Install dependencies
         run: |
           mix local.hex --force
           mix local.rebar --force
           mix deps.get
-          npm ci --prefix assets
+          npm ci --prefix apps/ircpipe_web/assets
 
       - name: Prevent boundary baseline expansion
         if: github.event_name == 'pull_request'

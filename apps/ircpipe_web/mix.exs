@@ -30,7 +30,7 @@ defmodule IrcpipeWeb.MixProject do
 
   defp deps do
     [
-      {:ircpipe_core, path: "../ircpipe_core", env: Mix.env()},
+      {:ircpipe_core, in_umbrella: true},
       {:phoenix, "~> 1.8.7"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
