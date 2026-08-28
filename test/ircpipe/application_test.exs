@@ -55,6 +55,9 @@ defmodule Ircpipe.ApplicationTest do
 
     assert direct_child_pid(Ircpipe.EngineSupervisor, Ircpipe.Irc.SessionSystemSupervisor) ==
              Process.whereis(Ircpipe.Irc.SessionSystemSupervisor)
+
+    assert direct_child_pid(Ircpipe.EngineSupervisor, Ircpipe.Irc.HostedServerSupervisor) ==
+             Process.whereis(Ircpipe.Irc.HostedServerSupervisor)
   end
 
   test "web runtime and its Oban instance are direct web children" do
