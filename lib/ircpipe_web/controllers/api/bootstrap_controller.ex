@@ -2,17 +2,17 @@ defmodule IrcpipeWeb.Api.BootstrapController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat.ConnectionSnapshot
-  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.MessageHistory
+  alias Ircpipe.Chat.Presence
   alias Ircpipe.Chat.ServerConnection
   alias Ircpipe.Chat.Topics
+  alias Ircpipe.EngineClient
   alias Ircpipe.Irc.Commands
-  alias Ircpipe.Irc.SessionLocator
-  alias Ircpipe.Irc.SessionSupervisor
   alias Ircpipe.Notifications.PushRegistrations
   alias Ircpipe.Realtime.Event
   alias Ircpipe.Repo
   alias IrcpipeWeb.Api.BootstrapBuffers
+  alias IrcpipeWeb.EngineStatuses
 
   @message_limit 150
 
@@ -39,9 +39,15 @@ defmodule IrcpipeWeb.Api.BootstrapController do
 
     connections
     |> Enum.filter(&ServerConnection.connect_desired?/1)
-    |> Enum.each(&start_session/1)
+    |> Enum.each(&start_session(user, &1))
 
-    buffers = Enum.flat_map(connections, &BootstrapBuffers.for_connection/1)
+    statuses = EngineStatuses.fetch(user, connections)
+
+    buffers =
+      Enum.flat_map(connections, fn connection ->
+        BootstrapBuffers.for_connection(connection, EngineStatuses.get(statuses, connection))
+      end)
+
     active_buffer_id = BootstrapBuffers.active_id(buffers)
 
     payload = %{
@@ -52,7 +58,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
           get_session(conn, :user_token)
         ),
       server_time: DateTime.utc_now(:second),
-      connections: Enum.map(connections, &connection_json/1),
+      connections: Enum.map(connections, &connection_json(&1, EngineStatuses.get(statuses, &1))),
       buffers: buffers,
       direct_message_tombstones: snapshot.direct_message_tombstones,
       active_buffer_id: active_buffer_id,
@@ -74,7 +80,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     }
   end
 
-  defp connection_json(connection) do
+  defp connection_json(connection, status) do
     %{
       id: connection.id,
       name: connection.name,
@@ -82,7 +88,7 @@ defmodule IrcpipeWeb.Api.BootstrapController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: SessionLocator.status(connection),
+      status: status,
       unread_count: connection.unread_count,
       mention_count: connection.mention_count,
       mention_notifications_enabled: connection.mention_notifications_enabled,
@@ -167,10 +173,8 @@ defmodule IrcpipeWeb.Api.BootstrapController do
     }
   end
 
-  defp start_session(connection) do
-    SessionSupervisor.start_session(connection)
+  defp start_session(user, connection) do
+    EngineClient.ensure_connection(user.id, connection.id, intent: "restore")
     :ok
-  catch
-    :exit, _reason -> :ok
   end
 end

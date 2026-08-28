@@ -3,7 +3,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
 
   alias Ircpipe.Chat.Connections
   alias Ircpipe.Discovery
-  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
+  alias Ircpipe.EngineClient
 
   def index(conn, _params) do
     server_channels = Discovery.list_popular_server_channels()
@@ -27,15 +27,14 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
              "port" => network.port,
              "use_tls" => network.use_tls
            }),
-         {:ok, connection} <- Connections.request_connect(user, connection.id),
-         {:ok, _pid} <- SessionSupervisor.start_session(connection),
-         {:ok, membership, status} <- request_join(connection, user, server_channel.name) do
+         {:ok, %{membership: membership, status: status, connection_status: connection_status}} <-
+           EngineClient.join_channel(user.id, connection.id, server_channel.name) do
       conn
       |> maybe_accept_queued(status)
       |> json(%{
-        connection: connection_json(connection),
-        buffer: buffer_json(connection, membership, server_channel.topic),
-        status: Atom.to_string(status)
+        connection: connection_json(connection, connection_status),
+        buffer: buffer_json(connection, membership, server_channel.topic, connection_status),
+        status: status
       })
     else
       {:error, reason} ->
@@ -65,7 +64,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
     }
   end
 
-  defp connection_json(connection) do
+  defp connection_json(connection, status) do
     %{
       id: connection.id,
       name: connection.name,
@@ -73,13 +72,13 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: SessionLocator.status(connection),
+      status: status,
       mention_notifications_enabled: connection.mention_notifications_enabled,
       notification_preference_revision: connection.notification_preference_revision
     }
   end
 
-  defp buffer_json(connection, membership, topic) do
+  defp buffer_json(connection, membership, topic, status) do
     %{
       buffer_id: "channel:#{membership.id}",
       buffer_type: "channel",
@@ -87,7 +86,7 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
       channel_membership_id: membership.id,
       title: membership.channel,
       subtitle: topic || "on #{connection.host}",
-      status: SessionLocator.status(connection),
+      status: status,
       unread_count: membership.unread_count,
       mention_count: membership.mention_count,
       mention_notifications_enabled: membership.mention_notifications_enabled,
@@ -95,14 +94,8 @@ defmodule IrcpipeWeb.Api.DiscoveryController do
     }
   end
 
-  defp request_join(connection, user, channel) do
-    Session.request_join(connection, user, channel)
-  catch
-    :exit, _reason -> {:error, :not_connected}
-  end
-
-  defp maybe_accept_queued(conn, :queued), do: put_status(conn, :accepted)
-  defp maybe_accept_queued(conn, :sent), do: conn
+  defp maybe_accept_queued(conn, "queued"), do: put_status(conn, :accepted)
+  defp maybe_accept_queued(conn, "sent"), do: conn
 
   defp error_reason(%{code: code}), do: code
   defp error_reason(reason) when is_atom(reason), do: Atom.to_string(reason)

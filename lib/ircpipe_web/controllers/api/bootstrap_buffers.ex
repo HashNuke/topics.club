@@ -1,9 +1,7 @@
 defmodule IrcpipeWeb.Api.BootstrapBuffers do
   @moduledoc false
 
-  alias Ircpipe.Irc.SessionLocator
-
-  def for_connection(connection) do
+  def for_connection(connection, status) do
     [
       %{
         buffer_id: server_id(connection),
@@ -12,14 +10,14 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
         channel_membership_id: nil,
         title: connection.host,
         subtitle: connection.name,
-        status: SessionLocator.status(connection),
+        status: status,
         unread_count: connection.unread_count,
         mention_count: connection.mention_count,
         mention_notifications_enabled: connection.mention_notifications_enabled,
         notification_preference_revision: connection.notification_preference_revision
       }
-      | Enum.map(connection.direct_message_threads, &direct_message(&1, connection)) ++
-          Enum.map(visible_memberships(connection), &channel(&1, connection))
+      | Enum.map(connection.direct_message_threads, &direct_message(&1, connection, status)) ++
+          Enum.map(visible_memberships(connection), &channel(&1, connection, status))
     ]
   end
 
@@ -40,7 +38,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
     Enum.filter(connection.channel_memberships, &(&1.status in ["pending", "joined"]))
   end
 
-  defp direct_message(thread, connection) do
+  defp direct_message(thread, connection, status) do
     %{
       buffer_id: direct_message_id(thread),
       buffer_type: "direct_message",
@@ -50,7 +48,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
       direct_message_revision: thread.mutation_revision,
       title: thread.peer_nick,
       subtitle: "on #{connection.host}",
-      status: SessionLocator.status(connection),
+      status: status,
       unread_count: thread.unread_count,
       mention_count: 0,
       peer_nick: thread.peer_nick,
@@ -61,7 +59,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
     }
   end
 
-  defp channel(membership, connection) do
+  defp channel(membership, connection, status) do
     %{
       buffer_id: channel_id(membership),
       buffer_type: "channel",
@@ -69,7 +67,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffers do
       channel_membership_id: membership.id,
       title: membership.channel,
       subtitle: "on #{connection.host}",
-      status: SessionLocator.status(connection),
+      status: status,
       membership_status: membership.status,
       unread_count: membership.unread_count,
       mention_count: membership.mention_count,

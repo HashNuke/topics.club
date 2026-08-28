@@ -2,25 +2,30 @@ defmodule IrcpipeWeb.Api.ConnectionController do
   use IrcpipeWeb, :controller
 
   alias Ircpipe.Chat.Connections
-  alias Ircpipe.Irc.SessionLocator
-  alias Ircpipe.Irc.SessionSupervisor
+  alias Ircpipe.EngineClient
   alias Ircpipe.Realtime.Event
+  alias IrcpipeWeb.EngineStatuses
 
   def index(conn, _params) do
     user = conn.assigns.current_scope.user
-    json(conn, %{connections: Enum.map(Connections.list(user), &connection_json/1)})
+    connections = Connections.list(user)
+    statuses = EngineStatuses.fetch(user, connections)
+
+    json(conn, %{
+      connections: Enum.map(connections, &connection_json(&1, EngineStatuses.get(statuses, &1)))
+    })
   end
 
   def create(conn, %{"connection" => attrs}) do
     user = conn.assigns.current_scope.user
 
     with {:ok, connection} <- Connections.create_or_get(user, attrs),
-         {:ok, connection} <- Connections.request_connect(user, connection.id) do
-      SessionSupervisor.start_session(connection)
-
+         {:ok, %{status: status}} <- EngineClient.ensure_connection(user.id, connection.id) do
       conn
       |> put_status(if(connection.inserted_at == connection.updated_at, do: :created, else: :ok))
-      |> json(%{connection: connection_json(%{connection | channel_memberships: []})})
+      |> json(%{
+        connection: connection_json(%{connection | channel_memberships: []}, status)
+      })
     end
   end
 
@@ -28,25 +33,26 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     user = conn.assigns.current_scope.user
 
     with {:ok, connection} <- Connections.update(user, id, attrs) do
-      json(conn, %{connection: connection_json(connection)})
+      json(conn, %{connection: connection_json(connection, EngineStatuses.one(user, connection))})
     end
   end
 
   def connect(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
+    connection = Connections.get!(user, id)
 
-    with {:ok, connection} <- Connections.request_connect(user, id),
-         {:ok, _pid} <- SessionSupervisor.start_session(connection) do
-      json(conn, %{connection: connection_json(connection)})
+    with {:ok, %{status: status}} <- EngineClient.ensure_connection(user.id, connection.id) do
+      json(conn, %{connection: connection_json(connection, status)})
     end
   end
 
   def disconnect(conn, %{"id" => id}) do
     user = conn.assigns.current_scope.user
+    connection = Connections.get!(user, id)
 
-    with {:ok, connection} <- Connections.request_disconnect(user, id),
-         :ok <- SessionSupervisor.stop_session(connection) do
-      json(conn, %{connection: connection_json(connection)})
+    with {:ok, %{status: status}} <-
+           EngineClient.disconnect_connection(user.id, connection.id) do
+      json(conn, %{connection: connection_json(connection, status)})
     end
   end
 
@@ -59,7 +65,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     json(conn, %{deleted: Event.server_deleted(connection)})
   end
 
-  defp connection_json(connection) do
+  defp connection_json(connection, status) do
     %{
       id: connection.id,
       name: connection.name,
@@ -67,7 +73,7 @@ defmodule IrcpipeWeb.Api.ConnectionController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: SessionLocator.status(connection),
+      status: status,
       mention_notifications_enabled: connection.mention_notifications_enabled,
       notification_preference_revision: connection.notification_preference_revision,
       channels:

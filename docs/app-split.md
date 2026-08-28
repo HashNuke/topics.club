@@ -694,6 +694,8 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 #### Route all operations through `EngineClient`
 
+Checkpoint 4 is in progress. REST connection, channel, topic, discovery, and bootstrap session operations now use `EngineClient`; their live-status formatting uses the batch status operation. This first routing slice reduced the temporary dependency budget from 36 to 23. Phoenix Channel handlers and the web-owned presence read remain to be migrated before the checkpoint is complete.
+
 - [ ] Route batch live-status lookup through the client.
 - [ ] Route ensure/start connection through the client.
 - [ ] Route disconnect/stop connection through the client.
@@ -705,7 +707,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 - [ ] Route validated command intents through the client.
 - [ ] Route live server channel-list requests through the client.
 - [ ] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
-- [ ] Remove session locator and registry lookups from REST payload formatting.
+- [x] Remove session locator and registry lookups from REST payload formatting.
 - [ ] Remove session locator and registry lookups from Channel payload formatting.
 - [ ] Refactor deletion and reconciliation workers so they do not assume a local session registry outside the engine role.
 - [ ] Refactor any remaining context functions that combine database writes with direct local process actions.

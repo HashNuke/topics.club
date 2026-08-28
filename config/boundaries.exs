@@ -148,7 +148,7 @@
       remove_in: "checkpoint 5: all core/web and engine/web reverse edges removed"
     }
   ],
-  temporary_dependency_budget: 36,
+  temporary_dependency_budget: 23,
   temporary_dependencies: [
     %{
       from: "lib/ircpipe/chat/buffer_events.ex",
@@ -327,115 +327,11 @@
       remove_in: "checkpoint 4: web EngineClient routing"
     },
     %{
-      from: "lib/ircpipe_web/controllers/api/bootstrap_buffers.ex",
-      to: "lib/ircpipe/irc/session_locator.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Bootstrap status lookup has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
       from: "lib/ircpipe_web/controllers/api/bootstrap_controller.ex",
       to: "lib/ircpipe/chat/presence.ex",
       label: "runtime",
       owner: :web,
       reason: "Web bootstrap still invokes engine-owned presence reconciliation",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/bootstrap_controller.ex",
-      to: "lib/ircpipe/irc/session_locator.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Bootstrap status lookup has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/bootstrap_controller.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Bootstrap connection startup has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/channel_controller.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Channel operations have not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/channel_controller.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Channel connection startup has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/connection_controller.ex",
-      to: "lib/ircpipe/irc/session_locator.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Connection status lookup has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/connection_controller.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Connection lifecycle has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/discovery_controller.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Discovery join operations have not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/discovery_controller.ex",
-      to: "lib/ircpipe/irc/session_locator.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Discovery connection status has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/discovery_controller.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Discovery connection startup has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/topic_controller.ex",
-      to: "lib/ircpipe/irc/session.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Topic join operations have not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/topic_controller.ex",
-      to: "lib/ircpipe/irc/session_locator.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Topic connection status has not moved behind EngineClient",
-      remove_in: "checkpoint 4: web EngineClient routing"
-    },
-    %{
-      from: "lib/ircpipe_web/controllers/api/topic_controller.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "Topic connection startup has not moved behind EngineClient",
       remove_in: "checkpoint 4: web EngineClient routing"
     }
   ]

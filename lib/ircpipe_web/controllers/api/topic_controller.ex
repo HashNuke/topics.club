@@ -1,8 +1,8 @@
 defmodule IrcpipeWeb.Api.TopicController do
   use IrcpipeWeb, :controller
 
-  alias Ircpipe.Chat.{Connections, Topics}
-  alias Ircpipe.Irc.{Session, SessionLocator, SessionSupervisor}
+  alias Ircpipe.Chat.Topics
+  alias Ircpipe.EngineClient
 
   def index(conn, _params) do
     json(conn, %{topics: Enum.map(Topics.list(), &topic_json/1)})
@@ -12,18 +12,16 @@ defmodule IrcpipeWeb.Api.TopicController do
     user = conn.assigns.current_scope.user
     topic = Topics.get!(id)
 
-    with {:ok, %{connection: connection, topic: topic}} <- Topics.join(user, topic),
-         {:ok, connection} <- Connections.request_connect(user, connection.id),
-         :ok <- start_session(connection) do
-      case try_join(connection, user, topic.channel) do
-        {:ok, membership, status} ->
+    with {:ok, %{connection: connection, topic: topic}} <- Topics.join(user, topic) do
+      case EngineClient.join_channel(user.id, connection.id, topic.channel) do
+        {:ok, %{membership: membership, status: status, connection_status: connection_status}} ->
           conn
           |> maybe_accept_queued(status)
           |> json(%{
             topic: topic_json(topic),
-            connection: connection_json(connection),
-            buffer: channel_buffer_json(connection, membership),
-            status: Atom.to_string(status)
+            connection: connection_json(connection, connection_status),
+            buffer: channel_buffer_json(connection, membership, connection_status),
+            status: status
           })
 
         {:error, reason} ->
@@ -51,7 +49,7 @@ defmodule IrcpipeWeb.Api.TopicController do
     }
   end
 
-  defp connection_json(connection) do
+  defp connection_json(connection, status) do
     %{
       id: connection.id,
       name: connection.name,
@@ -59,13 +57,13 @@ defmodule IrcpipeWeb.Api.TopicController do
       port: connection.port,
       use_tls: connection.use_tls,
       nickname: connection.nickname,
-      status: SessionLocator.status(connection),
+      status: status,
       mention_notifications_enabled: connection.mention_notifications_enabled,
       notification_preference_revision: connection.notification_preference_revision
     }
   end
 
-  defp channel_buffer_json(connection, membership) do
+  defp channel_buffer_json(connection, membership, status) do
     %{
       buffer_id: "channel:#{membership.id}",
       buffer_type: "channel",
@@ -73,7 +71,7 @@ defmodule IrcpipeWeb.Api.TopicController do
       channel_membership_id: membership.id,
       title: membership.channel,
       subtitle: "on #{connection.host}",
-      status: SessionLocator.status(connection),
+      status: status,
       unread_count: membership.unread_count,
       mention_count: membership.mention_count,
       mention_notifications_enabled: membership.mention_notifications_enabled,
@@ -81,22 +79,8 @@ defmodule IrcpipeWeb.Api.TopicController do
     }
   end
 
-  defp try_join(connection, user, channel) do
-    Session.request_join(connection, user, channel)
-  catch
-    :exit, _ -> {:error, :not_connected}
-  end
-
-  defp start_session(connection) do
-    case SessionSupervisor.start_session(connection) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp maybe_accept_queued(conn, :queued), do: put_status(conn, :accepted)
-  defp maybe_accept_queued(conn, :sent), do: conn
+  defp maybe_accept_queued(conn, "queued"), do: put_status(conn, :accepted)
+  defp maybe_accept_queued(conn, "sent"), do: conn
 
   defp join_status(:not_connected), do: :service_unavailable
   defp join_status(_reason), do: :unprocessable_entity

@@ -44,7 +44,7 @@ defmodule IrcpipeWeb.Api.BootstrapBuffersTest do
     }
 
     assert [server, direct_message, joined, pending] =
-             BootstrapBuffers.for_connection(connection)
+             BootstrapBuffers.for_connection(connection, "disconnected")
 
     assert server == %{
              buffer_id: "server:10",

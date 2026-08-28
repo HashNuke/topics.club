@@ -122,7 +122,8 @@ defmodule Ircpipe.Engine.API do
       {:ok,
        %{
          membership: Serialization.membership(membership),
-         status: Atom.to_string(status)
+         status: Atom.to_string(status),
+         connection_status: SessionLocator.status(connection)
        }}
     end
   end
