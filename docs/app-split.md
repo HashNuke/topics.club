@@ -171,11 +171,9 @@ This rule requires deliberate untangling before any file move. In particular:
 
 The monolith should expose three logical supervisors—core, engine, and web—under the existing root application. Combined mode starts all three. Their child lists, registered names, configuration, and job ownership must already match the future child applications before the umbrella conversion begins.
 
-Boundary enforcement must be automated. Local precommit fails when web code references engine implementation modules, core code references engine or web modules, engine code references web modules, or an unapproved dependency cycle is introduced. The same gate must be added to CI before the workstream exit gate can close. The check operates on compiler/xref information where possible, with a narrow explicit allowlist for temporary migration edges. Every temporary edge needs an owner and removal task.
+Boundary enforcement was automated while the code still lived in a monolith. A temporary xref manifest and shrinking allowlist prevented new reverse dependencies while call sites were moved behind the engine and event contracts.
 
-The authoritative ownership and transition manifest is `config/boundaries.exs`. It tracks compiled production files, all 29 migration modules, and test-support files under the four deployable logical components plus `tooling` for root Mix tasks. The temporary `assembly` source owner disappeared with the empty root OTP application during the umbrella conversion; combined assembly is now release metadata rather than production code. Tooling is not an OTP application and is excluded from deployable-component cycle analysis. Migration files receive an owner, but Mix does not compile them into the application xref graph; their internal references therefore require migration tests and review rather than xref enforcement.
-
-Run `mix topics_club.check_boundaries` to validate the manifest against Mix's direct xref graph. The checker fails on unowned or multiply owned files, unknown components, cycles in the permanent allowed-dependency policy, actual deployable cycles outside the explicit transition-cycle baseline, new forbidden file edges, dependency-label escalation, malformed or duplicate exceptions, stale exceptions or transition cycles, and compiled production files missing from xref. `mix precommit` runs this check immediately after warning-free compilation.
+That migration-only checker was retired after the umbrella extraction completed. Physical ownership under `apps/topics_club_core`, `apps/topics_club_engine`, and `apps/topics_club_gateway`, together with each child application's declared dependencies, now enforces the one-way graph directly: gateway and engine depend on core, while neither child depends on the other. Independent child compilation, release-content inspection, and integration tests cover the remaining runtime-resolved adapters.
 
 The initial graph already has one temporary strongly connected component containing core, engine, and web because the monolith has allowlisted reverse edges in all three components. The checker records that component set explicitly and rejects a different or additional deployable strongly connected component. This baseline must disappear when the reverse edges are removed; it is not a permitted final umbrella topology.
 
@@ -191,7 +189,7 @@ Every exception records its current xref label, responsible logical owner, reaso
 
 ### Current monolith inventory
 
-This inventory was refreshed at the workstream 1 exit audit on 2026-08-28. `config/boundaries.exs` is the file-level source of truth; the tables below record runtime behavior that xref cannot express. There are currently no temporary dependency exceptions and no deployable-component cycles.
+This inventory was refreshed at the workstream 1 exit audit on 2026-08-28. The child application directories are now the file-level source of truth. The tables below record runtime behavior that the Mix dependency graph cannot express. There are no temporary dependency exceptions or child-application cycles.
 
 #### Outbound IRC operations and local-process assumptions
 
@@ -241,7 +239,7 @@ Authentication revocation uses the separate Phoenix socket topic `user_socket:se
 
 #### Data and behavior ownership
 
-The ownership manifest deliberately assigns files rather than relying on the mixed `TopicsClub.Chat` namespace:
+Physical placement in the umbrella deliberately assigns files rather than relying on the mixed `TopicsClub.Chat` namespace:
 
 | Owner | Schemas and behavior modules |
 | --- | --- |
@@ -251,7 +249,7 @@ The ownership manifest deliberately assigns files rather than relying on the mix
 | Web | Accounts/session behavior, connection endpoint/snapshots and browser queries, read state, topics, notifications/Web Push, discovery, realtime serializers, RPC adapter, and all `TopicsClubWeb` modules |
 | Tooling | Root Mix tasks, release metadata, and the non-deployable root integration-test project |
 
-The less obvious web-owned schemas are `UserToken`, `Topic`, discovery `Network`/`ServerChannel`, `PushSubscription`, and `PushSubscriptionRateLimit`. The authoritative exact path list remains `config/boundaries.exs`, which fails on an unowned or multiply owned production, migration, or test-support file.
+The less obvious web-owned schemas are `UserToken`, `Topic`, discovery `Network`/`ServerChannel`, `PushSubscription`, and `PushSubscriptionRateLimit`. Their source and focused tests live under `apps/topics_club_gateway`; shared schemas and canonical migrations live under `apps/topics_club_core`.
 
 #### External dependency ownership
 
@@ -325,7 +323,7 @@ Extraction preserves module names and relative paths. No module rename is bundle
 
 | Current ownership/path | Future source destination | Future focused-test destination |
 | --- | --- | --- |
-| Core and shared entries in `config/boundaries.exs` | `apps/topics_club_core/lib/...` | `apps/topics_club_core/test/...` |
+| Core and shared modules | `apps/topics_club_core/lib/...` | `apps/topics_club_core/test/...` |
 | Engine entries, including selected `lib/topics_club/chat` files | `apps/topics_club_engine/lib/...` | `apps/topics_club_engine/test/...` |
 | Web entries in both `lib/topics_club` and `lib/topics_club_web` plus assets | `apps/topics_club_gateway/lib/...`, `apps/topics_club_gateway/assets/...` | `apps/topics_club_gateway/test/...` |
 | Root `mix.exs` release metadata | Umbrella combined-release assembly; no production module | Root integration tests |
@@ -848,6 +846,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 - [x] Keep the migration allowlist explicit, file-exact, label-sensitive, capped at the initial 36 edges, and free of namespace-wide exceptions.
 - [x] Add the boundary gate to CI and enforce that exception, budget, and transition-cycle baseline changes only shrink once the base branch contains the manifest; the one-time initial-adoption PR runs the complete head policy because no base manifest exists to compare.
 - [x] Run the boundary check from `mix precommit`.
+- [x] Retire the temporary manifest, checker, tests, precommit hook, and CI baseline gate after the umbrella dependency graph replaces them.
 
 #### Versioned request and reply contracts
 
@@ -952,14 +951,14 @@ Checkpoint 6 completes the monolith exit audit and passed its GPT-5.6 Sol xhigh 
 
 - [x] Every production module and runtime child has exactly one logical owner.
 - [x] The temporary dependency-edge allowlist is empty.
-- [x] Automated boundary checks pass with the intended core <- web and core <- engine dependency direction.
+- [x] Core, engine, and gateway compile with the intended one-way child-application dependency graph.
 - [x] No module under `TopicsClubWeb` calls an IRC session, locator, registry, or supervisor directly.
 - [x] No core module calls an engine process, Registry, supervisor, or adapter implementation directly except through the configured `EngineClient` adapter contract.
 - [x] No engine module references `TopicsClubWeb`.
 - [x] No web-owned worker assumes an IRC process is local.
 - [x] Every engine operation uses the versioned request path in combined mode.
 - [x] The root application starts distinct logical core, engine, and web supervisor branches.
-- [x] The ownership manifest maps cleanly to future `apps/topics_club_core`, `apps/topics_club_engine`, and `apps/topics_club_gateway` destinations.
+- [x] Logical ownership maps cleanly to `apps/topics_club_core`, `apps/topics_club_engine`, and `apps/topics_club_gateway`.
 - [x] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
 - [x] Ordinary messages still commit before broadcast and do not pass through Oban.
 - [x] The browser protocol remains compatible.
@@ -1065,7 +1064,7 @@ The repository root is now a true umbrella with only `topics_club_core`, `topics
 - [x] The combined supervision tree starts shared infrastructure once.
 - [x] The combined application behaves the same as before the umbrella conversion.
 - [x] Root and per-component test counts match the recorded pre-umbrella expectations.
-- [x] The boundary checker passes without new exceptions or child-application dependency cycles.
+- [x] The child-application dependency graph has no reverse dependency or cycle.
 - [x] Root `mix precommit` passes.
 
 ### Workstream 3: Build release and container artifacts
