@@ -1,13 +1,20 @@
+import hashlib
 import shlex
 from pathlib import Path
 
 from pyinfra import host
-from pyinfra.facts.files import File
+from pyinfra.facts.files import File, Sha256File
 from pyinfra.facts.server import Command
 from pyinfra.operations import apt, files, server, systemd
 
 
 DEPLOY_DIR = Path(__file__).resolve().parent
+SYSTEMD_UNITS = [
+    "topics-club-gateway.service",
+    "topics-club-engine.service",
+    "topics-club-migrate.service",
+    "topics-club-engine-health.service",
+]
 
 apt.packages(
     name="Install the TopicsClub host runtime and container build tools",
@@ -166,12 +173,13 @@ for role in ("gateway", "engine"):
         create_remote_dir=False,
     )
 
-for unit in [
-    "topics-club-gateway.service",
-    "topics-club-engine.service",
-    "topics-club-migrate.service",
-    "topics-club-engine-health.service",
-]:
+systemd_units_changed = any(
+    host.get_fact(Sha256File, path=f"/etc/systemd/system/{unit}")
+    != hashlib.sha256((DEPLOY_DIR / unit).read_bytes()).hexdigest()
+    for unit in SYSTEMD_UNITS
+)
+
+for unit in SYSTEMD_UNITS:
     files.put(
         name=f"Install {unit}",
         src=str(DEPLOY_DIR / unit),
@@ -205,7 +213,7 @@ systemd.service(
     service="topics-club-gateway.service",
     running=None,
     enabled=True,
-    daemon_reload=True,
+    daemon_reload=systemd_units_changed,
 )
 
 systemd.service(
