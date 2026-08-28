@@ -379,7 +379,7 @@ The checked-in version 1 contract currently defines these operations and expecta
 | Connection info | 5 seconds | Safe |
 | Ensure/start connection | 15 seconds | Safe |
 | Disconnect connection | 10 seconds | Safe |
-| Quiesce for deletion | 10 seconds | Safe |
+| Delete connection | 30 seconds | Unsafe |
 | Request channel join | 15 seconds | Safe |
 | Part channel | 10 seconds | Unsafe |
 | Send channel message/action | 10 seconds | Unsafe |
@@ -401,7 +401,7 @@ The first version of the engine API must cover every current direct web-to-engin
 - Current connection info needed by shared IRC validation
 - Ensure/start connection
 - Disconnect connection
-- Quiesce connection for deletion
+- Delete connection, including engine-owned quiescence
 - Request channel join
 - Part channel
 - Send channel message or action
@@ -707,7 +707,7 @@ The stable event slice now emits versioned plain-map facts after commit for mess
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
 - [x] Route disconnect/stop connection through the client.
-- [x] Route connection deletion quiescence through the client.
+- [x] Route connection deletion through the client while keeping quiescence internal to deletion orchestration.
 - [x] Route channel join and topic join through the client.
 - [x] Route channel part through the client.
 - [x] Route channel messages and actions through the client.

@@ -109,12 +109,6 @@ defmodule Ircpipe.Engine.API do
     end
   end
 
-  defp execute(:quiesce_connection, _request, _user, connection) do
-    with :ok <- safe_session_call(fn -> SessionSupervisor.stop_for_deletion(connection) end) do
-      {:ok, %{quiesced: true}}
-    end
-  end
-
   defp execute(:delete_connection, _request, user, connection) do
     with {:ok, _deleted} <- ConnectionDeletion.delete(user, connection.id) do
       {:ok, %{connection_id: connection.id, deleted: true}}
@@ -280,9 +274,8 @@ defmodule Ircpipe.Engine.API do
     end
   end
 
-  defp ensure_available(%ServerConnection{deleting: true}, operation)
-       when operation in [:delete_connection, :quiesce_connection],
-       do: :ok
+  defp ensure_available(%ServerConnection{deleting: true}, :delete_connection),
+    do: :ok
 
   defp ensure_available(%ServerConnection{deleting: true}, _operation),
     do: {:error, :connection_deleting}
