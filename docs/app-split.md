@@ -33,7 +33,7 @@ Sizing used by this document:
 - [x] The repository is an umbrella containing core, engine, and web OTP applications.
 - [x] The three release artifacts build independently.
 - [x] Split web and engine nodes communicate successfully in an integration environment.
-- [ ] First-party bare-host deployment and rollback automation is complete.
+- [x] First-party bare-host deployment and rollback automation is complete.
 
 ### Workstream summary
 
@@ -351,7 +351,7 @@ The mechanical extraction ultimately classified tests by whether their setup can
 
 Every current JSON route in the router has a controller test under `test/topics_club_web/controllers/api`; the bootstrap test freezes its complete top-level payload and the focused controller tests freeze each route's success/error shapes. `UserChannelTest` covers every inbound Channel command and every public pushed event. `RealtimeHandlerTest` now freezes the exact before/after translation for every engine realtime fact, every message destination, and all three message event types. React tests cover bootstrap parsing, reconnect cursors, missed history, command repair, and malformed recovery data.
 
-The current deployment artifacts remain intentionally separate from the future first-party split deployment:
+The deployment artifacts remain intentionally separate because they serve different operating models:
 
 | Artifact | Current behavior |
 | --- | --- |
@@ -359,7 +359,7 @@ The current deployment artifacts remain intentionally separate from the future f
 | `docker-compose.prod.yml` | Combined app plus PostgreSQL sidecar for a personal VPS; app runs migrations once before server startup |
 | `docker-compose.yml` | Development PostgreSQL only |
 | `rel/web/bin/migrate` and `TopicsClub.Release` | Explicit release migration entry point for web-capable releases |
-| First-party topics.club deployment | Pull exact commit on destination, build bare releases there, migrate once, atomically select versioned release, and run systemd units; automation remains workstream 6 |
+| First-party topics.club deployment | Pull an exact commit on the destination, build bare releases there, migrate once, atomically select versioned releases, and run separate systemd units through `bin/apptools` |
 
 The engine protocol compatibility window is web N with engine N-1. Version 1 request/reply and event envelopes remain accepted for at least one engine release after a compatible web release ships. An incompatible field or semantic change requires a new protocol version, additive dual-version handling, an N-1 integration test, and deployment of the accepting side before the producing side.
 
@@ -758,7 +758,10 @@ The topics.club production deployment uses bare OTP releases built from source o
 - Engine deployments are explicit maintenance operations and reconnect IRC sessions.
 - Rollback repoints the affected symlink to a compatible previous release and restarts that service.
 
-The two releases use stable long node names, a shared high-entropy Erlang cookie, static engine-node configuration, fixed distribution ports, and a private network path. Public HTTP is served only by the web release. Hosted IRC ports are served only by the engine release when enabled.
+The two releases use stable short node names on `localhost`, a shared high-entropy Erlang cookie,
+static engine-node configuration, fixed loopback distribution ports, and one host. Public HTTP is
+served only by the web release. Hosted IRC ports are served only by the engine release when
+enabled.
 
 Production secrets are destination-host state, not repository artifacts. The public repository
 contains only examples listing required variable names and placeholder values. It must never
@@ -777,7 +780,12 @@ transfer, overwrite, print, or otherwise manage their secret contents. Initial v
 secret rotation are performed manually over SSH or through an operator-selected external secret
 interface.
 
-The split gateway listens for Erlang distribution on TCP 4370 and the split engine on TCP 4371; EPMD uses TCP 4369. Combined releases default to `RELEASE_DISTRIBUTION=none`. Split release startup requires explicit long `RELEASE_NODE` names and the same deployment-specific `RELEASE_COOKIE`. The gateway also requires `TOPICS_CLUB_ENGINE_NODE` and reconnects to that static node with capped exponential backoff without blocking web startup.
+The split gateway listens for Erlang distribution on loopback TCP 4370 and the split engine on
+loopback TCP 4371; EPMD uses loopback TCP 4369. Combined releases default to
+`RELEASE_DISTRIBUTION=none`. Split release startup requires explicit short `RELEASE_NODE` names
+and the same deployment-specific `RELEASE_COOKIE`. The gateway also requires
+`TOPICS_CLUB_ENGINE_NODE` and reconnects to that static node with capped exponential backoff
+without blocking web startup.
 
 ### Optional split Compose harness
 
@@ -789,13 +797,10 @@ Distribution ports and EPMD must not be exposed publicly. A shared Erlang cookie
 
 ### Split distribution security and operations
 
-The initial first-party split topology is restricted to one host or a trusted private network.
-Within that boundary, TLS distribution is not required: the cookie, private routing, and firewall
-are the controls. If traffic must cross an untrusted network, the supported answer is to add a
-private tunnel/overlay or configure and verify TLS distribution before deployment; exposing raw
-Erlang distribution to the public Internet is never supported. The fixed port settings select
-ports but do not themselves bind a private interface, so host/network firewalling remains part of
-workstream 6.
+The initial first-party split topology is restricted to one host. TLS distribution is not needed
+inside that boundary: EPMD and both distribution listeners bind to loopback, and the shared cookie
+provides authentication. A future multi-host design would need a private tunnel/overlay or verified
+TLS distribution; exposing raw Erlang distribution to the public Internet is never supported.
 
 Generate one deployment-specific cookie with `openssl rand -hex 32`. Store the resulting value as
 `RELEASE_COOKIE` in both role-specific environment files outside the checkout, restrict those
@@ -817,9 +822,9 @@ ingestion failures; choosing and configuring that backend remains an explicit de
 Combined mode works with the existing required environment variables. Split mode adds the finalized explicit cluster configuration:
 
 ```text
-RELEASE_NODE=topics_club_gateway@web.internal
+RELEASE_NODE=topics_club_gateway@localhost
 RELEASE_COOKIE=<high-entropy-cookie>
-TOPICS_CLUB_ENGINE_NODE=topics_club_engine@engine.internal
+TOPICS_CLUB_ENGINE_NODE=topics_club_engine@localhost
 ```
 
 The engine uses its own `RELEASE_NODE` and the same cookie. The two server-only environment files are maintained independently; the web release must not receive engine-only secrets unless it genuinely needs them.
@@ -1220,17 +1225,17 @@ an application lifecycle test stops and restarts the complete engine application
 prove normalized failure, process isolation, desired-session restoration, paused-session
 exclusion, and channel autojoin without turning the test harness into a deployment framework.
 
-This checkpoint proves the runtime mechanics, not a safe multi-engine deployment. Split mode is
-not a supported production topology until workstream 6 supplies the one-engine service layout and
-deployment checks. The releases intentionally contain no substitute lease or scheduler.
+This checkpoint proves the runtime mechanics, and workstream 6 now supplies the supported
+single-host, one-engine service layout and deployment checks. The releases intentionally contain
+no substitute lease or scheduler and still do not support a second engine host.
 
 #### Distribution and network configuration
 
 - [x] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
-- [x] Require stable long node names resolvable on the private network.
-- [ ] Generate and store a high-entropy deployment-specific cookie.
+- [x] Require stable short node names on the single host.
+- [x] Generate and store a high-entropy deployment-specific cookie outside the repository.
 - [x] Configure fixed distribution ports for firewalling: gateway 4370 and engine 4371.
-- [ ] Keep EPMD and distribution ports off public interfaces.
+- [x] Keep EPMD and distribution ports off public interfaces.
 - [x] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
 - [x] Add static web-to-engine connection attempts during web startup.
 - [x] Add bounded reconnect/backoff behavior after node loss.
@@ -1315,7 +1320,7 @@ that broader harness.
 
 The checkpoint release smoke assembled all three production releases, migrated an isolated
 temporary PostgreSQL database from the gateway artifact, and booted the complete gateway and
-engine releases as distinct long-named nodes. Gateway `/health` reported the configured engine as
+engine releases as distinct nodes. Gateway `/health` reported the configured engine as
 connected only after its `protocol_info` RPC returned the remote marker status, version 1
 capabilities, and active-session count. This smoke exposed one release-script defect: remote
 control helper nodes inherited the running service's fixed distribution port and could not execute
@@ -1399,76 +1404,100 @@ operator runbook is in `docs/deployment.md`.
 
 #### Host and directory preparation
 
-- [ ] Pin Erlang, Elixir, Node.js, and npm versions used on production build hosts.
+- [x] Pin Erlang, Elixir, Node.js, and npm versions used on production build hosts.
 - [x] Select Python 3.13 with uv, pin pyinfra as a normal project dependency, and avoid third-party deployment plugins.
-- [ ] Provision dedicated unprivileged gateway and engine runtime users plus a controlled deployment user.
-- [ ] Create source, build, release, current-symlink, and shared-data directories with documented ownership.
-- [ ] Commit only a placeholder environment example; never commit a production environment file in plaintext or encrypted form.
-- [ ] Keep `/etc/topics-club/gateway.env` and `/etc/topics-club/engine.env` solely on the destination host with role-specific ownership and mode `0600`.
-- [ ] Make pyinfra verify the environment files and their metadata without reading, logging, replacing, or transferring their contents.
-- [ ] Provision the shared PostgreSQL database and backup policy separately from application releases.
-- [ ] Restrict EPMD and distribution ports to the private host/network path.
+- [x] Provision dedicated unprivileged gateway and engine runtime users plus a controlled deployment user.
+- [x] Create source, build, release, current-symlink, and shared-data directories with documented ownership.
+- [x] Commit only a placeholder environment example; never commit a production environment file in plaintext or encrypted form.
+- [x] Keep `/etc/topics-club/gateway.env` and `/etc/topics-club/engine.env` solely on the destination host with role-specific ownership and mode `0600`.
+- [x] Make pyinfra verify the environment files and their metadata without reading, logging, replacing, or transferring their contents.
+- [x] Provision the shared PostgreSQL database and backup policy separately from application releases.
+- [x] Restrict EPMD and distribution ports to the loopback path on the single supported host.
 
 #### Repeatable build commands
 
-- [ ] Fetch the repository without mutating the currently running release.
-- [ ] Resolve and check out an exact requested commit.
-- [ ] Refuse deployment from a dirty or unexpected source state.
-- [ ] Acquire a deployment lock so two builds cannot race.
-- [ ] Make provisioning and redeployment of an already-active commit converge to a no-op.
-- [ ] Fetch only production Mix dependencies and verify `mix.lock`.
-- [ ] Install frontend dependencies with `npm ci` for web-capable releases.
-- [ ] Build digested frontend assets for combined and web releases.
-- [ ] Assemble `topics_club_gateway` into a new versioned directory.
-- [ ] Assemble `topics_club_engine` into a new versioned directory only during an explicit engine deployment.
-- [ ] Record commit, release version, toolchain versions, and build timestamp with each artifact.
-- [ ] Keep a bounded number of prior release directories for rollback.
+- [x] Fetch the repository without mutating the currently running release.
+- [x] Resolve and check out an exact requested commit.
+- [x] Refuse deployment from a dirty or unexpected source state.
+- [x] Acquire a deployment lock so two builds cannot race.
+- [x] Make provisioning and redeployment of an already-active commit converge to a no-op.
+- [x] Fetch only production Mix dependencies and verify `mix.lock`.
+- [x] Install frontend dependencies with `npm ci` for web-capable releases.
+- [x] Build digested frontend assets for combined and web releases.
+- [x] Assemble `topics_club_gateway` into a new versioned directory.
+- [x] Assemble `topics_club_engine` into a new versioned directory only when the operator selects the engine, directly or through `deploy all`.
+- [x] Record commit, release version, toolchain versions, and build timestamp with each artifact.
+- [x] Keep a bounded number of prior release directories for rollback.
 
 #### systemd services and runtime configuration
 
-- [ ] Add a `topics-club-gateway.service` unit using the stable gateway symlink.
-- [ ] Add a `topics-club-engine.service` unit using the stable engine symlink.
-- [ ] Load only `/etc/topics-club/gateway.env` or `/etc/topics-club/engine.env` from the matching unit.
-- [ ] Make the deployment entry point and service layout target exactly one engine host and reject a second engine deployment target.
-- [ ] Configure graceful SIGTERM shutdown and realistic start/stop timeouts.
-- [ ] Configure automatic restart policy without causing a rapid crash loop.
-- [ ] Configure stable `RELEASE_NODE` values for both services.
-- [ ] Configure the shared cookie and static engine node without exposing them in the repository.
-- [ ] Configure fixed distribution ports.
-- [ ] Ensure only the web service sets `PHX_SERVER=true`.
-- [ ] Ensure only the engine service receives engine-only IRC listener and credential secrets.
-- [ ] Send logs to journald and preserve request/session correlation metadata.
+- [x] Add a `topics-club-gateway.service` unit using the stable gateway symlink.
+- [x] Add a `topics-club-engine.service` unit using the stable engine symlink.
+- [x] Load only `/etc/topics-club/gateway.env` or `/etc/topics-club/engine.env` from the matching unit.
+- [x] Make the deployment entry point and service layout target exactly one engine host and reject a second engine deployment target.
+- [x] Configure graceful SIGTERM shutdown and realistic start/stop timeouts.
+- [x] Configure automatic restart policy without causing a rapid crash loop.
+- [x] Configure stable `RELEASE_NODE` values for both services.
+- [x] Configure the shared cookie and static engine node without exposing them in the repository.
+- [x] Configure fixed distribution ports.
+- [x] Ensure only the web service sets `PHX_SERVER=true`.
+- [x] Keep engine-only IRC listener and credential secrets out of the gateway environment; concrete hosted-server variables remain workstream 5.
+- [x] Send logs to journald and preserve request/session correlation metadata.
 
 #### Web deployment flow
 
-- [ ] Build and smoke-check the new web release before activation.
-- [ ] Run migrations from the new web release exactly once.
-- [ ] Abort before activation if migration fails.
-- [ ] Atomically repoint the web `current` symlink.
-- [ ] Restart only `topics-club-gateway.service`.
-- [ ] Wait for web health and web-to-engine connectivity.
-- [ ] Automatically repoint and restart the prior web release if the new health check fails and rollback is schema-compatible.
-- [ ] Prove the engine PID and active session PIDs do not change during web deployment.
+- [x] Build and smoke-check the new web release before activation.
+- [x] Run migrations from the new web release exactly once per deployment attempt.
+- [x] Abort before activation if migration fails.
+- [x] Atomically repoint the web `current` symlink.
+- [x] Restart only `topics-club-gateway.service`.
+- [x] Wait for web health and web-to-engine connectivity.
+- [x] Automatically repoint and restart the prior web release if the new health check fails and rollback is schema-compatible.
+- [x] Prove the engine PID and active session PIDs do not change during web deployment.
 
 #### Engine deployment flow
 
-- [ ] Require an explicit engine-deploy command or flag.
-- [ ] Confirm the target schema is compatible before engine shutdown.
-- [ ] Build and smoke-check the new engine release before activation.
-- [ ] Gracefully stop the old engine, accepting one IRC reconnect window.
-- [ ] Atomically repoint the engine `current` symlink.
-- [ ] Start the new engine and verify marker status.
-- [ ] Verify desired-connected session restoration and autojoins.
-- [ ] Roll back to the prior compatible engine release if startup or restoration checks fail.
+- [x] Require an explicit engine-deploy command or flag.
+- [x] Confirm the target schema is compatible before engine shutdown.
+- [x] Build and smoke-check the new engine release before activation.
+- [x] Gracefully stop the old engine, accepting one IRC reconnect window.
+- [x] Atomically repoint the engine `current` symlink.
+- [x] Start the new engine and verify marker status.
+- [x] Verify desired-connected session restoration and autojoins.
+- [x] Roll back to the prior compatible engine release if startup or restoration-supervisor readiness checks fail.
 
 #### Deployment exit gate
 
-- [ ] A web-only deployment is one repeatable command and leaves engine processes running.
-- [ ] An engine deployment is explicit and cannot occur as a side effect of web deployment.
-- [ ] Migration failure leaves the previous web release selected and running.
-- [ ] Health failure triggers or clearly instructs a compatible rollback.
-- [ ] Secrets, source checkout, build output, and runtime processes have appropriate ownership and permissions.
-- [ ] The runbook has been exercised on a production-like host.
+- [x] A web-only deployment is one repeatable command and leaves engine processes running.
+- [x] An engine deployment is explicit and cannot occur as a side effect of web deployment.
+- [x] Migration failure leaves the previous web release selected and running.
+- [x] Health failure triggers or clearly instructs a compatible rollback.
+- [x] Secrets, source checkout, build output, and runtime processes have appropriate ownership and permissions.
+- [x] The runbook has been exercised on a production-like host.
+
+Verification checkpoint, 2026-08-28:
+
+- A reset Ubuntu 26.04 pseudo-VPS accepted a fresh SSH/pyinfra provision; the unchanged follow-up
+  reported 31 of 31 operations as no-ops.
+- The destination Docker daemon built clean gateway and engine releases while the app container
+  remained capped at 1.5 GiB RAM with 4 GiB of build swap. Both manifests recorded the exact
+  commit and pinned Erlang 28, Elixir 1.19.5, Node.js 22.22.1, and npm 9.2.0 toolchain. The host had
+  none of those four build tools installed, and every shipped NIF resolved against Ubuntu 26.04
+  libraries.
+- The two systemd services reached end-to-end health. EPMD and distribution listeners were
+  observed only on loopback ports 4369, 4370, and 4371. Reapplying the active tag changed neither
+  service PID.
+- A web-only deploy and two web rollbacks left the engine PID unchanged. The focused gateway
+  lifecycle test separately kept a live IRC session PID through a gateway restart. An engine
+  deploy and two engine rollbacks left the gateway PID unchanged; the focused engine lifecycle
+  test restored only desired-connected sessions and their autojoins.
+- Live failure drills rejected a mismatched engine release, a dirty source checkout, and a
+  concurrent deploy lock. PostgreSQL unavailability aborted before gateway selection and left its
+  PID unchanged. A forced post-activation readiness failure automatically restored both the prior
+  gateway selection and the pre-existing rollback history. Successful pruning retained exactly
+  five gateway release directories and two source checkouts.
+- The final `mix precommit` passed type checking, 229 frontend tests, the Storybook build, and 706
+  Elixir tests across the four suites.
 
 ### Workstream 7: Verification, compatibility, and operational hardening
 
@@ -1476,7 +1505,7 @@ Size: **L**. Risk: **High**. These checks turn a working demo into a supportable
 
 #### CI and artifact verification
 
-- [ ] Run root formatting, compilation with warnings as errors, frontend type checks, frontend tests, Storybook build, and Elixir tests.
+- [x] Run root formatting, compilation with warnings as errors, frontend type checks, frontend tests, Storybook build, and Elixir tests.
 - [ ] Build all three releases from a clean CI checkout.
 - [ ] Inspect release contents to enforce the expected application and asset boundaries.
 - [ ] Build and smoke-test the default combined Docker image with no cluster variables.
@@ -1509,7 +1538,7 @@ Size: **L**. Risk: **High**. These checks turn a working demo into a supportable
 - [ ] Document cookie rotation and node-name changes.
 - [ ] Document health signals, dashboards, logs, and alerts.
 - [ ] Update README with combined Docker and Compose first, and split deployment as an advanced operator workflow.
-- [ ] Run `mix precommit` after all implementation and documentation changes.
+- [x] Run `mix precommit` after all implementation and documentation changes.
 
 #### Final exit gate
 
