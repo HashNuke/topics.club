@@ -13,6 +13,28 @@ defmodule Mix.Ircpipe.Boundaries do
     manifest
   end
 
+  def load_source!(source, filename) when is_binary(source) and is_binary(filename) do
+    {manifest, _binding} = Code.eval_string(source, [], file: filename)
+    manifest
+  end
+
+  def check_transition_regression(base_manifest, current_manifest) do
+    errors =
+      regression_errors(
+        "temporary dependency",
+        Map.fetch!(base_manifest, :temporary_dependencies),
+        Map.fetch!(current_manifest, :temporary_dependencies)
+      ) ++
+        regression_errors(
+          "temporary component cycle",
+          Map.fetch!(base_manifest, :temporary_component_cycles),
+          Map.fetch!(current_manifest, :temporary_component_cycles)
+        ) ++
+        budget_regression_errors(base_manifest, current_manifest)
+
+    if errors == [], do: :ok, else: {:error, Enum.sort(errors)}
+  end
+
   def tracked_files do
     ["lib/**/*.ex", "priv/repo/migrations/*.exs", "test/support/**/*.ex"]
     |> Enum.flat_map(&Path.wildcard/1)
@@ -538,6 +560,26 @@ defmodule Mix.Ircpipe.Boundaries do
 
   defp wildcard_path?(path) when is_binary(path), do: String.contains?(path, ["*", "?", "["])
   defp wildcard_path?(_path), do: true
+
+  defp regression_errors(label, base_items, current_items) do
+    base_items = MapSet.new(base_items)
+
+    current_items
+    |> MapSet.new()
+    |> MapSet.difference(base_items)
+    |> Enum.map(&"new #{label} compared with the base branch: #{inspect(&1)}")
+  end
+
+  defp budget_regression_errors(base_manifest, current_manifest) do
+    base_budget = Map.fetch!(base_manifest, :temporary_dependency_budget)
+    current_budget = Map.fetch!(current_manifest, :temporary_dependency_budget)
+
+    if current_budget <= base_budget do
+      []
+    else
+      ["temporary dependency budget increased from #{base_budget} to #{current_budget}"]
+    end
+  end
 
   defp nonempty_string?(value) when is_binary(value), do: String.trim(value) != ""
   defp nonempty_string?(_value), do: false

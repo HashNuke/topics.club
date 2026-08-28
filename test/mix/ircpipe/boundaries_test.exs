@@ -163,6 +163,33 @@ defmodule Mix.Ircpipe.BoundariesTest do
     assert Enum.any?(errors, &String.contains?(&1, "exceeds budget"))
   end
 
+  test "allows transition baselines only to shrink relative to the base branch" do
+    dependency = %{
+      from: "lib/web.ex",
+      to: "lib/engine.ex",
+      label: "runtime",
+      owner: :web,
+      reason: "migration",
+      remove_in: "checkpoint"
+    }
+
+    cycle = temporary_cycle([:core, :web])
+
+    base = %{
+      manifest()
+      | temporary_dependencies: [dependency],
+        temporary_dependency_budget: 1,
+        temporary_component_cycles: [cycle]
+    }
+
+    assert :ok = Boundaries.check_transition_regression(base, manifest())
+
+    assert {:error, errors} = Boundaries.check_transition_regression(manifest(), base)
+    assert Enum.any?(errors, &String.contains?(&1, "new temporary dependency"))
+    assert Enum.any?(errors, &String.contains?(&1, "new temporary component cycle"))
+    assert Enum.any?(errors, &String.contains?(&1, "budget increased from 0 to 1"))
+  end
+
   test "rejects cycles in the deployable component graph" do
     cyclic_manifest =
       put_in(manifest(), [:allowed_dependencies, :shared], [:shared, :core])
