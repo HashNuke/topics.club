@@ -5,6 +5,13 @@ This is a web application written using the Phoenix web framework.
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
+### Python deployment tooling
+
+- Use `uv` for all project-owned Python tooling. Manage dependencies with `uv add` and `uv remove`, commit both `pyproject.toml` and `uv.lock`, and run tools through `uv run`; do not add pip, Poetry, or requirements-file workflows.
+- Pyinfra is a pinned project dependency. Invoke it directly with `uv run pyinfra ...`; do not introduce dependency groups unless distinct Python dependency sets actually exist.
+- Prefer pyinfra's declarative built-in operations and keep unavoidable shell operations explicitly idempotent. Do not add third-party deployment plugins unless the built-ins cannot express a required state.
+- Production environment files live only on their destination hosts. Never commit, template, transfer, overwrite, or log their contents from the public repository or pyinfra deployment code.
+
 ### Phoenix v1.8 guidelines
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content

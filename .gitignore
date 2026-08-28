@@ -22,6 +22,11 @@ erl_crash.dump
 # Temporary files, for example, from tests.
 /tmp/
 
+# Python tooling managed by uv.
+/.venv/
+__pycache__/
+*.py[cod]
+
 # Local environment secrets.
 /.env
 

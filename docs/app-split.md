@@ -745,20 +745,37 @@ Self-hosters do not need Erlang distribution, node names, an Erlang cookie, or t
 
 ### First-party split production experience
 
-The topics.club production deployment uses bare OTP releases built from source on the destination host. It does not use Compose to manage the web and engine processes.
+The topics.club production deployment uses bare OTP releases built from source on the destination host. It does not use Compose to manage the web and engine processes. Pyinfra is the chosen host-configuration and deployment runner; keep it pinned, use its declarative built-in operations where possible, and do not grow a custom deployment framework around it.
 
 - One shared PostgreSQL database is managed separately from the application releases.
 - The destination fetches and checks out an exact Git commit rather than deploying an unrecorded moving branch state.
 - Production dependencies and assets are built on the destination host with pinned Erlang, Elixir, Node.js, and npm versions.
 - `topics_club_gateway` and `topics_club_engine` are assembled into separate versioned directories.
 - Stable `current` symlinks select the active web and engine release directories.
-- Separate systemd units run web and engine under a dedicated unprivileged account.
+- Separate systemd units run web and engine under dedicated unprivileged role accounts.
 - The new web release runs migrations once before its symlink is activated.
 - Ordinary web deployments restart only `topics_club_gateway`; the engine and its IRC sessions remain running.
 - Engine deployments are explicit maintenance operations and reconnect IRC sessions.
 - Rollback repoints the affected symlink to a compatible previous release and restarts that service.
 
 The two releases use stable long node names, a shared high-entropy Erlang cookie, static engine-node configuration, fixed distribution ports, and a private network path. Public HTTP is served only by the web release. Hosted IRC ports are served only by the engine release when enabled.
+
+Production secrets are destination-host state, not repository artifacts. The public repository
+contains only examples listing required variable names and placeholder values. It must never
+contain a production environment file, whether plaintext or encrypted. An operator creates and
+maintains the real files out of band:
+
+```text
+/etc/topics-club/gateway.env
+/etc/topics-club/engine.env
+```
+
+Each file is owned by its corresponding runtime account with mode `0600`, and each systemd unit
+loads only its own file through `EnvironmentFile=`. Pyinfra creates the parent directory, verifies
+that the files exist, and enforces their ownership and permissions. It must not template,
+transfer, overwrite, print, or otherwise manage their secret contents. Initial values and later
+secret rotation are performed manually over SSH or through an operator-selected external secret
+interface.
 
 The split gateway listens for Erlang distribution on TCP 4370 and the split engine on TCP 4371; EPMD uses TCP 4369. Combined releases default to `RELEASE_DISTRIBUTION=none`. Split release startup requires explicit long `RELEASE_NODE` names and the same deployment-specific `RELEASE_COOKIE`. The gateway also requires `TOPICS_CLUB_ENGINE_NODE` and reconnects to that static node with capped exponential backoff without blocking web startup.
 
@@ -805,7 +822,7 @@ RELEASE_COOKIE=<high-entropy-cookie>
 TOPICS_CLUB_ENGINE_NODE=topics_club_engine@engine.internal
 ```
 
-The engine uses its own `RELEASE_NODE` and the same cookie. Secrets should be injected independently into each release; the web release should not receive engine-only secrets unless it genuinely needs them.
+The engine uses its own `RELEASE_NODE` and the same cookie. The two server-only environment files are maintained independently; the web release must not receive engine-only secrets unless it genuinely needs them.
 
 Compile-time and runtime configuration must not make the combined release depend on split-mode variables.
 
@@ -1354,12 +1371,21 @@ Size: **XL**. Risk: **High**. This can proceed after the engine application boun
 
 Size: **L**. Risk: **High**. The web/engine split has little operational value until ordinary web deployment is repeatable and cannot accidentally restart the engine.
 
+Use a pinned pyinfra version for this workstream. Prefer declarative package, user, directory,
+file, Git, link, and systemd operations so a repeated run converges to a no-op. Any unavoidable
+shell operation must carry its own explicit state check. Keep gateway deployment and engine
+deployment as separate entry points so an ordinary web deployment cannot select or restart the
+engine accidentally.
+
 #### Host and directory preparation
 
 - [ ] Pin Erlang, Elixir, Node.js, and npm versions used on production build hosts.
-- [ ] Provision a dedicated unprivileged runtime user and a controlled deployment user.
+- [x] Select Python 3.13 with uv, pin pyinfra as a normal project dependency, and avoid third-party deployment plugins.
+- [ ] Provision dedicated unprivileged gateway and engine runtime users plus a controlled deployment user.
 - [ ] Create source, build, release, current-symlink, and shared-data directories with documented ownership.
-- [ ] Store runtime environment files outside the source checkout with restrictive permissions.
+- [ ] Commit only a placeholder environment example; never commit a production environment file in plaintext or encrypted form.
+- [ ] Keep `/etc/topics-club/gateway.env` and `/etc/topics-club/engine.env` solely on the destination host with role-specific ownership and mode `0600`.
+- [ ] Make pyinfra verify the environment files and their metadata without reading, logging, replacing, or transferring their contents.
 - [ ] Provision the shared PostgreSQL database and backup policy separately from application releases.
 - [ ] Restrict EPMD and distribution ports to the private host/network path.
 
@@ -1369,6 +1395,7 @@ Size: **L**. Risk: **High**. The web/engine split has little operational value u
 - [ ] Resolve and check out an exact requested commit.
 - [ ] Refuse deployment from a dirty or unexpected source state.
 - [ ] Acquire a deployment lock so two builds cannot race.
+- [ ] Make provisioning and redeployment of an already-active commit converge to a no-op.
 - [ ] Fetch only production Mix dependencies and verify `mix.lock`.
 - [ ] Install frontend dependencies with `npm ci` for web-capable releases.
 - [ ] Build digested frontend assets for combined and web releases.
@@ -1381,6 +1408,7 @@ Size: **L**. Risk: **High**. The web/engine split has little operational value u
 
 - [ ] Add a `topics-club-gateway.service` unit using the stable gateway symlink.
 - [ ] Add a `topics-club-engine.service` unit using the stable engine symlink.
+- [ ] Load only `/etc/topics-club/gateway.env` or `/etc/topics-club/engine.env` from the matching unit.
 - [ ] Make the deployment entry point and service layout target exactly one engine host and reject a second engine deployment target.
 - [ ] Configure graceful SIGTERM shutdown and realistic start/stop timeouts.
 - [ ] Configure automatic restart policy without causing a rapid crash loop.
