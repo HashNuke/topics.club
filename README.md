@@ -49,6 +49,10 @@ intentionally node-local, and the app disables its IRC session subsystem while
 another visible BEAM node is connected. Do not horizontally scale the app until
 database-backed session ownership leases and fencing are implemented.
 
+The complete combined-mode runbook covers Railway settings, a clean VPS install,
+safe reverse-proxy binding, backups, restores, upgrades, migration failures, and
+rollback in [`docs/deployment.md`](docs/deployment.md).
+
 Create a `.env` file from the example and set the required values:
 
 ```bash
@@ -102,7 +106,9 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d --build
 ```
 
 The app container waits for Postgres, runs migrations, and then starts Phoenix on
-container port `4000`. Set `IRCPIPE_PORT` to choose the host port.
+container port `4000`. It binds host loopback by default; set `IRCPIPE_PORT` to
+choose the host port and change `IRCPIPE_BIND_IP` only when a reverse proxy on a
+private network cannot reach loopback.
 
 The Docker build uses this repository as its build context and fetches the
 `ircxd` dependency from GitHub. For a manual image build, run this from the

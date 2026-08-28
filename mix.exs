@@ -6,12 +6,15 @@ Path.join([__DIR__, "lib/mix/**/*.ex"])
 defmodule Ircpipe.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+
   def project do
     [
       apps_path: "apps",
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
+      default_release: :ircpipe,
       aliases: aliases(),
       deps: [],
       releases: releases()
@@ -25,15 +28,49 @@ defmodule Ircpipe.MixProject do
   end
 
   defp releases do
+    version = release_version()
+
     [
-      ircpipe: [
-        applications: [
-          ircpipe_core: :permanent,
-          ircpipe_engine: :permanent,
-          ircpipe_web: :permanent
-        ]
-      ]
+      ircpipe: release(version, [:ircpipe_core, :ircpipe_engine, :ircpipe_web], ["rel/web"]),
+      ircpipe_web: release(version, [:ircpipe_core, :ircpipe_web], ["rel/web"]),
+      ircpipe_engine: release(version, [:ircpipe_core, :ircpipe_engine])
     ]
+  end
+
+  defp release(version, applications, overlays \\ []) do
+    [
+      version: version,
+      include_executables_for: [:unix],
+      applications: Enum.map(applications, &{&1, :permanent}),
+      overlays: overlays
+    ]
+  end
+
+  defp release_version do
+    revision =
+      System.get_env("IRCPIPE_SOURCE_REVISION") ||
+        System.get_env("RAILWAY_GIT_COMMIT_SHA") ||
+        git_revision() ||
+        "unknown"
+
+    revision =
+      revision
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace(~r/[^0-9a-z-]/, "")
+      |> String.slice(0, 12)
+
+    "#{@version}+#{if revision == "", do: "unknown", else: revision}"
+  end
+
+  defp git_revision do
+    with git when is_binary(git) <- System.find_executable("git"),
+         {revision, 0} <-
+           System.cmd(git, ["rev-parse", "--verify", "HEAD"], stderr_to_stdout: true) do
+      revision
+    else
+      _unavailable -> nil
+    end
   end
 
   defp aliases do
@@ -45,6 +82,7 @@ defmodule Ircpipe.MixProject do
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind ircpipe", "esbuild ircpipe"],
       "assets.deploy": [
+        "compile",
         "tailwind ircpipe --minify",
         "esbuild ircpipe --minify",
         &digest_assets/1

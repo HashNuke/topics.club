@@ -61,3 +61,43 @@ jobs:
 
       - name: Run precommit suite
         run: mix precommit
+
+      - name: Build and inspect release artifacts
+        env:
+          IRCPIPE_SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          MIX_ENV=prod mix assets.deploy
+          MIX_ENV=prod mix release ircpipe
+          MIX_ENV=prod mix release ircpipe_web
+          MIX_ENV=prod mix release ircpipe_engine
+
+          has_path() {
+            compgen -G "$1" >/dev/null
+          }
+
+          combined=_build/prod/rel/ircpipe
+          web=_build/prod/rel/ircpipe_web
+          engine=_build/prod/rel/ircpipe_engine
+
+          has_path "$combined/lib/ircpipe_core-*"
+          has_path "$combined/lib/ircpipe_engine-*"
+          has_path "$combined/lib/ircpipe_web-*"
+          test -x "$combined/bin/server"
+          test -x "$combined/bin/migrate"
+          has_path "$combined/lib/ircpipe_web-*/priv/static/cache_manifest.json"
+
+          has_path "$web/lib/ircpipe_core-*"
+          has_path "$web/lib/ircpipe_web-*"
+          ! has_path "$web/lib/ircpipe_engine-*"
+          test -x "$web/bin/server"
+          test -x "$web/bin/migrate"
+          has_path "$web/lib/ircpipe_web-*/priv/static/cache_manifest.json"
+
+          has_path "$engine/lib/ircpipe_core-*"
+          has_path "$engine/lib/ircpipe_engine-*"
+          ! has_path "$engine/lib/ircpipe_web-*"
+          ! has_path "$engine/lib/*/ebin/Elixir.Ircpipe.Release.beam"
+          test ! -e "$engine/bin/server"
+          test ! -e "$engine/bin/migrate"

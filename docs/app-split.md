@@ -31,7 +31,7 @@ Sizing used by this document:
 - [x] Core and web modules have no direct dependency on engine implementation modules.
 - [x] The combined supervision tree is divided into logical core, engine, and web supervisors.
 - [x] The repository is an umbrella containing core, engine, and web OTP applications.
-- [ ] The three release artifacts build independently.
+- [x] The three release artifacts build independently.
 - [ ] Split web and engine nodes communicate successfully in an integration environment.
 - [ ] First-party bare-host deployment and rollback automation is complete.
 
@@ -297,7 +297,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 
 | Environment variable or secret | Release that genuinely needs it |
 | --- | --- |
-| `DATABASE_URL`, `ECTO_IPV6`, `POOL_SIZE` | Combined, web, and engine |
+| `DATABASE_URL`, discrete `DATABASE_*` connection settings, `ECTO_IPV6`, `POOL_SIZE` | Combined, web, and engine |
 | `IRC_CREDENTIALS_KEY` | Combined and engine; web must stop loading encrypted IRC credentials before the key is removed from the web release |
 | `SECRET_KEY_BASE`, `PHX_HOST`, `PORT`, `PHX_SERVER` | Combined and web |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Combined and web |
@@ -360,7 +360,7 @@ The current deployment artifacts remain intentionally separate from the future f
 | `Dockerfile` | Phoenix generated-style multi-stage build of the combined OTP release; suitable for Railway and other container platforms |
 | `docker-compose.prod.yml` | Combined app plus PostgreSQL sidecar for a personal VPS; app runs migrations once before server startup |
 | `docker-compose.yml` | Development PostgreSQL only |
-| `rel/overlays/bin/migrate*` and `Ircpipe.Release` | Explicit release migration entry point |
+| `rel/web/bin/migrate` and `Ircpipe.Release` | Explicit release migration entry point for web-capable releases |
 | First-party topics.club deployment | Pull exact commit on destination, build bare releases there, migrate once, atomically select versioned release, and run systemd units; automation remains workstream 6 |
 
 The engine protocol compatibility window is web N with engine N-1. Version 1 request/reply and event envelopes remain accepted for at least one engine release after a compatible web release ships. An incompatible field or semantic change requires a new protocol version, additive dual-version handling, an N-1 integration test, and deployment of the accepting side before the producing side.
@@ -1046,9 +1046,9 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 - [x] Make engine compile without Phoenix Endpoint and frontend dependencies.
 - [x] Check compile-connected dependency graphs for accidental cycles.
 - [x] Start Vault, Repo, and PubSub exactly once per node.
-- [ ] Start engine supervision only in combined and engine releases.
-- [ ] Start Endpoint only in combined and web releases.
-- [ ] Start release-owned Oban queues only after Repo is available.
+- [x] Start engine supervision only in combined and engine releases.
+- [x] Start Endpoint only in combined and web releases.
+- [x] Start release-owned Oban queues only after Repo is available.
 - [x] Start Endpoint last in the web supervision tree.
 - [x] Preserve configuration-change handling for Endpoint in the web application.
 
@@ -1069,54 +1069,64 @@ The repository root is now a true umbrella with only `ircpipe_core`, `ircpipe_en
 
 Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a release that merely boots is not sufficient.
 
+The first release slice defines three explicit Unix releases without adding a deployment-mode application or switch. `ircpipe` remains the default and contains core, engine, and web; `ircpipe_web` contains core and web; and `ircpipe_engine` contains core and engine. Release versions combine application version `0.1.0` with a normalized source revision. Fresh artifact inspection proves that only the web-capable releases contain digested assets plus release-name-aware `server` and `migrate` commands. Runtime smoke checks prove that combined mode starts all three supervisors with the local engine adapter, web-only mode starts no engine supervisor and selects the RPC adapter, and engine-only mode starts no web supervisor or Endpoint and does not require web secrets. In every artifact core starts before the role application, so Repo is available before either named role-owned Oban instance starts. `Ircpipe.Release` is now web-owned, leaving the engine artifact without the migration helper as well as without a migration command. CI assembles and inspects all three role boundaries, while focused runtime tests prove the production Oban queue sets are disjoint and the existing notification pipeline proves engine-owned work can insert web-owned work through the shared PostgreSQL job table.
+
+The combined deployment slice adapts the Phoenix multi-stage Dockerfile to the umbrella and assembles the explicit `ircpipe` release. Source-revision arguments are declared immediately before release assembly so a new commit does not invalidate dependency, compilation, or asset layers. The final image runs as `nobody`, contains no build launchers or compiler toolchain, and has a database-backed `/health` readiness endpoint plus an image health check. A fresh external-PostgreSQL smoke ran every migration and booted core, engine, and web without node, cookie, engine-node, or clustering variables. The production Compose package builds the same image, keeps PostgreSQL unpublished, binds Phoenix to host loopback by default, waits for database health, migrates before startup, and passed an isolated clean-data installation with 29 migrations and a healthy endpoint. `docs/deployment.md` records required variables, current Railway service settings, the one-replica constraint, safe reverse-proxy binding, backup/restore, upgrades, migration failure handling, and compatible rollback. A project-blind Railway IaC file is deliberately omitted because Railway's replacement configuration owns the complete linked project and can delete omitted resources; operators import and plan against the real project instead.
+
+The final local CI reproduction starts from a source-only Git archive with no `.git`, dependencies, build output, or frontend installation. It exposed that production assets had relied on an earlier compile to generate Phoenix colocated hooks; `assets.deploy` now declares that compile prerequisite directly. The repaired clean gate installs locked dependencies, builds digested assets, assembles all three releases with the same source-derived version, and enforces their application, asset, and migration-command boundaries. Root `mix precommit` passes 37 core, 67 engine, 174 web, and 422 root tests (700 total), 229 frontend tests, type checking, Storybook, warning-free compilation, and the 243-file/769-edge/zero-exception boundary graph.
+
+The first Sol checkpoint review rejected the candidate after reproducing two deployment defects: production SSL redirection intercepted Railway's plain-HTTP health probe, and Compose embedded an unescaped PostgreSQL password in `DATABASE_URL`. The health path is now the sole path-based SSL-redirection exclusion while ordinary browser HTTP requests still redirect. Compose now passes discrete database fields, so PostgreSQL passwords containing URL-reserved characters remain exact. Focused regressions exercise both cases, and the stale pre-umbrella migration-wrapper path in this document is corrected.
+
 #### Release definitions
 
-- [ ] Define `ircpipe` with core, engine, and web applications.
-- [ ] Define `ircpipe_web` with core and web applications only.
-- [ ] Define `ircpipe_engine` with core and engine applications only.
-- [ ] Set `ircpipe` as the default release for simple builds.
-- [ ] Use a traceable release version derived from the application version and source revision.
-- [ ] Generate Unix release executables required by the supported deployment hosts.
-- [ ] Add release-specific runtime configuration without a generic deployment-mode switch.
-- [ ] Ensure combined release startup requires no node, cookie, or engine-node variables.
-- [ ] Add web and combined server commands that set `PHX_SERVER=true`.
-- [ ] Add migration commands only to combined and web/migrator artifacts.
-- [ ] Keep migration execution out of engine startup and engine artifacts.
-- [ ] Make release wrappers release-name aware rather than hard-coding `ircpipe`.
-- [ ] Include digested frontend assets in combined and web releases only.
-- [ ] Build all three releases from a clean checkout.
+- [x] Define `ircpipe` with core, engine, and web applications.
+- [x] Define `ircpipe_web` with core and web applications only.
+- [x] Define `ircpipe_engine` with core and engine applications only.
+- [x] Set `ircpipe` as the default release for simple builds.
+- [x] Use a traceable release version derived from the application version and source revision.
+- [x] Generate Unix release executables required by the supported deployment hosts.
+- [x] Add release-specific runtime configuration without a generic deployment-mode switch.
+- [x] Ensure combined release startup requires no node, cookie, or engine-node variables.
+- [x] Add web and combined server commands that set `PHX_SERVER=true`.
+- [x] Add migration commands only to combined and web/migrator artifacts.
+- [x] Keep migration execution out of engine startup and engine artifacts.
+- [x] Make release wrappers release-name aware rather than hard-coding `ircpipe`.
+- [x] Include digested frontend assets in combined and web releases only.
+- [x] Build all three releases from a clean checkout.
 
 #### Release-specific background work
 
-- [ ] Define the complete combined Oban queue and plugin configuration.
-- [ ] Define web-owned notification and web-maintenance queues.
-- [ ] Define engine-owned connection and session queues.
-- [ ] Assign every cron entry to exactly one release.
-- [ ] Ensure a worker that expects a local session is enabled only in engine-capable releases.
-- [ ] Verify jobs inserted by one role can be executed by the owning role through shared PostgreSQL tables.
-- [ ] Test that duplicate queue ownership does not occur in split mode.
+- [x] Define the complete combined Oban queue and plugin configuration.
+- [x] Define web-owned notification and web-maintenance queues.
+- [x] Define engine-owned connection and session queues.
+- [x] Assign every cron entry to exactly one release.
+- [x] Ensure a worker that expects a local session is enabled only in engine-capable releases.
+- [x] Verify jobs inserted by one role can be executed by the owning role through shared PostgreSQL tables.
+- [x] Test that duplicate queue ownership does not occur in split mode.
 
 #### Dependency distribution
+
+Publishing `ircxd` and replacing its Git source are intentionally deferred until the package is available on Hex. Under the current explicit deployment decision, the pinned `HashNuke/ircxd` Git dependency is the supported source and these two external publication tasks do not block this checkpoint.
 
 - [x] Fetch `ircxd` from `HashNuke/ircxd` and pin the resolved commit in `mix.lock`.
 - [ ] Publish `ircxd` to Hex with a version compatible with the core, engine, and web applications.
 - [ ] Replace the Git dependency with a Hex version constraint after publication.
-- [ ] Verify core, engine, and web declare `ircxd` wherever their code references it, with one resolved version across the umbrella.
-- [ ] Verify the web release starts only short-lived directory discovery clients and no per-user session or hosted-server listeners.
+- [x] Verify core, engine, and web declare `ircxd` wherever their code references it, with one resolved version across the umbrella.
+- [x] Verify the web release starts only short-lived directory discovery clients and no per-user session or hosted-server listeners.
 
 #### Combined Docker image for Railway and similar platforms
 
 - [x] Start from the Phoenix-generated multi-stage release Dockerfile.
 - [x] Build the current combined release from the repository root.
 - [x] Fetch the GitHub `ircxd` dependency without a sibling checkout.
-- [ ] Adapt Docker copy/cache layers to the umbrella layout.
-- [ ] Build the explicit combined `ircpipe` release.
-- [ ] Keep build-only Erlang, Elixir, Node.js, npm, and compiler tools out of the final image.
-- [ ] Run the final image as an unprivileged user.
-- [ ] Add a container health endpoint and platform health-check configuration.
-- [ ] Add Railway configuration with `/app/bin/migrate` as pre-deploy and `/app/bin/server` as start command.
-- [ ] Document required environment variables and the one-replica constraint.
-- [ ] Smoke-test the image with managed/external PostgreSQL and no cluster variables.
+- [x] Adapt Docker copy/cache layers to the umbrella layout.
+- [x] Build the explicit combined `ircpipe` release.
+- [x] Keep build-only Erlang, Elixir, Node.js, npm, and compiler tools out of the final image.
+- [x] Run the final image as an unprivileged user.
+- [x] Add a container health endpoint and platform health-check configuration.
+- [x] Document Railway's `/app/bin/migrate` pre-deploy command, `/app/bin/server` start command, and `/health` health check without adding unsafe project-blind IaC.
+- [x] Document required environment variables and the one-replica constraint.
+- [x] Smoke-test the image with managed/external PostgreSQL and no cluster variables.
 
 #### Self-hosted VPS Compose package
 
@@ -1124,20 +1134,20 @@ Size: **L**. Risk: **High**. The artifacts must be minimal and role-correct; a r
 - [x] Persist PostgreSQL to an explicitly configured host path.
 - [x] Wait for PostgreSQL health before starting the app.
 - [x] Run combined migrations before the app starts.
-- [ ] Adapt the Compose build to the umbrella Dockerfile.
-- [ ] Bind the application safely for use behind an HTTPS reverse proxy.
-- [ ] Document database backup and restore for the configured persistent path.
-- [ ] Document upgrade, migration failure, and application rollback procedures.
-- [ ] Validate a clean VPS installation using only the repository, Docker, Compose, and documented environment file.
+- [x] Adapt the Compose build to the umbrella Dockerfile.
+- [x] Bind the application safely for use behind an HTTPS reverse proxy.
+- [x] Document database backup and restore for the configured persistent path.
+- [x] Document upgrade, migration failure, and application rollback procedures.
+- [x] Validate a clean VPS installation using only the repository, Docker, Compose, and documented environment file.
 
 #### Artifact exit gate
 
-- [ ] All three OTP releases build in CI.
-- [ ] The combined image has no split-mode configuration requirement.
-- [ ] The web release may include `ircxd` for directory discovery but has no engine supervision, per-user IRC sessions, or hosted IRC listener.
-- [ ] The engine release has no Endpoint or frontend assets.
-- [ ] Only combined and web/migrator artifacts can run migrations.
-- [ ] Combined Docker and Compose smoke tests pass.
+- [x] Configure CI to build and inspect all three OTP releases, and reproduce that job from a clean source snapshot.
+- [x] The combined image has no split-mode configuration requirement.
+- [x] The web release may include `ircxd` for directory discovery but has no engine supervision, per-user IRC sessions, or hosted IRC listener.
+- [x] The engine release has no Endpoint or frontend assets.
+- [x] Only combined and web/migrator artifacts can run migrations.
+- [x] Combined Docker and Compose smoke tests pass.
 
 ### Workstream 4: Enable the distributed split runtime
 

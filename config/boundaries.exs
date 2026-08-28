@@ -83,6 +83,7 @@
         "apps/ircpipe_web/lib/ircpipe/mailer.ex",
         "apps/ircpipe_web/lib/ircpipe/notifications/**/*.ex",
         "apps/ircpipe_web/lib/ircpipe/realtime/**/*.ex",
+        "apps/ircpipe_web/lib/ircpipe/release.ex",
         "apps/ircpipe_web/lib/ircpipe/engine_client/rpc_adapter.ex",
         "apps/ircpipe_web/lib/ircpipe_web.ex",
         "apps/ircpipe_web/lib/ircpipe_web/**/*.ex",
@@ -96,7 +97,7 @@
     },
     %{
       component: :core,
-      description: "Shared data, schemas, persistence primitives, and release migrations",
+      description: "Shared data, schemas, persistence primitives, and canonical migrations",
       paths: [
         "apps/ircpipe_core/lib/ircpipe.ex",
         "apps/ircpipe_core/lib/ircpipe/accounts/user.ex",
@@ -117,7 +118,6 @@
         "apps/ircpipe_core/lib/ircpipe/core/application.ex",
         "apps/ircpipe_core/lib/ircpipe/core_supervisor.ex",
         "apps/ircpipe_core/lib/ircpipe/encrypted/**/*.ex",
-        "apps/ircpipe_core/lib/ircpipe/release.ex",
         "apps/ircpipe_core/lib/ircpipe/repo.ex",
         "apps/ircpipe_core/lib/ircpipe/vault.ex",
         "apps/ircpipe_core/priv/repo/migrations/*.exs",

@@ -1,5 +1,32 @@
 import Config
 
+release_name = System.get_env("RELEASE_NAME")
+
+if config_env() == :prod and release_name not in [nil, "ircpipe", "ircpipe_web", "ircpipe_engine"] do
+  raise "unsupported release name: #{inspect(release_name)}"
+end
+
+web_capable? = release_name != "ircpipe_engine"
+
+if config_env() == :prod do
+  case release_name do
+    "ircpipe_web" ->
+      config :ircpipe_core,
+        engine_client_adapter: Ircpipe.EngineClient.RpcAdapter,
+        internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+
+    "ircpipe_engine" ->
+      config :ircpipe_core,
+        engine_client_adapter: Ircpipe.Engine.LocalAdapter,
+        internal_event_adapter: nil
+
+    _combined_or_mix ->
+      config :ircpipe_core,
+        engine_client_adapter: Ircpipe.Engine.LocalAdapter,
+        internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+  end
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -16,55 +43,59 @@ import Config
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
-if System.get_env("PHX_SERVER") do
+if web_capable? and System.get_env("PHX_SERVER") do
   config :ircpipe_web, IrcpipeWeb.Endpoint, server: true
 end
 
-config :ueberauth, Ueberauth.Strategy.Google.OAuth,
-  client_id: System.get_env("GOOGLE_CLIENT_ID"),
-  client_secret: System.get_env("GOOGLE_CLIENT_SECRET")
+if web_capable? do
+  config :ueberauth, Ueberauth.Strategy.Google.OAuth,
+    client_id: System.get_env("GOOGLE_CLIENT_ID"),
+    client_secret: System.get_env("GOOGLE_CLIENT_SECRET")
 
-smtp_relay = System.get_env("SMTP_RELAY")
-smtp_username = System.get_env("SMTP_USERNAME")
-smtp_password = System.get_env("SMTP_PASSWORD")
+  smtp_relay = System.get_env("SMTP_RELAY")
+  smtp_username = System.get_env("SMTP_USERNAME")
+  smtp_password = System.get_env("SMTP_PASSWORD")
 
-smtp_tls =
-  case System.get_env("SMTP_TLS") || "if_available" do
-    "always" -> :always
-    "never" -> :never
-    _ -> :if_available
+  smtp_tls =
+    case System.get_env("SMTP_TLS") || "if_available" do
+      "always" -> :always
+      "never" -> :never
+      _ -> :if_available
+    end
+
+  if smtp_relay && smtp_username && smtp_password do
+    config :ircpipe_web, Ircpipe.Mailer,
+      adapter: Swoosh.Adapters.SMTP,
+      relay: smtp_relay,
+      port: String.to_integer(System.get_env("SMTP_PORT") || "587"),
+      username: smtp_username,
+      password: smtp_password,
+      ssl: System.get_env("SMTP_SSL") in ~w(true 1),
+      tls: smtp_tls,
+      auth: :always
   end
 
-if smtp_relay && smtp_username && smtp_password do
-  config :ircpipe_web, Ircpipe.Mailer,
-    adapter: Swoosh.Adapters.SMTP,
-    relay: smtp_relay,
-    port: String.to_integer(System.get_env("SMTP_PORT") || "587"),
-    username: smtp_username,
-    password: smtp_password,
-    ssl: System.get_env("SMTP_SSL") in ~w(true 1),
-    tls: smtp_tls,
-    auth: :always
+  config :ircpipe_web, :email_from,
+    name: System.get_env("EMAIL_FROM_NAME") || "Ircpipe",
+    address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
+
+  vapid_subject =
+    case System.get_env("VAPID_SUBJECT") do
+      nil -> nil
+      subject when subject == "" -> nil
+      subject -> if String.contains?(subject, ":"), do: subject, else: "mailto:#{subject}"
+    end
+
+  config :ircpipe_web, Ircpipe.Notifications.WebPush,
+    public_key: System.get_env("VAPID_PUBLIC_KEY"),
+    private_key: System.get_env("VAPID_PRIVATE_KEY"),
+    subject: vapid_subject
 end
 
-config :ircpipe_web, :email_from,
-  name: System.get_env("EMAIL_FROM_NAME") || "Ircpipe",
-  address: System.get_env("EMAIL_FROM_ADDRESS") || "contact@example.com"
-
-vapid_subject =
-  case System.get_env("VAPID_SUBJECT") do
-    nil -> nil
-    subject when subject == "" -> nil
-    subject -> if String.contains?(subject, ":"), do: subject, else: "mailto:#{subject}"
-  end
-
-config :ircpipe_web, Ircpipe.Notifications.WebPush,
-  public_key: System.get_env("VAPID_PUBLIC_KEY"),
-  private_key: System.get_env("VAPID_PRIVATE_KEY"),
-  subject: vapid_subject
-
 if config_env() == :prod do
-  config :ircpipe_web, :discovery_refresh_enabled, System.get_env("ENABLE_DISCOVERY") == "true"
+  if web_capable? do
+    config :ircpipe_web, :discovery_refresh_enabled, System.get_env("ENABLE_DISCOVERY") == "true"
+  end
 
   credentials_key =
     System.get_env("IRC_CREDENTIALS_KEY") ||
@@ -87,48 +118,65 @@ if config_env() == :prod do
       default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: credentials_key, iv_length: 12}
     ]
 
-  database_url =
-    System.get_env("DATABASE_URL") ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      For example: ecto://USER:PASS@HOST/DATABASE
-      """
+  database_options =
+    case System.get_env("DATABASE_URL") do
+      nil ->
+        fetch_database_env = fn name ->
+          System.get_env(name) ||
+            raise "environment variable #{name} is missing when DATABASE_URL is not set"
+        end
+
+        [
+          hostname: fetch_database_env.("DATABASE_HOST"),
+          username: fetch_database_env.("DATABASE_USER"),
+          password: fetch_database_env.("DATABASE_PASSWORD"),
+          database: fetch_database_env.("DATABASE_NAME")
+        ]
+
+      database_url ->
+        [url: database_url]
+    end
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :ircpipe_core, Ircpipe.Repo,
-    # ssl: true,
-    url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    # For machines with several cores, consider starting multiple pools of `pool_size`
-    # pool_count: 4,
-    socket_options: maybe_ipv6
+  repo_options =
+    Keyword.merge(database_options,
+      # ssl: true,
+      pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+      # For machines with several cores, consider starting multiple pools of `pool_size`
+      # pool_count: 4,
+      socket_options: maybe_ipv6
+    )
 
-  # The secret key base is used to sign/encrypt cookies and other secrets.
-  # A default value is used in config/dev.exs and config/test.exs but you
-  # want to use a different value for prod and you most likely don't want
-  # to check this value into version control, so we use an environment
-  # variable instead.
-  secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
+  config :ircpipe_core, Ircpipe.Repo, repo_options
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  if web_capable? do
+    # The secret key base is used to sign/encrypt cookies and other secrets.
+    # A default value is used in config/dev.exs and config/test.exs but you
+    # want to use a different value for prod and you most likely don't want
+    # to check this value into version control, so we use an environment
+    # variable instead.
+    secret_key_base =
+      System.get_env("SECRET_KEY_BASE") ||
+        raise """
+        environment variable SECRET_KEY_BASE is missing.
+        You can generate one by calling: mix phx.gen.secret
+        """
 
-  config :ircpipe_web, IrcpipeWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
-    http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0},
-      port: String.to_integer(System.get_env("PORT", "4000"))
-    ],
-    secret_key_base: secret_key_base
+    host = System.get_env("PHX_HOST") || "example.com"
+
+    config :ircpipe_web, IrcpipeWeb.Endpoint,
+      url: [host: host, port: 443, scheme: "https"],
+      http: [
+        # Enable IPv6 and bind on all interfaces.
+        # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
+        # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
+        # for details about using IPv6 vs IPv4 and loopback vs public addresses.
+        ip: {0, 0, 0, 0, 0, 0, 0, 0},
+        port: String.to_integer(System.get_env("PORT", "4000"))
+      ],
+      secret_key_base: secret_key_base
+  end
 
   # ## SSL Support
   #
