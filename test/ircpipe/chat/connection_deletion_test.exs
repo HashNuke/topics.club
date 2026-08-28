@@ -8,6 +8,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
   alias Ircpipe.Chat.{
     ChannelMembership,
     ChannelUser,
+    ConnectionDeletion,
     ConnectionDeletionEventBatch,
     ConnectionDeletionEventsWorker,
     ConnectionDeletionReconcilerWorker,
@@ -64,7 +65,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     refute Task.yield(delete_task, 100)
@@ -91,7 +92,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
                "nickname" => "mira"
              })
 
-    assert {:ok, deleted} = Connections.delete(user, connection.id)
+    assert {:ok, deleted} = ConnectionDeletion.delete(user, connection.id)
     assert deleted.id == connection.id
 
     assert {:error, :connection_not_found} = SessionSupervisor.start_session(connection)
@@ -125,7 +126,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert_receive {:DOWN, ^client_monitor, :process, ^client_pid, :shutdown}, 5_000
     assert Registry.lookup(Ircpipe.Irc.ClientRegistry, registry_key) == []
 
-    assert {:ok, deleted} = Connections.delete(user, connection.id)
+    assert {:ok, deleted} = ConnectionDeletion.delete(user, connection.id)
     assert deleted.id == connection.id
     _send_result = send_after_disconnect(server, "PING :after-delete")
     refute_receive {:irc_server_line, "PONG " <> _token}, 100
@@ -158,7 +159,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:connection_delete_marked, delete_pid, ^barrier_ref, connection_id}, 5_000
@@ -391,7 +392,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:connection_delete_marked, delete_pid, ^delete_ref, ^connection_id}, 5_000
@@ -454,7 +455,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:connection_delete_marked, delete_pid, ^delete_ref, connection_id}, 5_000
@@ -529,7 +530,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:connection_delete_marked, delete_pid, ^delete_ref, ^connection_id}, 5_000
@@ -589,7 +590,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert connection_id == connection.id
     assert Repo.get_by(Message, body: "mira: deleted before effects")
 
-    assert {:ok, deleted} = Connections.delete(user, connection.id)
+    assert {:ok, deleted} = ConnectionDeletion.delete(user, connection.id)
     assert deleted.id == connection.id
     send(effects_pid, {:continue_connection_effects, effects_ref})
     assert {:ok, _message} = Task.await(ingestion_task, 5_000)
@@ -626,7 +627,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:session_stop_paused, stop_pid, ^session_pid}, 5_000
@@ -670,7 +671,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
     _delete_task =
       Task.Supervisor.async_nolink(task_supervisor, fn ->
-        Connections.delete(user, connection.id)
+        ConnectionDeletion.delete(user, connection.id)
       end)
 
     assert_receive {:connection_delete_committed, delete_pid, ^barrier_ref, batch_id}, 5_000

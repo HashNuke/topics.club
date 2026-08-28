@@ -10,6 +10,7 @@ defmodule Ircpipe.EngineClient.ContractTest do
     {:ensure_connection, 10, %{intent: "active"}},
     {:disconnect_connection, 10, %{reason: "leaving"}},
     {:quiesce_connection, 10, %{}},
+    {:delete_connection, 10, %{}},
     {:join_channel, 10, %{channel: "#elixir"}},
     {:part_channel, 10, %{membership_id: 20, reason: "leaving"}},
     {:send_channel_message, 10, %{membership_id: 20, body: "hello", kind: "message"}},

@@ -6,7 +6,15 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ircpipe.Accounts.User
   alias Ircpipe.AccountsFixtures
-  alias Ircpipe.Chat.{ChannelJoinRequest, ConnectionEndpoint, Connections, ServerConnection}
+
+  alias Ircpipe.Chat.{
+    ChannelJoinRequest,
+    ConnectionDeletion,
+    ConnectionEndpoint,
+    Connections,
+    ServerConnection
+  }
+
   alias Ircpipe.Repo
 
   test "concurrent endpoint discovery serializes equivalent port representations" do
@@ -123,7 +131,7 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
     supervisor = start_supervised!(Task.Supervisor)
 
     delete_task =
-      unboxed_task(supervisor, fn -> Connections.delete(user, connection.id) end)
+      unboxed_task(supervisor, fn -> ConnectionDeletion.delete(user, connection.id) end)
 
     assert_receive {:connection_delete_paused, delete_pid, ^barrier_ref, connection_id}, 5_000
     assert connection_id == connection.id

@@ -696,10 +696,12 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 
 Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint review. Live REST operations other than deletion quiescence, bootstrap restoration/status, and Phoenix Channel operations now use `EngineClient`; live-status formatting uses the batch status operation, send-failure persistence occurs inside the engine API, and bootstrap presence reads use a core-owned query module. No module under `IrcpipeWeb` directly references an engine implementation module. The temporary dependency budget has fallen from 36 to 14; the remaining context/deletion and engine-to-web edges belong to checkpoint 5. The reviewed checkpoint passed `mix precommit` with 680 Elixir tests, 227 frontend tests, the Storybook build, and the boundary gate.
 
+Checkpoint 5 is in progress. Connection deletion now enters the engine through a versioned `delete_connection` operation, and the engine-owned `Ircpipe.Chat.ConnectionDeletion` module owns quiescence, durable recovery, final deletion, and deletion-event dispatch. The web connection facade no longer constructs deletion jobs or calls the session supervisor. Durable deletion workers acquire the engine operation lock before resuming. This first checkpoint-5 slice reduces the temporary dependency budget from 14 to 8.
+
 - [x] Route batch live-status lookup through the client.
 - [x] Route ensure/start connection through the client.
 - [x] Route disconnect/stop connection through the client.
-- [ ] Route connection deletion quiescence through the client.
+- [x] Route connection deletion quiescence through the client.
 - [x] Route channel join and topic join through the client.
 - [x] Route channel part through the client.
 - [x] Route channel messages and actions through the client.
@@ -709,11 +711,11 @@ Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint 
 - [x] Keep directory discovery's short-lived `ircxd` clients separate from per-user engine sessions and explicitly web-owned.
 - [x] Remove session locator and registry lookups from REST payload formatting.
 - [x] Remove session locator and registry lookups from Channel payload formatting.
-- [ ] Refactor deletion and reconciliation workers so they do not assume a local session registry outside the engine role.
+- [x] Refactor deletion workers so they execute in the engine role rather than assuming a local session registry from web code.
 - [ ] Refactor any remaining context functions that combine database writes with direct local process actions.
-- [ ] Split `Ircpipe.Chat.Connections` persistence primitives from engine-owned connection quiescence and deletion orchestration.
+- [x] Split `Ircpipe.Chat.Connections` persistence primitives from engine-owned connection quiescence and deletion orchestration.
 - [ ] Remove `Ircpipe.Chat.Connections` calls to `Ircpipe.Irc.ConnectionLock` and `SessionSupervisor`.
-- [ ] Ensure live-session deletion jobs execute only in the engine role while calling core-owned persistence APIs.
+- [x] Ensure live-session deletion jobs execute only in the engine role while calling persistence APIs owned below the engine boundary.
 
 #### Demarcate supervision before extraction
 

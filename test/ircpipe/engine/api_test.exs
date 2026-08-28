@@ -101,6 +101,7 @@ defmodule Ircpipe.Engine.APITest do
       {:ensure_connection, connection.id, %{intent: "restore"}},
       {:disconnect_connection, connection.id, %{}},
       {:quiesce_connection, connection.id, %{}},
+      {:delete_connection, connection.id, %{}},
       {:join_channel, connection.id, %{channel: "#elixir"}},
       {:part_channel, connection.id, %{membership_id: 1}},
       {:send_channel_message, connection.id, %{membership_id: 1, body: "hello", kind: "message"}},

@@ -48,6 +48,13 @@ defmodule Ircpipe.EngineClient.Contract do
       timeout: 10_000,
       retry: :safe
     },
+    delete_connection: %{
+      connection?: true,
+      required: %{},
+      optional: %{},
+      timeout: 30_000,
+      retry: :safe
+    },
     join_channel: %{
       connection?: true,
       required: %{channel: :nonempty_string},

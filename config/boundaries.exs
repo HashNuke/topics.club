@@ -28,6 +28,7 @@
         "lib/ircpipe/chat/command_messages.ex",
         "lib/ircpipe/chat/connection_activity.ex",
         "lib/ircpipe/chat/connection_casemapping.ex",
+        "lib/ircpipe/chat/connection_deletion.ex",
         "lib/ircpipe/chat/connection_deletion_batch_store.ex",
         "lib/ircpipe/chat/connection_deletion_event_batch.ex",
         "lib/ircpipe/chat/connection_deletion_events_worker.ex",
@@ -149,7 +150,7 @@
       remove_in: "checkpoint 5: all core/web and engine/web reverse edges removed"
     }
   ],
-  temporary_dependency_budget: 14,
+  temporary_dependency_budget: 8,
   temporary_dependencies: [
     %{
       from: "lib/ircpipe/chat/buffer_events.ex",
@@ -158,14 +159,6 @@
       owner: :core,
       reason: "Core PubSub publishing still constructs browser-shaped payloads",
       remove_in: "checkpoint 5: stable internal event boundary"
-    },
-    %{
-      from: "lib/ircpipe/chat/connection_deletion_worker.ex",
-      to: "lib/ircpipe/chat/connections.ex",
-      label: "runtime",
-      owner: :engine,
-      reason: "Engine deletion recovery still calls the web connection facade",
-      remove_in: "checkpoint 5: engine-to-web effect cleanup"
     },
     %{
       from: "lib/ircpipe/chat/connection_lifecycle.ex",
@@ -208,14 +201,6 @@
       remove_in: "checkpoint 5: engine-to-web effect cleanup"
     },
     %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_request.ex",
-      label: "export",
-      owner: :web,
-      reason: "The web connection facade still constructs an engine-owned deletion request",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
       from: "lib/ircpipe/chat/connection_snapshot.ex",
       to: "lib/ircpipe/chat/membership_reconciler.ex",
       label: "runtime",
@@ -225,42 +210,10 @@
     },
     %{
       from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_batch_store.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still persists engine-owned deletion batches",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_events_worker.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still dispatches an engine-owned deletion worker",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/chat/connection_deletion_worker.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still schedules engine-owned deletion work",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
       to: "lib/ircpipe/irc/connection_lock.ex",
       label: "runtime",
       owner: :web,
       reason: "The web connection facade still owns engine process serialization",
-      remove_in: "checkpoint 5: connection orchestration split"
-    },
-    %{
-      from: "lib/ircpipe/chat/connections.ex",
-      to: "lib/ircpipe/irc/session_supervisor.ex",
-      label: "runtime",
-      owner: :web,
-      reason: "The web connection facade still quiesces the local engine directly",
       remove_in: "checkpoint 5: connection orchestration split"
     }
   ]

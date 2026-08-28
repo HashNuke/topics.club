@@ -73,9 +73,11 @@ defmodule IrcpipeWeb.Api.ConnectionController do
     user = conn.assigns.current_scope.user
     connection = Connections.get!(user, id)
 
-    {:ok, _connection} = Connections.delete(user, id)
-
-    json(conn, %{deleted: Event.server_deleted(connection)})
+    with {:ok, %{deleted: true}} <- EngineClient.delete_connection(user.id, connection.id) do
+      json(conn, %{deleted: Event.server_deleted(connection)})
+    else
+      {:error, %{code: _code} = error} -> EngineErrorResponse.respond(conn, error)
+    end
   end
 
   defp connection_json(connection, status) do
