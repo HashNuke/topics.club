@@ -4,6 +4,10 @@ defmodule TopicsClub.EngineClient do
   alias TopicsClub.EngineClient.Contract
   alias TopicsClub.EngineClient.Reply
 
+  def protocol_info(opts \\ []) do
+    request(:protocol_info, nil, nil, %{}, opts)
+  end
+
   def connection_statuses(user_id, connection_ids, opts \\ []) do
     request(:connection_statuses, user_id, nil, %{connection_ids: connection_ids}, opts)
   end

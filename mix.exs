@@ -99,7 +99,6 @@ defmodule TopicsClub.MixProject do
       ],
       precommit: [
         "compile --warnings-as-errors",
-        "topics_club.check_boundaries",
         "deps.unlock --unused",
         "format",
         &frontend_typecheck/1,

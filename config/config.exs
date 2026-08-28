@@ -23,11 +23,13 @@ config :topics_club_gateway, :scopes,
 config :topics_club_core,
   ecto_repos: [TopicsClub.Repo],
   engine_client_adapter: TopicsClub.Engine.LocalAdapter,
-  internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter
+  internal_event_adapter: TopicsClubWeb.InternalEvents.Adapter,
+  pubsub_pool_size: 1
 
 config :topics_club_gateway,
   generators: [timestamp_type: :utc_datetime],
-  discovery_refresh_enabled: config_env() == :dev
+  discovery_refresh_enabled: config_env() == :dev,
+  engine_node: nil
 
 config :topics_club_engine,
   irc_bouncer_enabled: true
@@ -35,7 +37,7 @@ config :topics_club_engine,
 config :topics_club_engine, TopicsClub.EngineOban,
   name: TopicsClub.EngineOban,
   repo: TopicsClub.Repo,
-  queues: [connection_deletions: 2, internal_events: 5],
+  queues: [connection_deletions: 2],
   plugins: [],
   cron: [
     crontab: [
@@ -46,7 +48,7 @@ config :topics_club_engine, TopicsClub.EngineOban,
 config :topics_club_gateway, TopicsClubWeb.Oban,
   name: TopicsClubWeb.Oban,
   repo: TopicsClub.Repo,
-  queues: [notifications: 5],
+  queues: [internal_events: 5, notifications: 5],
   plugins: [Oban.Plugins.Pruner]
 
 # Configure the endpoint

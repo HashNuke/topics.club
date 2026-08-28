@@ -9,6 +9,36 @@ end
 
 web_capable? = release_name != "topics_club_engine"
 
+split_release? = release_name in ["topics_club_gateway", "topics_club_engine"]
+
+parse_node_name = fn variable ->
+  value =
+    System.get_env(variable) ||
+      raise "environment variable #{variable} is required for split releases"
+
+  if byte_size(value) <= 255 and String.match?(value, ~r/\A[A-Za-z0-9_-]+@[^@\s]+\z/) do
+    String.to_atom(value)
+  else
+    raise "#{variable} must be a long Erlang node name in name@host form"
+  end
+end
+
+if config_env() == :prod and split_release? do
+  _release_node = parse_node_name.("RELEASE_NODE")
+
+  release_cookie =
+    System.get_env("RELEASE_COOKIE") ||
+      raise "environment variable RELEASE_COOKIE is required for split releases"
+
+  unless String.match?(release_cookie, ~r/\A[A-Za-z0-9]{32,}\z/) do
+    raise "RELEASE_COOKIE must contain at least 32 alphanumeric characters"
+  end
+
+  if release_name == "topics_club_gateway" do
+    config :topics_club_gateway, :engine_node, parse_node_name.("TOPICS_CLUB_ENGINE_NODE")
+  end
+end
+
 if config_env() == :prod do
   case release_name do
     "topics_club_gateway" ->
@@ -19,7 +49,7 @@ if config_env() == :prod do
     "topics_club_engine" ->
       config :topics_club_core,
         engine_client_adapter: TopicsClub.Engine.LocalAdapter,
-        internal_event_adapter: nil
+        internal_event_adapter: TopicsClub.InternalEvents.PubSubAdapter
 
     _combined_or_mix ->
       config :topics_club_core,

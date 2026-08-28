@@ -13,6 +13,14 @@ defmodule TopicsClub.EngineClient.Contract do
   @request_id_pattern ~r/\A[A-Za-z0-9._:-]+\z/
 
   @operations %{
+    protocol_info: %{
+      system?: true,
+      connection?: false,
+      required: %{},
+      optional: %{},
+      timeout: 5_000,
+      retry: :safe
+    },
     connection_statuses: %{
       connection?: false,
       required: %{connection_ids: {:list, :positive_integer}},
@@ -172,7 +180,7 @@ defmodule TopicsClub.EngineClient.Contract do
 
     with true <- MapSet.new(Map.keys(request)) == @envelope_keys,
          true <- valid_request_id?(Map.get(request, :request_id)),
-         true <- positive_integer?(Map.get(request, :user_id)),
+         true <- valid_user_id?(Map.get(request, :user_id), Map.get(metadata, :system?, false)),
          true <- valid_connection_id?(Map.get(request, :connection_id), metadata.connection?),
          true <- is_map(payload) and plain_term?(payload),
          true <- valid_payload?(payload, metadata) do
@@ -220,6 +228,10 @@ defmodule TopicsClub.EngineClient.Contract do
   defp valid_connection_id?(_connection_id, false), do: false
 
   defp positive_integer?(value), do: is_integer(value) and value > 0
+
+  defp valid_user_id?(nil, true), do: true
+  defp valid_user_id?(user_id, false), do: positive_integer?(user_id)
+  defp valid_user_id?(_user_id, _system?), do: false
 
   defp generate_request_id do
     random = :crypto.strong_rand_bytes(18) |> Base.url_encode64(padding: false)

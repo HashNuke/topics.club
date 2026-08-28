@@ -14,6 +14,13 @@ defmodule TopicsClubWeb.Supervisor do
 
   @doc false
   def children(opts \\ []) do
+    engine_node =
+      Keyword.get(
+        opts,
+        :engine_node,
+        Application.get_env(:topics_club_gateway, :engine_node)
+      )
+
     discovery_enabled? =
       Keyword.get(
         opts,
@@ -22,15 +29,28 @@ defmodule TopicsClubWeb.Supervisor do
       )
 
     [
-      TopicsClubWeb.Telemetry,
-      {Task.Supervisor, name: TopicsClubWeb.EngineRestoreTaskSupervisor},
-      {TopicsClubWeb.EngineRestorer, []},
-      {Oban, Application.fetch_env!(:topics_club_gateway, TopicsClubWeb.Oban)}
+      TopicsClubWeb.Telemetry
     ] ++
+      split_runtime_children(engine_node) ++
+      [
+        {Task.Supervisor, name: TopicsClubWeb.EngineRestoreTaskSupervisor},
+        {TopicsClubWeb.EngineRestorer, []},
+        {Oban, Application.fetch_env!(:topics_club_gateway, TopicsClubWeb.Oban)}
+      ] ++
       discovery_children(discovery_enabled?) ++
       [
         TopicsClubWeb.Endpoint
       ]
+  end
+
+  @doc false
+  def split_runtime_children(nil), do: []
+
+  def split_runtime_children(engine_node) when is_atom(engine_node) do
+    [
+      {TopicsClubWeb.InternalEvents.Subscriber, []},
+      {TopicsClubWeb.EngineNodeConnector, engine_node: engine_node}
+    ]
   end
 
   @doc false

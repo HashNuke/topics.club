@@ -1,9 +1,11 @@
 defmodule TopicsClub.Irc.Session.EventRecorderTest do
   use TopicsClub.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias TopicsClub.AccountsFixtures
   alias TopicsClub.Chat
-  alias TopicsClub.Chat.{Connections, MessageHistory, SystemMessages}
+  alias TopicsClub.Chat.{Connections, MessageHistory, ServerConnection, SystemMessages}
   alias TopicsClub.Irc.Session.EventRecorder
 
   test "records IRC errors in an existing channel buffer" do
@@ -57,6 +59,38 @@ defmodule TopicsClub.Irc.Session.EventRecorderTest do
     assert_raise BadMapError, fn ->
       EventRecorder.irc_error([], %{target: "#missing", code: 403})
     end
+  end
+
+  test "reports a recoverable persistence failure without stopping the IRC caller" do
+    telemetry_id = "event-recorder-failure-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        telemetry_id,
+        [:topics_club, :irc, :ingestion, :failure],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:telemetry, event, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(telemetry_id) end)
+
+    connection = %ServerConnection{id: -1, user_id: -1, host: "irc.invalid.test"}
+
+    capture_log(fn ->
+      assert {:ok, nil} = EventRecorder.server_line(connection, "not persisted")
+    end)
+
+    assert_receive {:telemetry, [:topics_club, :irc, :ingestion, :failure],
+                    %{system_time: system_time},
+                    %{
+                      connection_id: -1,
+                      operation: :server_line,
+                      reason: Ecto.NoResultsError
+                    }}
+
+    assert is_integer(system_time)
   end
 
   defp connection_fixture(user) do

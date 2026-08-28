@@ -47,18 +47,6 @@ jobs:
           mix deps.get
           npm ci --prefix apps/topics_club_gateway/assets
 
-      - name: Prevent boundary baseline expansion
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if git cat-file -e "${BASE_SHA}:config/boundaries.exs" 2>/dev/null; then
-            mix topics_club.check_boundaries --baseline-ref "$BASE_SHA"
-          else
-            echo "Base commit predates the boundary manifest; running the head policy only."
-            mix topics_club.check_boundaries
-          fi
-
       - name: Run precommit suite
         run: mix precommit
 

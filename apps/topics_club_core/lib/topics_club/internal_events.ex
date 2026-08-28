@@ -26,25 +26,31 @@ defmodule TopicsClub.InternalEvents do
     log_failure(result, event)
   rescue
     exception ->
-      Logger.warning("Internal event adapter raised", reason: Exception.message(exception))
+      Logger.warning("Internal event adapter raised exception=#{inspect(exception.__struct__)}")
       {:error, :event_adapter_unavailable}
   catch
-    :exit, reason ->
-      Logger.warning("Internal event adapter exited", reason: inspect(reason))
+    :exit, _reason ->
+      Logger.warning("Internal event adapter exited")
       {:error, :event_adapter_unavailable}
   end
 
   defp log_failure({:error, reason} = error, event) do
-    Logger.warning("Internal event was not delivered",
-      event_type: event_field(event, :type),
-      event_id: event_field(event, :event_id),
-      reason: inspect(reason)
+    Logger.warning(
+      "Internal event was not delivered " <>
+        "event_type=#{inspect(event_field(event, :type))} " <>
+        "event_id=#{inspect(event_field(event, :event_id))} " <>
+        "reason=#{inspect(failure_kind(reason))}"
     )
 
     error
   end
 
   defp log_failure(result, _event), do: result
+
+  defp failure_kind({:exception, _message}), do: :exception
+  defp failure_kind({:exit, _reason}), do: :exit
+  defp failure_kind(reason) when is_atom(reason), do: reason
+  defp failure_kind(_reason), do: :error
 
   defp event_field(event, field) when is_map(event), do: Map.get(event, field)
   defp event_field(_event, _field), do: nil

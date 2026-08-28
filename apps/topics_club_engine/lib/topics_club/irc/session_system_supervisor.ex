@@ -10,7 +10,6 @@ defmodule TopicsClub.Irc.SessionSystemSupervisor do
   @impl true
   def init(_opts) do
     children = [
-      {TopicsClub.Irc.SingleNodeGuard, []},
       {TopicsClub.Irc.ConnectionOperationLock, []},
       {Registry, keys: :unique, name: TopicsClub.Irc.ClientRegistry},
       {Registry, keys: :unique, name: TopicsClub.Irc.SessionRegistry},

@@ -8,7 +8,9 @@ defmodule TopicsClub.EngineClient.RpcAdapter do
 
   @impl true
   def request(request, timeout) do
-    case Discovery.engine_node() do
+    expected_node = Application.get_env(:topics_club_gateway, :engine_node)
+
+    case Discovery.engine_node(expected_node) do
       {:ok, engine_node} -> call(engine_node, request, timeout)
       {:error, reason} -> Reply.error(request, reason)
     end

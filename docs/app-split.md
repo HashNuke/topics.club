@@ -32,7 +32,7 @@ Sizing used by this document:
 - [x] The combined supervision tree is divided into logical core, engine, and web supervisors.
 - [x] The repository is an umbrella containing core, engine, and web OTP applications.
 - [x] The three release artifacts build independently.
-- [ ] Split web and engine nodes communicate successfully in an integration environment.
+- [x] Split web and engine nodes communicate successfully in an integration environment.
 - [ ] First-party bare-host deployment and rollback automation is complete.
 
 ### Workstream summary
@@ -43,7 +43,7 @@ Sizing used by this document:
 | 1. Logical boundaries and engine contract inside the monolith | XL | High | Enforcing one-way dependencies and replacing direct process calls without changing behavior |
 | 2. Mechanical umbrella extraction | M | Medium | Moving already-separated code and tests without changing behavior or losing coverage |
 | 3. Release and container packaging | L | High | Producing three minimal, correctly configured artifacts |
-| 4. Distributed runtime | XL | Critical | Singleton safety, failure handling, PubSub, and protocol compatibility |
+| 4. Distributed runtime | XL | Critical | Single-engine topology, failure handling, PubSub, and protocol compatibility |
 | 5. Hosted `Ircxd.Server` | XL | High | Isolated supervision, authentication, TLS, and server persistence |
 | 6. First-party deployment automation | L | High | Atomic deploys, migrations, systemd, health checks, and rollback |
 | 7. Verification and operational hardening | L | High | Exercising cross-node failures and N/N-1 compatibility |
@@ -133,7 +133,7 @@ Browser
                                     PostgreSQL
 ```
 
-The first split-mode release supports one web node and one engine node. Additional web replicas may be considered separately; the engine remains a singleton until database-backed ownership leases and fencing exist.
+The first split-mode release supports one web node and one engine node. The deployment mechanism must create exactly one engine service; the runtime marker cannot prevent an isolated, unconnected second engine from starting. Additional web replicas may be considered separately only after their own shared-work concerns are reviewed. Multiple engine replicas require database-backed ownership leases and fencing.
 
 ## Pre-umbrella logical boundaries
 
@@ -171,11 +171,9 @@ This rule requires deliberate untangling before any file move. In particular:
 
 The monolith should expose three logical supervisors—core, engine, and web—under the existing root application. Combined mode starts all three. Their child lists, registered names, configuration, and job ownership must already match the future child applications before the umbrella conversion begins.
 
-Boundary enforcement must be automated. Local precommit fails when web code references engine implementation modules, core code references engine or web modules, engine code references web modules, or an unapproved dependency cycle is introduced. The same gate must be added to CI before the workstream exit gate can close. The check operates on compiler/xref information where possible, with a narrow explicit allowlist for temporary migration edges. Every temporary edge needs an owner and removal task.
+Boundary enforcement was automated while the code still lived in a monolith. A temporary xref manifest and shrinking allowlist prevented new reverse dependencies while call sites were moved behind the engine and event contracts.
 
-The authoritative ownership and transition manifest is `config/boundaries.exs`. It tracks compiled production files, all 29 migration modules, and test-support files under the four deployable logical components plus `tooling` for root Mix tasks. The temporary `assembly` source owner disappeared with the empty root OTP application during the umbrella conversion; combined assembly is now release metadata rather than production code. Tooling is not an OTP application and is excluded from deployable-component cycle analysis. Migration files receive an owner, but Mix does not compile them into the application xref graph; their internal references therefore require migration tests and review rather than xref enforcement.
-
-Run `mix topics_club.check_boundaries` to validate the manifest against Mix's direct xref graph. The checker fails on unowned or multiply owned files, unknown components, cycles in the permanent allowed-dependency policy, actual deployable cycles outside the explicit transition-cycle baseline, new forbidden file edges, dependency-label escalation, malformed or duplicate exceptions, stale exceptions or transition cycles, and compiled production files missing from xref. `mix precommit` runs this check immediately after warning-free compilation.
+That migration-only checker was retired after the umbrella extraction completed. Physical ownership under `apps/topics_club_core`, `apps/topics_club_engine`, and `apps/topics_club_gateway`, together with each child application's declared dependencies, now enforces the one-way graph directly: gateway and engine depend on core, while neither child depends on the other. Independent child compilation, release-content inspection, and integration tests cover the remaining runtime-resolved adapters.
 
 The initial graph already has one temporary strongly connected component containing core, engine, and web because the monolith has allowlisted reverse edges in all three components. The checker records that component set explicitly and rejects a different or additional deployable strongly connected component. This baseline must disappear when the reverse edges are removed; it is not a permitted final umbrella topology.
 
@@ -191,7 +189,7 @@ Every exception records its current xref label, responsible logical owner, reaso
 
 ### Current monolith inventory
 
-This inventory was refreshed at the workstream 1 exit audit on 2026-08-28. `config/boundaries.exs` is the file-level source of truth; the tables below record runtime behavior that xref cannot express. There are currently no temporary dependency exceptions and no deployable-component cycles.
+This inventory was refreshed at the workstream 1 exit audit on 2026-08-28. The child application directories are now the file-level source of truth. The tables below record runtime behavior that the Mix dependency graph cannot express. There are no temporary dependency exceptions or child-application cycles.
 
 #### Outbound IRC operations and local-process assumptions
 
@@ -222,7 +220,7 @@ The remaining modules that assume an IRC process is local are all engine-owned: 
 | Connection status/nickname | Session connection events -> `ConnectionLifecycle` transaction | `connection_status_changed` -> `server:status` |
 | Join/part and buffer lifecycle | Join reconciliation -> membership persistence transaction | `buffer_joined` or `buffer_left` -> matching browser buffer event |
 | Presence snapshot/diff | Session presence handlers -> `Presence` transaction | `presence_synchronized` or `presence_changed` -> matching browser presence event |
-| Mention/direct-message notification | Message transaction inserts notification and one engine event job atomically | `notification_committed` -> web handler -> web-owned PushWorker |
+| Mention/direct-message notification | Message transaction inserts notification and one durable gateway handoff job atomically | `notification_committed` -> web handler -> web-owned PushWorker |
 
 Publish helpers reject calls from inside an outer rollback-capable transaction. Ordinary realtime message publication is synchronous after commit and does not use Oban; only notification delivery and durable deletion/event recovery use jobs. If web delivery is missed, bootstrap and cursor-based history reconciliation rebuild browser state from PostgreSQL.
 
@@ -241,7 +239,7 @@ Authentication revocation uses the separate Phoenix socket topic `user_socket:se
 
 #### Data and behavior ownership
 
-The ownership manifest deliberately assigns files rather than relying on the mixed `TopicsClub.Chat` namespace:
+Physical placement in the umbrella deliberately assigns files rather than relying on the mixed `TopicsClub.Chat` namespace:
 
 | Owner | Schemas and behavior modules |
 | --- | --- |
@@ -251,7 +249,7 @@ The ownership manifest deliberately assigns files rather than relying on the mix
 | Web | Accounts/session behavior, connection endpoint/snapshots and browser queries, read state, topics, notifications/Web Push, discovery, realtime serializers, RPC adapter, and all `TopicsClubWeb` modules |
 | Tooling | Root Mix tasks, release metadata, and the non-deployable root integration-test project |
 
-The less obvious web-owned schemas are `UserToken`, `Topic`, discovery `Network`/`ServerChannel`, `PushSubscription`, and `PushSubscriptionRateLimit`. The authoritative exact path list remains `config/boundaries.exs`, which fails on an unowned or multiply owned production, migration, or test-support file.
+The less obvious web-owned schemas are `UserToken`, `Topic`, discovery `Network`/`ServerChannel`, `PushSubscription`, and `PushSubscriptionRateLimit`. Their source and focused tests live under `apps/topics_club_gateway`; shared schemas and canonical migrations live under `apps/topics_club_core`.
 
 #### External dependency ownership
 
@@ -313,8 +311,8 @@ Test-only application keys are not release configuration. They are narrow synchr
 | --- | --- |
 | Combined release | The release boot script starts the core, engine, and web OTP applications directly; there is no empty assembly supervisor or fourth production application |
 | Core | `TopicsClub.CoreSupervisor`, `:one_for_one`; `TopicsClub.Vault`, `TopicsClub.Repo`, and `TopicsClub.PubSub` |
-| Engine | `TopicsClub.EngineSupervisor`, `:one_for_one`; global engine marker, `TopicsClub.Engine.OperationLock`, `TopicsClub.Engine.RequestTaskSupervisor`, `TopicsClub.EngineOban`, and `TopicsClub.Irc.SessionSystemSupervisor` |
-| Engine session subsystem | `:one_for_all`; `SingleNodeGuard`, `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
+| Engine | `TopicsClub.EngineSupervisor`, `:one_for_one`; global engine discovery marker, `TopicsClub.Engine.OperationLock`, `TopicsClub.Engine.RequestTaskSupervisor`, `TopicsClub.EngineOban`, and `TopicsClub.Irc.SessionSystemSupervisor` |
+| Engine session subsystem | `:one_for_all`; `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
 | Web | `TopicsClubWeb.Supervisor`, `:one_for_one`; Telemetry, `EngineRestoreTaskSupervisor`, `EngineRestorer`, `TopicsClubWeb.Oban`, optional `Discovery.Refresher`, and Endpoint last |
 
 Shared Repo, Vault, and PubSub start once in combined mode. In split mode each node starts its own core runtime instance against the shared database; only the engine starts the session subsystem and only the web starts Endpoint.
@@ -325,7 +323,7 @@ Extraction preserves module names and relative paths. No module rename is bundle
 
 | Current ownership/path | Future source destination | Future focused-test destination |
 | --- | --- | --- |
-| Core and shared entries in `config/boundaries.exs` | `apps/topics_club_core/lib/...` | `apps/topics_club_core/test/...` |
+| Core and shared modules | `apps/topics_club_core/lib/...` | `apps/topics_club_core/test/...` |
 | Engine entries, including selected `lib/topics_club/chat` files | `apps/topics_club_engine/lib/...` | `apps/topics_club_engine/test/...` |
 | Web entries in both `lib/topics_club` and `lib/topics_club_web` plus assets | `apps/topics_club_gateway/lib/...`, `apps/topics_club_gateway/assets/...` | `apps/topics_club_gateway/test/...` |
 | Root `mix.exs` release metadata | Umbrella combined-release assembly; no production module | Root integration tests |
@@ -406,7 +404,7 @@ The small, long-lived connection and ingestion runtime:
 - Stable canonical message ingestion
 - Connection lifecycle and IRC-derived presence persistence
 - Post-commit internal PubSub events
-- The engine API and singleton registration
+- The engine API and discovery marker
 - Jobs that must quiesce or manipulate live IRC sessions
 
 The engine must not depend on Phoenix Endpoint, controllers, browser authentication, HTML, React assets, or frontend event serialization.
@@ -514,13 +512,13 @@ Slow or retryable work remains asynchronous:
 
 ### Engine discovery
 
-The engine starts a lightweight marker registered under a stable global name. The registration identifies the single engine node; it must not perform all IRC work in one serialized GenServer loop.
+The engine starts a lightweight marker registered under a stable global name. Within the connected cluster, the registration identifies the engine node; it must not perform all IRC work in one serialized GenServer loop.
 
 In split mode, the RPC adapter resolves the marker, obtains its node, and invokes a stable engine API on that node. The combined-mode local adapter invokes the API under the local engine task supervisor without consulting the marker.
 
-The existing `TopicsClub.Irc.SingleNodeGuard` must be replaced. The new guard permits web nodes in the cluster and fails engine startup when another engine marker is already registered.
+The global engine marker replaces the old `TopicsClub.Irc.SingleNodeGuard`. It permits web nodes in the cluster, identifies the engine expected by the gateway, and rejects a second marker that is already visible in the connected cluster before later engine children start.
 
-This global registration is a singleton guard for the supported static two-node topology, not a substitute for database-backed fencing. Network-partition-safe engine failover remains deferred.
+The marker is not the single-engine guarantee. Two engine nodes that start while disconnected can each acquire a marker and open sessions; global registration reconciles only after connectivity exists and is not fencing. The supported static topology therefore depends on deployment automation creating exactly one engine service. Starting any second or partitioned engine is unsupported until database-backed leases and fencing exist.
 
 ### Request contract
 
@@ -553,6 +551,7 @@ The checked-in version 1 contract currently defines these operations and expecta
 
 | Operation | Default timeout | Retry classification |
 | --- | ---: | --- |
+| Protocol/capability information | 5 seconds | Safe |
 | Batch connection status | 5 seconds | Safe |
 | Connection info | 5 seconds | Safe |
 | Ensure/start connection | 15 seconds | Safe |
@@ -570,6 +569,11 @@ The checked-in version 1 contract currently defines these operations and expecta
 `TopicsClub.EngineClient` builds and validates envelopes, invokes the configured adapter dynamically, validates the versioned reply, and returns plain success data or a stable error map. Combined mode selects the engine-owned local adapter without any split-mode environment variables. The web-owned RPC adapter resolves the global engine marker and calls the engine API using a runtime-resolved module name, so it has no compile-time dependency on engine implementation modules.
 
 The engine API reloads the user, connection, membership, or direct-message thread needed by each operation and rechecks ownership before touching a local session. Per-connection API requests take an engine-owned orchestration lock around authorization, durable intent mutation, and the complete process effect. That lock is deliberately distinct from the session subsystem's connection lock, so opposing lifecycle requests are linearized without deadlocking session startup or shutdown. Ecto schemas, `Ircxd.Client.Info`, `MapSet` values, and timestamps are converted to plain maps, lists, and ISO 8601 strings before a reply crosses the adapter boundary. Local requests execute under an engine-owned task supervisor so the same per-operation timeout applies in combined mode without routing all work through the marker process.
+
+Version 1 is the first protocol, so there is no real N-1 implementation to support or test yet.
+Until a version 2 contract exists, gateway and engine releases must come from the same compatible
+source revision. Introducing version 2 requires retaining version 1 handling long enough to add a
+real web-N/engine-N-1 compatibility test before independent rolling upgrades are allowed.
 
 ### Initial operations
 
@@ -604,7 +608,14 @@ Browser payload formatting remains in `topics_club_gateway`. Internal events mus
 
 Synchronous command execution results remain in the versioned `EngineClient` reply. Command transcript rows and later status changes are canonical messages and therefore use `message_committed`; emitting a second command-result event would duplicate the request reply and the persisted message event without adding recoverable state.
 
-During monolith demarcation, `TopicsClub.InternalEvents` synchronously invokes one configured adapter. The combined configuration selects a web-owned adapter that translates committed internal facts into the existing Phoenix PubSub payloads and Web Push jobs. This is deliberately a small port, not a general event-bus framework. Workstream 4 will supply the split transport adapter that carries the same envelopes between nodes; event producers and browser serializers must not change for that transport move.
+`TopicsClub.InternalEvents` synchronously invokes one configured adapter. Combined mode selects the web-owned adapter that translates committed facts directly into the existing browser PubSub payloads and Web Push jobs. Split engine mode selects one small PubSub transport adapter that publishes the unchanged envelope on `topics_club:internal_events:v1`; one gateway subscriber validates it again and invokes the same web-owned adapter. This is deliberately a two-module transport bridge, not a general event-bus framework. Event producers and browser serializers do not branch by runtime mode.
+
+The durable notification handoff does not rely on a PubSub subscriber being present. Engine
+ingestion inserts the core-defined `NotificationEventsWorker` job into the shared Oban table in the
+same transaction as the notification. Only the gateway owns the `internal_events` queue, so the job
+waits in PostgreSQL while the gateway is down and invokes the local web adapter after the gateway
+returns. Cross-node PubSub remains appropriate for recoverable realtime state, while Web Push job
+creation retains a durable database handoff.
 
 ## PostgreSQL and migrations
 
@@ -630,7 +641,7 @@ IRC server credentials remain encrypted at rest. Both combined mode and the engi
 
 All participating nodes start `TopicsClub.PubSub` with the default Distributed Erlang adapter and an explicitly identical pool configuration. Do not derive pool size from the node's CPU count because the web and engine machines may differ.
 
-The initial deployment uses a fixed `pool_size: 1` on every node. A future pool-size change must follow Phoenix PubSub's compatible rolling migration procedure.
+The initial deployment uses a fixed `pool_size: 1` on every node. To increase it later, first deploy the new `pool_size` while retaining `broadcast_pool_size: 1` on every node, then remove `broadcast_pool_size` only after all nodes run the new pool. Decrease it in the reverse two-phase order. Never roll directly between unequal active pool sizes.
 
 Combined mode uses the same PubSub calls locally. Engine modules must not branch between local and clustered publishing.
 
@@ -643,7 +654,7 @@ Oban configuration is release-specific even though all jobs use the same Postgre
 - Engine release executes connection-deletion and other jobs that require local access to live IRC sessions.
 - Cron entries run only in the release that owns the corresponding work.
 
-Engine ingestion atomically inserts an engine-owned `NotificationEventsWorker` job with the canonical notification row. That worker publishes the stable internal notification event after commit and snoozes without consuming attempts while the event adapter is unavailable. The web event handler then inserts the web-owned `PushWorker` job into the web queue. Engine code never inserts a web worker directly.
+Engine ingestion atomically inserts a core-defined, gateway-executed `NotificationEventsWorker` job with the canonical notification row. The gateway-owned worker publishes the stable internal notification event after commit and snoozes without consuming attempts while the local event adapter is unavailable. The web event handler then inserts the web-owned `PushWorker` job into the web queue. Engine code never inserts a web worker directly.
 
 No queue may be enabled on a node where its worker assumes a local IRC registry unless the worker has first been refactored through `TopicsClub.EngineClient`.
 
@@ -652,7 +663,7 @@ The combined monolith now runs two named Oban instances so queue execution alrea
 | Instance owner | Queue/plugin | Workers or purpose |
 | --- | --- | --- |
 | Engine | `connection_deletions` queue | `ConnectionDeletionWorker`, `ConnectionDeletionEventsWorker`, and `ConnectionDeletionReconcilerWorker` |
-| Engine | `internal_events` queue | `NotificationEventsWorker` durably publishes committed notification facts to the configured internal event adapter |
+| Web | `internal_events` queue | `NotificationEventsWorker` durably hands committed notification facts to the local web adapter after any gateway downtime |
 | Engine | Cron | Enqueues `ConnectionDeletionReconcilerWorker` once per minute |
 | Web | `notifications` queue | `PushWorker` |
 | Web | `Oban.Plugins.Pruner` | Prunes the shared jobs table exactly once in combined mode |
@@ -677,12 +688,11 @@ The monolith currently uses this engine branch:
 
 ```text
 TopicsClub.EngineSupervisor (:one_for_one)
-  Engine.Marker (global singleton identity only)
+  Engine.Marker (connected-cluster engine discovery identity)
   Engine.OperationLock (per-connection API orchestration)
   Engine.RequestTaskSupervisor
   TopicsClub.EngineOban
   TopicsClub.Irc.SessionSystemSupervisor (:one_for_all)
-    SingleNodeGuard
     ConnectionOperationLock
     ClientRegistry
     SessionRegistry
@@ -750,6 +760,8 @@ The topics.club production deployment uses bare OTP releases built from source o
 
 The two releases use stable long node names, a shared high-entropy Erlang cookie, static engine-node configuration, fixed distribution ports, and a private network path. Public HTTP is served only by the web release. Hosted IRC ports are served only by the engine release when enabled.
 
+The split gateway listens for Erlang distribution on TCP 4370 and the split engine on TCP 4371; EPMD uses TCP 4369. Combined releases default to `RELEASE_DISTRIBUTION=none`. Split release startup requires explicit long `RELEASE_NODE` names and the same deployment-specific `RELEASE_COOKIE`. The gateway also requires `TOPICS_CLUB_ENGINE_NODE` and reconnects to that static node with capped exponential backoff without blocking web startup.
+
 ### Optional split Compose harness
 
 An additional `docker-compose.split.yml` may be added as a development and CI integration harness. It is not the primary first-party deployment mechanism. If provided, it has one PostgreSQL service, one engine service, one web service, a one-shot migrator, private distribution networking, and no migration command on the engine.
@@ -758,9 +770,34 @@ The web node attempts a static connection to the configured engine node. DNS-bas
 
 Distribution ports and EPMD must not be exposed publicly. A shared Erlang cookie grants powerful access to the cluster; use a high-entropy secret, private networking, and TLS distribution when the nodes communicate across an untrusted network.
 
+### Split distribution security and operations
+
+The initial first-party split topology is restricted to one host or a trusted private network.
+Within that boundary, TLS distribution is not required: the cookie, private routing, and firewall
+are the controls. If traffic must cross an untrusted network, the supported answer is to add a
+private tunnel/overlay or configure and verify TLS distribution before deployment; exposing raw
+Erlang distribution to the public Internet is never supported. The fixed port settings select
+ports but do not themselves bind a private interface, so host/network firewalling remains part of
+workstream 6.
+
+Generate one deployment-specific cookie with `openssl rand -hex 32`. Store the resulting value as
+`RELEASE_COOKIE` in both role-specific environment files outside the checkout, restrict those
+files to the runtime account, and never commit the value. Rotation is a coordinated maintenance
+operation because a node has one active cookie: stop the gateway, stop the engine, replace the
+cookie in both environment files, start the engine and verify marker status, then start the
+gateway and verify `/health` reports the engine ready through a protocol request. This restarts IRC sessions once; do not
+attempt a rolling cookie change with mismatched nodes.
+
+The runtime emits redacted telemetry for marker acquisition/duplication, gateway-engine
+connection changes and retries, RPC result/timeout, IRC reconnects, ingestion failures, and
+cluster-event delivery. `EngineClient.protocol_info/1` reports the protocol version, operations,
+engine node, marker status, and active-session count. The eventual production monitoring backend
+must alert on engine disconnection, duplicate-marker attempts, sustained RPC timeouts, and
+ingestion failures; choosing and configuring that backend remains an explicit deployment task.
+
 ## Configuration contract
 
-Combined mode should work with the existing required environment variables. Split mode adds explicit cluster configuration, with names to be finalized during implementation:
+Combined mode works with the existing required environment variables. Split mode adds the finalized explicit cluster configuration:
 
 ```text
 RELEASE_NODE=topics_club_gateway@web.internal
@@ -847,6 +884,7 @@ Size: **XL**. Risk: **High**. This is the largest behavior-preserving refactor. 
 - [x] Keep the migration allowlist explicit, file-exact, label-sensitive, capped at the initial 36 edges, and free of namespace-wide exceptions.
 - [x] Add the boundary gate to CI and enforce that exception, budget, and transition-cycle baseline changes only shrink once the base branch contains the manifest; the one-time initial-adoption PR runs the complete head policy because no base manifest exists to compare.
 - [x] Run the boundary check from `mix precommit`.
+- [x] Retire the temporary manifest, checker, tests, precommit hook, and CI baseline gate after the umbrella dependency graph replaces them.
 
 #### Versioned request and reply contracts
 
@@ -881,7 +919,7 @@ Checkpoint 4 routing is implemented and passed its GPT-5.6 Sol xhigh checkpoint 
 
 Checkpoint 5 is implemented and passed its GPT-5.6 Sol xhigh checkpoint review. Connection deletion now enters the engine through a versioned `delete_connection` operation, and the engine-owned `TopicsClub.Chat.ConnectionDeletion` module owns quiescence, durable recovery, final deletion, and deletion-event dispatch. The web connection facade no longer constructs deletion jobs, mutates durable connection intent, or calls engine locks and session supervision. Durable deletion workers acquire the engine operation lock before resuming. Web connection snapshots are now query-only; casemapping reconciliation stays in engine registration and join paths.
 
-The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. Each version-one event type validates its exact top-level payload and canonical nested record shapes before dispatch. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs directly. Notification event jobs are inserted atomically with their notification rows and retry adapter failures through the engine-owned `internal_events` Oban queue. A failed deletion-event dispatch retains its committed batch and scheduled recovery job instead of acknowledging and deleting the batch.
+The stable event slice now emits versioned plain-map facts after commit for messages, notifications, connection status, buffer lifecycle, presence, and direct-message-thread lifecycle. Each version-one event type validates its exact top-level payload and canonical nested record shapes before dispatch. A small configured publisher port hands those facts to web-owned realtime and notification handlers in combined mode; engine and core modules no longer construct browser events or enqueue web jobs directly. Notification event jobs are inserted atomically with their notification rows; the distributed-runtime checkpoint assigns their `internal_events` queue to the gateway so a stopped gateway leaves the durable handoff pending rather than losing it through PubSub. A failed deletion-event dispatch retains its committed batch and scheduled recovery job instead of acknowledging and deleting the batch.
 
 The boundary graph now contains 237 owned files, no temporary dependency exceptions, and no deployable-component cycles. Dependency totals vary because Mix compiles environment-specific modules: the default environment currently reports 748 checked project edges and the test environment reports 763. An expanded set of 254 chat, notification, session, Channel, and event-contract tests passes. The existing React reconnect/bootstrap reconciliation suite passes all 98 tests, including cursor catch-up after socket loss, IRC server reconnect, malformed reconnect state, and missed command-status repair. After the first review fixes, full `mix precommit` passes with 686 Elixir tests, 227 frontend tests, type checking, the Storybook build, and the zero-exception boundary gate. The final reviewer reran 66 focused tests, both environment-specific boundary checks, and found no remaining correctness, SRP, or framework-building concern.
 
@@ -951,14 +989,14 @@ Checkpoint 6 completes the monolith exit audit and passed its GPT-5.6 Sol xhigh 
 
 - [x] Every production module and runtime child has exactly one logical owner.
 - [x] The temporary dependency-edge allowlist is empty.
-- [x] Automated boundary checks pass with the intended core <- web and core <- engine dependency direction.
+- [x] Core, engine, and gateway compile with the intended one-way child-application dependency graph.
 - [x] No module under `TopicsClubWeb` calls an IRC session, locator, registry, or supervisor directly.
 - [x] No core module calls an engine process, Registry, supervisor, or adapter implementation directly except through the configured `EngineClient` adapter contract.
 - [x] No engine module references `TopicsClubWeb`.
 - [x] No web-owned worker assumes an IRC process is local.
 - [x] Every engine operation uses the versioned request path in combined mode.
 - [x] The root application starts distinct logical core, engine, and web supervisor branches.
-- [x] The ownership manifest maps cleanly to future `apps/topics_club_core`, `apps/topics_club_engine`, and `apps/topics_club_gateway` destinations.
+- [x] Logical ownership maps cleanly to `apps/topics_club_core`, `apps/topics_club_engine`, and `apps/topics_club_gateway`.
 - [x] Existing controller, Channel, IRC, retention, presence, and notification tests remain green.
 - [x] Ordinary messages still commit before broadcast and do not pass through Oban.
 - [x] The browser protocol remains compatible.
@@ -1064,7 +1102,7 @@ The repository root is now a true umbrella with only `topics_club_core`, `topics
 - [x] The combined supervision tree starts shared infrastructure once.
 - [x] The combined application behaves the same as before the umbrella conversion.
 - [x] Root and per-component test counts match the recorded pre-umbrella expectations.
-- [x] The boundary checker passes without new exceptions or child-application dependency cycles.
+- [x] The child-application dependency graph has no reverse dependency or cycle.
 - [x] Root `mix precommit` passes.
 
 ### Workstream 3: Build release and container artifacts
@@ -1155,85 +1193,123 @@ Publishing `ircxd` and replacing its Git source are intentionally deferred until
 
 ### Workstream 4: Enable the distributed split runtime
 
-Size: **XL**. Risk: **Critical**. This introduces partial failure and singleton-safety cases that do not exist in combined mode.
+Size: **XL**. Risk: **Critical**. This introduces partial failure and single-engine operational constraints that do not exist in combined mode.
+
+The implemented runtime stays intentionally small: one statically configured engine node, one
+global discovery marker, one versioned RPC entry point, and one PubSub bridge. There
+is no dynamic cluster membership layer, routing table, lease service, or multi-engine scheduler.
+The focused cross-node test drives the production client boundary from a gateway-side peer, while
+an application lifecycle test stops and restarts the complete engine application. Together they
+prove normalized failure, process isolation, desired-session restoration, paused-session
+exclusion, and channel autojoin without turning the test harness into a deployment framework.
+
+This checkpoint proves the runtime mechanics, not a safe multi-engine deployment. Split mode is
+not a supported production topology until workstream 6 supplies the one-engine service layout and
+deployment checks. The releases intentionally contain no substitute lease or scheduler.
 
 #### Distribution and network configuration
 
-- [ ] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
-- [ ] Use stable long node names resolvable on the private network.
+- [x] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
+- [x] Require stable long node names resolvable on the private network.
 - [ ] Generate and store a high-entropy deployment-specific cookie.
-- [ ] Configure fixed distribution port ranges for firewalling.
+- [x] Configure fixed distribution ports for firewalling: gateway 4370 and engine 4371.
 - [ ] Keep EPMD and distribution ports off public interfaces.
-- [ ] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
-- [ ] Add static web-to-engine connection attempts during web startup.
-- [ ] Add bounded reconnect/backoff behavior after node loss.
-- [ ] Decide whether production hosts need TLS distribution based on their network trust boundary.
-- [ ] Document cookie rotation as a coordinated web-and-engine restart.
+- [x] Define the same explicit Phoenix PubSub pool size on both nodes; initial value is 1.
+- [x] Add static web-to-engine connection attempts during web startup.
+- [x] Add bounded reconnect/backoff behavior after node loss.
+- [x] Decide whether production hosts need TLS distribution based on their network trust boundary.
+- [x] Document cookie rotation as a coordinated web-and-engine restart.
 
-#### Engine singleton and discovery
+#### Engine discovery and supported singleton topology
 
-- [ ] Implement the lightweight globally registered engine marker.
-- [ ] Return the owning engine node without routing all work through the marker process.
-- [ ] Replace `TopicsClub.Irc.SingleNodeGuard` with an engine-only singleton guard.
-- [ ] Permit any number of non-engine web nodes to join without stopping engine supervision.
-- [ ] Refuse engine startup before opening sessions when another marker exists.
-- [ ] Handle stale marker cleanup after an ordinary node shutdown.
-- [ ] Log and expose marker acquisition and ownership status.
-- [ ] Document that this guard is not network-partition-safe fencing.
+- [x] Implement the lightweight globally registered marker for connected-cluster discovery.
+- [x] Return the owning engine node without routing all work through the marker process.
+- [x] Retire `TopicsClub.Irc.SingleNodeGuard`; the marker does not terminate the engine when a web node joins.
+- [x] Permit non-engine web nodes to join without stopping engine supervision.
+- [x] Refuse the later engine supervision branch when another marker is already visible.
+- [x] Handle stale marker cleanup after an ordinary node shutdown.
+- [x] Log and expose marker acquisition and discovery status.
+- [x] Document that the marker cannot prevent an unconnected or partitioned second engine.
+- [x] Make the supported one-engine deployment topology—not the marker—the current singleton guarantee.
 
 #### Remote engine calls
 
-- [ ] Add the split-mode `EngineClient` adapter.
-- [ ] Resolve the engine node through the marker and static configuration.
-- [ ] Invoke only the stable engine API entry point remotely.
-- [ ] Apply per-operation timeouts and normalize timeout exits.
-- [ ] Normalize node-down and engine-not-started failures to `:engine_unavailable`.
-- [ ] Reject unsupported request versions and operations explicitly.
-- [ ] Add protocol capability/version reporting for diagnostics.
-- [ ] Correlate remote logs using request IDs.
-- [ ] Ensure remote retries cannot duplicate non-idempotent sends.
-- [ ] Verify the engine reloads ownership and authorization data from PostgreSQL for every mutation.
+- [x] Add the split-mode `EngineClient` adapter.
+- [x] Resolve the engine node through the marker and static configuration.
+- [x] Invoke only the stable engine API entry point remotely.
+- [x] Apply per-operation timeouts and normalize timeout exits.
+- [x] Normalize node-down and engine-not-started failures to `:engine_unavailable`.
+- [x] Reject unsupported request versions and operations explicitly.
+- [x] Add protocol capability/version reporting for diagnostics.
+- [x] Correlate remote logs using request IDs.
+- [x] Ensure remote retries cannot duplicate non-idempotent sends.
+- [x] Verify the engine reloads ownership and authorization data from PostgreSQL for every mutation.
 
 #### Cross-node PubSub
 
-- [ ] Start identically named PubSub instances on web and engine.
-- [ ] Verify engine broadcasts reach the web node through Distributed Erlang.
-- [ ] Verify combined mode still uses the same publish calls locally.
-- [ ] Verify web restart and resubscription do not require engine restart.
-- [ ] Verify missed events are recovered through browser bootstrap/history rather than a new raw-event journal.
-- [ ] Document the compatible rolling procedure required before any future PubSub pool-size change.
+- [x] Start identically named PubSub instances on web and engine.
+- [x] Verify engine broadcasts reach the web node through Distributed Erlang.
+- [x] Verify combined mode still uses the same publish calls locally.
+- [x] Verify web restart and resubscription do not require engine restart.
+- [x] Verify missed events are recovered through browser bootstrap/history rather than a new raw-event journal.
+- [x] Document the compatible rolling procedure required before any future PubSub pool-size change.
 
 #### Degraded behavior and observability
 
-- [ ] Keep login, account, settings, and persisted history available while the engine is down.
-- [ ] Return a clear degraded error for IRC mutations while the engine is unavailable.
-- [ ] Keep pending browser sends recoverable or retryable according to operation semantics.
-- [ ] Expose web-to-engine connection state in health and telemetry.
-- [ ] Expose engine marker ownership, active sessions, reconnects, and ingestion failures.
+- [x] Keep login, account, settings, and persisted history available while the engine is down.
+- [x] Return a clear degraded error for IRC mutations while the engine is unavailable.
+- [x] Keep pending browser sends recoverable or retryable according to operation semantics.
+- [x] Expose transport state in telemetry and require a successful engine protocol request for healthy split readiness.
+- [x] Expose engine marker status, active sessions, reconnects, and ingestion failures.
 - [ ] Add alerts for engine loss, duplicate-engine attempts, and sustained RPC timeouts.
-- [ ] Ensure web startup is not permanently blocked by temporary engine unavailability.
+- [x] Ensure web startup is not permanently blocked by temporary engine unavailability.
 
 #### Split integration harness and tests
 
-- [ ] Start distinct web and engine nodes against one test PostgreSQL database and local IRC server.
-- [ ] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
-- [ ] Confirm engine PubSub events reach a user channel on the web node.
-- [ ] Stop web and prove the engine session PID remains alive.
-- [ ] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
-- [ ] Stop engine and verify persisted web features remain available with degraded mutation errors.
-- [ ] Restart engine and restore only desired-connected recent sessions and their autojoins.
-- [ ] Start a second engine and prove it cannot acquire ownership or open duplicate IRC connections.
-- [ ] Simulate a request timeout and prove errors are normalized without crashing callers.
-- [ ] Verify web N operates with the supported engine N-1 protocol.
-- [ ] Add an optional split Compose harness if it materially simplifies CI and local integration testing.
+- [ ] Start distinct complete web and engine applications against one test PostgreSQL database and local IRC server.
+- [x] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
+- [x] Confirm engine PubSub events reach a user channel on the web node.
+- [x] Stop web and prove the engine session PID remains alive.
+- [x] Deliver messages while web is down, restart web, and recover them through history/bootstrap.
+- [x] Stop engine and verify persisted web features remain available with degraded mutation errors.
+- [x] Restart engine and restore only desired-connected recent sessions and their autojoins.
+- [x] Start a second marker on a connected peer and prove the visible duplicate is rejected before later engine children start.
+- [x] Simulate a request timeout and prove errors are normalized without crashing callers.
+- [x] Record that protocol v1 has no N-1; require a real compatibility test when v2 is introduced.
+- [x] Omit split Compose because it would duplicate the real-node tests and is not the deployment target.
+
+The focused integration test currently starts a real gateway-side BEAM peer and drives the
+production `EngineClient`/RPC boundary against the engine node, shared test database, and local
+IRC server. It proves operation coverage, visible duplicate-marker rejection, and engine-process survival across
+a gateway-node restart. A separate application lifecycle test stops the complete gateway, delivers
+an IRC message while it is down, restarts it, and recovers the message through authenticated
+bootstrap without changing the engine session PID. Booting both complete role applications on
+distinct nodes remains an unchecked release-harness task; the focused tests are not presented as
+that broader harness.
 
 #### Distributed-runtime exit gate
 
-- [ ] Restarting web leaves the engine marker, hosted server, and outbound session PIDs alive.
-- [ ] Starting a second engine fails safely before session startup.
-- [ ] Cross-node calls and events pass the integration suite.
-- [ ] Engine loss produces a visible degraded state without taking down persisted web features.
-- [ ] Combined mode remains green and requires no distribution settings.
+- [x] Restarting web leaves the engine marker, hosted server, and outbound session PIDs alive.
+- [x] A second marker already visible in the connected cluster fails before later engine children start.
+- [x] The unsupported disconnected-second-engine case and deployment-enforced singleton requirement are explicit.
+- [x] Cross-node calls and events pass the integration suite.
+- [x] Engine loss produces a visible degraded state without taking down persisted web features.
+- [x] Combined mode remains green and requires no distribution settings.
+
+The checkpoint release smoke assembled all three production releases, migrated an isolated
+temporary PostgreSQL database from the gateway artifact, and booted the complete gateway and
+engine releases as distinct long-named nodes. Gateway `/health` reported the configured engine as
+connected only after its `protocol_info` RPC returned the remote marker status, version 1
+capabilities, and active-session count. This smoke exposed one release-script defect: remote
+control helper nodes inherited the running service's fixed distribution port and could not execute
+`pid`, `rpc`, or `stop`. Fixed ports now apply only to `start`, `start_iex`, `daemon`, and
+`daemon_iex`; regression coverage evaluates every server and control command for both split roles.
+The repaired real releases successfully reported both OS PIDs, executed cross-node diagnostics,
+stopped the gateway while the engine remained reachable, then stopped the engine cleanly. The
+temporary database was removed afterward. The final pre-review `mix precommit` passes 40 core, 69
+engine, 181 gateway, and 416 integration tests (706 Elixir tests total), plus 229 frontend tests,
+type checking, Storybook, formatting, and warning-free compilation; all three production releases
+assemble from the same checkpoint source.
 
 ### Workstream 5: Enable the hosted `Ircxd.Server`
 
@@ -1305,6 +1381,7 @@ Size: **L**. Risk: **High**. The web/engine split has little operational value u
 
 - [ ] Add a `topics-club-gateway.service` unit using the stable gateway symlink.
 - [ ] Add a `topics-club-engine.service` unit using the stable engine symlink.
+- [ ] Make the deployment entry point and service layout target exactly one engine host and reject a second engine deployment target.
 - [ ] Configure graceful SIGTERM shutdown and realistic start/stop timeouts.
 - [ ] Configure automatic restart policy without causing a rapid crash loop.
 - [ ] Configure stable `RELEASE_NODE` values for both services.
@@ -1332,7 +1409,7 @@ Size: **L**. Risk: **High**. The web/engine split has little operational value u
 - [ ] Build and smoke-check the new engine release before activation.
 - [ ] Gracefully stop the old engine, accepting one IRC reconnect window.
 - [ ] Atomically repoint the engine `current` symlink.
-- [ ] Start the new engine and verify marker ownership.
+- [ ] Start the new engine and verify marker status.
 - [ ] Verify desired-connected session restoration and autojoins.
 - [ ] Roll back to the prior compatible engine release if startup or restoration checks fail.
 
@@ -1407,7 +1484,7 @@ The first transition from combined to split mode requires one planned IRC reconn
 - [ ] Build the initial standalone engine and web releases on their destination host or hosts.
 - [ ] Run required additive migrations from the new web release.
 - [ ] Stop the combined application and confirm all old engine/session processes are gone.
-- [ ] Start the standalone engine and confirm marker ownership.
+- [ ] Start the standalone engine and confirm marker status.
 - [ ] Verify desired-connected session restoration, autojoins, ingestion, and hosted-server listeners if enabled.
 - [ ] Start the standalone web release and confirm engine connectivity.
 - [ ] Verify login, bootstrap, history, status, send, receive, PubSub, notifications, and degraded-state reporting.
@@ -1429,7 +1506,7 @@ The first transition from combined to split mode requires one planned IRC reconn
 - [ ] Confirm the prior engine release is compatible with the current schema and web protocol.
 - [ ] Stop the current engine cleanly.
 - [ ] Repoint the engine symlink to the prior release.
-- [ ] Start the prior engine and verify marker ownership.
+- [ ] Start the prior engine and verify marker status.
 - [ ] Verify desired-connected restoration and autojoins.
 - [ ] Verify web-to-engine operations and events.
 

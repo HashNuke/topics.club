@@ -27,6 +27,7 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
 
     assert is_pid(direct_child_pid(TopicsClub.CoreSupervisor, Phoenix.PubSub.Supervisor))
     assert is_pid(Process.whereis(TopicsClub.PubSub))
+    assert Application.fetch_env!(:topics_club_core, :pubsub_pool_size) == 1
   end
 
   test "core owns the Ecto repository configuration" do
@@ -103,9 +104,42 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
   test "the web branch controls discovery and keeps Endpoint last" do
     assert TopicsClubWeb.Supervisor.discovery_children(true) == [{Refresher, []}]
     assert TopicsClubWeb.Supervisor.discovery_children(false) == []
+    assert TopicsClubWeb.Supervisor.split_runtime_children(nil) == []
+
+    assert TopicsClubWeb.Supervisor.split_runtime_children(:engine@localhost) == [
+             {TopicsClubWeb.InternalEvents.Subscriber, []},
+             {TopicsClubWeb.EngineNodeConnector, engine_node: :engine@localhost}
+           ]
 
     assert List.last(TopicsClubWeb.Supervisor.children(discovery_enabled?: true)) ==
              TopicsClubWeb.Endpoint
+  end
+
+  test "split gateway runtime requires and configures explicit cluster credentials" do
+    credentials_key = Base.encode64(:binary.copy(<<0>>, 32))
+
+    with_system_env(
+      %{
+        "DATABASE_URL" => "ecto://postgres:postgres@localhost/topics_club_prod",
+        "IRC_CREDENTIALS_KEY" => credentials_key,
+        "PHX_HOST" => "topics.club",
+        "RELEASE_COOKIE" => String.duplicate("a", 32),
+        "RELEASE_NAME" => "topics_club_gateway",
+        "RELEASE_NODE" => "topics_club_gateway@web.internal",
+        "SECRET_KEY_BASE" => String.duplicate("b", 64),
+        "TOPICS_CLUB_ENGINE_NODE" => "topics_club_engine@engine.internal"
+      },
+      fn ->
+        config_path = Path.expand("../../config/runtime.exs", __DIR__)
+        config = Config.Reader.read!(config_path, env: :prod)
+
+        assert config[:topics_club_gateway][:engine_node] ==
+                 :"topics_club_engine@engine.internal"
+
+        assert config[:topics_club_core][:engine_client_adapter] ==
+                 TopicsClub.EngineClient.RpcAdapter
+      end
+    )
   end
 
   test "the combined tree uses named role-specific Oban instances" do
@@ -125,6 +159,8 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
 
     assert web_config[:plugins] == [Oban.Plugins.Pruner]
     assert web_config[:cron] == nil
+    assert MapSet.equal?(engine_queues, MapSet.new([:connection_deletions]))
+    assert MapSet.equal?(web_queues, MapSet.new([:internal_events, :notifications]))
     assert MapSet.disjoint?(engine_queues, web_queues)
     assert Application.get_env(:topics_club, Oban) == nil
     assert Application.get_env(:ircpipe, Oban) == nil
@@ -141,7 +177,9 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         "DATABASE_PASSWORD" => "pa:ss@word#x?/+",
         "DATABASE_NAME" => "topics_club_prod",
         "IRC_CREDENTIALS_KEY" => credentials_key,
-        "RELEASE_NAME" => "topics_club_engine"
+        "RELEASE_COOKIE" => String.duplicate("c", 32),
+        "RELEASE_NAME" => "topics_club_engine",
+        "RELEASE_NODE" => "topics_club_engine@engine.internal"
       },
       fn ->
         config_path = Path.expand("../../config/runtime.exs", __DIR__)
@@ -155,6 +193,26 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         assert repo_config[:database] == "topics_club_prod"
       end
     )
+  end
+
+  test "split release control commands do not reuse the running node's fixed port" do
+    env_script = Path.expand("../../rel/env.sh.eex", __DIR__)
+
+    for {release_name, release_node, engine_node, port} <- [
+          {"topics_club_gateway", "topics_club_gateway@web.internal",
+           "topics_club_engine@engine.internal", "4370"},
+          {"topics_club_engine", "topics_club_engine@engine.internal", nil, "4371"}
+        ] do
+      for command <- ~w(start start_iex daemon daemon_iex) do
+        assert release_env(env_script, release_name, release_node, engine_node, command) =~
+                 "inet_dist_listen_min #{port} inet_dist_listen_max #{port}"
+      end
+
+      for command <- ~w(eval pid remote restart rpc stop version) do
+        refute release_env(env_script, release_name, release_node, engine_node, command) =~
+                 "inet_dist_listen"
+      end
+    end
   end
 
   defp direct_child_pid(supervisor, child_id) do
@@ -174,6 +232,26 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
       config[:topics_club_engine][TopicsClub.EngineOban],
       config[:topics_club_gateway][TopicsClubWeb.Oban]
     }
+  end
+
+  defp release_env(script, release_name, release_node, engine_node, command) do
+    env = [
+      {"ELIXIR_ERL_OPTIONS", ""},
+      {"RELEASE_COMMAND", command},
+      {"RELEASE_COOKIE", String.duplicate("a", 32)},
+      {"RELEASE_NAME", release_name},
+      {"RELEASE_NODE", release_node},
+      {"TOPICS_CLUB_ENGINE_NODE", engine_node || "unused@engine.internal"}
+    ]
+
+    assert {output, 0} =
+             System.cmd(
+               "sh",
+               ["-c", ~S(. "$1"; printf '%s' "${ELIXIR_ERL_OPTIONS:-}"), "env-test", script],
+               env: env
+             )
+
+    output
   end
 
   defp with_system_env(overrides, callback) do
