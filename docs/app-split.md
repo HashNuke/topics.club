@@ -1281,7 +1281,19 @@ that broader harness.
 - [x] Starting a second engine fails safely before session startup.
 - [x] Cross-node calls and events pass the integration suite.
 - [x] Engine loss produces a visible degraded state without taking down persisted web features.
-- [ ] Combined mode remains green and requires no distribution settings.
+- [x] Combined mode remains green and requires no distribution settings.
+
+The checkpoint release smoke assembled all three production releases, migrated an isolated
+temporary PostgreSQL database from the gateway artifact, and booted the complete gateway and
+engine releases as distinct long-named nodes. Gateway `/health` reported the configured engine as
+connected, and a gateway-side `protocol_info` RPC returned the remote marker owner, version 1
+capabilities, and active-session count. This smoke exposed one release-script defect: remote
+control helper nodes inherited the running service's fixed distribution port and could not execute
+`pid`, `rpc`, or `stop`. Fixed ports now apply only to `start`, `start_iex`, `daemon`, and
+`daemon_iex`; regression coverage evaluates every server and control command for both split roles.
+The repaired real releases successfully reported both OS PIDs, executed cross-node diagnostics,
+stopped the gateway while the engine remained reachable, then stopped the engine cleanly. The
+temporary database was removed afterward.
 
 ### Workstream 5: Enable the hosted `Ircxd.Server`
 

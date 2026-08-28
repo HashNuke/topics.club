@@ -193,6 +193,26 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
     )
   end
 
+  test "split release control commands do not reuse the running node's fixed port" do
+    env_script = Path.expand("../../rel/env.sh.eex", __DIR__)
+
+    for {release_name, release_node, engine_node, port} <- [
+          {"topics_club_gateway", "topics_club_gateway@web.internal",
+           "topics_club_engine@engine.internal", "4370"},
+          {"topics_club_engine", "topics_club_engine@engine.internal", nil, "4371"}
+        ] do
+      for command <- ~w(start start_iex daemon daemon_iex) do
+        assert release_env(env_script, release_name, release_node, engine_node, command) =~
+                 "inet_dist_listen_min #{port} inet_dist_listen_max #{port}"
+      end
+
+      for command <- ~w(eval pid remote restart rpc stop version) do
+        refute release_env(env_script, release_name, release_node, engine_node, command) =~
+                 "inet_dist_listen"
+      end
+    end
+  end
+
   defp direct_child_pid(supervisor, child_id) do
     supervisor
     |> Supervisor.which_children()
@@ -210,6 +230,26 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
       config[:topics_club_engine][TopicsClub.EngineOban],
       config[:topics_club_gateway][TopicsClubWeb.Oban]
     }
+  end
+
+  defp release_env(script, release_name, release_node, engine_node, command) do
+    env = [
+      {"ELIXIR_ERL_OPTIONS", ""},
+      {"RELEASE_COMMAND", command},
+      {"RELEASE_COOKIE", String.duplicate("a", 32)},
+      {"RELEASE_NAME", release_name},
+      {"RELEASE_NODE", release_node},
+      {"TOPICS_CLUB_ENGINE_NODE", engine_node || "unused@engine.internal"}
+    ]
+
+    assert {output, 0} =
+             System.cmd(
+               "sh",
+               ["-c", ~S(. "$1"; printf '%s' "${ELIXIR_ERL_OPTIONS:-}"), "env-test", script],
+               env: env
+             )
+
+    output
   end
 
   defp with_system_env(overrides, callback) do
