@@ -969,6 +969,10 @@ Checkpoint 7, the core ownership slice, started from `app-split` at `f232f00`. T
 
 The first physical core move is committed at `789036e`. `ircpipe_core` now owns its OTP application callback, Repo, Vault, PubSub supervisor, canonical migrations, shared schemas and persistence primitives, `EngineClient`, internal-event contracts, and shared IRC policy. The development seed script remains root tooling because it populates the web-owned `Topic` schema. The child application's 37 already-independent focused tests pass. The remaining 25 tests in the recorded future-core baseline still use combined web/engine setup and remain in the root suite until that setup is removed or the tests are explicitly classified as integration coverage. Root `mix test` runs 37 child tests plus 658 root tests with no failures; the increase from 692 to 695 is three focused regressions rather than duplicate discovery. Two exercise nested-child boundary enforcement: one proves graph prefixing and merging, and the other compiles an isolated child fixture with a forbidden call to a root web module and proves warnings-as-errors rejects the crossing. The third asserts that only `ircpipe_core` owns the Ecto repository configuration. The boundary gate now tracks and merges root and nested-child xref graphs, independently compiles every child in an isolated build path, and covers 238 owned files with zero temporary dependencies. Root `mix precommit` passes with the same 695 ExUnit tests, 229 frontend tests, type checking, Storybook, and the boundary gate. A production compile, asset build, and combined `ircpipe` release assembly also pass with `ircpipe_core` included as an OTP dependency. A clean, no-cache Docker build and image-content smoke check prove that the child Mix project, source, migrations, and release application are present in the image. Playwright's setup commands and Phoenix's development repository-status plug now explicitly resolve `Ircpipe.Repo` through `ircpipe_core`.
 
+GPT-5.6 Sol xhigh approved the immutable core checkpoint at `703c785` with no remaining blocking, SRP, or over-engineering findings. It was merged into `app-split` at `eb04c34`. The engine ownership checkpoint proceeds from that merge on `app-split-umbrella-engine`; it will move only the files already assigned to engine ownership, preserve their module names and behavior, and retain combined-mode startup through the existing root composition application until the complete umbrella root is ready.
+
+The engine production move is committed at `737f446`, with the isolated disabled hosted-server supervisor branch added at `fc979f9`. `ircpipe_engine` now owns the outbound IRC session tree, registries, protocol handlers, bouncer, connection restoration and autojoin behavior, canonical IRC ingestion and state updates, and engine-owned Oban workers. It declares only its direct core, Ecto, Oban, and Git-pinned `ircxd` dependencies and compiles 74 production files without Phoenix, Endpoint, or frontend dependencies. Its 67 independently runnable focused tests moved with it; 202 database-heavy tests from the recorded engine baseline remain root integration coverage because their setup crosses the future web boundary. Root `mix test` now runs 37 core tests, 67 engine tests, and 593 root tests, for 697 passing ExUnit tests in total. The boundary gate now merges compiler-manifest references with the per-project xref graphs so an available path dependency cannot hide a forbidden cross-application call; a real two-project fixture proves that a root web call into its engine path dependency is rejected. Root `mix precommit` passes with the same 697 ExUnit tests, 229 frontend tests, type checking, Storybook, and a 240-file/764-edge/zero-exception boundary graph. Production compilation, asset deployment, combined release assembly, a clean no-cache Docker build, image-content inspection, production Compose resolution, and a fresh-database release boot smoke all pass. The boot smoke proves the combined release runs the extracted engine application and both the outbound session and disabled hosted-server supervisor branches. The checkpoint still requires its independent GPT-5.6 Sol xhigh review and merge into `app-split`.
+
 #### Extraction rules
 
 - [x] Do not begin the umbrella conversion until every workstream 1 exit-gate item passes.
@@ -986,7 +990,7 @@ The first physical core move is committed at `789036e`. `ircpipe_core` now owns 
 
 - [ ] Create an umbrella root project with shared aliases and build paths.
 - [x] Create `apps/ircpipe_core`.
-- [ ] Create `apps/ircpipe_engine`.
+- [x] Create `apps/ircpipe_engine`.
 - [ ] Create `apps/ircpipe_web`.
 - [ ] Preserve the existing `Ircpipe` and `IrcpipeWeb` module namespaces where renaming adds no value.
 - [ ] Move frontend assets and Storybook under the web application while preserving existing npm commands.
@@ -1009,14 +1013,14 @@ The first physical core move is committed at `789036e`. `ircpipe_core` now owns 
 
 #### Engine ownership
 
-- [ ] Move outbound session supervision, registries, session modules, and protocol handlers into engine.
-- [ ] Move `Ircpipe.Irc.Bouncer` into engine.
-- [ ] Declare `ircxd` in engine for long-lived outbound sessions and hosted-server integration.
-- [ ] Move connection restoration and autojoin logic into engine.
-- [ ] Move canonical IRC message ingestion and IRC-derived state updates into engine.
-- [ ] Move engine-owned Oban workers into engine.
-- [ ] Add the isolated hosted-server supervisor branch even if the hosted server remains disabled initially.
-- [ ] Keep engine free of Phoenix Endpoint, controllers, HTML, authentication UI, React, and browser serialization.
+- [x] Move outbound session supervision, registries, session modules, and protocol handlers into engine.
+- [x] Move `Ircpipe.Irc.Bouncer` into engine.
+- [x] Declare `ircxd` in engine for long-lived outbound sessions and hosted-server integration.
+- [x] Move connection restoration and autojoin logic into engine.
+- [x] Move canonical IRC message ingestion and IRC-derived state updates into engine.
+- [x] Move engine-owned Oban workers into engine.
+- [x] Add the isolated hosted-server supervisor branch even if the hosted server remains disabled initially.
+- [x] Keep engine free of Phoenix Endpoint, controllers, HTML, authentication UI, React, and browser serialization.
 
 #### Web ownership
 
@@ -1033,8 +1037,8 @@ The first physical core move is committed at `789036e`. `ircpipe_core` now owns 
 - [ ] Give each child application only the Hex/Git dependencies it uses.
 - [ ] Translate the already-green logical dependency graph into child `deps/0` declarations without adding new edges.
 - [ ] Make web compile without engine implementation modules while retaining `ircxd` for directory discovery.
-- [ ] Make engine compile without Phoenix Endpoint and frontend dependencies.
-- [ ] Check compile-connected dependency graphs for accidental cycles.
+- [x] Make engine compile without Phoenix Endpoint and frontend dependencies.
+- [x] Check compile-connected dependency graphs for accidental cycles.
 - [x] Start Vault, Repo, and PubSub exactly once per node.
 - [ ] Start engine supervision only in combined and engine releases.
 - [ ] Start Endpoint only in combined and web releases.

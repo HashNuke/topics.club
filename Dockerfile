@@ -38,6 +38,7 @@ ENV MIX_ENV="prod"
 # install mix dependencies
 COPY mix.exs mix.lock ./
 COPY apps/ircpipe_core/mix.exs apps/ircpipe_core/mix.exs
+COPY apps/ircpipe_engine/mix.exs apps/ircpipe_engine/mix.exs
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 

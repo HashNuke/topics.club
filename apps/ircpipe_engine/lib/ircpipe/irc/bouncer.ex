@@ -19,7 +19,11 @@ defmodule Ircpipe.Irc.Bouncer do
   @impl true
   def init(opts) do
     enabled? =
-      Keyword.get(opts, :enabled?, Application.get_env(:ircpipe, :irc_bouncer_enabled, true))
+      Keyword.get(
+        opts,
+        :enabled?,
+        Application.get_env(:ircpipe_engine, :irc_bouncer_enabled, true)
+      )
 
     state = %{
       enabled?: enabled?,

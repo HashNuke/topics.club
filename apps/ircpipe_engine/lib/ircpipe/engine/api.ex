@@ -378,7 +378,7 @@ defmodule Ircpipe.Engine.API do
   end
 
   defp maybe_pause_after_connection_load(connection, operation) do
-    case Application.get_env(:ircpipe, :engine_api_after_connection_load_barrier) do
+    case Application.get_env(:ircpipe_engine, :engine_api_after_connection_load_barrier) do
       {test_pid, barrier_ref, ^operation} when is_pid(test_pid) ->
         test_ref = Process.monitor(test_pid)
 

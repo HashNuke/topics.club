@@ -13,8 +13,9 @@ defmodule Ircpipe.EngineSupervisor do
       {Ircpipe.Engine.Marker, []},
       {Ircpipe.Engine.OperationLock, []},
       {Task.Supervisor, name: Ircpipe.Engine.RequestTaskSupervisor},
-      {Oban, Application.fetch_env!(:ircpipe, Ircpipe.EngineOban)},
-      {Ircpipe.Irc.SessionSystemSupervisor, []}
+      {Oban, Application.fetch_env!(:ircpipe_engine, Ircpipe.EngineOban)},
+      {Ircpipe.Irc.SessionSystemSupervisor, []},
+      {Ircpipe.Irc.HostedServerSupervisor, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

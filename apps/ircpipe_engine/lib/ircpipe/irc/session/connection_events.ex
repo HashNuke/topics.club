@@ -149,7 +149,7 @@ defmodule Ircpipe.Irc.Session.ConnectionEvents do
   end
 
   defp maybe_pause_before_connect_lock(connection_id) do
-    case Application.get_env(:ircpipe, :session_connect_before_lock_barrier) do
+    case Application.get_env(:ircpipe_engine, :session_connect_before_lock_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         send(test_pid, {:session_connect_paused, self(), barrier_ref, connection_id})
 
@@ -163,7 +163,7 @@ defmodule Ircpipe.Irc.Session.ConnectionEvents do
   end
 
   defp maybe_suspend_client_after_start(client, connection_id) do
-    case Application.get_env(:ircpipe, :session_client_after_start_barrier) do
+    case Application.get_env(:ircpipe_engine, :session_client_after_start_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         true = :erlang.suspend_process(client)
         send(test_pid, {:irc_client_suspended, client, barrier_ref, connection_id})

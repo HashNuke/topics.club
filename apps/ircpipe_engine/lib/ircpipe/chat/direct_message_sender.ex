@@ -102,7 +102,7 @@ defmodule Ircpipe.Chat.DirectMessageSender do
   end
 
   defp maybe_pause_send(thread) do
-    case Application.get_env(:ircpipe, :pause_direct_message_send) do
+    case Application.get_env(:ircpipe_engine, :pause_direct_message_send) do
       pid when is_pid(pid) ->
         send(pid, {:direct_message_send_paused, self(), thread.id})
 

@@ -8,7 +8,7 @@ defmodule Ircpipe.EngineClientTest do
     previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
     previous_test_pid = Application.get_env(:ircpipe_core, :engine_client_test_pid)
     previous_test_reply = Application.get_env(:ircpipe_core, :engine_client_test_reply)
-    previous_local_api_module = Application.get_env(:ircpipe, :engine_local_api_module)
+    previous_local_api_module = Application.get_env(:ircpipe_engine, :engine_local_api_module)
 
     Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
     Application.put_env(:ircpipe_core, :engine_client_test_pid, self())
@@ -18,7 +18,7 @@ defmodule Ircpipe.EngineClientTest do
       restore_core_env(:engine_client_adapter, previous_adapter)
       restore_core_env(:engine_client_test_pid, previous_test_pid)
       restore_core_env(:engine_client_test_reply, previous_test_reply)
-      restore_env(:engine_local_api_module, previous_local_api_module)
+      restore_engine_env(:engine_local_api_module, previous_local_api_module)
     end)
 
     :ok
@@ -89,7 +89,7 @@ defmodule Ircpipe.EngineClientTest do
 
   test "the local adapter enforces the operation timeout" do
     Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.Engine.LocalAdapter)
-    Application.put_env(:ircpipe, :engine_local_api_module, Ircpipe.BlockedEngineAPI)
+    Application.put_env(:ircpipe_engine, :engine_local_api_module, Ircpipe.BlockedEngineAPI)
 
     assert {:error, %{code: :timeout, details: %{}}} =
              EngineClient.connection_info(1, 2, timeout: 10)
@@ -107,6 +107,6 @@ defmodule Ircpipe.EngineClientTest do
   defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
   defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
 end

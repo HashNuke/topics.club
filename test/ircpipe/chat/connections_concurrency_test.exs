@@ -110,16 +110,16 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
       end)
 
     barrier_ref = make_ref()
-    previous_barrier = Application.get_env(:ircpipe, :connection_delete_after_lock_barrier)
+    previous_barrier = Application.get_env(:ircpipe_engine, :connection_delete_after_lock_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :connection_delete_after_lock_barrier,
       {self(), barrier_ref}
     )
 
     on_exit(fn ->
-      restore_env(:connection_delete_after_lock_barrier, previous_barrier)
+      restore_engine_env(:connection_delete_after_lock_barrier, previous_barrier)
 
       unboxed(fn ->
         User
@@ -196,6 +196,6 @@ defmodule Ircpipe.Chat.ConnectionsConcurrencyTest do
     Application.put_env(:ircpipe, :connection_endpoint_create_barrier, previous_barrier)
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
 end

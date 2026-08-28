@@ -35,7 +35,7 @@ defmodule Ircpipe.Irc.Session.StartupAuthorization do
   end
 
   defp maybe_pause_after_lookup(connection) do
-    case Application.get_env(:ircpipe, :session_start_after_lookup_barrier) do
+    case Application.get_env(:ircpipe_engine, :session_start_after_lookup_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         test_ref = Process.monitor(test_pid)
         send(test_pid, {:session_start_paused, self(), barrier_ref, connection.id})

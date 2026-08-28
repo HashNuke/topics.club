@@ -809,10 +809,10 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
         {user, scope, connection, thread}
       end)
 
-    Application.put_env(:ircpipe, :pause_direct_message_send, test_pid)
+    Application.put_env(:ircpipe_engine, :pause_direct_message_send, test_pid)
 
     on_exit(fn ->
-      Application.delete_env(:ircpipe, :pause_direct_message_send)
+      Application.delete_env(:ircpipe_engine, :pause_direct_message_send)
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
@@ -872,10 +872,10 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
     test_pid = self()
     supervisor = start_supervised!(Task.Supervisor)
     pause_ref = make_ref()
-    previous_pause = Application.get_env(:ircpipe, :pause_direct_message_rename_after_lock)
+    previous_pause = Application.get_env(:ircpipe_engine, :pause_direct_message_rename_after_lock)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_engine,
       :pause_direct_message_rename_after_lock,
       {test_pid, pause_ref}
     )
@@ -910,7 +910,7 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
       end)
 
     on_exit(fn ->
-      restore_env(:pause_direct_message_rename_after_lock, previous_pause)
+      restore_engine_env(:pause_direct_message_rename_after_lock, previous_pause)
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         if persisted_user = Repo.get(Ircpipe.Accounts.User, user.id),
@@ -1003,6 +1003,9 @@ defmodule Ircpipe.Chat.DirectMessagesTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
   defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+
+  defp restore_engine_env(key, nil), do: Application.delete_env(:ircpipe_engine, key)
+  defp restore_engine_env(key, value), do: Application.put_env(:ircpipe_engine, key, value)
 
   defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
   defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)

@@ -19,7 +19,7 @@ defmodule Ircpipe.Engine.LocalAdapter do
 
   defp api_module do
     Application.get_env(
-      :ircpipe,
+      :ircpipe_engine,
       :engine_local_api_module,
       Module.concat(["Ircpipe", "Engine", "API"])
     )
