@@ -67,7 +67,7 @@ defmodule Ircpipe.Chat.ServerConnectionLock do
   end
 
   defp maybe_pause_before_effects_lock(connection_id) do
-    case Application.get_env(:ircpipe, :connection_effects_before_lock_barrier) do
+    case Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier) do
       {test_pid, barrier_ref} when is_pid(test_pid) ->
         send(test_pid, {:connection_effects_paused, self(), barrier_ref, connection_id})
 

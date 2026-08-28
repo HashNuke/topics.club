@@ -1610,13 +1610,13 @@ defmodule IrcpipeWeb.UserChannelTest do
   end
 
   defp configure_engine_test_adapter(reply) do
-    previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
-    previous_test_pid = Application.get_env(:ircpipe, :engine_client_test_pid)
-    previous_test_reply = Application.get_env(:ircpipe, :engine_client_test_reply)
+    previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:ircpipe_core, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:ircpipe_core, :engine_client_test_reply)
 
-    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
-    Application.put_env(:ircpipe, :engine_client_test_pid, self())
-    Application.put_env(:ircpipe, :engine_client_test_reply, reply)
+    Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
+    Application.put_env(:ircpipe_core, :engine_client_test_pid, self())
+    Application.put_env(:ircpipe_core, :engine_client_test_reply, reply)
 
     on_exit(fn ->
       restore_env(:engine_client_adapter, previous_adapter)
@@ -1625,6 +1625,6 @@ defmodule IrcpipeWeb.UserChannelTest do
     end)
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
 end

@@ -47,6 +47,22 @@ defmodule Mix.Tasks.Ircpipe.CheckBoundaries do
   end
 
   defp xref_graph do
+    root_graph = xref_graph_for_current_project()
+
+    child_graphs =
+      "apps/*/mix.exs"
+      |> Path.wildcard()
+      |> Enum.map(&Path.dirname/1)
+      |> Enum.map(fn child_path ->
+        child_path
+        |> xref_graph_for_child()
+        |> Mix.Ircpipe.Boundaries.prefix_graph(child_path)
+      end)
+
+    Mix.Ircpipe.Boundaries.merge_graphs([root_graph | child_graphs])
+  end
+
+  defp xref_graph_for_current_project do
     output_path =
       Path.join(
         System.tmp_dir!(),
@@ -69,6 +85,43 @@ defmodule Mix.Tasks.Ircpipe.CheckBoundaries do
       output_path
       |> File.read!()
       |> Mix.Ircpipe.Boundaries.parse_dot()
+    after
+      File.rm(output_path)
+    end
+  end
+
+  defp xref_graph_for_child(child_path) do
+    output_path =
+      Path.join(
+        System.tmp_dir!(),
+        "ircpipe-xref-child-#{System.unique_integer([:positive, :monotonic])}.dot"
+      )
+
+    args = [
+      "xref",
+      "graph",
+      "--format",
+      "dot",
+      "--only-direct",
+      "--output",
+      output_path,
+      "--no-compile"
+    ]
+
+    try do
+      case System.cmd("mix", args,
+             cd: child_path,
+             env: [{"MIX_ENV", Atom.to_string(Mix.env())}],
+             stderr_to_stdout: true
+           ) do
+        {_output, 0} ->
+          output_path
+          |> File.read!()
+          |> Mix.Ircpipe.Boundaries.parse_dot()
+
+        {output, status} ->
+          Mix.raise("could not build xref graph for #{child_path} (exit #{status}):\n#{output}")
+      end
     after
       File.rm(output_path)
     end

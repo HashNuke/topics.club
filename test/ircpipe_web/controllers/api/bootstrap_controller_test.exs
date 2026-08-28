@@ -19,13 +19,13 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
   setup :register_and_log_in_user
 
   setup %{user: user} do
-    previous_adapter = Application.get_env(:ircpipe, :engine_client_adapter)
-    previous_test_pid = Application.get_env(:ircpipe, :engine_client_test_pid)
-    previous_test_reply = Application.get_env(:ircpipe, :engine_client_test_reply)
+    previous_adapter = Application.get_env(:ircpipe_core, :engine_client_adapter)
+    previous_test_pid = Application.get_env(:ircpipe_core, :engine_client_test_pid)
+    previous_test_reply = Application.get_env(:ircpipe_core, :engine_client_test_reply)
 
-    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
-    Application.put_env(:ircpipe, :engine_client_test_pid, self())
-    Application.put_env(:ircpipe, :engine_client_test_reply, {:error, :engine_unavailable})
+    Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.EngineClientTestAdapter)
+    Application.put_env(:ircpipe_core, :engine_client_test_pid, self())
+    Application.put_env(:ircpipe_core, :engine_client_test_reply, {:error, :engine_unavailable})
 
     on_exit(fn ->
       :ok = EngineRestorer.await_idle()
@@ -279,7 +279,7 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     conn: conn,
     user: user
   } do
-    Application.put_env(:ircpipe, :engine_client_adapter, Ircpipe.Engine.LocalAdapter)
+    Application.put_env(:ircpipe_core, :engine_client_adapter, Ircpipe.Engine.LocalAdapter)
     server = start_supervised!({IrcTestServer, self()})
 
     {:ok, connection} =
@@ -398,6 +398,6 @@ defmodule IrcpipeWeb.Api.BootstrapControllerTest do
     refute active_buffer_id == "channel:#{pending.id}"
   end
 
-  defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
-  defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+  defp restore_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
+  defp restore_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
 end

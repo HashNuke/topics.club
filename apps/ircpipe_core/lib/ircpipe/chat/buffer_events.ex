@@ -164,7 +164,7 @@ defmodule Ircpipe.Chat.BufferEvents do
   end
 
   defp maybe_pause_direct_message_thread_broadcast(thread) do
-    case Application.get_env(:ircpipe, :pause_direct_message_thread_broadcast) do
+    case Application.get_env(:ircpipe_core, :pause_direct_message_thread_broadcast) do
       {pid, revision} when is_pid(pid) and revision == thread.mutation_revision ->
         send(pid, {:direct_message_thread_broadcast_paused, self(), thread.id, revision})
 
@@ -178,7 +178,7 @@ defmodule Ircpipe.Chat.BufferEvents do
   end
 
   defp maybe_pause_direct_message_closed_broadcast(thread) do
-    case Application.get_env(:ircpipe, :pause_direct_message_closed_broadcast) do
+    case Application.get_env(:ircpipe_core, :pause_direct_message_closed_broadcast) do
       {pid, revision} when is_pid(pid) and revision == thread.mutation_revision ->
         send(pid, {:direct_message_closed_broadcast_paused, self(), thread.id, revision})
 

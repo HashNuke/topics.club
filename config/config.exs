@@ -20,11 +20,13 @@ config :ircpipe, :scopes,
     test_setup_helper: :register_and_log_in_user
   ]
 
-config :ircpipe,
+config :ircpipe_core,
   ecto_repos: [Ircpipe.Repo],
   engine_client_adapter: Ircpipe.Engine.LocalAdapter,
+  internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter
+
+config :ircpipe,
   generators: [timestamp_type: :utc_datetime],
-  internal_event_adapter: IrcpipeWeb.InternalEvents.Adapter,
   irc_bouncer_enabled: true,
   discovery_refresh_enabled: config_env() == :dev
 

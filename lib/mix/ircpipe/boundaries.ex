@@ -36,7 +36,13 @@ defmodule Mix.Ircpipe.Boundaries do
   end
 
   def tracked_files do
-    ["lib/**/*.ex", "priv/repo/migrations/*.exs", "test/support/**/*.ex"]
+    [
+      "lib/**/*.ex",
+      "apps/*/lib/**/*.ex",
+      "apps/*/priv/repo/migrations/*.exs",
+      "test/support/**/*.ex",
+      "apps/*/test/support/**/*.ex"
+    ]
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.map(&normalize_path/1)
     |> Enum.uniq()
@@ -72,6 +78,21 @@ defmodule Mix.Ircpipe.Boundaries do
 
     if map_size(graph) == 0, do: raise(ArgumentError, "xref DOT graph contains no files")
     graph
+  end
+
+  def prefix_graph(graph, prefix) when is_map(graph) and is_binary(prefix) do
+    Map.new(graph, fn {source, sinks} ->
+      prefixed_sinks = Map.new(sinks, fn {sink, label} -> {Path.join(prefix, sink), label} end)
+      {Path.join(prefix, source), prefixed_sinks}
+    end)
+  end
+
+  def merge_graphs(graphs) when is_list(graphs) do
+    Enum.reduce(graphs, %{}, fn graph, merged ->
+      Map.merge(merged, graph, fn _source, left_sinks, right_sinks ->
+        Map.merge(left_sinks, right_sinks)
+      end)
+    end)
   end
 
   def check(manifest, graph, tracked_files \\ tracked_files()) do
@@ -320,10 +341,7 @@ defmodule Mix.Ircpipe.Boundaries do
           Map.has_key?(ownership, normalize_path(sink)),
           do: {normalize_path(source), normalize_path(sink), label}
 
-    production_files =
-      ownership
-      |> Map.keys()
-      |> Enum.filter(&String.starts_with?(&1, "lib/"))
+    production_files = ownership |> Map.keys() |> Enum.filter(&production_file?/1)
 
     missing_graph_files = Enum.reject(production_files, &Map.has_key?(graph, &1))
 
@@ -383,6 +401,10 @@ defmodule Mix.Ircpipe.Boundaries do
         Map.fetch!(dependency, :label) == label
     end)
   end
+
+  defp production_file?("lib/" <> _path), do: true
+  defp production_file?("apps/" <> path), do: String.contains?(path, "/lib/")
+  defp production_file?(_path), do: false
 
   defp normalize_path(path) do
     path

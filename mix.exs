@@ -40,6 +40,7 @@ defmodule Ircpipe.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:ircpipe_core, path: "apps/ircpipe_core", env: Mix.env()},
       {:bcrypt_elixir, "~> 3.0"},
       {:cloak_ecto, "~> 1.3"},
       {:phoenix, "~> 1.8.7"},
@@ -85,9 +86,18 @@ defmodule Ircpipe.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup", "ircpipe.setup_local_irc", "assets.setup", "assets.build"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      "ecto.setup": [
+        "ecto.create -r Ircpipe.Repo",
+        "ecto.migrate -r Ircpipe.Repo",
+        "run apps/ircpipe_core/priv/repo/seeds.exs"
+      ],
+      "ecto.reset": ["ecto.drop -r Ircpipe.Repo", "ecto.setup"],
+      test: [
+        "ecto.create --quiet -r Ircpipe.Repo",
+        "ecto.migrate --quiet -r Ircpipe.Repo",
+        "cmd --cd apps/ircpipe_core mix test",
+        "test"
+      ],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind ircpipe", "esbuild ircpipe"],
       "assets.deploy": [

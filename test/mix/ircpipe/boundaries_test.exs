@@ -45,6 +45,24 @@ defmodule Mix.Ircpipe.BoundariesTest do
     end
   end
 
+  test "prefixes and merges child-application graphs without losing edges" do
+    child_graph = %{
+      "lib/core.ex" => %{"lib/shared.ex" => "runtime"},
+      "lib/shared.ex" => %{}
+    }
+
+    assert Boundaries.merge_graphs([
+             %{"lib/web.ex" => %{}},
+             Boundaries.prefix_graph(child_graph, "apps/ircpipe_core")
+           ]) == %{
+             "lib/web.ex" => %{},
+             "apps/ircpipe_core/lib/core.ex" => %{
+               "apps/ircpipe_core/lib/shared.ex" => "runtime"
+             },
+             "apps/ircpipe_core/lib/shared.ex" => %{}
+           }
+  end
+
   test "accepts the allowed deployable dependency directions" do
     graph =
       graph(%{
@@ -248,7 +266,7 @@ defmodule Mix.Ircpipe.BoundariesTest do
              Boundaries.check(project_manifest, production_graph, files)
 
     assert file_count == length(files)
-    assert Enum.any?(files, &String.starts_with?(&1, "priv/repo/migrations/"))
+    assert Enum.any?(files, &String.contains?(&1, "/priv/repo/migrations/"))
   end
 
   test "the project boundary Mix task passes" do

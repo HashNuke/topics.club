@@ -492,12 +492,12 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     delete_ref = make_ref()
 
     previous_effects_barrier =
-      Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+      Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     previous_delete_barrier = Application.get_env(:ircpipe, :connection_delete_after_mark_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
@@ -509,7 +509,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     )
 
     on_exit(fn ->
-      restore_env(:connection_effects_before_lock_barrier, previous_effects_barrier)
+      restore_core_env(:connection_effects_before_lock_barrier, previous_effects_barrier)
       restore_env(:connection_delete_after_mark_barrier, previous_delete_barrier)
     end)
 
@@ -564,16 +564,16 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     effects_ref = make_ref()
 
     previous_effects_barrier =
-      Application.get_env(:ircpipe, :connection_effects_before_lock_barrier)
+      Application.get_env(:ircpipe_core, :connection_effects_before_lock_barrier)
 
     Application.put_env(
-      :ircpipe,
+      :ircpipe_core,
       :connection_effects_before_lock_barrier,
       {self(), effects_ref}
     )
 
     on_exit(fn ->
-      restore_env(:connection_effects_before_lock_barrier, previous_effects_barrier)
+      restore_core_env(:connection_effects_before_lock_barrier, previous_effects_barrier)
     end)
 
     ingestion_task =
@@ -760,10 +760,10 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert {:ok, membership} = Chat.join_channel(user, connection, "#durable")
     Phoenix.PubSub.subscribe(Ircpipe.PubSub, "user:#{user.id}")
 
-    previous_adapter = Application.get_env(:ircpipe, :internal_event_adapter)
-    Application.delete_env(:ircpipe, :internal_event_adapter)
+    previous_adapter = Application.get_env(:ircpipe_core, :internal_event_adapter)
+    Application.delete_env(:ircpipe_core, :internal_event_adapter)
 
-    on_exit(fn -> restore_env(:internal_event_adapter, previous_adapter) end)
+    on_exit(fn -> restore_core_env(:internal_event_adapter, previous_adapter) end)
 
     assert {:ok, deleted} = ConnectionDeletion.delete(user, connection.id)
     assert deleted.id == connection.id
@@ -778,7 +778,7 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
     assert Repo.get(ConnectionDeletionEventBatch, batch.id)
     refute_receive {:buffer_left, _event}
 
-    restore_env(:internal_event_adapter, previous_adapter)
+    restore_core_env(:internal_event_adapter, previous_adapter)
 
     assert :ok =
              perform_job(ConnectionDeletionEventsWorker, %{
@@ -795,6 +795,9 @@ defmodule Ircpipe.Chat.ConnectionDeletionTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:ircpipe, key)
   defp restore_env(key, value), do: Application.put_env(:ircpipe, key, value)
+
+  defp restore_core_env(key, nil), do: Application.delete_env(:ircpipe_core, key)
+  defp restore_core_env(key, value), do: Application.put_env(:ircpipe_core, key, value)
 
   defp send_after_disconnect(server, line) do
     IrcTestServer.send_line(server, line)

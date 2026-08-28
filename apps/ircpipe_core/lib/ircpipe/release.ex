@@ -3,7 +3,7 @@ defmodule Ircpipe.Release do
   Used for executing DB release tasks when run in production without Mix
   installed.
   """
-  @app :ircpipe
+  @app :ircpipe_core
 
   def migrate do
     load_app()
