@@ -1,99 +1,94 @@
-# Environment variables by deployment
+# Environment variables
 
-Environment variables fall into three groups: essential application
-configuration, deployment wiring, and optional features. Start with the small
-essential set and ignore the other groups unless the selected deployment needs
-them.
+Start with the production variables below. The later sections contain only
+deployment-specific wiring and advanced tuning.
 
-## Essential production configuration
+## Production application configuration
 
-The combined application used by Railway needs these nine values:
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection URL. Railway normally supplies it. |
+| `SECRET_KEY_BASE` | Signs and encrypts web sessions and cookies. Generate it with `mix phx.gen.secret`. |
+| `IRC_CREDENTIALS_KEY` | Encrypts stored IRC credentials. Generate it with `mix topics_club.gen_credentials_key` and retain it for the lifetime of the encrypted data. |
+| `GATEWAY_HOST` | Public hostname without a scheme or path, such as `topics.club`. |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID. |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
+| `VAPID_PUBLIC_KEY` | Public Web Push application key. |
+| `VAPID_PRIVATE_KEY` | Private Web Push signing key. |
+| `VAPID_SUBJECT` | Web Push contact email, such as `notifications@example.com`. |
 
-```text
-DATABASE_URL=ecto://user:password@database-host/topics_club_prod
-SECRET_KEY_BASE=replace-with-mix-phx-gen-secret-output
-IRC_CREDENTIALS_KEY=replace-with-generated-credentials-key
-GATEWAY_HOST=topics.club
-GOOGLE_CLIENT_ID=replace-with-google-client-id
-GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
-VAPID_PUBLIC_KEY=replace-with-generated-public-key
-VAPID_PRIVATE_KEY=replace-with-generated-private-key
-VAPID_SUBJECT=notifications@example.com
-```
+Generate the VAPID values with `mix topics_club.gen_vapid_keys`.
+`GATEWAY_HOST=topics.club` produces the Google callback URL
+`https://topics.club/auth/google/callback`.
 
-- `DATABASE_URL` tells the application how to reach PostgreSQL.
-- `SECRET_KEY_BASE` signs and encrypts web sessions and cookies.
-- `IRC_CREDENTIALS_KEY` encrypts stored IRC credentials. Retain it for the
-  lifetime of the encrypted data.
-- `GATEWAY_HOST` is the public hostname without a scheme or path. For example,
-  `topics.club` produces the Google callback URL
-  `https://topics.club/auth/google/callback`.
-- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` enable Google sign-in.
-- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` authorize Web
-  Push notifications. Generate the key pair with
-  `mix topics_club.gen_vapid_keys`; the subject is the deployment contact email.
+## Where the production variables go
 
-Railway supplies `PORT` and normally supplies `DATABASE_URL` through its
-PostgreSQL service. The Docker image supplies the release startup settings.
+| Variable group | Docker Compose | Pyinfra direct host | Railway |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | Compose configures its bundled database internally | Gateway and engine | Supplied by the PostgreSQL service |
+| `SECRET_KEY_BASE`, `GATEWAY_HOST` | App container | Gateway | App service |
+| `IRC_CREDENTIALS_KEY` | App container | Gateway and engine | App service |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | App container | Gateway | App service |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | App container | Gateway | App service |
 
-The pyinfra deployment uses the same application values, but splits the gateway
-and engine into two services. Its destination-only environment files also carry
-the Erlang distribution cookie and node wiring described below.
+Docker Compose and Railway run the combined gateway and engine in one
+application instance. Pyinfra runs separate gateway and engine services on one
+host. Every production topology must run exactly one IRC engine.
 
-The root `env.example` is specifically the template for production Docker
-Compose. It is not the environment template for local development, the
-pyinfra-managed split deployment, or Railway.
+## Development
 
-| Variable group | Development | Docker Compose | Pyinfra direct host | Railway |
-|---|---:|---:|---:|---:|
-| `GATEWAY_HOST` | No; dev is hard-coded | Yes | Gateway | Yes |
-| `TOPICS_CLUB_BIND_IP`, `TOPICS_CLUB_PORT` | No | Compose only | No | No |
-| `TOPICS_CLUB_POSTGRES_DATA`, `POSTGRES_PASSWORD` | No | Compose/Postgres only | No | No |
-| `SECRET_KEY_BASE` | No; dev has a fixed key | App container | Gateway | Yes |
-| `IRC_CREDENTIALS_KEY` | No; dev has a fixed key | App container | Gateway **and** engine | Yes |
-| `POOL_SIZE`, `DB_QUEUE_TARGET`, `DB_QUEUE_INTERVAL` | No | Optional tuning | Gateway and engine | Optional tuning |
-| `ENABLE_DISCOVERY` | Dev enables it automatically | Defaults to `false` | Gateway; defaults to `false` | Defaults to `false` |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional | App container | Gateway | Yes |
-| `VAPID_*` | Optional | App container | Gateway | Yes |
+Local development already defines its database, port, and development secrets
+in `config/dev.exs`. It does not load the root `.env` automatically.
 
-## Settings that normally need no attention
+The developer OAuth provider needs no environment variables. Set
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` locally only when testing Google
+OAuth. VAPID variables are needed locally only when testing Web Push.
 
-- `PORT` defaults to `4000`; Railway supplies it automatically.
-- `POOL_SIZE`, `DB_QUEUE_TARGET`, and `DB_QUEUE_INTERVAL` have production
-  defaults (`10`, `5000`, and `5000`, respectively). Do not set them during a
-  normal installation; override them only when intentionally tuning database
-  concurrency and checkout behavior.
-- `ENABLE_DISCOVERY` defaults to `false` in production. Set it to `true` only on
-  the one gateway that should refresh IRC discovery data.
+## Optional application settings
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ENABLE_DISCOVERY` | `false` in production | Set to `true` on the one gateway that should periodically refresh IRC discovery data. Development enables discovery automatically. |
+| `PORT` | `4000` | Internal HTTP port. Railway supplies it automatically. |
 
 ## Deployment-only settings
 
-Docker Compose alone uses `TOPICS_CLUB_BIND_IP`, `TOPICS_CLUB_PORT`,
-`TOPICS_CLUB_POSTGRES_DATA`, and `POSTGRES_PASSWORD` to configure its host port
-and bundled PostgreSQL container. They are not application configuration.
+These settings are not shared application configuration.
 
-The pyinfra split deployment uses `RELEASE_NODE`, `RELEASE_COOKIE`, and, on the
-gateway, `TOPICS_CLUB_ENGINE_NODE` so its two BEAM nodes can communicate. Use
-`tools/deploy/gateway.env.example` and `tools/deploy/engine.env.example` as the
-lists for those destination-only files.
+### Docker Compose
 
-## Deployment shapes
+The root `env.example` is only for production Docker Compose. In addition to the
+production application values, Compose uses:
 
-- **Development** runs the combined application through Mix. Its endpoint,
-  database credentials, application secrets, and discovery behavior have
-  development configuration in `config/dev.exs`. Elixir does not automatically
-  load the root `.env` file.
-- **Docker Compose** runs one combined `topics_club` application container, with
-  the gateway and IRC engine in the same BEAM node. PostgreSQL runs in a separate
-  container. This is the same application topology as Railway.
-- **Pyinfra direct host** runs the split `topics_club_gateway` and
-  `topics_club_engine` releases as two systemd services on one host. Use
-  `tools/deploy/gateway.env.example` and `tools/deploy/engine.env.example`, not
-  the root `env.example`. PostgreSQL is provisioned separately.
-- **Railway** builds the repository `Dockerfile` and runs one combined
-  `topics_club` application instance. Railway supplies `PORT` and
-  `RAILWAY_GIT_COMMIT_SHA`; its PostgreSQL service normally supplies
-  `DATABASE_URL`.
+| Variable | Purpose |
+| --- | --- |
+| `POSTGRES_PASSWORD` | Password for the bundled PostgreSQL container. |
+| `TOPICS_CLUB_POSTGRES_DATA` | Host directory containing PostgreSQL data. |
+| `TOPICS_CLUB_BIND_IP` | Host interface on which to expose the application. |
+| `TOPICS_CLUB_PORT` | Host port forwarded to the application container. |
 
-All production variants must run exactly one IRC engine. Do not scale the
-combined Docker Compose or Railway application beyond one replica.
+### Pyinfra split deployment
+
+Use `tools/deploy/gateway.env.example` and
+`tools/deploy/engine.env.example` for the destination-only files. The split
+runtime additionally needs:
+
+| Variable | Used by | Purpose |
+| --- | --- | --- |
+| `RELEASE_NODE` | Gateway and engine | Stable internal name of each BEAM node. |
+| `RELEASE_COOKIE` | Gateway and engine | Shared secret for Erlang distribution. Use the same value in both files. |
+| `TOPICS_CLUB_ENGINE_NODE` | Gateway | Internal node name of the engine. |
+
+## Advanced database tuning
+
+Normal installations should not set these variables. The application defaults
+are intended for ordinary production use.
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `POOL_SIZE` | `10` | Number of database connections opened by each application service. |
+| `DB_QUEUE_TARGET` | `5000` ms | Ecto checkout queue target. TopicsClub raised this default after load tests showed that short synchronized IRC bursts could otherwise exhaust the checkout queue. |
+| `DB_QUEUE_INTERVAL` | `5000` ms | Interval over which Ecto evaluates checkout pressure. |
+
+Override these only after measuring the application and PostgreSQL under the
+actual production workload.
