@@ -215,6 +215,23 @@ class AppTools:
 
     testvps = VpsCommands()
 
+    def provision_db(
+        self,
+        host: str = "root@127.0.0.1",
+        ssh_port: int | None = None,
+        ssh_key: str | None = None,
+    ) -> None:
+        """Provision PostgreSQL and generate /etc/topics-club/db.env remotely."""
+        run(
+            pyinfra_command(
+                "database.py",
+                host=host,
+                ssh_port=ssh_port,
+                ssh_key=ssh_key,
+                data={},
+            )
+        )
+
     def provision(
         self,
         host: str = "root@127.0.0.1",

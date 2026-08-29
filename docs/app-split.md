@@ -769,16 +769,18 @@ contain a production environment file, whether plaintext or encrypted. An operat
 maintains the real files out of band:
 
 ```text
+/etc/topics-club/db.env
 /etc/topics-club/gateway.env
 /etc/topics-club/engine.env
 ```
 
-Each file is owned by its corresponding runtime account with mode `0600`, and each systemd unit
-loads only its own file through `EnvironmentFile=`. Pyinfra creates the parent directory, verifies
-that the files exist, and enforces their ownership and permissions. It must not template,
-transfer, overwrite, print, or otherwise manage their secret contents. Initial values and later
-secret rotation are performed manually over SSH or through an operator-selected external secret
-interface.
+The database provisioning command generates `db.env` on the destination as `root:root` with mode
+`0600`; both systemd roles load its `DATABASE_URL`. Each role file is owned by its corresponding
+runtime account with mode `0600`, and each unit additionally loads only its own role file through
+`EnvironmentFile=`. Application provisioning creates the parent directory and verifies all file
+metadata without reading or transferring contents. Database provisioning validates `db.env` on the
+destination without returning its value. Initial application values and later application secret
+rotation are performed manually over SSH or through an operator-selected external secret interface.
 
 The split gateway listens for Erlang distribution on loopback TCP 4370 and the split engine on
 loopback TCP 4371; EPMD uses loopback TCP 4369. Combined releases default to
@@ -1400,11 +1402,12 @@ other native code aligned with the target userspace without turning the applicat
 container deployment. A low-memory bare host gets 4 GiB of build swap while the supported runtime
 floor stays at 1.5 GiB RAM.
 
-Use two destination-only environment files, not one shared file. Gateway and engine intentionally
-repeat the database URL, encryption key, release cookie, and stable node names, while role-specific
-values remain readable only by that role. No filled plaintext or encrypted secret file belongs in
-the public repository; operators create and edit both files directly on the server. The committed
-examples contain variable names and placeholders only.
+Use two destination-only application environment files plus the separately generated shared
+`db.env`. Gateway and engine intentionally repeat the encryption key and release cookie, while
+role-specific values remain readable only by that role. The database provisioning command creates
+`db.env` on the server; operators create and edit the two application files directly there. No
+filled plaintext or encrypted secret file belongs in the public repository. The committed examples
+contain variable names and placeholders only.
 
 `bin/apptools` is the operator interface. `deploy` defaults to both roles in schema-safe order
 (gateway migrations while the old engine stays online, followed by the matching engine), while
@@ -1419,9 +1422,9 @@ operator runbook is in `docs/deployment.md`.
 - [x] Provision dedicated unprivileged gateway and engine runtime users plus a controlled deployment user.
 - [x] Create source, build, release, current-symlink, and shared-data directories with documented ownership.
 - [x] Commit only a placeholder environment example; never commit a production environment file in plaintext or encrypted form.
-- [x] Keep `/etc/topics-club/gateway.env` and `/etc/topics-club/engine.env` solely on the destination host with role-specific ownership and mode `0600`.
+- [x] Keep `/etc/topics-club/db.env`, `/etc/topics-club/gateway.env`, and `/etc/topics-club/engine.env` solely on the destination host with appropriate ownership and mode `0600`.
 - [x] Make pyinfra verify the environment files and their metadata without reading, logging, replacing, or transferring their contents.
-- [x] Keep shared PostgreSQL provisioning and any future backup policy separate from application releases.
+- [x] Provision shared PostgreSQL and its destination-generated `db.env` through a separate operator command; keep future backup policy separate from application releases.
 - [x] Restrict EPMD and distribution ports to the loopback path on the single supported host.
 
 #### Repeatable build commands
@@ -1443,7 +1446,7 @@ operator runbook is in `docs/deployment.md`.
 
 - [x] Add a `topics-club-gateway.service` unit using the stable gateway symlink.
 - [x] Add a `topics-club-engine.service` unit using the stable engine symlink.
-- [x] Load only `/etc/topics-club/gateway.env` or `/etc/topics-club/engine.env` from the matching unit.
+- [x] Load shared `/etc/topics-club/db.env` plus only the matching `/etc/topics-club/gateway.env` or `/etc/topics-club/engine.env` from each unit.
 - [x] Make the deployment entry point and service layout target exactly one engine host and reject a second engine deployment target.
 - [x] Configure graceful SIGTERM shutdown and realistic start/stop timeouts.
 - [x] Configure automatic restart policy without causing a rapid crash loop.

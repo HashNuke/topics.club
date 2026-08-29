@@ -1,7 +1,8 @@
 [Unit]
 Description=TopicsClub IRC engine
-After=network-online.target
+After=network-online.target postgresql.service
 Wants=network-online.target
+Requires=postgresql.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 ConditionPathExists=/srv/topics-club/current-engine/bin/topics_club_engine
@@ -12,6 +13,7 @@ User=topics-club-engine
 Group=topics-club-engine
 WorkingDirectory=/var/lib/topics-club/engine
 EnvironmentFile=/etc/topics-club/engine.env
+EnvironmentFile=/etc/topics-club/db.env
 Environment=HOME=/var/lib/topics-club/engine
 Environment=RELEASE_TMP=/var/lib/topics-club/engine/tmp
 Environment=ERL_CRASH_DUMP=/var/lib/topics-club/engine/erl_crash.dump

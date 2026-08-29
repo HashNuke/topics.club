@@ -1,7 +1,8 @@
 [Unit]
 Description=TopicsClub gateway
-After=network-online.target
+After=network-online.target postgresql.service
 Wants=network-online.target
+Requires=postgresql.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 ConditionPathExists=/srv/topics-club/current-gateway/bin/server
@@ -12,6 +13,7 @@ User=topics-club-gateway
 Group=topics-club-gateway
 WorkingDirectory=/var/lib/topics-club/gateway
 EnvironmentFile=/etc/topics-club/gateway.env
+EnvironmentFile=/etc/topics-club/db.env
 Environment=HOME=/var/lib/topics-club/gateway
 Environment=RELEASE_TMP=/var/lib/topics-club/gateway/tmp
 Environment=ERL_CRASH_DUMP=/var/lib/topics-club/gateway/erl_crash.dump

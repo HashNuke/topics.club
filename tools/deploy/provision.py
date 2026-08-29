@@ -158,6 +158,20 @@ for path, user, group, mode in [
         mode=mode,
     )
 
+database_environment_path = "/etc/topics-club/db.env"
+if not host.get_fact(File, path=database_environment_path):
+    raise RuntimeError(
+        f"missing {database_environment_path}; run `bin/apptools provision-db` first"
+    )
+files.file(
+    name=f"Verify {database_environment_path} metadata without reading its contents",
+    path=database_environment_path,
+    user="root",
+    group="root",
+    mode="0600",
+    create_remote_dir=False,
+)
+
 for role in ("gateway", "engine"):
     environment_path = f"/etc/topics-club/{role}.env"
     if not host.get_fact(File, path=environment_path):

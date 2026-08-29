@@ -10,6 +10,7 @@ User=topics-club-engine
 Group=topics-club-engine
 WorkingDirectory=/var/lib/topics-club/engine
 EnvironmentFile=/etc/topics-club/engine.env
+EnvironmentFile=/etc/topics-club/db.env
 Environment=HOME=/var/lib/topics-club/engine
 Environment=RELEASE_TMP=/var/lib/topics-club/engine/tmp
 Environment=ERL_EPMD_ADDRESS=127.0.0.1

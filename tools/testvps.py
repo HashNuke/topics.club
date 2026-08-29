@@ -101,9 +101,9 @@ def remove_exact_network(name: str) -> None:
 
 
 def write_test_environment(state: dict[str, str]) -> None:
+    database = "\n".join([f"DATABASE_URL={state['database_url']}", ""])
     gateway = "\n".join(
         [
-            f"DATABASE_URL={state['database_url']}",
             f"IRC_CREDENTIALS_KEY={state['credentials_key']}",
             f"SECRET_KEY_BASE={state['secret_key_base']}",
             "GATEWAY_HOST=localhost",
@@ -116,7 +116,6 @@ def write_test_environment(state: dict[str, str]) -> None:
     )
     engine = "\n".join(
         [
-            f"DATABASE_URL={state['database_url']}",
             f"IRC_CREDENTIALS_KEY={state['credentials_key']}",
             "POOL_SIZE=5",
             "RELEASE_NODE=topics_club_engine@localhost",
@@ -128,7 +127,11 @@ def write_test_environment(state: dict[str, str]) -> None:
     run(
         ["docker", "exec", VPS_CONTAINER, "install", "-d", "-m", "0755", "/etc/topics-club"]
     )
-    for name, contents in (("gateway.env", gateway), ("engine.env", engine)):
+    for name, contents in (
+        ("db.env", database),
+        ("gateway.env", gateway),
+        ("engine.env", engine),
+    ):
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as temporary:
             temporary.write(contents)
             temporary.flush()

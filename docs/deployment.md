@@ -69,15 +69,25 @@ deployments must leave IRC connections alone. It runs `topics_club_gateway` and
 support a second engine host or horizontal replicas. The two BEAM nodes use short names and bind
 EPMD plus distribution ports `4369`, `4370`, and `4371` to loopback.
 
-The destination must be reachable as `root@IP` with an existing SSH key. PostgreSQL is provisioned
-separately; the application deploy never creates, replaces, backs up, or restores the database.
+The destination must be reachable as `root@IP` with an existing SSH key. A separate command
+installs PostgreSQL 18 from the official PostgreSQL Ubuntu repository, starts it on loopback, creates
+the application database and role, and generates `/etc/topics-club/db.env` on the destination. The
+application deploy never creates, replaces, backs up, or restores the database.
 The local operator machine needs `uv`, while the destination needs no preinstalled
 Erlang, Elixir, Node.js, or npm. Provisioning installs Docker and builds every release on the
 destination in a pinned Ubuntu 26.04 builder, so NIFs match the target userspace. A host below the
 recommended build memory gets a persistent 4 GiB `/swapfile` when it has less than 4 GiB of swap;
 the supported runtime RAM floor remains 1.5 GiB.
 
-Create the two environment files directly on the destination before provisioning. Do not copy a
+First provision the database. The command generates a database password on the destination and
+writes the resulting `DATABASE_URL` to a root-owned, mode `0600` file. It never prints or transfers
+the password, and a repeat run does not rotate it:
+
+```bash
+bin/apptools provision-db --host root@203.0.113.10
+```
+
+Then create the two application environment files directly on the destination. Do not copy a
 filled environment file from the repository or commit it, encrypted or otherwise. The committed
 `tools/deploy/gateway.env.example` and `tools/deploy/engine.env.example` files are variable lists
 only. On the server:
@@ -90,13 +100,15 @@ editor /etc/topics-club/gateway.env
 editor /etc/topics-club/engine.env
 ```
 
-Both files need the same `DATABASE_URL`, `IRC_CREDENTIALS_KEY`, and `RELEASE_COOKIE`. Use stable
+Both files need the same `IRC_CREDENTIALS_KEY` and `RELEASE_COOKIE`; neither contains
+`DATABASE_URL`, because both services load it from the generated `db.env`. Use stable
 `RELEASE_NODE` names `topics_club_gateway@localhost` and `topics_club_engine@localhost`. Gateway
 also needs `SECRET_KEY_BASE`, `GATEWAY_HOST`, and `PORT`; it defaults the engine target to
 `topics_club_engine@localhost`.
 Only the gateway starts Phoenix. Add engine-only hosted-IRC listener secrets to `engine.env` when
-that feature exists. Pyinfra checks the files' existence, ownership, and mode without reading,
-printing, templating, replacing, or transferring their contents.
+that feature exists. Application provisioning checks the role files' existence, ownership, and
+mode without reading, printing, templating, replacing, or transferring their contents. It also
+verifies `db.env` metadata without reading its contents.
 
 Provision the one destination repeatedly with the same command. Subsequent convergences are
 no-ops unless declared host configuration changed:

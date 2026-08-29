@@ -130,6 +130,17 @@ class ValidationTest(unittest.TestCase):
 
 
 class DeploySelectionTest(unittest.TestCase):
+    @mock.patch.object(apptools, "run")
+    def test_database_provisioning_uses_the_dedicated_pyinfra_deploy(
+        self,
+        run_mock: mock.Mock,
+    ) -> None:
+        apptools.AppTools().provision_db(host="root@db.example.test")
+
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[-2], "db.example.test")
+        self.assertTrue(command[-1].endswith("/tools/deploy/database.py"))
+
     @mock.patch.object(apptools, "resolve_release_tag", return_value=("20260828.1", "d" * 40))
     @mock.patch.object(apptools, "run")
     def test_combined_command_deploys_gateway_then_engine(

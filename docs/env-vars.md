@@ -13,7 +13,7 @@ shell or deployment platform.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection URL. Railway normally supplies it. |
+| `DATABASE_URL` | PostgreSQL connection URL. Railway supplies it; the bare-host database command generates it. |
 | `SECRET_KEY_BASE` | Signs and encrypts web sessions and cookies. Generate it with `mix phx.gen.secret`. |
 | `IRC_CREDENTIALS_KEY` | Encrypts stored IRC credentials. Generate it with `mix topics_club.gen_credentials_key` and retain it for the lifetime of the encrypted data. |
 | `GATEWAY_HOST` | Public hostname without a scheme or path, such as `topics.club`. |
@@ -31,7 +31,7 @@ Generate the VAPID values with `mix topics_club.gen_vapid_keys`.
 
 | Variable group | Docker Compose | Pyinfra direct host | Railway |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | Compose configures its bundled database internally | Gateway and engine | Supplied by the PostgreSQL service |
+| `DATABASE_URL` | Compose configures its bundled database internally | Generated in `/etc/topics-club/db.env` and loaded by both services | Supplied by the PostgreSQL service |
 | `SECRET_KEY_BASE`, `GATEWAY_HOST` | App container | Gateway | App service |
 | `IRC_CREDENTIALS_KEY` | App container | Gateway and engine | App service |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | App container | Gateway | App service |
@@ -78,7 +78,7 @@ different host interface or port is required.
 
 Use `tools/deploy/gateway.env.example` and
 `tools/deploy/engine.env.example` for the destination-only files. The split
-runtime additionally needs:
+runtime additionally needs the following application settings:
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
@@ -86,6 +86,10 @@ runtime additionally needs:
 | `RELEASE_COOKIE` | Gateway and engine | Shared secret for Erlang distribution. Use the same value in both files. |
 
 The gateway automatically connects to `topics_club_engine@localhost`.
+Run `bin/apptools provision-db --host root@IP` before application provisioning.
+It installs PostgreSQL 18, creates the database and role, and generates the
+shared `DATABASE_URL` in root-owned `/etc/topics-club/db.env`. Operators do not
+create or copy this file, and normal application env files do not repeat the URL.
 
 ## Advanced database tuning
 
