@@ -3,6 +3,12 @@
 Start with the production variables below. The later sections contain only
 deployment-specific wiring and advanced tuning.
 
+Minimal placeholder files are available at `samples/app.env.dev.sample`,
+`samples/gateway.env.prod.sample`, and `samples/engine.env.prod.sample`. The two
+production samples match the pyinfra split roles. They contain no tuning knobs.
+Elixir does not load these files automatically; export their values through the
+shell or deployment platform.
+
 ## Production application configuration
 
 | Variable | Purpose |
