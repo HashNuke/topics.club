@@ -49,7 +49,6 @@ pyinfra-managed split deployment, or Railway.
 | `GATEWAY_HOST` | No; dev is hard-coded | Yes | Gateway | Yes |
 | `TOPICS_CLUB_BIND_IP`, `TOPICS_CLUB_PORT` | No | Compose only | No | No |
 | `TOPICS_CLUB_POSTGRES_DATA`, `POSTGRES_PASSWORD` | No | Compose/Postgres only | No | No |
-| `SOURCE_REVISION` | No | Optional build override | No; deploy tooling supplies it | No; Railway supplies Git SHA |
 | `SECRET_KEY_BASE` | No; dev has a fixed key | App container | Gateway | Yes |
 | `IRC_CREDENTIALS_KEY` | No; dev has a fixed key | App container | Gateway **and** engine | Yes |
 | `POOL_SIZE`, `DB_QUEUE_TARGET`, `DB_QUEUE_INTERVAL` | No | Optional tuning | Gateway and engine | Optional tuning |
@@ -66,27 +65,6 @@ pyinfra-managed split deployment, or Railway.
   concurrency and checkout behavior.
 - `ENABLE_DISCOVERY` defaults to `false` in production. Set it to `true` only on
   the one gateway that should refresh IRC discovery data.
-
-## Source revision metadata
-
-`SOURCE_REVISION` exists only while building a release. It identifies the source
-used for the artifact, becomes the suffix in an OTP release version such as
-`0.1.0+05b90f1abc12`, and lets deployment and rollback tooling relate an artifact
-to its source commit. It does not change application behavior and is not read
-when the application starts.
-
-- Pyinfra resolves the selected release tag to an exact Git commit and supplies
-  that commit automatically while building both split releases. It also records
-  the full commit in each deployment manifest.
-- Railway supplies `RAILWAY_GIT_COMMIT_SHA`; the Dockerfile uses it
-  automatically.
-- Docker Compose permits an optional `SOURCE_REVISION` build override. When it
-  is absent, the Dockerfile computes a deterministic digest of the copied source
-  tree instead.
-- Development does not use it. CI supplies source revision metadata directly
-  when verifying release assembly.
-
-Operators normally should not set `SOURCE_REVISION` in any environment.
 
 ## Deployment-only settings
 

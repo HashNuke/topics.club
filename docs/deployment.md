@@ -250,8 +250,7 @@ Fetch and check out an exact commit rather than deploying a moving working tree.
 ```bash
 git fetch --all --prune
 git checkout <exact-commit>
-SOURCE_REVISION=$(git rev-parse HEAD) \
-  docker compose --env-file .env -f docker-compose.prod.yml build app
+docker compose --env-file .env -f docker-compose.prod.yml build app
 docker compose --env-file .env -f docker-compose.prod.yml run --rm app /app/bin/migrate
 docker compose --env-file .env -f docker-compose.prod.yml up -d --no-deps app
 curl --fail http://127.0.0.1:4000/health

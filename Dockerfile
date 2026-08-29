@@ -76,9 +76,8 @@ RUN mix assets.deploy
 COPY config/runtime.exs config/
 
 COPY rel rel
-ARG SOURCE_REVISION
 ARG RAILWAY_GIT_COMMIT_SHA
-RUN source_revision="${SOURCE_REVISION:-${RAILWAY_GIT_COMMIT_SHA:-}}" \
+RUN source_revision="${RAILWAY_GIT_COMMIT_SHA:-}" \
   && if [ -z "$source_revision" ]; then \
     source_revision="$(find apps config lib priv rel mix.exs mix.lock -type f -print0 \
       | sort -z \
