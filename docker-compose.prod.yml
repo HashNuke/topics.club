@@ -22,7 +22,7 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     ports:
-      - "${TOPICS_CLUB_BIND_IP:-127.0.0.1}:${TOPICS_CLUB_PORT:-4000}:4000"
+      - "127.0.0.1:4000:4000"
     command: sh -c "/app/bin/migrate && /app/bin/server"
     init: true
     restart: unless-stopped

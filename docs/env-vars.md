@@ -63,10 +63,10 @@ production application values, Compose uses:
 | Variable | Purpose |
 | --- | --- |
 | `POSTGRES_PASSWORD` | Password for the bundled PostgreSQL container. |
-| `TOPICS_CLUB_BIND_IP` | Host interface on which to expose the application. |
-| `TOPICS_CLUB_PORT` | Host port forwarded to the application container. |
 
-PostgreSQL data is stored in the Compose-managed `postgres_data` volume.
+PostgreSQL data is stored in the Compose-managed `postgres_data` volume. The
+application is published at `127.0.0.1:4000`; use a Compose override when a
+different host interface or port is required.
 
 ### Pyinfra split deployment
 

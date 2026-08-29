@@ -103,9 +103,8 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d --build
 ```
 
 The app container waits for Postgres, runs migrations, and then starts Phoenix on
-container port `4000`. It binds host loopback by default; set `TOPICS_CLUB_PORT` to
-choose the host port and change `TOPICS_CLUB_BIND_IP` only when a reverse proxy on a
-private network cannot reach loopback.
+container port `4000` and publishes it at `127.0.0.1:4000` on the host. Use a
+Compose override when a different host interface or port is required.
 
 The Docker build uses this repository as its build context and fetches the
 `ircxd` dependency from GitHub. For a manual image build, run this from the

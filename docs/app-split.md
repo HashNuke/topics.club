@@ -303,7 +303,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Combined and web |
 | `ENABLE_DISCOVERY` | Combined and web |
 | `RELEASE_NODE`, `RELEASE_COOKIE` | Split runtime/distribution as described in the configuration contract |
-| `POSTGRES_PASSWORD`, `TOPICS_CLUB_PORT` | Compose interpolation only, not application configuration |
+| `POSTGRES_PASSWORD` | Compose interpolation only, not application configuration |
 
 #### Supervision and registered names
 

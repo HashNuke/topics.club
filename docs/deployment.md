@@ -38,7 +38,7 @@ Railway's repository-level `railway.toml` and `railway.json` configuration is de
 
 ## VPS installation with Docker Compose
 
-The production Compose package binds the application to `127.0.0.1:4000` by default and does not publish PostgreSQL. Put an HTTPS reverse proxy such as Caddy, nginx, or Traefik on the same host and proxy to that loopback address. If the proxy runs on another machine, set `TOPICS_CLUB_BIND_IP` to a private interface and restrict the port with the host firewall; never expose it indiscriminately.
+The production Compose package binds the application to `127.0.0.1:4000` and does not publish PostgreSQL. Put an HTTPS reverse proxy such as Caddy, nginx, or Traefik on the same host and proxy to that loopback address. Use a Compose override if a different host interface or port is required; bind only to a private interface and restrict it with the host firewall.
 
 On a clean VPS with Git, Docker Engine, and the Compose plugin:
 
@@ -48,12 +48,7 @@ cd /srv/topics_club/source
 cp env.example .env
 ```
 
-Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported:
-
-```text
-TOPICS_CLUB_BIND_IP=127.0.0.1
-TOPICS_CLUB_PORT=4000
-```
+Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported.
 
 PostgreSQL data is stored in the Compose-managed `postgres_data` volume. Validate the resolved configuration and start the stack:
 
