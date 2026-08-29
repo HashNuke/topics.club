@@ -9,6 +9,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import apptools  # noqa: E402
+import split_acceptance  # noqa: E402
 import testvps  # noqa: E402
 
 
@@ -80,6 +81,13 @@ class ValidationTest(unittest.TestCase):
         encoded = testvps.base64_secret()
 
         self.assertEqual(len(base64.b64decode(encoded, validate=True)), 32)
+
+    def test_acceptance_control_fields_are_strict_integers(self) -> None:
+        self.assertEqual(
+            split_acceptance.parse_fields("active=1 registered=1"),
+            {"active": 1, "registered": 1},
+        )
+        self.assertEqual(split_acceptance.parse_fields("active=unknown"), {})
 
     def test_only_one_ssh_host_is_accepted(self) -> None:
         with self.assertRaisesRegex(ValueError, "exactly one"):

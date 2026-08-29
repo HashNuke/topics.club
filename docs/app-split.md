@@ -25,7 +25,7 @@ Sizing used by this document:
 - [x] Session startup reloads the authoritative connection and refuses paused connections.
 - [x] A Phoenix release Dockerfile builds the combined release from the repository root.
 - [x] Production Docker Compose provides one combined application service and one persistent PostgreSQL service.
-- [x] `ircxd` is fetched from `HashNuke/ircxd` and pinned by `mix.lock` until it is published on Hex.
+- [x] `ircxd` 1.1.0 is fetched from Hex with one resolved version across the umbrella.
 - [x] Every current module has a documented logical owner: core, shared protocol, engine, web, combined assembly, or tooling.
 - [x] All web-to-IRC calls pass through `TopicsClub.EngineClient`.
 - [x] Core and web modules have no direct dependency on engine implementation modules.
@@ -295,7 +295,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 
 | Environment variable or secret | Release that genuinely needs it |
 | --- | --- |
-| `DATABASE_URL`, discrete `DATABASE_*` connection settings, `ECTO_IPV6`, `POOL_SIZE` | Combined, web, and engine |
+| `DATABASE_URL`, discrete `DATABASE_*` connection settings, `ECTO_IPV6`, `POOL_SIZE`, `DB_QUEUE_TARGET`, `DB_QUEUE_INTERVAL` | Combined, web, and engine |
 | `IRC_CREDENTIALS_KEY` | Combined and engine; web must stop loading encrypted IRC credentials before the key is removed from the web release |
 | `SECRET_KEY_BASE`, `PHX_HOST`, `PORT`, `PHX_SERVER` | Combined and web |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Combined and web |
@@ -434,7 +434,7 @@ Define three releases:
 | `topics_club_gateway` | core + web | Frequently deployed web tier in split mode |
 | `topics_club_engine` | core + engine | Small long-lived engine in split mode |
 
-`ircxd` is a shared library dependency, not an ownership boundary. The engine uses it for long-lived outbound sessions and the hosted server; the web role uses it for short-lived directory channel-list workers; shared protocol primitives also use its casemapping and validation types. Both split releases therefore include `ircxd`, while only the engine release starts the user-session and hosted-server supervision trees. Until `ircxd` is published on Hex, builds fetch it from the `HashNuke/ircxd` GitHub repository rather than relying on a sibling checkout.
+`ircxd` is a shared library dependency, not an ownership boundary. The engine uses it for long-lived outbound sessions and the hosted server; the web role uses it for short-lived directory channel-list workers; shared protocol primitives also use its casemapping and validation types. Both split releases therefore include `ircxd`, while only the engine release starts the user-session and hosted-server supervision trees. Builds resolve the published Hex package with the same `~> 1.1.0` constraint in every child application rather than relying on a sibling checkout or Git dependency.
 
 ## Engine boundary
 
@@ -1172,11 +1172,12 @@ GPT-5.6 Sol xhigh re-reviewed and approved the immutable repaired checkpoint at 
 
 #### Dependency distribution
 
-Publishing `ircxd` and replacing its Git source are intentionally deferred until the package is available on Hex. Under the current explicit deployment decision, the pinned `HashNuke/ircxd` Git dependency is the supported source and these two external publication tasks do not block this checkpoint.
+`ircxd` 1.1.0 is published on Hex. Core, engine, and web now use the same `~> 1.1.0`
+constraint, and `mix.lock` records the single resolved Hex package.
 
 - [x] Fetch `ircxd` from `HashNuke/ircxd` and pin the resolved commit in `mix.lock`.
-- [ ] Publish `ircxd` to Hex with a version compatible with the core, engine, and web applications.
-- [ ] Replace the Git dependency with a Hex version constraint after publication.
+- [x] Publish `ircxd` to Hex with a version compatible with the core, engine, and web applications.
+- [x] Replace the Git dependency with a Hex version constraint after publication.
 - [x] Verify core, engine, and web declare `ircxd` wherever their code references it, with one resolved version across the umbrella.
 - [x] Verify the web release starts only short-lived directory discovery clients and no per-user session or hosted-server listeners.
 
@@ -1184,7 +1185,7 @@ Publishing `ircxd` and replacing its Git source are intentionally deferred until
 
 - [x] Start from the Phoenix-generated multi-stage release Dockerfile.
 - [x] Build the current combined release from the repository root.
-- [x] Fetch the GitHub `ircxd` dependency without a sibling checkout.
+- [x] Fetch the published Hex `ircxd` dependency without a sibling checkout.
 - [x] Adapt Docker copy/cache layers to the umbrella layout.
 - [x] Build the explicit combined `topics_club` release.
 - [x] Keep build-only Erlang, Elixir, Node.js, npm, and compiler tools out of the final image.
@@ -1292,7 +1293,7 @@ no substitute lease or scheduler and still do not support a second engine host.
 
 #### Split integration harness and tests
 
-- [ ] Start distinct complete web and engine applications against one test PostgreSQL database and local IRC server.
+- [x] Start distinct complete web and engine applications against one test PostgreSQL database and local IRC server.
 - [x] Confirm status, connect, disconnect, join, part, send, command, direct-message, and channel-list operations cross the boundary.
 - [x] Confirm engine PubSub events reach a user channel on the web node.
 - [x] Stop web and prove the engine session PID remains alive.
@@ -1304,14 +1305,18 @@ no substitute lease or scheduler and still do not support a second engine host.
 - [x] Record that protocol v1 has no N-1; require a real compatibility test when v2 is introduced.
 - [x] Omit split Compose because it would duplicate the real-node tests and is not the deployment target.
 
-The focused integration test currently starts a real gateway-side BEAM peer and drives the
-production `EngineClient`/RPC boundary against the engine node, shared test database, and local
-IRC server. It proves operation coverage, visible duplicate-marker rejection, and engine-process survival across
-a gateway-node restart. A separate application lifecycle test stops the complete gateway, delivers
-an IRC message while it is down, restarts it, and recovers the message through authenticated
-bootstrap without changing the engine session PID. Booting both complete role applications on
-distinct nodes remains an unchecked release-harness task; the focused tests are not presented as
-that broader harness.
+The focused integration test starts a real gateway-side BEAM peer and drives the production
+`EngineClient`/RPC boundary against the engine node, shared test database, and local IRC server.
+It proves operation coverage and visible duplicate-marker rejection. A separate application
+lifecycle test proves engine-process survival and message recovery across a gateway-node restart.
+
+The explicit pseudo-VPS acceptance command completes the broader release check. It runs the
+deployed gateway and engine releases as distinct nodes against their shared PostgreSQL sidecar and
+a temporary local synthetic IRC sidecar. It sends outbound traffic, stops the gateway, injects and
+persists inbound traffic through the still-running engine, restarts the gateway, and verifies both
+history recovery and preservation of the engine PID and original IRC socket. The command removes
+its temporary records and sidecar. It is intentionally an operator-run deployment rehearsal, not
+part of `mix precommit` or routine CI.
 
 #### Distributed-runtime exit gate
 
@@ -1514,12 +1519,16 @@ Size: **L**. Risk: **High**. These checks turn a working demo into a supportable
 - [ ] Inspect release contents to enforce the expected application and asset boundaries.
 - [ ] Build and smoke-test the default combined Docker image with no cluster variables.
 - [ ] Validate and smoke-test the production Compose package.
-- [ ] Run the split-node integration harness in CI.
+- [x] Keep the split-release/local-IRC acceptance check explicit on the pseudo-VPS rather than in routine CI.
 - [ ] Verify migrations run once and never from engine startup.
 - [ ] Verify only the intended Oban queues, plugins, and cron entries run in each release.
 
 #### Compatibility and failure testing
 
+- [x] Benchmark standalone-engine connection capacity with a Docker-only synthetic IRC server.
+- [x] Verify bidirectional message traffic, persistence, engine restart, and transport recovery at the documented planning ceiling.
+- [x] Benchmark the combined release under resident IRC load with public and authenticated HTTP traffic.
+- [x] Document the reproducible harness, resource limits, lab notes, results, and remaining SLA work in `docs/load-tests.md`.
 - [ ] Verify every request/event version accepts documented fields and rejects unsupported versions.
 - [ ] Verify contracts contain no Ecto structs, PIDs, functions, exceptions, or engine-private structs.
 - [ ] Verify web N with engine N-1 for every supported operation and event.

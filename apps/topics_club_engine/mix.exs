@@ -31,7 +31,7 @@ defmodule TopicsClubEngine.MixProject do
       {:topics_club_core, in_umbrella: true},
       {:ecto_sql, "~> 3.13"},
       {:oban, "~> 2.24"},
-      {:ircxd, github: "HashNuke/ircxd", branch: "main"}
+      {:ircxd, "~> 1.1.0"}
     ]
   end
 end

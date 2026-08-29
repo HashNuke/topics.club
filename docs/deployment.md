@@ -13,7 +13,11 @@ Every production deployment requires:
 - `IRC_CREDENTIALS_KEY`: generate with `mix topics_club.gen_credentials_key` and retain for the lifetime of the encrypted data.
 - `PHX_HOST`: public HTTPS hostname.
 
-`PORT` defaults to `4000`; Railway supplies it automatically. `POOL_SIZE` defaults to `10`. OAuth, SMTP, Web Push, and discovery variables are optional and documented in `env.example`.
+`PORT` defaults to `4000`; Railway supplies it automatically. `POOL_SIZE` defaults to `10`.
+`DB_QUEUE_TARGET` and `DB_QUEUE_INTERVAL` both default to `5000` milliseconds, allowing short
+inbound IRC bursts to wait for a database connection instead of immediately exhausting Ecto's
+checkout queue. OAuth, SMTP, Web Push, and discovery variables are optional and documented in
+`env.example`.
 
 The image runs as an unprivileged user. It exposes `/health`, which returns HTTP 200 only when Phoenix can query PostgreSQL. The image-level health check calls that endpoint. Combined mode needs no Erlang node name, cookie, engine-node hostname, or clustering variable.
 
@@ -199,6 +203,7 @@ and PostgreSQL sidecar:
 bin/apptools testvps create
 bin/apptools provision --repository file:///mnt/topics-club.git
 bin/apptools deploy --tag latest
+bin/apptools testvps acceptance
 bin/apptools testvps status
 bin/apptools testvps destroy
 ```
@@ -206,6 +211,14 @@ bin/apptools testvps destroy
 The `file:///mnt/topics-club.git` repository is a test-only read-only mount. Production provision
 uses the public HTTPS remote. Reset and destroy affect only the exact named pseudo-VPS containers,
 network, PostgreSQL data volume, Docker build-data volume, and ignored `.apptools/vps` test state.
+
+`testvps acceptance` is an explicit, production-like split-release check and is not part of
+`mix precommit` or routine CI. It briefly stops and restarts the pseudo-VPS gateway while leaving
+the engine running. A temporary local IRC sidecar exchanges outbound and inbound messages without
+publishing an IRC port or contacting a public network. The check verifies persistence and gateway
+history recovery while also proving that the engine PID and original IRC socket survive. It then
+removes the temporary database records and IRC container and restores the gateway if the check
+fails partway through.
 
 ## Optional PostgreSQL backup and restore
 

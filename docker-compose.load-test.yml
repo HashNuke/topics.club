@@ -1,0 +1,135 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: load-test-only
+      POSTGRES_DB: topics_club_load
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d topics_club_load"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    mem_limit: 768m
+    cpus: 1.0
+    networks: [load_test]
+    volumes:
+      - load_test_postgres:/var/lib/postgresql/data
+
+  irc:
+    image: docker.io/hexpm/elixir:1.19.5-erlang-28.5-debian-trixie-20260505-slim@sha256:133fa7e54ceb2d812e9f79e33e827019c3df2c1f8e89b6ae37d605d78d4d17cb
+    command: ["elixir", "/load-test/irc_server.exs"]
+    environment:
+      IRC_PORT: 6667
+      CONTROL_PORT: 8080
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'PING\\n' >&3; read -r reply <&3; test \"$$reply\" = PONG",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    mem_limit: 768m
+    cpus: 1.0
+    networks: [load_test]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./tools/load_test/irc_server.exs:/load-test/irc_server.exs:ro
+
+  migrator:
+    image: ${LOAD_COMBINED_IMAGE:-topics-club-load-combined:local}
+    command: ["/app/bin/migrate"]
+    environment:
+      DATABASE_URL: ecto://postgres:load-test-only@postgres/topics_club_load
+      IRC_CREDENTIALS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      SECRET_KEY_BASE: load-test-secret-key-base-load-test-secret-key-base-load-test-secret-key-base
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [load_test]
+    profiles: [tools]
+
+  engine:
+    image: ${LOAD_ENGINE_IMAGE:-topics-club-load-engine:local}
+    environment:
+      DATABASE_URL: ecto://postgres:load-test-only@postgres/topics_club_load
+      IRC_CREDENTIALS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      POOL_SIZE: ${LOAD_POOL_SIZE:-10}
+      DB_QUEUE_TARGET: ${LOAD_DB_QUEUE_TARGET:-5000}
+      DB_QUEUE_INTERVAL: ${LOAD_DB_QUEUE_INTERVAL:-5000}
+      RELEASE_NODE: topics_club_engine@localhost
+      RELEASE_COOKIE: loadtestcookie0123456789loadtestcookie0123456789
+    depends_on:
+      postgres:
+        condition: service_healthy
+      irc:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 30s
+    mem_limit: ${LOAD_ENGINE_MEMORY:-1536m}
+    cpus: ${LOAD_ENGINE_CPUS:-2.0}
+    networks: [load_test]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  app:
+    image: ${LOAD_COMBINED_IMAGE:-topics-club-load-combined:local}
+    environment:
+      DATABASE_URL: ecto://postgres:load-test-only@postgres/topics_club_load
+      IRC_CREDENTIALS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      SECRET_KEY_BASE: load-test-secret-key-base-load-test-secret-key-base-load-test-secret-key-base
+      PHX_SERVER: "true"
+      PHX_HOST: localhost
+      PORT: 4000
+      POOL_SIZE: ${LOAD_POOL_SIZE:-10}
+      DB_QUEUE_TARGET: ${LOAD_DB_QUEUE_TARGET:-5000}
+      DB_QUEUE_INTERVAL: ${LOAD_DB_QUEUE_INTERVAL:-5000}
+      RELEASE_DISTRIBUTION: sname
+      RELEASE_NODE: topics_club@localhost
+      RELEASE_COOKIE: loadtestcookie0123456789loadtestcookie0123456789
+    depends_on:
+      postgres:
+        condition: service_healthy
+      irc:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 30s
+    mem_limit: ${LOAD_APP_MEMORY:-1536m}
+    cpus: ${LOAD_APP_CPUS:-2.0}
+    networks: [load_test]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  client:
+    image: docker.io/python:3.12-slim
+    command: ["python3", "/load-test/http_benchmark.py"]
+    environment:
+      LOAD_BASE_URL: http://app:4000
+      LOAD_MAGIC_TOKEN: ${LOAD_MAGIC_TOKEN:-}
+      LOAD_HTTP_REQUESTS: ${LOAD_HTTP_REQUESTS:-200}
+      LOAD_HTTP_CONCURRENCY: ${LOAD_HTTP_CONCURRENCY:-20}
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [load_test]
+    volumes:
+      - ./tools/load_test/http_benchmark.py:/load-test/http_benchmark.py:ro
+    profiles: [tools]
+
+networks:
+  load_test:
+    internal: true
+
+volumes:
+  load_test_postgres:

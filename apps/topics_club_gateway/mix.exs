@@ -55,7 +55,7 @@ defmodule TopicsClubGateway.MixProject do
       {:gen_smtp, "~> 1.3"},
       {:floki, "~> 0.38.4"},
       {:req, "~> 0.5"},
-      {:ircxd, github: "HashNuke/ircxd", branch: "main"},
+      {:ircxd, "~> 1.1.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},

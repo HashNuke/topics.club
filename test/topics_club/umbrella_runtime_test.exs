@@ -176,6 +176,8 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         "DATABASE_USER" => "postgres",
         "DATABASE_PASSWORD" => "pa:ss@word#x?/+",
         "DATABASE_NAME" => "topics_club_prod",
+        "DB_QUEUE_TARGET" => "6100",
+        "DB_QUEUE_INTERVAL" => "6200",
         "IRC_CREDENTIALS_KEY" => credentials_key,
         "RELEASE_COOKIE" => String.duplicate("c", 32),
         "RELEASE_NAME" => "topics_club_engine",
@@ -191,6 +193,8 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         assert repo_config[:username] == "postgres"
         assert repo_config[:password] == "pa:ss@word#x?/+"
         assert repo_config[:database] == "topics_club_prod"
+        assert repo_config[:queue_target] == 6_100
+        assert repo_config[:queue_interval] == 6_200
       end
     )
   end

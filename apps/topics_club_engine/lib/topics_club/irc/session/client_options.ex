@@ -23,6 +23,7 @@ defmodule TopicsClub.Irc.Session.ClientOptions do
       username: connection.username || connection.nickname,
       realname: connection.realname || connection.nickname,
       caps: @capabilities,
+      reconnect: [max_attempts: :infinity, delay: 5_000],
       events: :envelope,
       notify: notify_pid,
       adapter: {ClientRegistration, {connection.user_id, connection.id}}

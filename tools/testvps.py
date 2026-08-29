@@ -345,3 +345,9 @@ class VpsCommands:
             else f"unexpected memory+swap limit: {memory_swap} bytes"
         )
         print(f"Pseudo-VPS: {status}; memory={memory_note}; swap={swap_note}; image={image}")
+
+    def acceptance(self) -> None:
+        """Run the explicit split-release/local-IRC acceptance scenario."""
+        from split_acceptance import run_acceptance
+
+        run_acceptance()

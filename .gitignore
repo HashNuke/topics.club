@@ -24,6 +24,7 @@ erl_crash.dump
 
 # Resettable pseudo-VPS state (SSH key and test-only environment values).
 /.apptools/
+/.load-tests/
 
 # Python tooling managed by uv.
 /.venv/
