@@ -33,8 +33,7 @@ http://localhost:4100/auth/google/callback
 For development and test, TopicsClub also exposes `/auth/developer`, a local Ueberauth strategy similar to OmniAuth's developer strategy. It presents a simple name/email form and signs in without calling an external provider. This provider is not configured in production.
 
 In production, the Google sign-in button is shown only when both `GOOGLE_CLIENT_ID`
-and `GOOGLE_CLIENT_SECRET` are set. Email registration and magic-link login need
-SMTP configuration so the app can deliver confirmation and login links.
+and `GOOGLE_CLIENT_SECRET` are set.
 
 ## Self-hosting with Docker
 
@@ -117,24 +116,6 @@ repository root:
 ```bash
 docker build .
 ```
-
-### Self-hosted auth
-
-For a private self-hosted instance, the simplest production setup is:
-
-```text
-SMTP_RELAY=smtp.example.com
-SMTP_PORT=587
-SMTP_USERNAME=...
-SMTP_PASSWORD=...
-SMTP_TLS=if_available
-EMAIL_FROM_ADDRESS=topics.club@example.com
-```
-
-With SMTP configured, users can register and log in by email magic link, then set
-a password from account settings. If you prefer OAuth-only sign-in, configure
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` instead. The development-only
-`/auth/developer` provider is intentionally not enabled in production.
 
 ## Local database
 

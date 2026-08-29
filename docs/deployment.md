@@ -12,12 +12,14 @@ Every production deployment requires:
 - `SECRET_KEY_BASE`: generate with `mix phx.gen.secret`.
 - `IRC_CREDENTIALS_KEY`: generate with `mix topics_club.gen_credentials_key` and retain for the lifetime of the encrypted data.
 - `GATEWAY_HOST`: public HTTPS hostname.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: Google OAuth credentials.
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`: Web Push credentials generated with `mix topics_club.gen_vapid_keys`.
 
 `PORT` defaults to `4000`; Railway supplies it automatically. `POOL_SIZE` defaults to `10`.
 `DB_QUEUE_TARGET` and `DB_QUEUE_INTERVAL` both default to `5000` milliseconds, allowing short
 inbound IRC bursts to wait for a database connection instead of immediately exhausting Ecto's
-checkout queue. OAuth, SMTP, Web Push, and discovery variables are optional and documented in
-`env.example`.
+checkout queue. Discovery is disabled by default in production. The normal and advanced settings
+for each deployment are documented in `docs/env-vars.md`.
 
 The image runs as an unprivileged user. It exposes `/health`, which returns HTTP 200 only when Phoenix can query PostgreSQL. The image-level health check calls that endpoint. Combined mode needs no Erlang node name, cookie, engine-node hostname, or clustering variable.
 
@@ -32,7 +34,7 @@ Railway detects the repository `Dockerfile`. Configure exactly one service repli
 
 Attach a managed PostgreSQL service or provide an external `DATABASE_URL`, then add the other required application variables above. The Docker build consumes Railway's `RAILWAY_GIT_COMMIT_SHA` so the OTP release version identifies the deployed source revision. Railway's health probe reaches `/health` directly over its private HTTP path; production SSL redirection excludes only that readiness path while normal browser requests still redirect to HTTPS.
 
-Railway's repository-level `railway.toml` and `railway.json` configuration is deprecated and stops being read on 2026-12-01. Its replacement, `.railway/railway.ts`, owns the complete linked Railway project; omitted services and databases are deletion candidates. Run `railway config pull` against the real project before adopting Infrastructure as Code, add the four settings above to the imported application service, review `railway config plan`, and only then apply it. This repository intentionally does not provide a project-blind IaC file.
+Railway's repository-level `railway.toml` and `railway.json` configuration is deprecated and stops being read on 2026-12-01. Its replacement, `.railway/railway.ts`, owns the complete linked Railway project; omitted services and databases are deletion candidates. Run `railway config pull` against the real project before adopting Infrastructure as Code, add the remaining required settings above to the imported application service, review `railway config plan`, and only then apply it. This repository intentionally does not provide a project-blind IaC file.
 
 ## VPS installation with Docker Compose
 

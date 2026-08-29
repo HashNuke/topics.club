@@ -7,7 +7,7 @@ them.
 
 ## Essential production configuration
 
-The combined application used by Railway needs these six values:
+The combined application used by Railway needs these nine values:
 
 ```text
 DATABASE_URL=ecto://user:password@database-host/topics_club_prod
@@ -16,6 +16,9 @@ IRC_CREDENTIALS_KEY=replace-with-generated-credentials-key
 GATEWAY_HOST=topics.club
 GOOGLE_CLIENT_ID=replace-with-google-client-id
 GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
+VAPID_PUBLIC_KEY=replace-with-generated-public-key
+VAPID_PRIVATE_KEY=replace-with-generated-private-key
+VAPID_SUBJECT=notifications@example.com
 ```
 
 - `DATABASE_URL` tells the application how to reach PostgreSQL.
@@ -26,6 +29,9 @@ GOOGLE_CLIENT_SECRET=replace-with-google-client-secret
   `topics.club` produces the Google callback URL
   `https://topics.club/auth/google/callback`.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` enable Google sign-in.
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` authorize Web
+  Push notifications. Generate the key pair with
+  `mix topics_club.gen_vapid_keys`; the subject is the deployment contact email.
 
 Railway supplies `PORT` and normally supplies `DATABASE_URL` through its
 PostgreSQL service. The Docker image supplies the release startup settings.
@@ -43,28 +49,44 @@ pyinfra-managed split deployment, or Railway.
 | `GATEWAY_HOST` | No; dev is hard-coded | Yes | Gateway | Yes |
 | `TOPICS_CLUB_BIND_IP`, `TOPICS_CLUB_PORT` | No | Compose only | No | No |
 | `TOPICS_CLUB_POSTGRES_DATA`, `POSTGRES_PASSWORD` | No | Compose/Postgres only | No | No |
-| `SOURCE_REVISION` | No | Optional build metadata | No; deploy tooling supplies it | No; Railway supplies Git SHA |
+| `SOURCE_REVISION` | No | Optional build override | No; deploy tooling supplies it | No; Railway supplies Git SHA |
 | `SECRET_KEY_BASE` | No; dev has a fixed key | App container | Gateway | Yes |
 | `IRC_CREDENTIALS_KEY` | No; dev has a fixed key | App container | Gateway **and** engine | Yes |
 | `POOL_SIZE`, `DB_QUEUE_TARGET`, `DB_QUEUE_INTERVAL` | No | Optional tuning | Gateway and engine | Optional tuning |
-| `ENABLE_DISCOVERY` | Dev enables it automatically | Optional | Gateway | Optional |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional | Optional | Gateway | Optional |
-| `SMTP_*`, `EMAIL_FROM_*` | Optional | Optional | Gateway | Optional |
-| `VAPID_*` | Optional | Optional | Gateway | Optional |
+| `ENABLE_DISCOVERY` | Dev enables it automatically | Defaults to `false` | Gateway; defaults to `false` | Defaults to `false` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional | App container | Gateway | Yes |
+| `VAPID_*` | Optional | App container | Gateway | Yes |
 
 ## Settings that normally need no attention
 
 - `PORT` defaults to `4000`; Railway supplies it automatically.
 - `POOL_SIZE`, `DB_QUEUE_TARGET`, and `DB_QUEUE_INTERVAL` have production
-  defaults. Set them only when intentionally tuning database concurrency.
-- `SOURCE_REVISION` is optional build metadata. Compose can accept it, pyinfra
-  supplies it, and Railway supplies `RAILWAY_GIT_COMMIT_SHA`.
-- `ENABLE_DISCOVERY` is an optional production feature flag and defaults to
-  `false`.
-- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` are required only
-  when enabling browser push notifications.
-- `SMTP_*` and `EMAIL_FROM_*` belong to the optional generated email-auth flows.
-  A Google-only production deployment should leave them unset.
+  defaults (`10`, `5000`, and `5000`, respectively). Do not set them during a
+  normal installation; override them only when intentionally tuning database
+  concurrency and checkout behavior.
+- `ENABLE_DISCOVERY` defaults to `false` in production. Set it to `true` only on
+  the one gateway that should refresh IRC discovery data.
+
+## Source revision metadata
+
+`SOURCE_REVISION` exists only while building a release. It identifies the source
+used for the artifact, becomes the suffix in an OTP release version such as
+`0.1.0+05b90f1abc12`, and lets deployment and rollback tooling relate an artifact
+to its source commit. It does not change application behavior and is not read
+when the application starts.
+
+- Pyinfra resolves the selected release tag to an exact Git commit and supplies
+  that commit automatically while building both split releases. It also records
+  the full commit in each deployment manifest.
+- Railway supplies `RAILWAY_GIT_COMMIT_SHA`; the Dockerfile uses it
+  automatically.
+- Docker Compose permits an optional `SOURCE_REVISION` build override. When it
+  is absent, the Dockerfile computes a deterministic digest of the copied source
+  tree instead.
+- Development does not use it. CI supplies source revision metadata directly
+  when verifying release assembly.
+
+Operators normally should not set `SOURCE_REVISION` in any environment.
 
 ## Deployment-only settings
 
