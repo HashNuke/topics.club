@@ -302,8 +302,8 @@ Test-only application keys are not release configuration. They are narrow synchr
 | `SMTP_*`, `EMAIL_FROM_*` | Combined and web |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Combined and web |
 | `ENABLE_DISCOVERY` | Combined and web |
-| `RELEASE_NODE`, `RELEASE_COOKIE`; later `TOPICS_CLUB_ENGINE_NODE` on web | Split runtime/distribution as described in the configuration contract |
-| `POSTGRES_PASSWORD`, `TOPICS_CLUB_POSTGRES_DATA`, `TOPICS_CLUB_PORT` | Compose interpolation only, not application configuration |
+| `RELEASE_NODE`, `RELEASE_COOKIE` | Split runtime/distribution as described in the configuration contract |
+| `POSTGRES_PASSWORD`, `TOPICS_CLUB_PORT` | Compose interpolation only, not application configuration |
 
 #### Supervision and registered names
 
@@ -783,8 +783,8 @@ interface.
 The split gateway listens for Erlang distribution on loopback TCP 4370 and the split engine on
 loopback TCP 4371; EPMD uses loopback TCP 4369. Combined releases default to
 `RELEASE_DISTRIBUTION=none`. Split release startup requires explicit short `RELEASE_NODE` names
-and the same deployment-specific `RELEASE_COOKIE`. The gateway also requires
-`TOPICS_CLUB_ENGINE_NODE` and reconnects to that static node with capped exponential backoff
+and the same deployment-specific `RELEASE_COOKIE`. The gateway defaults its engine target to
+`topics_club_engine@localhost` and reconnects to that static node with capped exponential backoff
 without blocking web startup.
 
 ### Optional split Compose harness
@@ -826,10 +826,11 @@ Combined mode works with the existing required environment variables. Split mode
 ```text
 RELEASE_NODE=topics_club_gateway@localhost
 RELEASE_COOKIE=<high-entropy-cookie>
-TOPICS_CLUB_ENGINE_NODE=topics_club_engine@localhost
 ```
 
-The engine uses its own `RELEASE_NODE` and the same cookie. The two server-only environment files are maintained independently; the web release must not receive engine-only secrets unless it genuinely needs them.
+The engine uses `RELEASE_NODE=topics_club_engine@localhost` and the same cookie. The gateway uses
+that engine node as its built-in target. The two server-only environment files are maintained
+independently; the web release must not receive engine-only secrets unless it genuinely needs them.
 
 Compile-time and runtime configuration must not make the combined release depend on split-mode variables.
 
@@ -1234,7 +1235,7 @@ no substitute lease or scheduler and still do not support a second engine host.
 
 #### Distribution and network configuration
 
-- [x] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and `TOPICS_CLUB_ENGINE_NODE` names.
+- [x] Finalize `RELEASE_NODE`, `RELEASE_COOKIE`, and the default engine-node target.
 - [x] Require stable short node names on the single host.
 - [x] Generate and store a high-entropy deployment-specific cookie outside the repository.
 - [x] Configure fixed distribution ports for firewalling: gateway 4370 and engine 4371.

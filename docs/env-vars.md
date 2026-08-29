@@ -63,9 +63,10 @@ production application values, Compose uses:
 | Variable | Purpose |
 | --- | --- |
 | `POSTGRES_PASSWORD` | Password for the bundled PostgreSQL container. |
-| `TOPICS_CLUB_POSTGRES_DATA` | Host directory containing PostgreSQL data. |
 | `TOPICS_CLUB_BIND_IP` | Host interface on which to expose the application. |
 | `TOPICS_CLUB_PORT` | Host port forwarded to the application container. |
+
+PostgreSQL data is stored in the Compose-managed `postgres_data` volume.
 
 ### Pyinfra split deployment
 
@@ -77,7 +78,8 @@ runtime additionally needs:
 | --- | --- | --- |
 | `RELEASE_NODE` | Gateway and engine | Stable internal name of each BEAM node. |
 | `RELEASE_COOKIE` | Gateway and engine | Shared secret for Erlang distribution. Use the same value in both files. |
-| `TOPICS_CLUB_ENGINE_NODE` | Gateway | Internal node name of the engine. |
+
+The gateway automatically connects to `topics_club_engine@localhost`.
 
 ## Advanced database tuning
 

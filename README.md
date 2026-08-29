@@ -63,7 +63,6 @@ At minimum, set:
 
 ```text
 GATEWAY_HOST=your-host.example.com
-TOPICS_CLUB_POSTGRES_DATA=/srv/topics_club/postgres
 POSTGRES_PASSWORD=use-a-long-random-password
 SECRET_KEY_BASE=the-value-from-mix-phx-gen-secret
 IRC_CREDENTIALS_KEY=the-value-from-32-random-bytes-encoded-with-base64
@@ -94,9 +93,8 @@ open. Delivery jobs are persisted in PostgreSQL through Oban and retried for
 temporary push-service failures. Subscription endpoints and browser keys are
 encrypted at rest using `IRC_CREDENTIALS_KEY`.
 
-`TOPICS_CLUB_POSTGRES_DATA` is a host directory that you choose. Compose bind-mounts
-it to `/var/lib/postgresql/data`, so that directory is where all database data is
-stored.
+Compose stores PostgreSQL data in its named `postgres_data` volume. Do not run
+`docker compose down --volumes` unless you intend to delete that database.
 
 Start the production stack:
 

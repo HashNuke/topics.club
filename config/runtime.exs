@@ -11,9 +11,9 @@ web_capable? = release_name != "topics_club_engine"
 
 split_release? = release_name in ["topics_club_gateway", "topics_club_engine"]
 
-parse_node_name = fn variable ->
+parse_node_name = fn variable, default ->
   value =
-    System.get_env(variable) ||
+    System.get_env(variable) || default ||
       raise "environment variable #{variable} is required for split releases"
 
   if byte_size(value) <= 255 and String.match?(value, ~r/\A[A-Za-z0-9_-]+@[^@\s]+\z/) do
@@ -24,7 +24,7 @@ parse_node_name = fn variable ->
 end
 
 if config_env() == :prod and split_release? do
-  _release_node = parse_node_name.("RELEASE_NODE")
+  _release_node = parse_node_name.("RELEASE_NODE", nil)
 
   release_cookie =
     System.get_env("RELEASE_COOKIE") ||
@@ -35,7 +35,9 @@ if config_env() == :prod and split_release? do
   end
 
   if release_name == "topics_club_gateway" do
-    config :topics_club_gateway, :engine_node, parse_node_name.("TOPICS_CLUB_ENGINE_NODE")
+    config :topics_club_gateway,
+           :engine_node,
+           parse_node_name.("TOPICS_CLUB_ENGINE_NODE", "topics_club_engine@localhost")
   end
 end
 

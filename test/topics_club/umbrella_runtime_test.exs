@@ -115,7 +115,7 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
              TopicsClubWeb.Endpoint
   end
 
-  test "split gateway runtime requires and configures explicit cluster credentials" do
+  test "split gateway runtime defaults the engine node and configures cluster credentials" do
     credentials_key = Base.encode64(:binary.copy(<<0>>, 32))
 
     with_system_env(
@@ -127,14 +127,13 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         "RELEASE_NAME" => "topics_club_gateway",
         "RELEASE_NODE" => "topics_club_gateway@web.internal",
         "SECRET_KEY_BASE" => String.duplicate("b", 64),
-        "TOPICS_CLUB_ENGINE_NODE" => "topics_club_engine@engine.internal"
+        "TOPICS_CLUB_ENGINE_NODE" => nil
       },
       fn ->
         config_path = Path.expand("../../config/runtime.exs", __DIR__)
         config = Config.Reader.read!(config_path, env: :prod)
 
-        assert config[:topics_club_gateway][:engine_node] ==
-                 :"topics_club_engine@engine.internal"
+        assert config[:topics_club_gateway][:engine_node] == :topics_club_engine@localhost
 
         assert config[:topics_club_core][:engine_client_adapter] ==
                  TopicsClub.EngineClient.RpcAdapter
@@ -202,13 +201,12 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
   test "split releases use short local names without reusing runtime distribution ports" do
     env_script = Path.expand("../../rel/env.sh.eex", __DIR__)
 
-    for {release_name, release_node, engine_node, port} <- [
-          {"topics_club_gateway", "topics_club_gateway@web.internal",
-           "topics_club_engine@engine.internal", "4370"},
-          {"topics_club_engine", "topics_club_engine@engine.internal", nil, "4371"}
+    for {release_name, release_node, port} <- [
+          {"topics_club_gateway", "topics_club_gateway@web.internal", "4370"},
+          {"topics_club_engine", "topics_club_engine@engine.internal", "4371"}
         ] do
       for command <- ~w(start start_iex daemon daemon_iex) do
-        output = release_env(env_script, release_name, release_node, engine_node, command)
+        output = release_env(env_script, release_name, release_node, command)
         assert output =~ "sname|"
         assert output =~ "inet_dist_use_interface {127,0,0,1}"
         refute output =~ "'{127,0,0,1}'"
@@ -216,13 +214,13 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
       end
 
       for command <- ~w(pid remote restart rpc stop) do
-        output = release_env(env_script, release_name, release_node, engine_node, command)
+        output = release_env(env_script, release_name, release_node, command)
         assert output =~ "sname|"
         refute output =~ "inet_dist_listen"
       end
 
       for command <- ~w(eval version) do
-        output = release_env(env_script, release_name, release_node, engine_node, command)
+        output = release_env(env_script, release_name, release_node, command)
         assert output =~ "none|"
         refute output =~ "inet_dist_listen"
       end
@@ -248,14 +246,13 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
     }
   end
 
-  defp release_env(script, release_name, release_node, engine_node, command) do
+  defp release_env(script, release_name, release_node, command) do
     env = [
       {"ELIXIR_ERL_OPTIONS", ""},
       {"RELEASE_COMMAND", command},
       {"RELEASE_COOKIE", String.duplicate("a", 32)},
       {"RELEASE_NAME", release_name},
-      {"RELEASE_NODE", release_node},
-      {"TOPICS_CLUB_ENGINE_NODE", engine_node || "unused@engine.internal"}
+      {"RELEASE_NODE", release_node}
     ]
 
     assert {output, 0} =

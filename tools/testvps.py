@@ -111,7 +111,6 @@ def write_test_environment(state: dict[str, str]) -> None:
             "POOL_SIZE=5",
             "RELEASE_NODE=topics_club_gateway@localhost",
             f"RELEASE_COOKIE={state['release_cookie']}",
-            "TOPICS_CLUB_ENGINE_NODE=topics_club_engine@localhost",
             "",
         ]
     )

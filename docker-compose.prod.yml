@@ -34,10 +34,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: topics_club_prod
     volumes:
-      - ${TOPICS_CLUB_POSTGRES_DATA:?Set TOPICS_CLUB_POSTGRES_DATA to a host directory for database data}:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d topics_club_prod"]
       interval: 5s
       timeout: 5s
       retries: 10
     restart: unless-stopped
+
+volumes:
+  postgres_data:

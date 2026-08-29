@@ -48,15 +48,14 @@ cd /srv/topics_club/source
 cp env.example .env
 ```
 
-Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`, and choose a persistent absolute host path. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported:
+Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported:
 
 ```text
-TOPICS_CLUB_POSTGRES_DATA=/srv/topics_club/postgres
 TOPICS_CLUB_BIND_IP=127.0.0.1
 TOPICS_CLUB_PORT=4000
 ```
 
-Create that directory with ownership appropriate for the PostgreSQL container, validate the resolved configuration, and start the stack:
+PostgreSQL data is stored in the Compose-managed `postgres_data` volume. Validate the resolved configuration and start the stack:
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml config --quiet
@@ -97,8 +96,9 @@ editor /etc/topics-club/engine.env
 ```
 
 Both files need the same `DATABASE_URL`, `IRC_CREDENTIALS_KEY`, and `RELEASE_COOKIE`. Use stable
-node names `topics_club_gateway@localhost` and `topics_club_engine@localhost`; gateway also needs
-`TOPICS_CLUB_ENGINE_NODE=topics_club_engine@localhost`, `SECRET_KEY_BASE`, `GATEWAY_HOST`, and `PORT`.
+`RELEASE_NODE` names `topics_club_gateway@localhost` and `topics_club_engine@localhost`. Gateway
+also needs `SECRET_KEY_BASE`, `GATEWAY_HOST`, and `PORT`; it defaults the engine target to
+`topics_club_engine@localhost`.
 Only the gateway starts Phoenix. Add engine-only hosted-IRC listener secrets to `engine.env` when
 that feature exists. Pyinfra checks the files' existence, ownership, and mode without reading,
 printing, templating, replacing, or transferring their contents.
@@ -227,7 +227,7 @@ fails partway through.
 Backup automation and restore rehearsal are deferred and are not part of the current deployment
 work. The following manual procedure is retained as operator guidance for when backups are enabled.
 
-Create logical backups outside `TOPICS_CLUB_POSTGRES_DATA`; copying the live data directory is not a safe backup procedure:
+Create logical backups outside the Docker volume; copying the live PostgreSQL data directory is not a safe backup procedure:
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
