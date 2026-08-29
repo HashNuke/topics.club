@@ -11,7 +11,7 @@ Every production deployment requires:
   `DATABASE_NAME`.
 - `SECRET_KEY_BASE`: generate with `mix phx.gen.secret`.
 - `IRC_CREDENTIALS_KEY`: generate with `mix topics_club.gen_credentials_key` and retain for the lifetime of the encrypted data.
-- `PHX_HOST`: public HTTPS hostname.
+- `GATEWAY_HOST`: public HTTPS hostname.
 
 `PORT` defaults to `4000`; Railway supplies it automatically. `POOL_SIZE` defaults to `10`.
 `DB_QUEUE_TARGET` and `DB_QUEUE_INTERVAL` both default to `5000` milliseconds, allowing short
@@ -96,7 +96,7 @@ editor /etc/topics-club/engine.env
 
 Both files need the same `DATABASE_URL`, `IRC_CREDENTIALS_KEY`, and `RELEASE_COOKIE`. Use stable
 node names `topics_club_gateway@localhost` and `topics_club_engine@localhost`; gateway also needs
-`TOPICS_CLUB_ENGINE_NODE=topics_club_engine@localhost`, `SECRET_KEY_BASE`, `PHX_HOST`, and `PORT`.
+`TOPICS_CLUB_ENGINE_NODE=topics_club_engine@localhost`, `SECRET_KEY_BASE`, `GATEWAY_HOST`, and `PORT`.
 Only the gateway starts Phoenix. Add engine-only hosted-IRC listener secrets to `engine.env` when
 that feature exists. Pyinfra checks the files' existence, ownership, and mode without reading,
 printing, templating, replacing, or transferring their contents.

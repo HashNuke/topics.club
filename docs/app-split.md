@@ -297,7 +297,7 @@ Test-only application keys are not release configuration. They are narrow synchr
 | --- | --- |
 | `DATABASE_URL`, discrete `DATABASE_*` connection settings, `ECTO_IPV6`, `POOL_SIZE`, `DB_QUEUE_TARGET`, `DB_QUEUE_INTERVAL` | Combined, web, and engine |
 | `IRC_CREDENTIALS_KEY` | Combined and engine; web must stop loading encrypted IRC credentials before the key is removed from the web release |
-| `SECRET_KEY_BASE`, `PHX_HOST`, `PORT`, `PHX_SERVER` | Combined and web |
+| `SECRET_KEY_BASE`, `GATEWAY_HOST`, `PORT`, `PHX_SERVER` | Combined and web |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Combined and web |
 | `SMTP_*`, `EMAIL_FROM_*` | Combined and web |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Combined and web |

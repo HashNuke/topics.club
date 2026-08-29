@@ -63,7 +63,7 @@ mix phx.gen.secret
 At minimum, set:
 
 ```text
-PHX_HOST=your-host.example.com
+GATEWAY_HOST=your-host.example.com
 TOPICS_CLUB_POSTGRES_DATA=/srv/topics_club/postgres
 POSTGRES_PASSWORD=use-a-long-random-password
 SECRET_KEY_BASE=the-value-from-mix-phx-gen-secret

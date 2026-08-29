@@ -88,7 +88,7 @@ services:
       IRC_CREDENTIALS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       SECRET_KEY_BASE: load-test-secret-key-base-load-test-secret-key-base-load-test-secret-key-base
       PHX_SERVER: "true"
-      PHX_HOST: localhost
+      GATEWAY_HOST: localhost
       PORT: 4000
       POOL_SIZE: ${LOAD_POOL_SIZE:-10}
       DB_QUEUE_TARGET: ${LOAD_DB_QUEUE_TARGET:-5000}

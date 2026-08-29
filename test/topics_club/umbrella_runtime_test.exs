@@ -122,7 +122,7 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
       %{
         "DATABASE_URL" => "ecto://postgres:postgres@localhost/topics_club_prod",
         "IRC_CREDENTIALS_KEY" => credentials_key,
-        "PHX_HOST" => "topics.club",
+        "GATEWAY_HOST" => "topics.club",
         "RELEASE_COOKIE" => String.duplicate("a", 32),
         "RELEASE_NAME" => "topics_club_gateway",
         "RELEASE_NODE" => "topics_club_gateway@web.internal",

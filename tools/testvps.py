@@ -106,7 +106,7 @@ def write_test_environment(state: dict[str, str]) -> None:
             f"DATABASE_URL={state['database_url']}",
             f"IRC_CREDENTIALS_KEY={state['credentials_key']}",
             f"SECRET_KEY_BASE={state['secret_key_base']}",
-            "PHX_HOST=localhost",
+            "GATEWAY_HOST=localhost",
             "PORT=4000",
             "POOL_SIZE=5",
             "RELEASE_NODE=topics_club_gateway@localhost",
