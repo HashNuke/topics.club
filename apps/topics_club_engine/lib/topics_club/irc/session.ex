@@ -84,6 +84,15 @@ defmodule TopicsClub.Irc.Session do
 
   def handle_info({:ircxd, event}, state), do: {:noreply, EventDispatcher.dispatch(state, event)}
 
+  def handle_info(:halt_for_connection_issue, state),
+    do: {:stop, :normal, %{state | preserve_error_status?: true}}
+
+  def handle_info({:retry_connect, attempt}, state),
+    do: ConnectionEvents.retry_connect(state, attempt)
+
+  def handle_info({:DOWN, monitor_ref, :process, pid, reason}, state),
+    do: ConnectionEvents.client_exited(state, monitor_ref, pid, reason)
+
   def handle_info({:flush_pending_joins, token}, state), do: JoinFlush.handle(state, token)
 
   def handle_info({:channel_list_timeout, ref}, state),

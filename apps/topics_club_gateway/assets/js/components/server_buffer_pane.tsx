@@ -6,7 +6,9 @@ import {
   visibleTimelineMessages,
 } from "./chat_pane.tsx"
 import ChatComposer from "./chat_composer.tsx"
+import ConnectionIssueCard from "./connection_issue_card.tsx"
 import MessageTimeline from "./message_timeline.tsx"
+import {fallbackConnectionIssue, latestConnectionIssue, type ConnectionEditFocus} from "../connection_issue.ts"
 import type {CommandCatalogEntry, ConnectionHealth, ServerConnection, TimelineMessage} from "../types.ts"
 
 export interface ServerBufferPaneProps {
@@ -15,6 +17,7 @@ export interface ServerBufferPaneProps {
   connectionHealth: ConnectionHealth
   draft: string
   messages: TimelineMessage[]
+  onEditServer?: (server: ServerConnection, focus: ConnectionEditFocus) => void
   onLoadOlderMessages?: (bufferId?: string) => void
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
   onReconnectServer?: (server: ServerConnection) => void
@@ -23,7 +26,7 @@ export interface ServerBufferPaneProps {
   onUpdateDraft: (value: string) => void
 }
 
-export function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}: ServerBufferPaneProps) {
+export function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onEditServer, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}: ServerBufferPaneProps) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(server?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(server?.id, nextReadingOlder),
@@ -31,6 +34,7 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
 
   if (!server) return null
+  const issue = server.status === "errored" ? latestConnectionIssue(messages) || fallbackConnectionIssue() : null
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[var(--app-canvas)]">
@@ -43,7 +47,11 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
               Notices, connection logs, service replies, and server-level commands live here.
             </p>
           </div>
-          <ServerStatusBanner server={server} onReconnectServer={onReconnectServer} />
+          {issue && onEditServer && onReconnectServer ? (
+            <ConnectionIssueCard issue={issue} onEditServer={onEditServer} onReconnectServer={onReconnectServer} server={server} />
+          ) : (
+            <ServerStatusBanner server={server} onReconnectServer={onReconnectServer} />
+          )}
           <MessageTimeline messages={visibleMessages} />
         </div>
       </div>
@@ -55,6 +63,7 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
         inputId="server-command-input"
         draft={draft}
         disabled={server.status !== "connected" || connectionHealth !== "connected"}
+        readOnly={server.status !== "connected"}
         statusLabel={composerStatusLabel(server.status, connectionHealth)}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
@@ -65,9 +74,9 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
 }
 
 export function ServerStatusBanner({onReconnectServer, server}: {onReconnectServer?: (server: ServerConnection) => void; server?: ServerConnection}) {
-  if (!server || server.status === "connected") return null
+  if (!server || server.status === "connected" || server.status === "errored") return null
 
-  const label = server.status === "errored" ? "Server error" : `Server ${server.status || "offline"}`
+  const label = `Server ${server.status || "offline"}`
   const canReconnect = server.status !== "connecting"
 
   return (

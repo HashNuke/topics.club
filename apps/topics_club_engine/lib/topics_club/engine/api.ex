@@ -8,6 +8,7 @@ defmodule TopicsClub.Engine.API do
   alias TopicsClub.Accounts.User
 
   alias TopicsClub.Chat.ChannelMembership
+  alias TopicsClub.Chat.ConnectionLifecycle
   alias TopicsClub.Chat.ConnectionDeletion
   alias TopicsClub.Chat.DirectMessageThread
   alias TopicsClub.Chat.ServerConnection
@@ -110,9 +111,11 @@ defmodule TopicsClub.Engine.API do
 
   defp execute(:disconnect_connection, request, _user, connection) do
     reason = Map.get(request.payload, :reason, "leaving")
+    session_running? = is_pid(SessionLocator.whereis(connection))
 
     with {:ok, connection} <- update_desired_state(connection, "paused"),
-         :ok <- safe_session_call(fn -> SessionSupervisor.stop_session(connection, reason) end) do
+         :ok <- safe_session_call(fn -> SessionSupervisor.stop_session(connection, reason) end),
+         {:ok, connection} <- maybe_mark_disconnected(connection, session_running?) do
       {:ok,
        %{
          connection: Serialization.connection(connection),
@@ -308,8 +311,15 @@ defmodule TopicsClub.Engine.API do
     ConnectionLock.run(connection, fn ->
       case Repo.get_by(ServerConnection, id: connection.id, user_id: connection.user_id) do
         %ServerConnection{deleting: false} = active_connection ->
+          changes =
+            if desired_state == "connected" and active_connection.status == "errored" do
+              %{desired_state: desired_state, status: "connecting"}
+            else
+              %{desired_state: desired_state}
+            end
+
           active_connection
-          |> Ecto.Changeset.change(desired_state: desired_state)
+          |> Ecto.Changeset.change(changes)
           |> Repo.update()
 
         %ServerConnection{deleting: true} ->
@@ -319,6 +329,12 @@ defmodule TopicsClub.Engine.API do
           {:error, :unauthorized}
       end
     end)
+  end
+
+  defp maybe_mark_disconnected(connection, true), do: {:ok, connection}
+
+  defp maybe_mark_disconnected(connection, false) do
+    ConnectionLifecycle.update_status(connection, "disconnected")
   end
 
   defp send_channel_message(connection, channel, body, "message"),

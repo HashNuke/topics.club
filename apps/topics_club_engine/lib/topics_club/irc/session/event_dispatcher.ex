@@ -3,6 +3,7 @@ defmodule TopicsClub.Irc.Session.EventDispatcher do
 
   alias TopicsClub.Irc.Session.ChannelListEvents
   alias TopicsClub.Irc.Session.ConnectionEvents
+  alias TopicsClub.Irc.Session.ConnectionIssue
   alias TopicsClub.Irc.Session.EventPipeline
   alias TopicsClub.Irc.Session.InboundMessageRouting
   alias TopicsClub.Irc.Session.JoinFailureEvents
@@ -26,7 +27,7 @@ defmodule TopicsClub.Irc.Session.EventDispatcher do
 
   def dispatch(state, :disconnected), do: ConnectionEvents.disconnected(state)
 
-  def dispatch(state, {:reconnecting, _payload}), do: ConnectionEvents.reconnecting(state)
+  def dispatch(state, {:reconnecting, payload}), do: ConnectionEvents.reconnecting(state, payload)
 
   def dispatch(state, {:privmsg, %{target: _target, nick: _nick, body: _body} = payload}),
     do: InboundMessageRouting.privmsg(state, payload)
@@ -82,13 +83,30 @@ defmodule TopicsClub.Irc.Session.EventDispatcher do
   def dispatch(state, {:topic, %{channel: _channel, nick: _nick, topic: _topic} = payload}),
     do: MembershipEvents.handle(:topic, state, payload)
 
-  def dispatch(state, {:irc_error, payload}), do: JoinFailureEvents.irc_error(state, payload)
+  def dispatch(state, {:irc_error, payload}) do
+    case ConnectionIssue.from_irc_error(payload, state.connection) do
+      nil -> JoinFailureEvents.irc_error(state, payload)
+      _issue when state.registered? -> JoinFailureEvents.irc_error(state, payload)
+      issue -> ConnectionEvents.require_human(state, issue)
+    end
+  end
 
   def dispatch(state, {:standard_reply, %{type: :fail, command: "JOIN"} = payload}),
     do: JoinFailureEvents.standard_reply(state, payload)
 
-  def dispatch(state, {:nick_in_use, payload}),
-    do: ServerEvents.handle(:nick_in_use, state, payload)
+  def dispatch(state, {:nick_in_use, payload}) do
+    if state.registered? do
+      ServerEvents.handle(:nick_in_use, state, payload)
+    else
+      issue = ConnectionIssue.nickname_in_use(payload, state.connection)
+      ConnectionEvents.require_human(state, issue)
+    end
+  end
+
+  def dispatch(state, {:sasl_failure, payload}) do
+    issue = ConnectionIssue.sasl_failure(payload, state.connection)
+    ConnectionEvents.require_human(state, issue)
+  end
 
   def dispatch(state, {event_name, _payload} = event)
       when event_name in [:list_start, :list_entry, :list_end] do

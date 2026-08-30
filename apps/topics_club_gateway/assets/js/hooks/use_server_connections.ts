@@ -80,6 +80,9 @@ export interface EditServerForm {
   port: string | number
   useTls: boolean
   nickname: string
+  saslUsername?: string
+  saslPassword?: string
+  serverPassword?: string
 }
 
 interface ServerConnectionsOptions {
@@ -426,16 +429,24 @@ export default function useServerConnections({
     }
   }
 
-  async function reconnectServer(server?: ServerConnection | null): Promise<void> {
-    if (!server?.server_connection_id || !realtimeClientRef.current) return
+  async function reconnectServer(server?: ServerConnection | null): Promise<boolean> {
+    if (!server?.server_connection_id || !realtimeClientRef.current) return false
 
     try {
+      if (server.status === "errored") {
+        const disconnected = await realtimeClientRef.current.push<ServerStatusPayload>("server:disconnect", {
+          server_connection_id: server.server_connection_id,
+        })
+        applyServerStatus(disconnected)
+      }
+
       const status = await realtimeClientRef.current.push<ServerStatusPayload>("server:reconnect", {
         server_connection_id: server.server_connection_id,
       })
       applyServerStatus(status)
+      return true
     } catch (_error) {
-      // Keep the current server status if reconnect fails.
+      return false
     }
   }
 
@@ -467,24 +478,32 @@ export default function useServerConnections({
     }
   }
 
-  async function updateServerConnection(server: ServerConnection | null | undefined, form: EditServerForm): Promise<void> {
-    if (!server?.server_connection_id) return
+  async function updateServerConnection(server: ServerConnection | null | undefined, form: EditServerForm, reconnect = false): Promise<boolean> {
+    if (!server?.server_connection_id) return false
 
     const host = form.host.trim()
     const nickname = form.nickname.trim()
-    if (!host || !nickname) return
+    if (!host || !nickname) return false
 
     try {
+      const credentials = {
+        ...(form.saslUsername?.trim() ? {sasl_username: form.saslUsername.trim()} : {}),
+        ...(form.saslPassword ? {sasl_password: form.saslPassword} : {}),
+        ...(form.serverPassword ? {server_password: form.serverPassword} : {}),
+      }
       const {connection} = await apiClient.updateConnection(server.server_connection_id, {
         name: server.name || host,
         host,
         port: Number(form.port) || 6669,
         use_tls: form.useTls,
         nickname,
+        ...credentials,
       })
       if (connection?.id) setConnections((current) => updateConnectionDetails(current, connection))
+      if (reconnect && !(await reconnectServer(server))) return false
+      return true
     } catch (_error) {
-      // Leave the current connection details visible if the backend rejects the edit.
+      return false
     }
   }
 

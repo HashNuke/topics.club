@@ -148,6 +148,10 @@ export const Error = {
 export const Disconnected = {
   args: {
     disabled: true,
+    draft: "This draft stays here while the connection is unavailable.",
+    onStatusAction: () => {},
+    readOnly: true,
+    statusActionLabel: "View issue",
     statusLabel: "Disconnected. Messages will resume after reconnect.",
   },
 }

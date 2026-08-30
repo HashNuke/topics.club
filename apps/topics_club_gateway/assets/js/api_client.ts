@@ -22,6 +22,7 @@ export interface ConnectionForm {
   port: number
   use_tls: boolean
   nickname: string
+  sasl_username?: string
   sasl_password?: string
   server_password?: string
 }

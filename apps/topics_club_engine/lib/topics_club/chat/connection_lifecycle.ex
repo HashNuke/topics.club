@@ -35,6 +35,21 @@ defmodule TopicsClub.Chat.ConnectionLifecycle do
     end)
   end
 
+  def require_attention(%ServerConnection{} = connection) do
+    assert_no_outer_transaction!()
+
+    Repo.transaction(fn ->
+      connection.id
+      |> ServerConnectionLock.lock_active!()
+      |> Ecto.Changeset.change(status: "errored", desired_state: "paused")
+      |> update_or_rollback()
+    end)
+    |> tap(fn
+      {:ok, updated} -> broadcast_status(updated, updated.status)
+      _other -> :ok
+    end)
+  end
+
   def update_nickname(%ServerConnection{} = connection, nickname, status \\ nil) do
     assert_no_outer_transaction!()
 

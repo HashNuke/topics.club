@@ -13,7 +13,7 @@ defmodule TopicsClub.Irc.SessionLocator do
   def status(%ServerConnection{} = connection) do
     case whereis(connection) do
       nil ->
-        "disconnected"
+        stopped_status(connection)
 
       _pid ->
         case GenServer.call(via(connection), :connection_info) do
@@ -22,6 +22,9 @@ defmodule TopicsClub.Irc.SessionLocator do
         end
     end
   catch
-    :exit, _reason -> "disconnected"
+    :exit, _reason -> stopped_status(connection)
   end
+
+  defp stopped_status(%ServerConnection{status: "errored"}), do: "errored"
+  defp stopped_status(%ServerConnection{}), do: "disconnected"
 end

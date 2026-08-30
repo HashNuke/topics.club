@@ -17,7 +17,20 @@ export const EditServer = {
   render: () => (
     <EditServerDialog
       onClose={() => {}}
-      onSave={() => {}}
+      onSave={() => true}
+      server={{id: "server:1", server_connection_id: 1, host: "irc.example.net", nickname: "mira", port: 6697, use_tls: true, mention_notifications_enabled: true, notification_preference_revision: 0, channels: []}}
+    />
+  ),
+}
+
+export const EditCredentialsOnMobile = {
+  parameters: {viewport: {defaultViewport: "mobile1"}},
+  render: () => (
+    <EditServerDialog
+      focus="credentials"
+      onClose={() => {}}
+      onSave={() => true}
+      reconnectOnSave
       server={{id: "server:1", server_connection_id: 1, host: "irc.example.net", nickname: "mira", port: 6697, use_tls: true, mention_notifications_enabled: true, notification_preference_revision: 0, channels: []}}
     />
   ),

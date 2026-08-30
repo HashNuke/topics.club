@@ -34,7 +34,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function ComposerHarness({commandCatalog = defaultCommandCatalog, disabled = false, onSubmit = vi.fn(), initialDraft = ""}: {commandCatalog?: CommandCatalogEntry[]; disabled?: boolean; onSubmit?: () => void; initialDraft?: string}) {
+function ComposerHarness({commandCatalog = defaultCommandCatalog, disabled = false, onStatusAction, onSubmit = vi.fn(), initialDraft = "", readOnly = false}: {commandCatalog?: CommandCatalogEntry[]; disabled?: boolean; onStatusAction?: () => void; onSubmit?: () => void; initialDraft?: string; readOnly?: boolean}) {
   const [draft, setDraft] = useState(initialDraft)
 
   return (
@@ -44,11 +44,15 @@ function ComposerHarness({commandCatalog = defaultCommandCatalog, disabled = fal
       disabled={disabled}
       draft={draft}
       inputId="composer-test"
+      onStatusAction={onStatusAction}
       onSendMessage={(event) => {
         event.preventDefault()
         onSubmit()
       }}
       onUpdateDraft={setDraft}
+      readOnly={readOnly}
+      statusActionLabel={onStatusAction ? "View issue" : undefined}
+      statusLabel={onStatusAction ? "Connection needs attention." : undefined}
     />
   )
 }
@@ -132,6 +136,20 @@ describe("ChatComposer", () => {
 
     expect(onSubmit).not.toHaveBeenCalled()
     expect(screen.getByLabelText("Message composer")).toHaveValue("hello")
+  })
+
+  test("preserves the draft and opens the issue while the IRC connection is unavailable", async () => {
+    const user = userEvent.setup()
+    const onStatusAction = vi.fn()
+    render(<ComposerHarness disabled initialDraft="keep this draft" onStatusAction={onStatusAction} readOnly />)
+    const composer = screen.getByLabelText("Message composer")
+
+    await user.type(composer, " ignored")
+    await user.click(screen.getByRole("button", {name: "View issue"}))
+
+    expect(composer).toHaveValue("keep this draft")
+    expect(composer).toHaveAttribute("readonly")
+    expect(onStatusAction).toHaveBeenCalledOnce()
   })
 
   test("selects slash suggestions with arrow keys and Enter", async () => {

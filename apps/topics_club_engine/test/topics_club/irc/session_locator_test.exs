@@ -23,6 +23,13 @@ defmodule TopicsClub.Irc.SessionLocatorTest do
     assert SessionLocator.status(connection) == "disconnected"
   end
 
+  test "preserves a persisted needs-attention status when no session is running" do
+    connection = %{unique_connection() | status: "errored"}
+
+    assert SessionLocator.whereis(connection) == nil
+    assert SessionLocator.status(connection) == "errored"
+  end
+
   test "reports disconnected when a registered session exits during status lookup" do
     connection = unique_connection()
     _session = start_session_stub(connection, :exit_on_connection_info)

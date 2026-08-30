@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from "react"
 import ChatComposer from "./chat_composer.tsx"
 import MessageTimeline from "./message_timeline.tsx"
-import type {Channel, CommandCatalogEntry, ConnectionHealth, EntityId, TimelineMessage} from "../types.ts"
+import type {Channel, CommandCatalogEntry, ConnectionHealth, EntityId, ServerConnection, TimelineMessage} from "../types.ts"
 
 export const MESSAGE_RENDER_LIMIT = 400
 
@@ -18,10 +18,11 @@ export interface ChatPaneProps {
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
   onRetryMessage?: (message: TimelineMessage) => void
   onSendMessage: React.FormEventHandler<HTMLFormElement>
+  onSelectServer?: (server: ServerConnection) => void
   onUpdateDraft: (value: string) => void
 }
 
-export function ChatPane({activeChannel, commandCatalog, composerError, connectionHealth, draft, messages, messagesLoading = false, onLoadOlderMessages, onMentionNick, onReadingStateChange, onRetryMessage, onSendMessage, onUpdateDraft}: ChatPaneProps) {
+export function ChatPane({activeChannel, commandCatalog, composerError, connectionHealth, draft, messages, messagesLoading = false, onLoadOlderMessages, onMentionNick, onReadingStateChange, onRetryMessage, onSelectServer, onSendMessage, onUpdateDraft}: ChatPaneProps) {
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
     onNearTop: () => onLoadOlderMessages?.(activeChannel?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(activeChannel?.id, nextReadingOlder),
@@ -32,6 +33,7 @@ export function ChatPane({activeChannel, commandCatalog, composerError, connecti
     activeChannel?.buffer_type === "direct_message" ? Number.POSITIVE_INFINITY : undefined
   )
   const sendDisabled = isRealtimeChannel(activeChannel) && !realtimeReadyFor(activeChannel, connectionHealth)
+  const ircUnavailable = Boolean(isRealtimeChannel(activeChannel) && activeChannel?.connection?.status !== "connected")
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[var(--app-canvas)]">
@@ -48,7 +50,10 @@ export function ChatPane({activeChannel, commandCatalog, composerError, connecti
         inputId="chat-message-input"
         draft={draft}
         disabled={sendDisabled}
+        onStatusAction={activeChannel?.connection && activeChannel.connection.status !== "connected" ? () => onSelectServer?.(activeChannel.connection!) : undefined}
+        readOnly={ircUnavailable}
         statusLabel={composerStatusLabel(activeChannel?.connection?.status, connectionHealth)}
+        statusActionLabel={activeChannel?.connection && activeChannel.connection.status !== "connected" ? "View issue" : undefined}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
         placeholder={activeChannel ? "Write a message" : "Choose a topic first"}

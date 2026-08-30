@@ -1,8 +1,8 @@
 import React, {useState} from "react"
 import AppMark from "./app_mark.tsx"
-import {EditServerDialog, LeaveServerDialog, ManualJoinDialog} from "./server_dialogs.tsx"
+import {LeaveServerDialog, ManualJoinDialog} from "./server_dialogs.tsx"
 import SidebarConnection from "./sidebar_connection.tsx"
-import type {EditServerForm, ManualServerForm} from "../hooks/use_server_connections.ts"
+import type {ManualServerForm} from "../hooks/use_server_connections.ts"
 import type {AppView, Channel, CurrentUser, ServerConnection} from "../types.ts"
 import type {NotificationDeviceState} from "../browser_notifications.ts"
 
@@ -18,6 +18,7 @@ export interface LeftSidebarProps {
   onCloseMobile?: () => void
   onDiscover: () => void
   onDisconnectServer: (server: ServerConnection) => void
+  onEditServer: (server: ServerConnection) => void
   onCloseDirectMessage: (channel: Channel) => void
   onJoinManualServer: (form: ManualServerForm) => void
   onLeaveChannel: (channel: Channel) => void
@@ -29,13 +30,11 @@ export interface LeftSidebarProps {
   onSelectServer: (server: ServerConnection) => void
   onToggleServerNotifications: (server: ServerConnection) => void
   onShowChat: () => void
-  onUpdateServer: (server: ServerConnection, form: EditServerForm) => void
 }
 
 export default function LeftSidebar(props: LeftSidebarProps) {
-  const {activeChannel, activeServer, connections, currentUser, mobile = false, notificationDeviceState, notificationSavingIds, view, onCloseDirectMessage, onCloseMobile, onDiscover, onDisconnectServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onToggleServerNotifications, onUpdateServer} = props
+  const {activeChannel, activeServer, connections, currentUser, mobile = false, notificationDeviceState, notificationSavingIds, view, onCloseDirectMessage, onCloseMobile, onDiscover, onDisconnectServer, onEditServer, onJoinManualServer, onLeaveChannel, onLeaveServer, onMarkChannelRead, onOpenChannelDirectory, onReconnectServer, onSelectChannel, onSelectServer, onShowChat, onToggleServerNotifications} = props
   const [manualOpen, setManualOpen] = useState(false)
-  const [editingServer, setEditingServer] = useState<ServerConnection | null>(null)
   const [leavingServer, setLeavingServer] = useState<ServerConnection | null>(null)
   const idNamespace = mobile ? "mobile-sidebar" : "desktop-sidebar"
 
@@ -75,7 +74,7 @@ export default function LeftSidebar(props: LeftSidebarProps) {
             notificationSavingIds={notificationSavingIds}
             onCloseDirectMessage={onCloseDirectMessage}
             onDisconnectServer={onDisconnectServer}
-            onEditServer={setEditingServer}
+            onEditServer={onEditServer}
             onLeaveChannel={onLeaveChannel}
             onLeaveServer={setLeavingServer}
             onMarkChannelRead={onMarkChannelRead}
@@ -98,7 +97,6 @@ export default function LeftSidebar(props: LeftSidebarProps) {
         </div>
       </div>
       {manualOpen && <ManualJoinDialog onClose={() => setManualOpen(false)} onJoin={(form) => { onJoinManualServer(form); setManualOpen(false) }} />}
-      {editingServer && <EditServerDialog server={editingServer} onClose={() => setEditingServer(null)} onSave={(form) => { onUpdateServer?.(editingServer, form); setEditingServer(null) }} />}
       {leavingServer && <LeaveServerDialog server={leavingServer} onClose={() => setLeavingServer(null)} onConfirm={() => { onLeaveServer?.(leavingServer); setLeavingServer(null) }} />}
     </aside>
   )

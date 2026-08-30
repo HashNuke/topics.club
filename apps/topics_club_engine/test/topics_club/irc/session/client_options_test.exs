@@ -20,7 +20,7 @@ defmodule TopicsClub.Irc.Session.ClientOptionsTest do
     assert opts[:nick] == "mira"
     assert opts[:username] == "mira"
     assert opts[:realname] == "mira"
-    assert opts[:reconnect] == [max_attempts: :infinity, delay: 5_000]
+    assert opts[:reconnect] == false
     assert opts[:events] == :envelope
     assert opts[:notify] == self()
 

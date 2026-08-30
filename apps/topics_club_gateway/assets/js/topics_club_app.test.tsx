@@ -264,6 +264,7 @@ function mockBootstrapFetch({
   messageCursorsByBuffer = null,
   push = {configured: false, vapid_public_key: null},
   pushSubscriptionOk = true,
+  serverMessages = [],
   serverNotificationsEnabled = true,
   channelNotificationsEnabled = true,
   notificationPreferenceRevision = 0,
@@ -507,11 +508,11 @@ function mockBootstrapFetch({
           ],
           active_buffer_id: "channel:7",
           messages_by_buffer: {
-            "server:42": [],
+            "server:42": serverMessages.map(canonicalMessage),
             "channel:7": channelMessages,
           },
           message_cursors_by_buffer: messageCursorsByBuffer || {
-            "server:42": null,
+            "server:42": serverMessages[serverMessages.length - 1]?.id || null,
             "channel:7": latestChannelMessage?.id || null,
           },
           users_by_buffer: {"channel:7": []},
@@ -2810,7 +2811,7 @@ describe("TopicsClubApp UI prototype", () => {
 
   test("keeps channel drafts unsent while the IRC server is still connecting", async () => {
     const user = userEvent.setup()
-    mockBootstrapFetch({connectionStatus: "connecting"})
+    mockBootstrapFetch({connectionStatus: "connected"})
     const push = vi.fn()
     const client = fakeRealtimeClient(push)
     let realtimeHandlers
@@ -2831,10 +2832,14 @@ describe("TopicsClubApp UI prototype", () => {
 
     const composer = screen.getByLabelText("Message composer")
     await user.type(composer, "wait for irc")
+    act(() => realtimeHandlers.onServerStatus(canonicalServerStatus("connecting")))
+    await user.type(composer, " ignored")
 
     expect(screen.getByRole("button", {name: "Send"})).toBeDisabled()
     expect(push).not.toHaveBeenCalled()
     expect(composer).toHaveValue("wait for irc")
+    expect(composer).toHaveAttribute("readonly")
+    expect(screen.getByRole("button", {name: "View issue"})).toBeInTheDocument()
     expect(screen.getByText("Reconnecting...")).toBeInTheDocument()
   })
 
@@ -4250,6 +4255,65 @@ describe("TopicsClubApp UI prototype", () => {
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
     expect(within(nav).getByText("edited")).toBeInTheDocument()
     expect(screen.getAllByText("on irc.edited.test").length).toBeGreaterThan(0)
+  })
+
+  test("takes an unavailable channel to its server remedy and restarts after saving", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch({
+      connectionStatus: "errored",
+      connectionNickname: "bad.nick@example",
+      serverMessages: [
+        {
+          id: 110,
+          buffer_id: "server:42",
+          server_connection_id: 42,
+          nick: null,
+          body: "Erroneous Nickname",
+          kind: "error",
+          metadata: {
+            connection_issue: {
+              code: "invalid_nickname",
+              title: "Nickname is not valid",
+              summary: "Erroneous Nickname",
+              edit_focus: "nickname",
+              irc_code: "432",
+            },
+          },
+          occurred_at: "2026-05-13T10:01:00Z",
+        },
+      ],
+    })
+    const push = vi.fn((event) => Promise.resolve(
+      canonicalServerStatus(event === "server:disconnect" ? "disconnected" : "connecting")
+    ))
+
+    render(
+      <TopicsClubApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={() => fakeRealtimeClient(push)}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    expect(screen.getByLabelText("Message composer")).toHaveAttribute("readonly")
+    await user.click(screen.getByRole("button", {name: "View issue"}))
+
+    expect(await screen.findByRole("heading", {name: "Nickname is not valid"})).toBeInTheDocument()
+    await user.click(screen.getByRole("button", {name: "Edit connection"}))
+
+    const dialog = screen.getByRole("dialog", {name: "Edit server"})
+    const nickname = within(dialog).getByLabelText("Nickname")
+    expect(nickname).toHaveFocus()
+    await user.clear(nickname)
+    await user.type(nickname, "mira2")
+    await user.click(within(dialog).getByRole("button", {name: "Save & reconnect"}))
+
+    await waitFor(() => expect(push.mock.calls.map(([event]) => event)).toEqual([
+      "server:disconnect",
+      "server:reconnect",
+    ]))
+    expect(screen.queryByRole("dialog", {name: "Edit server"})).not.toBeInTheDocument()
   })
 
   test("confirms leaving a server from the server action menu", async () => {

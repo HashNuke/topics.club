@@ -11,8 +11,11 @@ export interface ChatComposerProps {
   error?: string | null
   inputId: string
   onSendMessage: React.FormEventHandler<HTMLFormElement>
+  onStatusAction?: () => void
   onUpdateDraft: (value: string) => void
   placeholder?: string
+  readOnly?: boolean
+  statusActionLabel?: string
   statusLabel?: string | null
 }
 
@@ -24,11 +27,14 @@ export default function ChatComposer({
   error,
   inputId,
   onSendMessage,
+  onStatusAction,
   onUpdateDraft,
   placeholder,
+  readOnly = false,
+  statusActionLabel,
   statusLabel,
 }: ChatComposerProps) {
-  const suggestions = commandSuggestionsFor(draft, commandCatalog, context)
+  const suggestions = readOnly ? [] : commandSuggestionsFor(draft, commandCatalog, context)
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
@@ -161,27 +167,30 @@ export default function ChatComposer({
             ))}
           </div>
         )}
-        <div className="flex flex-col items-stretch gap-2 rounded-md border border-slate-700 bg-slate-950 p-2 transition focus-within:border-cyan-300 sm:flex-row sm:items-center sm:px-3">
-          <div className="order-1 flex min-w-0 items-center justify-end gap-2 sm:order-2">
-            {statusLabel && <ComposerStatus label={statusLabel} />}
-            <button
-              className="shrink-0 rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-cyan-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-white/70"
-              disabled={disabled}
-              type="submit"
-            >
-              Send
-            </button>
-          </div>
+        {statusLabel && (
+          <ComposerStatus
+            actionLabel={statusActionLabel}
+            id={`${inputId}-status`}
+            label={statusLabel}
+            onAction={onStatusAction}
+          />
+        )}
+        <div className="flex items-end gap-2 rounded-md border border-slate-700 bg-slate-950 p-2 transition focus-within:border-cyan-300 sm:items-center sm:px-3">
           <textarea
             ref={textareaRef}
             id={inputId}
             aria-label="Message composer"
-            aria-describedby={error ? `${inputId}-error` : undefined}
+            aria-describedby={[
+              error ? `${inputId}-error` : null,
+              statusLabel ? `${inputId}-status` : null,
+            ].filter(Boolean).join(" ") || undefined}
+            aria-disabled={readOnly}
             aria-autocomplete={suggestions.length > 0 ? "list" : undefined}
             aria-controls={suggestions.length > 0 ? suggestionListId : undefined}
             aria-haspopup={suggestions.length > 0 ? "listbox" : undefined}
             aria-activedescendant={selectedSuggestion >= 0 ? `${suggestionListId}-option-${selectedSuggestion}` : undefined}
-            className="order-2 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 sm:order-1 sm:min-h-0 sm:py-2 sm:text-sm"
+            className="min-h-11 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 read-only:cursor-not-allowed read-only:text-slate-400 sm:min-h-0 sm:py-2 sm:text-sm"
+            readOnly={readOnly}
             value={draft}
             onChange={(event) => onUpdateDraft(event.target.value)}
             onFocus={() => requestAnimationFrame(scrollFocusedComposerIntoView)}
@@ -224,6 +233,13 @@ export default function ChatComposer({
             placeholder={placeholder}
             rows={1}
           />
+          <button
+            className="min-h-11 shrink-0 rounded-md bg-cyan-300 px-3 py-1.5 text-sm font-semibold text-cyan-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-white/70 sm:min-h-0"
+            disabled={disabled}
+            type="submit"
+          >
+            Send
+          </button>
         </div>
       </div>
     </form>
@@ -236,14 +252,26 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {
   textarea.style.overflowY = textarea.scrollHeight > MAX_COMPOSER_HEIGHT ? "auto" : "hidden"
 }
 
-function ComposerStatus({label}: {label: string}) {
+function ComposerStatus({actionLabel, id, label, onAction}: {actionLabel?: string; id: string; label: string; onAction?: () => void}) {
   return (
     <div
-      className="inline-flex min-w-0 max-w-[min(12rem,calc(100vw-8rem))] items-center gap-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100 sm:max-w-56"
+      id={id}
+      className="mb-2 flex min-w-0 flex-col gap-2 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2.5 text-xs font-medium text-amber-100 sm:flex-row sm:items-center sm:justify-between"
       role="status"
     >
-      <span className="size-1.5 shrink-0 rounded-full bg-amber-300" />
-      <span className="truncate">{label}</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="size-1.5 shrink-0 rounded-full bg-amber-300" />
+        <span>{label}</span>
+      </span>
+      {actionLabel && onAction && (
+        <button
+          className="min-h-10 w-full shrink-0 rounded-md border border-amber-100/30 px-3 py-2 text-xs font-semibold text-amber-50 transition hover:border-amber-100/60 hover:bg-amber-50/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 sm:min-h-0 sm:w-auto sm:py-1.5"
+          onClick={onAction}
+          type="button"
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   )
 }

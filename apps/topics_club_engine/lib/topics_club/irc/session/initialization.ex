@@ -13,6 +13,7 @@ defmodule TopicsClub.Irc.Session.Initialization do
          %{
            connection: connection,
            client: nil,
+           client_monitor: nil,
            registered?: false,
            pending_joins: pending_channels,
            joined_channels: MapSet.new(),
@@ -28,7 +29,11 @@ defmodule TopicsClub.Irc.Session.Initialization do
            joins_flushed?: false,
            join_flush_timer: nil,
            sent_joins: MapSet.new(),
-           channel_list_request: nil
+           channel_list_request: nil,
+           connection_issue: nil,
+           preserve_error_status?: false,
+           retry_attempt: 0,
+           retry_timer: nil
          }}
 
       nil ->

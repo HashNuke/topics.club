@@ -15,6 +15,26 @@ const messages = [
   {id: "server-3", body: "Joined #elixir.", kind: "system", occurredAt: "2026-08-25T15:00:00Z"},
 ]
 
+const connectionErrorMessages = [
+  ...messages,
+  {
+    id: "server-4",
+    body: "Choose another nickname, then reconnect.",
+    kind: "error",
+    occurredAt: "2026-08-25T15:01:00Z",
+    metadata: {
+      connection_issue: {
+        code: "nickname_in_use",
+        title: "Nickname is already in use",
+        summary: "Choose another nickname, then reconnect.",
+        edit_focus: "nickname",
+        attempted_nickname: "mira",
+        irc_code: "433",
+      },
+    },
+  },
+]
+
 const commandCatalog: CommandCatalogEntry[] = [
   {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server"], availability: "enabled", examples: ["/join #elixir"]},
   {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server"], availability: "enabled", examples: ["/list"]},
@@ -31,6 +51,7 @@ function InteractiveServerBuffer(args: ServerBufferArgs) {
       {...args}
       draft={draft}
       onLoadOlderMessages={() => {}}
+      onEditServer={() => {}}
       onReadingStateChange={() => {}}
       onReconnectServer={() => {}}
       onSendMessage={(event) => event.preventDefault()}
@@ -75,6 +96,7 @@ export const Reconnecting = {
 
 export const ConnectionError = {
   args: {
+    messages: connectionErrorMessages,
     server: {...server, status: "errored"},
   },
 }
