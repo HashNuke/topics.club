@@ -671,7 +671,7 @@ class AppTools:
 
     def deploy(
         self,
-        component: str = "gateway",
+        component: str = "all",
         tag: str = "latest",
         host: str = "root@127.0.0.1",
         ssh_port: int | None = None,
@@ -680,7 +680,7 @@ class AppTools:
         env: str = "prod",
         vault: str = "app-secrets",
     ) -> None:
-        """Deploy the gateway by default, another role, or install destination secrets."""
+        """Deploy roles, or install role env files and a destination deploy key."""
         if component == "install-secrets":
             if env not in {"dev", "prod"}:
                 raise ValueError("env must be dev or prod")

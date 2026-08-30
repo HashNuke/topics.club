@@ -440,24 +440,12 @@ class DeploySelectionTest(unittest.TestCase):
 
     @mock.patch.object(apptools, "resolve_release_tag", return_value=("20260828.1", "d" * 40))
     @mock.patch.object(apptools, "run")
-    def test_default_command_deploys_only_the_gateway(
+    def test_combined_command_deploys_gateway_then_engine(
         self,
         run_mock: mock.Mock,
         _resolve_mock: mock.Mock,
     ) -> None:
         apptools.AppTools().deploy()
-
-        self.assertEqual(run_mock.call_count, 1)
-        self.assertIn('component="gateway"', run_mock.call_args.args[0])
-
-    @mock.patch.object(apptools, "resolve_release_tag", return_value=("20260828.1", "d" * 40))
-    @mock.patch.object(apptools, "run")
-    def test_explicit_all_deploys_gateway_then_engine(
-        self,
-        run_mock: mock.Mock,
-        _resolve_mock: mock.Mock,
-    ) -> None:
-        apptools.AppTools().deploy("all")
 
         components = [
             next(argument for argument in call.args[0] if argument.startswith("component="))

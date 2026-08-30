@@ -105,7 +105,7 @@ the deployment user and pins GitHub's published Ed25519 host key.
 ```bash
 bin/release
 git push origin THE_TAG_PRINTED_ABOVE
-bin/apptools deploy all --host root@YOUR_SERVER_IP --tag THE_TAG_PRINTED_ABOVE
+bin/apptools deploy --host root@YOUR_SERVER_IP --tag THE_TAG_PRINTED_ABOVE
 ```
 
 ## 7. Confirm HTTPS
@@ -136,10 +136,7 @@ bin/apptools deploy --host root@YOUR_SERVER_IP --tag THE_TAG_PRINTED_ABOVE
 Gateway-only deploys preserve IRC sessions:
 
 ```bash
-bin/apptools deploy --host root@YOUR_SERVER_IP --tag THE_TAG
+bin/apptools deploy gateway --host root@YOUR_SERVER_IP --tag THE_TAG
 ```
-
-Use `deploy all` only when both roles changed, or `deploy engine` when only the engine changed. An
-engine deployment restarts IRC sessions and should be treated as an intentional maintenance event.
 
 See `docs/deployment.md` for rollback, health semantics, and operational details.
