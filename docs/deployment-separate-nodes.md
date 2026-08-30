@@ -43,6 +43,16 @@ The command fills only empty or missing `IRC_CREDENTIALS_KEY`, `RELEASE_COOKIE`,
 replaces their values. Add the remaining gateway values to the note manually.
 Use `--env dev` to target `app-secrets/topics-club-dev` instead.
 
+To copy all application values as ready-to-paste `KEY=value` lines without displaying
+them in the terminal:
+
+```bash
+bin/apptools copy-secrets --env prod
+```
+
+This uses `pbcopy` on macOS and supports `wl-copy`, `xclip`, or `xsel` on Linux. It omits
+the destination-generated `DATABASE_URL` and component-specific `RELEASE_NODE`.
+
 ## 4. Create the application environment files
 
 Open an SSH session:

@@ -133,6 +133,11 @@ class ValidationTest(unittest.TestCase):
 
 
 def onepassword_document(values: dict[tuple[str, str], str]) -> dict[str, object]:
+    field_types = dict(apptools.GENERATED_ONEPASSWORD_FIELDS)
+    for key in apptools.COPIED_ONEPASSWORD_FIELDS:
+        field_types.setdefault(key, "text")
+    field_types[("gateway", "GOOGLE_CLIENT_SECRET")] = "password"
+
     return {
         "id": "item-id",
         "title": "topics-club-prod",
@@ -150,12 +155,51 @@ def onepassword_document(values: dict[tuple[str, str], str]) -> dict[str, object
                 "value": values.get((section, label), ""),
                 "section": {"id": f"{section}-id"},
             }
-            for (section, label), field_type in apptools.GENERATED_ONEPASSWORD_FIELDS.items()
+            for (section, label), field_type in field_types.items()
         ],
     }
 
 
 class OnePasswordSecretsTest(unittest.TestCase):
+    @mock.patch.object(apptools.subprocess, "run")
+    @mock.patch.object(apptools, "clipboard_command", return_value=["pbcopy"])
+    @mock.patch.object(apptools, "onepassword_item")
+    def test_copies_complete_dotenv_to_clipboard_through_stdin(
+        self,
+        item_mock: mock.Mock,
+        _clipboard_mock: mock.Mock,
+        subprocess_mock: mock.Mock,
+    ) -> None:
+        values = {
+            key: f"value-{index}"
+            for index, key in enumerate(apptools.COPIED_ONEPASSWORD_FIELDS)
+        }
+        item_mock.return_value = onepassword_document(values)
+
+        apptools.copy_onepassword_secrets("app-secrets", "topics-club-prod")
+
+        self.assertEqual(subprocess_mock.call_args.args[0], ["pbcopy"])
+        contents = subprocess_mock.call_args.kwargs["input"]
+        self.assertIn("IRC_CREDENTIALS_KEY=value-0\n", contents)
+        self.assertIn("VAPID_SUBJECT=value-8\n", contents)
+        self.assertTrue(contents.endswith("ENABLE_DISCOVERY=false\n"))
+        self.assertNotIn("value-0", subprocess_mock.call_args.args[0])
+
+    @mock.patch.object(apptools, "onepassword_item")
+    def test_copy_refuses_an_incomplete_secret_note(self, item_mock: mock.Mock) -> None:
+        item_mock.return_value = onepassword_document({})
+
+        with self.assertRaisesRegex(RuntimeError, "fields are missing or empty"):
+            apptools.onepassword_dotenv("app-secrets", "topics-club-prod")
+
+    def test_dotenv_quotes_and_escapes_unsafe_values(self) -> None:
+        self.assertEqual(apptools.dotenv_value("safe-Value_1=", "field"), "safe-Value_1=")
+        self.assertEqual(apptools.dotenv_value("value with #", "field"), '"value with #"')
+        self.assertEqual(
+            apptools.dotenv_value('a\\b"c', "field"),
+            '"a\\\\b\\"c"',
+        )
+
     @mock.patch.object(apptools, "generate_onepassword_secrets", return_value=[])
     def test_create_secrets_selects_the_item_from_the_environment(
         self,

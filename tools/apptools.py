@@ -7,6 +7,7 @@ import base64
 import json
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -50,7 +51,18 @@ def output(command: list[str], *, cwd: Path = PROJECT_ROOT) -> str:
 def onepassword_item(vault: str, item: str) -> dict[str, object]:
     try:
         document = json.loads(
-            output(["op", "item", "get", item, "--vault", vault, "--format=json"])
+            output(
+                [
+                    "op",
+                    "item",
+                    "get",
+                    item,
+                    "--vault",
+                    vault,
+                    "--format=json",
+                    "--reveal",
+                ]
+            )
         )
     except FileNotFoundError as error:
         raise RuntimeError("1Password CLI (`op`) is not installed") from error
@@ -118,6 +130,18 @@ GENERATED_ONEPASSWORD_FIELDS = {
     ("gateway", "VAPID_PRIVATE_KEY"): "password",
 }
 
+COPIED_ONEPASSWORD_FIELDS = [
+    ("shared", "IRC_CREDENTIALS_KEY"),
+    ("shared", "RELEASE_COOKIE"),
+    ("gateway", "SECRET_KEY_BASE"),
+    ("gateway", "GATEWAY_HOST"),
+    ("gateway", "GOOGLE_CLIENT_ID"),
+    ("gateway", "GOOGLE_CLIENT_SECRET"),
+    ("gateway", "VAPID_PUBLIC_KEY"),
+    ("gateway", "VAPID_PRIVATE_KEY"),
+    ("gateway", "VAPID_SUBJECT"),
+]
+
 
 def generate_onepassword_secrets(vault: str, item: str) -> list[str]:
     document = onepassword_item(vault, item)
@@ -184,6 +208,58 @@ def generate_onepassword_secrets(vault: str, item: str) -> list[str]:
         raise RuntimeError("1Password CLI (`op`) is not installed") from error
 
     return [f"{section}.{label}" for section, label in generated]
+
+
+def dotenv_value(value: str, field: str) -> str:
+    if any(character in value for character in "\x00\r\n"):
+        raise RuntimeError(f"1Password field cannot be represented in an env file: {field}")
+    if re.fullmatch(r"[A-Za-z0-9_./:@%+,=-]*", value):
+        return value
+    return f'"{value.replace("\\", "\\\\").replace(chr(34), "\\\"")}"'
+
+
+def onepassword_dotenv(vault: str, item: str) -> str:
+    fields = onepassword_fields(onepassword_item(vault, item))
+    missing = [
+        f"{section}.{label}"
+        for section, label in COPIED_ONEPASSWORD_FIELDS
+        if not populated(fields.get((section, label)))
+    ]
+    if missing:
+        raise RuntimeError(f"1Password fields are missing or empty: {', '.join(missing)}")
+
+    lines = []
+    for section, label in COPIED_ONEPASSWORD_FIELDS:
+        value = fields[(section, label)]["value"]
+        if not isinstance(value, str):
+            raise RuntimeError(f"1Password field is not text: {section}.{label}")
+        lines.append(f"{label}={dotenv_value(value, f'{section}.{label}')}")
+    lines.append("ENABLE_DISCOVERY=false")
+    return "\n".join(lines) + "\n"
+
+
+def clipboard_command() -> list[str]:
+    candidates = [
+        ["pbcopy"],
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+        ["xsel", "--clipboard", "--input"],
+    ]
+    for command in candidates:
+        if shutil.which(command[0]):
+            return command
+    raise RuntimeError("no clipboard command found; install pbcopy, wl-copy, xclip, or xsel")
+
+
+def copy_onepassword_secrets(vault: str, item: str) -> None:
+    contents = onepassword_dotenv(vault, item)
+    subprocess.run(
+        clipboard_command(),
+        check=True,
+        text=True,
+        input=contents,
+        stdout=subprocess.DEVNULL,
+    )
 
 
 def split_host(host: str, ssh_port: int | None, ssh_key: str | None) -> tuple[str, str, int, str | None]:
@@ -355,6 +431,18 @@ class AppTools:
     """Provision and deploy TopicsClub to one SSH-accessible app host."""
 
     testvps = VpsCommands()
+
+    def copy_secrets(
+        self,
+        env: str,
+        vault: str = "app-secrets",
+    ) -> None:
+        """Copy a complete TopicsClub dotenv document from 1Password."""
+        if env not in {"dev", "prod"}:
+            raise ValueError("env must be dev or prod")
+        item = f"topics-club-{env}"
+        copy_onepassword_secrets(vault, item)
+        print(f"Copied secrets from {vault}/{item} to the clipboard.")
 
     def create_secrets(
         self,
