@@ -3,11 +3,7 @@ defmodule TopicsClubWeb.Router do
 
   import TopicsClubWeb.UserAuth
 
-  @local_auth_enabled Application.compile_env(
-                        :topics_club_gateway,
-                        :local_auth_enabled,
-                        false
-                      )
+  @local_auth_enabled Application.compile_env(:topics_club_gateway, :env) in [:dev, :test]
 
   pipeline :browser do
     plug :accepts, ["html"]

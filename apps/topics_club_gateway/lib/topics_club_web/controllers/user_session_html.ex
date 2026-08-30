@@ -18,7 +18,7 @@ defmodule TopicsClubWeb.UserSessionHTML do
   end
 
   defp local_auth_enabled? do
-    Application.get_env(:topics_club_gateway, :local_auth_enabled, false)
+    Application.fetch_env!(:topics_club_gateway, :env) in [:dev, :test]
   end
 
   defp present?(value), do: is_binary(value) && String.trim(value) != ""
