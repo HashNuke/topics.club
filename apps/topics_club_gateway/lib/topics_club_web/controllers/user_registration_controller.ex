@@ -15,7 +15,7 @@ defmodule TopicsClubWeb.UserRegistrationController do
         {:ok, _} =
           Accounts.deliver_login_instructions(
             user,
-            &url(~p"/users/log-in/#{&1}")
+            &Phoenix.VerifiedRoutes.unverified_url(conn, "/users/log-in/#{&1}")
           )
 
         conn

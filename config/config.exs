@@ -110,6 +110,8 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+config :topics_club_gateway, :local_auth_enabled, config_env() in [:dev, :test]
+
 oauth_providers =
   [
     google: {Ueberauth.Strategy.Google, [default_scope: "email profile"]}

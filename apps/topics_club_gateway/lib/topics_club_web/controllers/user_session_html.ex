@@ -17,5 +17,9 @@ defmodule TopicsClubWeb.UserSessionHTML do
     google_oauth_enabled?() || TopicsClubWeb.Auth.DevStrategy.enabled?()
   end
 
+  defp local_auth_enabled? do
+    Application.get_env(:topics_club_gateway, :local_auth_enabled, false)
+  end
+
   defp present?(value), do: is_binary(value) && String.trim(value) != ""
 end

@@ -70,7 +70,7 @@ defmodule TopicsClubWeb.UserSessionController do
     if user = Accounts.get_user_by_email(email) do
       Accounts.deliver_login_instructions(
         user,
-        &url(~p"/users/log-in/#{&1}")
+        &Phoenix.VerifiedRoutes.unverified_url(conn, "/users/log-in/#{&1}")
       )
     end
 

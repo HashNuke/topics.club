@@ -3,6 +3,12 @@ defmodule TopicsClubWeb.Router do
 
   import TopicsClubWeb.UserAuth
 
+  @local_auth_enabled Application.compile_env(
+                        :topics_club_gateway,
+                        :local_auth_enabled,
+                        false
+                      )
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -123,8 +129,10 @@ defmodule TopicsClubWeb.Router do
   scope "/", TopicsClubWeb do
     pipe_through [:browser, :redirect_if_user_is_authenticated]
 
-    get "/users/register", UserRegistrationController, :new
-    post "/users/register", UserRegistrationController, :create
+    if @local_auth_enabled do
+      get "/users/register", UserRegistrationController, :new
+      post "/users/register", UserRegistrationController, :create
+    end
   end
 
   scope "/", TopicsClubWeb do
@@ -139,16 +147,25 @@ defmodule TopicsClubWeb.Router do
     pipe_through [:browser]
 
     get "/users/log-in", UserSessionController, :new
-    get "/users/log-in/:token", UserSessionController, :confirm
-    post "/users/log-in", UserSessionController, :create
     delete "/users/log-out", UserSessionController, :delete
+
+    if @local_auth_enabled do
+      get "/users/log-in/:token", UserSessionController, :confirm
+      post "/users/log-in", UserSessionController, :create
+    end
   end
 
   scope "/auth", TopicsClubWeb do
     pipe_through :browser
 
-    get "/:provider", AuthController, :request
-    get "/:provider/callback", AuthController, :callback
-    post "/:provider/callback", AuthController, :callback
+    get "/google", AuthController, :request
+    get "/google/callback", AuthController, :callback
+    post "/google/callback", AuthController, :callback
+
+    if @local_auth_enabled do
+      get "/developer", AuthController, :request
+      get "/developer/callback", AuthController, :callback
+      post "/developer/callback", AuthController, :callback
+    end
   end
 end
