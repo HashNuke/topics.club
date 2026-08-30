@@ -306,8 +306,41 @@ for role in gateway engine; do
     chown root:root "/etc/topics-club/$role.env.new"
   fi
 done
+deploy_key=/srv/topics-club/build-home/.ssh/id_ed25519
+deploy_public_key="$deploy_key.pub"
+deploy_key_comment=$(cat "$stage/deploy-key-comment")
+install -d -m 0755 /srv/topics-club
+install -d -m 0700 /srv/topics-club/build-home
+install -d -m 0700 /srv/topics-club/build-home/.ssh
+if [ -e "$deploy_key" ] && [ ! -f "$deploy_key" ]; then
+  echo 'deploy private-key path is not a regular file' >&2
+  exit 1
+fi
+if [ -e "$deploy_public_key" ] && [ ! -f "$deploy_public_key" ]; then
+  echo 'deploy public-key path is not a regular file' >&2
+  exit 1
+fi
+if [ ! -e "$deploy_key" ] && [ -e "$deploy_public_key" ]; then
+  echo 'deploy public key exists without its private key' >&2
+  exit 1
+fi
+if [ ! -e "$deploy_key" ]; then
+  ssh-keygen -q -t ed25519 -N '' -C "$deploy_key_comment" -f "$deploy_key"
+elif [ ! -e "$deploy_public_key" ]; then
+  ssh-keygen -y -f "$deploy_key" | sed "s/$/ $deploy_key_comment/" > "$deploy_public_key"
+fi
+chmod 0600 "$deploy_key"
+chmod 0644 "$deploy_public_key"
+if id topics-club-deploy >/dev/null 2>&1; then
+  chown topics-club-deploy:topics-club-deploy /srv/topics-club/build-home/.ssh
+  chown topics-club-deploy:topics-club-deploy \
+    "$deploy_key" "$deploy_public_key"
+else
+  chown root:root "$deploy_key" "$deploy_public_key"
+fi
 mv /etc/topics-club/gateway.env.new /etc/topics-club/gateway.env
 mv /etc/topics-club/engine.env.new /etc/topics-club/engine.env
+printf 'DEPLOY_PUBLIC_KEY=%s\n' "$(cat "$deploy_public_key")"
 """.strip()
 
 
@@ -317,8 +350,9 @@ def install_onepassword_secrets(
     host: str,
     ssh_port: int | None,
     ssh_key: str | None,
-) -> None:
+) -> str:
     documents = role_dotenv_documents(vault, item)
+    documents["deploy-key-comment"] = f"{item}-deploy-key\n"
     inventory_host, ssh_user, resolved_port, resolved_key = split_host(
         host, ssh_port, ssh_key
     )
@@ -333,15 +367,25 @@ def install_onepassword_secrets(
         command.extend(["-i", str(Path(resolved_key).expanduser())])
     command.extend([f"{ssh_user}@{inventory_host}", INSTALL_ENV_COMMAND])
     try:
-        subprocess.run(
+        completed = subprocess.run(
             command,
             cwd=PROJECT_ROOT,
             check=True,
             input=environment_archive(documents),
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
         )
     except FileNotFoundError as error:
         raise RuntimeError("SSH client (`ssh`) is not installed") from error
+
+    output_lines = completed.stdout.decode("utf-8").splitlines()
+    public_keys = [
+        line.removeprefix("DEPLOY_PUBLIC_KEY=")
+        for line in output_lines
+        if line.startswith("DEPLOY_PUBLIC_KEY=")
+    ]
+    if len(public_keys) != 1 or not public_keys[0].startswith("ssh-ed25519 "):
+        raise RuntimeError("destination did not return one Ed25519 deploy public key")
+    return public_keys[0]
 
 
 def clipboard_command() -> list[str]:
@@ -636,15 +680,17 @@ class AppTools:
         env: str = "prod",
         vault: str = "app-secrets",
     ) -> None:
-        """Deploy roles, or install role env files from 1Password."""
+        """Deploy roles, or install role env files and a destination deploy key."""
         if component == "install-secrets":
             if env not in {"dev", "prod"}:
                 raise ValueError("env must be dev or prod")
             item = f"topics-club-{env}"
-            install_onepassword_secrets(
+            public_key = install_onepassword_secrets(
                 vault, item, host, ssh_port, ssh_key
             )
             print(f"Installed secrets from {vault}/{item} on {host}.")
+            print("Add this read-only deploy key to the GitHub repository:")
+            print(public_key)
             return
         if component not in {"all", "gateway", "engine"}:
             raise ValueError(

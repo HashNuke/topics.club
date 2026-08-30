@@ -61,9 +61,11 @@ While signed in to the 1Password CLI locally, run:
 bin/apptools deploy install-secrets --env prod --host root@YOUR_SERVER_IP
 ```
 
-This reads `app-secrets/topics-club-prod` into memory and streams role-specific files over
-encrypted SSH to `/etc/topics-club/gateway.env` and `/etc/topics-club/engine.env` with mode
-`0600`. It creates no local plaintext file and does not print the values. The files get stable
+This reads `app-secrets/topics-club-prod` into memory and streams the role-specific files over
+encrypted SSH, creating no local plaintext files and printing no secret values. It also generates
+an Ed25519 deploy key on the VPS only when one does not already exist, then prints its public key.
+Add that public key to the GitHub repository under **Settings → Deploy keys** without write access.
+The environment files are installed under `/etc/topics-club` with mode `0600` and get stable
 role-specific `RELEASE_NODE` values; `DATABASE_URL` remains in the separately generated `db.env`.
 
 ## 5. Provision the application host
@@ -85,13 +87,10 @@ repository, provision with its SSH URL instead:
 bin/apptools provision --host root@YOUR_SERVER_IP \
   --gateway_host=YOUR_HOST \
   --repository=git@github.com:OWNER/REPOSITORY.git
-ssh root@YOUR_SERVER_IP \
-  'cat /srv/topics-club/build-home/.ssh/id_ed25519.pub'
 ```
 
-Add the printed public key to that repository under **Settings → Deploy keys** without write
-access, then continue. The private key is generated on and never leaves the destination;
-GitHub's published Ed25519 host key is pinned during provisioning.
+The private key was generated on the VPS in step 4 and never leaves it. Provisioning assigns it to
+the deployment user and pins GitHub's published Ed25519 host key.
 
 ## 6. Tag and deploy
 

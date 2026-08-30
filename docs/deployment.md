@@ -89,17 +89,19 @@ the password, and a repeat run does not rotate it:
 bin/apptools provision-db --host root@203.0.113.10
 ```
 
-Then install the two application environment files from the local 1Password CLI session:
+Install the two application environment files from the local 1Password CLI session:
 
 ```bash
 bin/apptools deploy install-secrets --env prod --host root@203.0.113.10
 ```
 
 The command resolves `app-secrets/topics-club-prod` in memory and streams the role-specific files
-over encrypted SSH. It creates no local plaintext file and prints no values. Both files receive
-the shared `IRC_CREDENTIALS_KEY` and `RELEASE_COOKIE`; neither contains `DATABASE_URL`, because
-both services load it from the generated `db.env`. The command assigns stable role-specific
-`RELEASE_NODE` names and installs the files with mode `0600`.
+over encrypted SSH. It creates no local plaintext file and prints no secret values. It generates
+an Ed25519 deploy key on the destination only when one does not already exist, and prints the
+public key for you to add to the GitHub repository as a read-only deploy key. Both environment
+files receive the shared `IRC_CREDENTIALS_KEY` and `RELEASE_COOKIE`; neither contains
+`DATABASE_URL`, because both services load it from the generated `db.env`. The command assigns
+stable role-specific `RELEASE_NODE` names and installs the files with mode `0600`.
 Only the gateway starts Phoenix. Add engine-only hosted-IRC listener secrets to `engine.env` when
 that feature exists. Application provisioning checks the role files' existence, ownership, and
 mode without reading, printing, templating, replacing, or transferring their contents. It also

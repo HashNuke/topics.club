@@ -224,8 +224,13 @@ class OnePasswordSecretsTest(unittest.TestCase):
             for index, key in enumerate(apptools.COPIED_ONEPASSWORD_FIELDS)
         }
         item_mock.return_value = onepassword_document(values)
+        subprocess_mock.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=b"DEPLOY_PUBLIC_KEY=ssh-ed25519 AAAAtest topics-club-prod-deploy-key\n",
+        )
 
-        apptools.install_onepassword_secrets(
+        public_key = apptools.install_onepassword_secrets(
             "app-secrets",
             "topics-club-prod",
             "deploy@app.example.test",
@@ -245,15 +250,22 @@ class OnePasswordSecretsTest(unittest.TestCase):
         ])
         self.assertEqual(command[7], "deploy@app.example.test")
         self.assertNotIn("value-0", " ".join(command))
+        self.assertEqual(
+            public_key,
+            "ssh-ed25519 AAAAtest topics-club-prod-deploy-key",
+        )
 
         archive = io.BytesIO(subprocess_mock.call_args.kwargs["input"])
         with tarfile.open(fileobj=archive, mode="r") as tar:
             gateway = tar.extractfile("gateway.env")
             engine = tar.extractfile("engine.env")
+            deploy_key_comment = tar.extractfile("deploy-key-comment")
             assert gateway is not None
             assert engine is not None
+            assert deploy_key_comment is not None
             gateway_contents = gateway.read().decode("utf-8")
             engine_contents = engine.read().decode("utf-8")
+            deploy_key_comment_contents = deploy_key_comment.read().decode("utf-8")
 
         self.assertIn("SECRET_KEY_BASE=value-2\n", gateway_contents)
         self.assertIn(
@@ -263,6 +275,18 @@ class OnePasswordSecretsTest(unittest.TestCase):
         self.assertNotIn("SECRET_KEY_BASE", engine_contents)
         self.assertIn(
             "RELEASE_NODE=topics_club_engine@localhost\n", engine_contents
+        )
+        self.assertEqual(
+            deploy_key_comment_contents,
+            "topics-club-prod-deploy-key\n",
+        )
+        self.assertIn(
+            'if [ ! -e "$deploy_key" ]; then',
+            apptools.INSTALL_ENV_COMMAND,
+        )
+        self.assertIn(
+            'elif [ ! -e "$deploy_public_key" ]; then',
+            apptools.INSTALL_ENV_COMMAND,
         )
 
     def test_dotenv_quotes_and_escapes_unsafe_values(self) -> None:
@@ -384,6 +408,7 @@ class DeploySelectionTest(unittest.TestCase):
         resolve_mock: mock.Mock,
         install_mock: mock.Mock,
     ) -> None:
+        install_mock.return_value = "ssh-ed25519 AAAAtest topics-club-prod-deploy-key"
         with contextlib.redirect_stdout(io.StringIO()):
             apptools.AppTools().deploy(
                 "install-secrets",

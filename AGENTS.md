@@ -10,7 +10,7 @@ This is a web application written using the Phoenix web framework.
 - Use `uv` for all project-owned Python tooling. Manage dependencies with `uv add` and `uv remove`, commit both `pyproject.toml` and `uv.lock`, and run tools through `uv run`; do not add pip, Poetry, or requirements-file workflows.
 - Pyinfra is a pinned project dependency. Invoke it directly with `uv run pyinfra ...`; do not introduce dependency groups unless distinct Python dependency sets actually exist.
 - Prefer pyinfra's declarative built-in operations and keep unavoidable shell operations explicitly idempotent. Do not add third-party deployment plugins unless the built-ins cannot express a required state.
-- Production environment files live only on their destination hosts. Never commit or log their contents. Pyinfra must not read, template, transfer, or overwrite them. The explicit `apptools deploy install-secrets` operator action may resolve them from 1Password in memory and stream them over SSH without creating a local plaintext file.
+- Production environment files live only on their destination hosts. Never commit or log their contents. Pyinfra must not read, template, transfer, or overwrite them. The explicit `apptools deploy install-secrets` operator action may resolve environment files from 1Password in memory and stream them over SSH without creating local plaintext files.
 
 ### Phoenix v1.8 guidelines
 
