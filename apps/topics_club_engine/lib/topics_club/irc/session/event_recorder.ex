@@ -15,9 +15,15 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
   ]
 
   def server_line(connection, body, kind \\ "system", metadata \\ %{}) do
-    recover(:server_line, connection, fn ->
-      MessageIngestion.record_server(connection, body, kind, nil, metadata)
-    end)
+    case whitespace_only?(body) do
+      true ->
+        {:ok, nil}
+
+      false ->
+        recover(:server_line, connection, fn ->
+          MessageIngestion.record_server(connection, body, kind, nil, metadata)
+        end)
+    end
   end
 
   def channel_line(state, channel, kind, nick, body) do
@@ -99,6 +105,9 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
   defp irc_error_body(%{reason: reason}) when is_binary(reason), do: reason
   defp irc_error_body(%{code: code}), do: "IRC error #{code}."
   defp irc_error_body(_payload), do: "IRC error."
+
+  defp whitespace_only?(body) when is_binary(body), do: String.trim(body) == ""
+  defp whitespace_only?(_body), do: false
 
   defp recover(operation, connection, callback) do
     callback.()

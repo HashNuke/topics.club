@@ -32,6 +32,23 @@ export function fallbackConnectionIssue(): ConnectionIssue {
   }
 }
 
+export function connectionIssueGuidance(issue: ConnectionIssue): string {
+  if (issue.edit_focus === "nickname") {
+    return "Use a random nickname and reconnect now, or edit the connection to choose one yourself."
+  }
+
+  return issue.summary
+}
+
+export function randomIrcNickname(): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+  const bytes = new Uint8Array(6)
+  globalThis.crypto.getRandomValues(bytes)
+  const suffix = Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("")
+
+  return `guest_${suffix}`
+}
+
 function validConnectionIssue(value: unknown): value is ConnectionIssue {
   if (!value || typeof value !== "object") return false
   const issue = value as Record<string, unknown>

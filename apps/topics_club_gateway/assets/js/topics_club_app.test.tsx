@@ -315,16 +315,13 @@ function mockBootstrapFetch({
     }
 
     if (path === "/api/connections/42" && options.method === "PUT") {
+      const {connection} = JSON.parse(options.body)
       return {
         ok: true,
         json: async () => ({
           connection: {
             id: 42,
-            name: "edited",
-            host: "irc.edited.test",
-            port: 6697,
-            use_tls: true,
-            nickname: "mira2",
+            ...connection,
             status: "connected",
             mention_notifications_enabled: true,
             notification_preference_revision: 0,
@@ -3501,7 +3498,9 @@ describe("TopicsClubApp UI prototype", () => {
       await user.click(screen.getByLabelText("Set up mention notifications for #testing"))
 
       expect(requestPermission).toHaveBeenCalledTimes(1)
-      expect(await screen.findByLabelText("Mute mention notifications for #testing")).toHaveClass("text-emerald-950")
+      const enabledBell = await screen.findByLabelText("Mute mention notifications for #testing")
+      expect(enabledBell).toHaveClass("bg-transparent", "text-emerald-400")
+      expect(enabledBell).not.toHaveClass("bg-emerald-300")
     } finally {
       if (originalNotification) {
         Object.defineProperty(window, "Notification", {value: originalNotification, configurable: true})
@@ -3955,6 +3954,60 @@ describe("TopicsClubApp UI prototype", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"}))
   })
 
+  test("keeps a background channel mention unread until the tab becomes visible", async () => {
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState")
+    let visibilityState: DocumentVisibilityState = "hidden"
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibilityState,
+    })
+
+    try {
+      mockBootstrapFetch({channelMentionCount: 0, channelUnreadCount: 0})
+      const push = vi.fn(() => Promise.resolve({ok: true}))
+      let realtimeHandlers
+
+      render(
+        <TopicsClubApp
+          currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+          developerOauth={true}
+          realtimeClientFactory={({handlers}) => {
+            realtimeHandlers = handlers
+            return fakeRealtimeClient(push)
+          }}
+        />
+      )
+
+      expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+
+      act(() => realtimeHandlers.onBufferMessage(canonicalMessage({
+        id: 202,
+        buffer_id: "channel:7",
+        nick: "akash",
+        body: "mira: are you there?",
+        kind: "message",
+        mentioned: true,
+        unread_count: 1,
+        mention_count: 1,
+        occurred_at: "2026-05-13T10:02:00Z",
+      })))
+
+      await waitFor(() => expect(screen.getByLabelText("1 unread message in #testing")).toBeInTheDocument())
+      expect(push).not.toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"})
+
+      visibilityState = "visible"
+      act(() => document.dispatchEvent(new Event("visibilitychange")))
+
+      await waitFor(() => expect(push).toHaveBeenCalledWith("buffer:read", {buffer_id: "channel:7"}))
+    } finally {
+      if (originalVisibility) {
+        Object.defineProperty(document, "visibilityState", originalVisibility)
+      } else {
+        delete (document as Partial<Document>).visibilityState
+      }
+    }
+  })
+
   test("marks an incoming message read when it arrives in the active channel", async () => {
     const user = userEvent.setup()
     const apiClient = directMessageApiClient()
@@ -4231,9 +4284,9 @@ describe("TopicsClubApp UI prototype", () => {
     await user.click(screen.getByRole("button", {name: "Server actions for local"}))
     await user.click(screen.getByRole("menuitem", {name: "Edit connection"}))
 
-    const dialog = screen.getByRole("dialog", {name: "Edit server"})
-    await user.clear(within(dialog).getByLabelText("Server"))
-    await user.type(within(dialog).getByLabelText("Server"), "irc.edited.test")
+    const dialog = screen.getByRole("dialog", {name: "Edit connection"})
+    expect(within(dialog).queryByLabelText("Server")).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText("IRC account name")).not.toBeInTheDocument()
     await user.clear(within(dialog).getByLabelText("Port"))
     await user.type(within(dialog).getByLabelText("Port"), "6697")
     await user.click(within(dialog).getByLabelText("TLS"))
@@ -4247,22 +4300,32 @@ describe("TopicsClubApp UI prototype", () => {
         expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({
-            connection: {name: "local", host: "irc.edited.test", port: 6697, use_tls: true, nickname: "mira2"},
+            connection: {name: "local", host: "127.0.0.1", port: 6697, use_tls: true, nickname: "mira2"},
           }),
         })
       )
     )
     const nav = screen.getByRole("navigation", {name: "Joined topics"})
-    expect(within(nav).getByText("edited")).toBeInTheDocument()
-    expect(screen.getAllByText("on irc.edited.test").length).toBeGreaterThan(0)
+    expect(within(nav).getByText("local")).toBeInTheDocument()
+    expect(screen.getAllByText("on 127.0.0.1").length).toBeGreaterThan(0)
   })
 
-  test("takes an unavailable channel to its server remedy and restarts after saving", async () => {
+  test("takes an unavailable channel to its server remedy and reconnects with a random nickname", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch({
       connectionStatus: "errored",
       connectionNickname: "bad.nick@example",
       serverMessages: [
+        {
+          id: 109,
+          buffer_id: "server:42",
+          server_connection_id: 42,
+          nick: null,
+          body: "Looking up your hostname...",
+          kind: "system",
+          metadata: {},
+          occurred_at: "2026-05-13T10:00:00Z",
+        },
         {
           id: 110,
           buffer_id: "server:42",
@@ -4299,21 +4362,31 @@ describe("TopicsClubApp UI prototype", () => {
     expect(screen.getByLabelText("Message composer")).toHaveAttribute("readonly")
     await user.click(screen.getByRole("button", {name: "View issue"}))
 
-    expect(await screen.findByRole("heading", {name: "Nickname is not valid"})).toBeInTheDocument()
-    await user.click(screen.getByRole("button", {name: "Edit connection"}))
+    const issueHeading = await screen.findByRole("heading", {name: "Nickname is not valid"})
+    const precedingMessage = screen.getByText("Looking up your hostname...")
+    expect(Boolean(precedingMessage.compareDocumentPosition(issueHeading) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    expect(screen.queryByText("Erroneous Nickname")).not.toBeInTheDocument()
+    expect(screen.getByText("Use a random nickname and reconnect now, or edit the connection to choose one yourself.")).toBeInTheDocument()
+    expect(screen.queryByText("Connection error. Reconnect to resume messages.")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "Edit connection"})).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Reconnect"})).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", {name: "Choose a random nickname"}))
 
-    const dialog = screen.getByRole("dialog", {name: "Edit server"})
-    const nickname = within(dialog).getByLabelText("Nickname")
-    expect(nickname).toHaveFocus()
-    await user.clear(nickname)
-    await user.type(nickname, "mira2")
-    await user.click(within(dialog).getByRole("button", {name: "Save & reconnect"}))
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/connections/42",
+      expect.objectContaining({method: "PUT"})
+    ))
+    const updateCall = vi.mocked(globalThis.fetch).mock.calls.find(([path, options]) =>
+      path === "/api/connections/42" && options?.method === "PUT"
+    )
+    const updateBody = JSON.parse(String(updateCall?.[1]?.body))
+    expect(updateBody.connection).toMatchObject({name: "local", host: "127.0.0.1"})
+    expect(updateBody.connection.nickname).toMatch(/^guest_[a-z0-9]{6}$/)
 
     await waitFor(() => expect(push.mock.calls.map(([event]) => event)).toEqual([
       "server:disconnect",
       "server:reconnect",
     ]))
-    expect(screen.queryByRole("dialog", {name: "Edit server"})).not.toBeInTheDocument()
   })
 
   test("confirms leaving a server from the server action menu", async () => {

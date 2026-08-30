@@ -41,11 +41,17 @@ defmodule TopicsClub.Chat.ConnectionsTest do
     assert {:ok, updated} =
              Connections.update(user, connection.id, %{
                "name" => "renamed",
-               "host" => " IRC.Renamed.Test "
+               "host" => "irc.renamed.test",
+               "sasl_username" => "someone_else",
+               "port" => 6697,
+               "nickname" => "mira2"
              })
 
-    assert updated.name == "renamed"
-    assert updated.host == "irc.renamed.test"
+    assert updated.name == "primary"
+    assert updated.host == "irc.example.test"
+    assert updated.sasl_username == "u_3dev"
+    assert updated.port == 6697
+    assert updated.nickname == "mira2"
   end
 
   test "deletes an owned connection before broadcasting its buffers as left" do

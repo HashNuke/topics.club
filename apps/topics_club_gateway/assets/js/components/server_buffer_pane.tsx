@@ -21,20 +21,26 @@ export interface ServerBufferPaneProps {
   onLoadOlderMessages?: (bufferId?: string) => void
   onReadingStateChange?: (bufferId: string | undefined, readingOlder: boolean) => void
   onReconnectServer?: (server: ServerConnection) => void
+  onUseRandomNickname?: (server: ServerConnection) => boolean | Promise<boolean>
   server?: ServerConnection
   onSendMessage: React.FormEventHandler<HTMLFormElement>
   onUpdateDraft: (value: string) => void
 }
 
-export function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onEditServer, onLoadOlderMessages, onReadingStateChange, onReconnectServer, server, onSendMessage, onUpdateDraft}: ServerBufferPaneProps) {
+export function ServerBufferPane({commandCatalog, composerError, connectionHealth, draft, messages, onEditServer, onLoadOlderMessages, onReadingStateChange, onReconnectServer, onUseRandomNickname, server, onSendMessage, onUpdateDraft}: ServerBufferPaneProps) {
+  const issue = server?.status === "errored" ? latestConnectionIssue(messages) || fallbackConnectionIssue() : null
   const {newMessageCount, readingOlder, scrollRef, scrollToBottom} = useChatScroll(messages, {
+    contentRevision: issue ? `${issue.code}:${issue.title}` : server?.status,
     onNearTop: () => onLoadOlderMessages?.(server?.id),
     onReadingStateChange: (nextReadingOlder) => onReadingStateChange?.(server?.id, nextReadingOlder),
   })
   const visibleMessages = visibleTimelineMessages(messages, readingOlder)
 
   if (!server) return null
-  const issue = server.status === "errored" ? latestConnectionIssue(messages) || fallbackConnectionIssue() : null
+  const showsIssueCard = Boolean(issue && onEditServer && onReconnectServer && onUseRandomNickname)
+  const timelineMessages = issue
+    ? visibleMessages.filter((message) => message.metadata?.connection_issue !== issue)
+    : visibleMessages
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[var(--app-canvas)]">
@@ -47,12 +53,13 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
               Notices, connection logs, service replies, and server-level commands live here.
             </p>
           </div>
-          {issue && onEditServer && onReconnectServer ? (
-            <ConnectionIssueCard issue={issue} onEditServer={onEditServer} onReconnectServer={onReconnectServer} server={server} />
-          ) : (
-            <ServerStatusBanner server={server} onReconnectServer={onReconnectServer} />
+          {!issue && <ServerStatusBanner server={server} onReconnectServer={onReconnectServer} />}
+          {timelineMessages.length > 0
+            ? <MessageTimeline messages={timelineMessages} />
+            : !showsIssueCard && <MessageTimeline messages={[]} />}
+          {issue && onEditServer && onReconnectServer && onUseRandomNickname && (
+            <ConnectionIssueCard issue={issue} onEditServer={onEditServer} onReconnectServer={onReconnectServer} onUseRandomNickname={onUseRandomNickname} server={server} />
           )}
-          <MessageTimeline messages={visibleMessages} />
         </div>
       </div>
       {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}
@@ -64,7 +71,7 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
         draft={draft}
         disabled={server.status !== "connected" || connectionHealth !== "connected"}
         readOnly={server.status !== "connected"}
-        statusLabel={composerStatusLabel(server.status, connectionHealth)}
+        statusLabel={showsIssueCard ? null : composerStatusLabel(server.status, connectionHealth)}
         onSendMessage={onSendMessage}
         onUpdateDraft={onUpdateDraft}
         placeholder="Try /msg NickServ help or /quote WHOIS nick"

@@ -54,6 +54,7 @@ function InteractiveServerBuffer(args: ServerBufferArgs) {
       onEditServer={() => {}}
       onReadingStateChange={() => {}}
       onReconnectServer={() => {}}
+      onUseRandomNickname={() => true}
       onSendMessage={(event) => event.preventDefault()}
       onUpdateDraft={setDraft}
     />

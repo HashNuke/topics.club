@@ -99,11 +99,12 @@ export function visibleTimelineMessages(messages: TimelineMessage[], readingOlde
 }
 
 interface ChatScrollOptions {
+  contentRevision?: string
   onNearTop?: () => void
   onReadingStateChange?: (readingOlder: boolean) => void
 }
 
-export function useChatScroll(messages: TimelineMessage[], {onNearTop, onReadingStateChange}: ChatScrollOptions = {}) {
+export function useChatScroll(messages: TimelineMessage[], {contentRevision, onNearTop, onReadingStateChange}: ChatScrollOptions = {}) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const previousScrollHeightRef = useRef(0)
   const previousLastMessageIdRef = useRef<EntityId | null>(null)
@@ -139,7 +140,7 @@ export function useChatScroll(messages: TimelineMessage[], {onNearTop, onReading
     const node = scrollRef.current
     if (!node || readingOlder) return
     node.scrollTop = node.scrollHeight
-  }, [messages.length, readingOlder, viewportRevision])
+  }, [contentRevision, messages.length, readingOlder, viewportRevision])
 
   useEffect(() => {
     const viewport = window.visualViewport

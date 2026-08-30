@@ -52,6 +52,7 @@ import {requestedTopicId, topicForRequestedId} from "./topic_navigation.ts"
 import useActivityHeartbeat from "./hooks/use_activity_heartbeat.ts"
 import useBufferMessages from "./hooks/use_buffer_messages.ts"
 import useChannelDirectory from "./hooks/use_channel_directory.ts"
+import useDocumentVisibility from "./hooks/use_document_visibility.ts"
 import useRealtimeConnection from "./hooks/use_realtime_connection.ts"
 import useServerConnections from "./hooks/use_server_connections.ts"
 import type {RealtimeClient, RealtimeHandlers} from "./realtime_client.ts"
@@ -171,6 +172,7 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalogEntry[]>([])
   const [bootstrapLoading, setBootstrapLoading] = useState(Boolean(currentUser && mode !== "landing"))
   const [bootstrapReady, setBootstrapReady] = useState(false)
+  const documentVisible = useDocumentVisibility()
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef<ServerConnection[]>([])
@@ -530,13 +532,21 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
     if (
       mode === "landing" ||
       view !== "chat" ||
+      !documentVisible ||
       !activeChannel ||
       !["channel:", "direct:"].some((prefix) => activeChannel.id.startsWith(prefix))
     ) return
     if ((activeChannel.unread_count || 0) === 0 && (activeChannel.mention_count || 0) === 0) return
 
     markBufferRead(activeChannel.id)
-  }, [mode, view, activeChannel?.id, activeChannel?.unread_count, activeChannel?.mention_count])
+  }, [
+    mode,
+    view,
+    documentVisible,
+    activeChannel?.id,
+    activeChannel?.unread_count,
+    activeChannel?.mention_count,
+  ])
 
   function selectTopic(topic: Topic): void {
     if (mode === "landing" && currentUser) {

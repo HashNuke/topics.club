@@ -20,7 +20,24 @@ defmodule TopicsClub.Irc.Session.ConnectionIssueTest do
     assert issue.code == "invalid_nickname"
     assert issue.edit_focus == "nickname"
     assert issue.attempted_nickname == "bad.nick@example"
-    assert issue.summary == "Erroneous Nickname"
+
+    assert issue.summary ==
+             "Use a random nickname and reconnect now, or edit the connection to choose one yourself."
+  end
+
+  test "turns a nickname collision into an actionable nickname remedy" do
+    issue =
+      ConnectionIssue.nickname_in_use(
+        %{attempted: "taken", reason: "Nickname is already in use"},
+        @connection
+      )
+
+    assert issue.title == "Nickname is already in use"
+
+    assert issue.summary ==
+             "Use a random nickname and reconnect now, or edit the connection to choose one yourself."
+
+    assert issue.edit_focus == "nickname"
   end
 
   test "turns SASL failures into a credential remedy without storing secrets" do

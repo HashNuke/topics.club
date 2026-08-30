@@ -4,15 +4,23 @@ defmodule TopicsClub.Irc.Session.ConnectionIssue do
   alias TopicsClub.Chat.ServerConnection
 
   @terminal_irc_errors %{
-    "432" => {"invalid_nickname", "Nickname is not valid", "nickname"},
-    "464" => {"authentication_failed", "Authentication failed", "credentials"},
-    "465" => {"connection_rejected", "The server rejected this connection", "connection"}
+    "432" =>
+      {"invalid_nickname", "Nickname is not valid",
+       "Use a random nickname and reconnect now, or edit the connection to choose one yourself.",
+       "nickname"},
+    "464" =>
+      {"authentication_failed", "Authentication failed",
+       "Check the IRC account password. If the account name is wrong, add a new connection.",
+       "credentials"},
+    "465" =>
+      {"connection_rejected", "The server rejected this connection",
+       "Review the port, TLS setting, or credentials, then save to reconnect.", "connection"}
   }
 
-  def from_irc_error(%{code: code} = payload, %ServerConnection{} = connection) do
+  def from_irc_error(%{code: code}, %ServerConnection{} = connection) do
     case Map.get(@terminal_irc_errors, to_string(code)) do
-      {issue_code, title, edit_focus} ->
-        issue(issue_code, title, reason(payload), edit_focus,
+      {issue_code, title, summary, edit_focus} ->
+        issue(issue_code, title, summary, edit_focus,
           attempted_nickname: connection.nickname,
           irc_code: to_string(code)
         )
@@ -30,7 +38,7 @@ defmodule TopicsClub.Irc.Session.ConnectionIssue do
     issue(
       "nickname_in_use",
       "Nickname is already in use",
-      reason(payload, "Choose another nickname, then reconnect."),
+      "Use a random nickname and reconnect now, or edit the connection to choose one yourself.",
       "nickname",
       attempted_nickname: attempted,
       irc_code: "433"
@@ -41,7 +49,7 @@ defmodule TopicsClub.Irc.Session.ConnectionIssue do
     issue(
       "authentication_failed",
       "IRC account login failed",
-      "Check the IRC account name and password, then reconnect.",
+      "Check the IRC account password. If the account name is wrong, add a new connection.",
       "credentials",
       irc_code: payload |> Map.get(:code, "") |> to_string()
     )
@@ -53,7 +61,7 @@ defmodule TopicsClub.Irc.Session.ConnectionIssue do
     issue(
       "connection_failed",
       "Could not connect after 5 retries",
-      "Check the server address, port, TLS setting, or credentials before trying again.",
+      "Check the port, TLS setting, or passwords. If the server or IRC account is wrong, add a new connection.",
       "connection",
       host: connection.host,
       port: connection.port,
@@ -71,13 +79,6 @@ defmodule TopicsClub.Irc.Session.ConnectionIssue do
       summary: summary,
       edit_focus: edit_focus
     })
-  end
-
-  defp reason(payload, fallback \\ "The IRC server rejected the connection settings.") do
-    case Map.get(payload, :reason) do
-      reason when is_binary(reason) and reason != "" -> reason
-      _missing -> fallback
-    end
   end
 
   defp technical_details(reason) do

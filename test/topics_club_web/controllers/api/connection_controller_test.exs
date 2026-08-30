@@ -229,8 +229,8 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
     assert %{
              "connection" => %{
                "id" => connection_id,
-               "name" => "local-edited",
-               "host" => "localhost",
+               "name" => "local",
+               "host" => "127.0.0.1",
                "port" => 6697,
                "use_tls" => true,
                "nickname" => "mira2"

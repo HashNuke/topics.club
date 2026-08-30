@@ -28,6 +28,7 @@ export default {
     issue: nicknameIssue,
     onEditServer: () => {},
     onReconnectServer: () => {},
+    onUseRandomNickname: () => true,
     server,
   },
   decorators: [
@@ -46,7 +47,7 @@ export const AuthenticationIssue = {
     issue: {
       code: "authentication_failed",
       title: "IRC account login failed",
-      summary: "Check the IRC account name and password, then reconnect.",
+      summary: "Check the IRC account password. If the account name is wrong, add a new connection.",
       edit_focus: "credentials",
       irc_code: "904",
     },
@@ -58,7 +59,7 @@ export const RetryLimitReached = {
     issue: {
       code: "connection_failed",
       title: "Could not connect after 5 retries",
-      summary: "Check the server address, port, TLS setting, or credentials before trying again.",
+      summary: "Check the port, TLS setting, or passwords. If the server or IRC account is wrong, add a new connection.",
       edit_focus: "connection",
       technical_details: "{:tls_alert, {:unknown_ca, 'TLS client: In state certify'}}",
     },

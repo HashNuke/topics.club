@@ -6,7 +6,6 @@ defmodule TopicsClub.Chat.Connections do
   alias TopicsClub.Accounts.User
 
   alias TopicsClub.Chat.{
-    ConnectionAttributes,
     ConnectionEndpoint,
     ConnectionSnapshot,
     ServerConnection
@@ -14,6 +13,9 @@ defmodule TopicsClub.Chat.Connections do
 
   alias TopicsClub.EngineClient
   alias TopicsClub.Repo
+
+  @editable_fields ~w(port use_tls nickname server_password sasl_password)a
+  @editable_field_names Enum.map(@editable_fields, &Atom.to_string/1)
 
   def list(%User{} = user), do: ConnectionSnapshot.list(user)
 
@@ -34,7 +36,7 @@ defmodule TopicsClub.Chat.Connections do
   def update(%User{} = user, id, attrs) do
     user
     |> get!(id)
-    |> ServerConnection.changeset(ConnectionAttributes.normalize_host(attrs))
+    |> ServerConnection.changeset(Map.take(attrs, @editable_fields ++ @editable_field_names))
     |> Repo.update()
   end
 

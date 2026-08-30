@@ -86,7 +86,6 @@ export function EditServerDialog({focus = "connection", onClose, onSave, reconne
     host: server.host || "",
     port: String(server.port || 6669),
     nickname: server.nickname || "",
-    saslUsername: "",
     saslPassword: "",
     serverPassword: "",
     useTls: Boolean(server.use_tls || server.useTls),
@@ -105,22 +104,20 @@ export function EditServerDialog({focus = "connection", onClose, onSave, reconne
 
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/70 sm:grid sm:place-items-center sm:px-4">
-      <form aria-label="Edit server" aria-modal="true" className="flex max-h-[calc(100dvh-1rem)] w-full max-w-md flex-col rounded-t-2xl border border-slate-700 bg-[var(--app-panel)] shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-xl" onSubmit={submit} role="dialog">
+      <form aria-label="Edit connection" aria-modal="true" className="flex max-h-[calc(100dvh-1rem)] w-full max-w-md flex-col rounded-t-2xl border border-slate-700 bg-[var(--app-panel)] shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-xl" onSubmit={submit} role="dialog">
         <div className="shrink-0 p-5 pb-3">
-          <DialogHeader title="Edit connection" description={reconnectOnSave ? "Fix the connection details, then reconnect." : "Update the server details used for this connection."} onClose={onClose} />
+          <DialogHeader title="Edit connection" description={reconnectOnSave ? "Fix the connection settings, then reconnect." : "Update the settings used for this connection."} onClose={onClose} />
         </div>
         <div className="app-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-2">
-          <LabeledInput autoFocus={focus === "connection"} id="edit-server-host" label="Server" value={form.host} onChange={(host) => setForm({...form, host})} />
           <div className="grid grid-cols-[1fr_auto] items-end gap-3">
-            <LabeledInput id="edit-server-port" label="Port" value={form.port} onChange={(port) => setForm({...form, port})} />
+            <LabeledInput autoFocus={focus === "connection"} id="edit-server-port" label="Port" value={form.port} onChange={(port) => setForm({...form, port})} />
             <TlsToggle checked={form.useTls} onChange={(useTls) => setForm({...form, useTls})} />
           </div>
           <LabeledInput autoFocus={focus === "nickname"} id="edit-server-nickname" label="Nickname" value={form.nickname} onChange={(nickname) => setForm({...form, nickname})} />
           <details className="rounded-lg border border-slate-800 bg-slate-950/50" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
-            <summary className="cursor-pointer select-none px-3 py-3 text-sm font-semibold text-slate-300 transition hover:text-white">Login credentials</summary>
+            <summary className="cursor-pointer select-none px-3 py-3 text-sm font-semibold text-slate-300 transition hover:text-white">Passwords</summary>
             <div className="space-y-3 border-t border-slate-800 px-3 py-3">
-              <LabeledInput autoFocus={focus === "credentials"} autoComplete="username" id="edit-sasl-username" label="IRC account name" placeholder="Leave blank to keep the current account" value={form.saslUsername} onChange={(saslUsername) => setForm({...form, saslUsername})} />
-              <LabeledInput autoComplete="new-password" id="edit-sasl-password" label="IRC account password" placeholder="Leave blank to keep the current password" type="password" value={form.saslPassword} onChange={(saslPassword) => setForm({...form, saslPassword})} />
+              <LabeledInput autoFocus={focus === "credentials"} autoComplete="new-password" id="edit-sasl-password" label="IRC account password" placeholder="Leave blank to keep the current password" type="password" value={form.saslPassword} onChange={(saslPassword) => setForm({...form, saslPassword})} />
               <LabeledInput autoComplete="new-password" id="edit-server-password" label="Server password" placeholder="Leave blank to keep the current password" type="password" value={form.serverPassword} onChange={(serverPassword) => setForm({...form, serverPassword})} />
               <p className="text-xs leading-5 text-slate-500">Blank credential fields keep their currently saved values.</p>
             </div>

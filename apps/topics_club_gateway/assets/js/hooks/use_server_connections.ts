@@ -64,6 +64,7 @@ import type {
   TopicInput,
   UsersByBuffer,
 } from "../types.ts"
+import {documentVisible} from "./use_document_visibility.ts"
 
 export interface ManualServerForm {
   host: string
@@ -80,7 +81,6 @@ export interface EditServerForm {
   port: string | number
   useTls: boolean
   nickname: string
-  saslUsername?: string
   saslPassword?: string
   serverPassword?: string
 }
@@ -307,7 +307,11 @@ export default function useServerConnections({
   function applyChannelUnread(message: ChatMessage): void {
     if (!validChatMessage(message) || !message.buffer_id.startsWith("channel:")) return
     if (message.unread_count === undefined || message.mention_count === undefined) return
-    if (viewRef.current === "chat" && activeChannelIdRef.current === message.buffer_id) return
+    if (
+      documentVisible() &&
+      viewRef.current === "chat" &&
+      activeChannelIdRef.current === message.buffer_id
+    ) return
 
     const ownerId = bufferServerConnectionId(connectionsRef.current, message.buffer_id)
     if (ownerId === null || String(ownerId) !== String(message.server_connection_id)) return
@@ -487,7 +491,6 @@ export default function useServerConnections({
 
     try {
       const credentials = {
-        ...(form.saslUsername?.trim() ? {sasl_username: form.saslUsername.trim()} : {}),
         ...(form.saslPassword ? {sasl_password: form.saslPassword} : {}),
         ...(form.serverPassword ? {server_password: form.serverPassword} : {}),
       }

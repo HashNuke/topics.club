@@ -45,7 +45,7 @@ export default function NotificationBell({compact = false, id, loading = false, 
         className={[
           "relative grid shrink-0 place-items-center rounded-md border transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70",
           compact ? "size-7" : "size-9",
-          state.kind === "enabled" && "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-[0_0_0_1px_rgba(110,231,183,0.08)] hover:bg-emerald-200",
+          state.kind === "enabled" && "border-transparent bg-transparent text-emerald-400 hover:border-emerald-300/25 hover:bg-emerald-300/8 hover:text-emerald-300",
           state.kind === "disabled" && "border-slate-700 bg-slate-900/60 text-slate-400 hover:border-cyan-300/70 hover:text-white",
           state.kind === "available" && "border-cyan-300/50 bg-cyan-300/5 text-cyan-200 hover:-translate-y-px hover:border-cyan-200 hover:bg-cyan-300/10 hover:text-white",
           unavailable && "cursor-not-allowed border-slate-800 bg-slate-950/30 text-slate-600",

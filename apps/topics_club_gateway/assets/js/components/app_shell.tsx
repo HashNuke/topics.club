@@ -1,5 +1,5 @@
 import React, {useState} from "react"
-import type {ConnectionEditFocus} from "../connection_issue.ts"
+import {randomIrcNickname, type ConnectionEditFocus} from "../connection_issue.ts"
 import ChannelDirectoryPane from "./channel_directory_pane.tsx"
 import ChatPane from "./chat_pane.tsx"
 import DiscoverPane from "./discover_pane.tsx"
@@ -89,6 +89,13 @@ export default function AppShell(props: AppShellProps) {
     setServerEditor({focus, reconnect, server})
   }
 
+  const useRandomNickname = (server: ServerConnection) => props.onUpdateServer(server, {
+    host: server.host,
+    port: server.port || 6697,
+    useTls: Boolean(server.use_tls),
+    nickname: randomIrcNickname(),
+  }, true)
+
   return <main className="min-h-dvh overflow-hidden bg-[var(--app-canvas)] text-slate-100">
     <div className={["grid h-dvh grid-cols-1", showsUserSidebar ? "lg:grid-cols-[232px_minmax(0,1fr)_220px] xl:grid-cols-[240px_minmax(0,1fr)_220px]" : "lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]"].join(" ")}>
       <LeftSidebar {...props} onEditServer={(server) => openServerEditor(server)} />
@@ -96,7 +103,7 @@ export default function AppShell(props: AppShellProps) {
         <TopBar {...props} showsUserSidebar={showsUserSidebar} onOpenMobileMenu={() => setMobileMenuOpen(true)} onOpenMobileUsers={() => setMobileUsersOpen(true)} />
         {props.view === "discover" ? <DiscoverPane activeServer={props.activeServer} serverChannels={props.discoverServerChannels} error={props.discoverError} joiningServerChannelId={props.joiningDiscoveryServerChannelId} loading={props.discoverLoading} onJoinServerChannel={props.onJoinDiscoverServerChannel} onJoinThisServer={props.onJoinThisServerChannel} />
           : props.view === "directory" ? <ChannelDirectoryPane directory={props.channelDirectory} onJoinChannel={props.onJoinDirectoryChannel} onRefresh={() => props.activeServer && props.onOpenChannelDirectory(props.activeServer)} server={props.activeServer} />
-            : props.view === "server" ? <ServerBufferPane commandCatalog={props.commandCatalog} composerError={props.composerError} draft={props.draft} messages={props.serverMessages} onEditServer={(server, focus) => openServerEditor(server, focus, true)} onLoadOlderMessages={props.onLoadOlderMessages} onReadingStateChange={props.onReadingStateChange} onReconnectServer={props.onReconnectServer} server={props.activeServer} onSendMessage={props.onSendMessage} onUpdateDraft={props.onUpdateDraft} connectionHealth={props.connectionHealth} />
+            : props.view === "server" ? <ServerBufferPane commandCatalog={props.commandCatalog} composerError={props.composerError} draft={props.draft} messages={props.serverMessages} onEditServer={(server, focus) => openServerEditor(server, focus, true)} onLoadOlderMessages={props.onLoadOlderMessages} onReadingStateChange={props.onReadingStateChange} onReconnectServer={props.onReconnectServer} onUseRandomNickname={useRandomNickname} server={props.activeServer} onSendMessage={props.onSendMessage} onUpdateDraft={props.onUpdateDraft} connectionHealth={props.connectionHealth} />
               : <ChatPane {...props} />}
       </section>
       {showsUserSidebar && <RightSidebar activeChannel={props.activeChannel} users={props.users} onSetDirectMessageBlocked={props.onSetDirectMessageBlocked} />}

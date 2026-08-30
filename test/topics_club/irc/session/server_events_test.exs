@@ -47,6 +47,14 @@ defmodule TopicsClub.Irc.Session.ServerEventsTest do
            ] = messages(context)
   end
 
+  test "ignores whitespace-only MOTD lines without losing meaningful indentation", context do
+    assert context.state == ServerEvents.handle(:motd, context.state, %{text: " "})
+    assert context.state == ServerEvents.handle(:motd, context.state, %{text: "   "})
+    assert context.state == ServerEvents.handle(:motd, context.state, %{text: "  indented art"})
+
+    assert [%{kind: "notice", body: "  indented art"}] = messages(context)
+  end
+
   test "formats server information and nickname errors", context do
     assert context.state ==
              ServerEvents.handle(:server_info, context.state, %{

@@ -22,6 +22,7 @@ import type {
   ServerConnection,
   TimelineMessage,
 } from "../types.ts"
+import {documentVisible} from "./use_document_visibility.ts"
 
 interface BufferMessagesOptions {
   activeChannelIdRef: MutableRefObject<string | null>
@@ -160,7 +161,11 @@ export default function useBufferMessages({
       ),
     }))
 
-    if (viewRef.current === "chat" && activeChannelIdRef.current === bufferId) {
+    if (
+      documentVisible() &&
+      viewRef.current === "chat" &&
+      activeChannelIdRef.current === bufferId
+    ) {
       defer(() => markBufferRead(bufferId))
     }
   }
