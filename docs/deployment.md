@@ -63,6 +63,8 @@ The application waits for PostgreSQL health, runs migrations, and then starts th
 
 ## Advanced split deployment on one bare host
 
+For the concise start-to-finish procedure, see `docs/deployment-separate-nodes.md`.
+
 The first-party split deployment is for the TopicsClub-operated environment where web-only
 deployments must leave IRC connections alone. It runs `topics_club_gateway` and
 `topics_club_engine` as separate systemd services on one Ubuntu 26.04 x86-64 host. It does not
