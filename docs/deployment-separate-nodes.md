@@ -68,6 +68,10 @@ Add that public key to the GitHub repository under **Settings → Deploy keys** 
 The environment files are installed under `/etc/topics-club` with mode `0600` and get stable
 role-specific `RELEASE_NODE` values; `DATABASE_URL` remains in the separately generated `db.env`.
 
+Discovery remains opt-in: the generated gateway environment sets `ENABLE_DISCOVERY=false`. Change
+it to `true` on the one production gateway that should populate the channel directory, then restart
+that service. Re-running `install-secrets` restores the safe `false` default.
+
 ## 5. Provision the application host
 
 ```bash
