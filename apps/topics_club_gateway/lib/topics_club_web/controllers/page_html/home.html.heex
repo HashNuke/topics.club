@@ -1,6 +1,7 @@
 <div
   id="topics-club-root"
   data-app-mode="landing"
+  data-featured-channels={Jason.encode!(@featured_channels)}
   data-developer-oauth={if(TopicsClubWeb.Auth.DevStrategy.enabled?(), do: "true", else: "false")}
   data-current-user={
     if @current_scope do

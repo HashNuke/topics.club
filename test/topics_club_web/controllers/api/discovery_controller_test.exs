@@ -9,7 +9,7 @@ defmodule TopicsClubWeb.Api.DiscoveryControllerTest do
 
   setup :register_and_log_in_user
 
-  test "returns curated featured channels without requiring authentication" do
+  test "embeds curated featured channels in the public homepage" do
     now = ~U[2026-08-26 12:00:00Z]
     {:ok, [network]} = Discovery.sync_networks([network_entry()], now)
 
@@ -25,9 +25,15 @@ defmodule TopicsClubWeb.Api.DiscoveryControllerTest do
         now
       )
 
-    conn = get(build_conn(), ~p"/api/discovery/featured_channels")
+    [featured_channels_json] =
+      build_conn()
+      |> get(~p"/")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#topics-club-root")
+      |> LazyHTML.attribute("data-featured-channels")
 
-    assert %{"server_channels" => server_channels} = json_response(conn, 200)
+    server_channels = Jason.decode!(featured_channels_json)
 
     assert Enum.map(server_channels, & &1["name"]) == [
              "#ruby",

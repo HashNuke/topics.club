@@ -5,15 +5,11 @@ defmodule TopicsClubWeb.Api.DiscoveryController do
   alias TopicsClub.Discovery
   alias TopicsClub.EngineClient
   alias TopicsClubWeb.Api.EngineErrorResponse
+  alias TopicsClubWeb.Api.ServerChannelJSON
 
   def index(conn, _params) do
     server_channels = Discovery.list_popular_server_channels()
-    json(conn, %{server_channels: Enum.map(server_channels, &server_channel_json/1)})
-  end
-
-  def featured(conn, _params) do
-    server_channels = Discovery.list_featured_server_channels()
-    json(conn, %{server_channels: Enum.map(server_channels, &server_channel_json/1)})
+    json(conn, %{server_channels: Enum.map(server_channels, &ServerChannelJSON.render/1)})
   end
 
   def join(conn, %{"id" => id}) do
@@ -51,21 +47,6 @@ defmodule TopicsClubWeb.Api.DiscoveryController do
       conn
       |> put_status(:not_found)
       |> json(%{error: "channel_not_found"})
-  end
-
-  defp server_channel_json(server_channel) do
-    %{
-      id: server_channel.id,
-      name: server_channel.name,
-      topic: server_channel.topic,
-      user_count: server_channel.user_count,
-      network_id: server_channel.network.id,
-      network_name: server_channel.network.name,
-      server_host: server_channel.network.host,
-      server_port: server_channel.network.port,
-      use_tls: server_channel.network.use_tls,
-      refreshed_at: server_channel.network.channels_refreshed_at
-    }
   end
 
   defp connection_json(connection, status) do

@@ -890,9 +890,13 @@ describe("TopicsClubApp UI prototype", () => {
   })
 
   test("shows featured discovery channels and one Google sign-in action", async () => {
-    mockTopicsFetch()
-
-    render(<TopicsClubApp currentUser={null} developerOauth={true} />)
+    render(
+      <TopicsClubApp
+        currentUser={null}
+        developerOauth={true}
+        initialFeaturedChannels={featuredChannelFixtures}
+      />
+    )
 
     expect(await screen.findByRole("heading", {name: "Featured channels"})).toBeInTheDocument()
     expect(screen.getByRole("heading", {name: "#ruby"})).toBeInTheDocument()
@@ -902,11 +906,12 @@ describe("TopicsClubApp UI prototype", () => {
     expect(screen.queryByRole("button", {name: /join/i})).not.toBeInTheDocument()
   })
 
-  test("rejects a malformed public featured-channel response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        server_channels: [{
+  test("rejects malformed featured-channel data embedded by the server", () => {
+    render(
+      <TopicsClubApp
+        currentUser={null}
+        developerOauth={true}
+        initialFeaturedChannels={[{
           id: 101,
           name: "#broken",
           topic: 42,
@@ -916,13 +921,10 @@ describe("TopicsClubApp UI prototype", () => {
           server_host: "irc.example.test",
           server_port: 6697,
           use_tls: true,
-        }],
-      }),
-    })
+        }] as never}
+      />
+    )
 
-    render(<TopicsClubApp currentUser={null} developerOauth={true} />)
-
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
     expect(screen.queryByText("#broken")).not.toBeInTheDocument()
   })
 
@@ -4768,6 +4770,7 @@ describe("TopicsClubApp UI prototype", () => {
         appMode="landing"
         currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
         developerOauth={true}
+        initialFeaturedChannels={featuredChannelFixtures}
       />
     )
 

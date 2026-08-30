@@ -24,10 +24,10 @@ defmodule TopicsClubWeb.Api.NotificationAccountControllerTest do
     assert session_generation == UserToken.session_token_fingerprint(token)
   end
 
-  test "returns an empty account without an authenticated session" do
+  test "rejects a request without an authenticated session" do
     conn = build_conn() |> get(~p"/api/notification-account")
 
-    assert %{"user_id" => nil, "session_generation" => nil} = json_response(conn, 200)
+    assert %{"error" => "authentication_required"} = json_response(conn, 401)
   end
 
   test "does not rotate an aging session while checking notification ownership", %{conn: conn} do

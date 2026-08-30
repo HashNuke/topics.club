@@ -56,13 +56,6 @@ defmodule TopicsClubWeb.Router do
   end
 
   scope "/api", TopicsClubWeb.Api do
-    pipe_through :api
-
-    get "/discovery/featured_channels", DiscoveryController, :featured
-    get "/topics", TopicController, :index
-  end
-
-  scope "/api", TopicsClubWeb.Api do
     pipe_through :notification_account_api
 
     get "/notification-account", NotificationAccountController, :show
@@ -72,6 +65,7 @@ defmodule TopicsClubWeb.Router do
   scope "/api", TopicsClubWeb.Api do
     pipe_through :authenticated_api
 
+    get "/topics", TopicController, :index
     get "/bootstrap", BootstrapController, :show
     get "/discovery/server_channels", DiscoveryController, :index
     post "/discovery/server_channels/:id/join", DiscoveryController, :join

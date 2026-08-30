@@ -64,12 +64,22 @@ if (root) {
   const currentUser = root.dataset.currentUser ? JSON.parse(root.dataset.currentUser) as CurrentUser : null
   const developerOauth = root.dataset.developerOauth === "true"
   const appMode = root.dataset.appMode === "landing" ? "landing" : "chat"
+  const initialFeaturedChannels = root.dataset.featuredChannels
+    ? JSON.parse(root.dataset.featuredChannels)
+    : undefined
   const apiClient = createApiClient({csrfToken})
   const realtimeClientFactory = currentUser
     ? ({handlers}: {handlers: RealtimeHandlers}) => createRealtimeClient({SocketClass: Socket, csrfToken, userId: currentUser.id, handlers})
     : null
 
-  createRoot(root).render(React.createElement(TopicsClubApp, {apiClient, appMode, currentUser, developerOauth, realtimeClientFactory}))
+  createRoot(root).render(React.createElement(TopicsClubApp, {
+    apiClient,
+    appMode,
+    currentUser,
+    developerOauth,
+    initialFeaturedChannels,
+    realtimeClientFactory,
+  }))
 }
 
 // The lines below enable quality of life phoenix_live_reload

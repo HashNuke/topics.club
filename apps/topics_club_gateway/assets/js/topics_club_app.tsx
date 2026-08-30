@@ -86,6 +86,7 @@ export interface TopicsClubAppProps {
   appMode?: "landing" | "chat"
   currentUser?: CurrentUser | null
   developerOauth: boolean
+  initialFeaturedChannels?: ServerChannel[]
   realtimeClientFactory?: ((options: {handlers: RealtimeHandlers}) => RealtimeClient) | null
 }
 
@@ -143,13 +144,17 @@ interface NotificationBufferRequest {
   userId: string
 }
 
-export default function TopicsClubApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, realtimeClientFactory}: TopicsClubAppProps) {
+export default function TopicsClubApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, initialFeaturedChannels = [], realtimeClientFactory}: TopicsClubAppProps) {
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
   const [topics, setTopics] = useState<Topic[]>([])
   const [topicsLoaded, setTopicsLoaded] = useState(false)
-  const [featuredChannels, setFeaturedChannels] = useState<ServerChannel[]>([])
-  const [featuredChannelsLoading, setFeaturedChannelsLoading] = useState(mode === "landing")
+  const [featuredChannels] = useState<ServerChannel[]>(() =>
+    Array.isArray(initialFeaturedChannels) && initialFeaturedChannels.every(validServerChannel)
+      ? initialFeaturedChannels
+      : []
+  )
+  const featuredChannelsLoading = false
   const [view, setView] = useState<AppView>("chat")
   const [notificationDeviceState, setNotificationDeviceState] = useState<NotificationDeviceState>(initialNotificationDeviceState())
   const [notificationSavingIds, setNotificationSavingIds] = useState<Set<string>>(new Set())
@@ -449,34 +454,6 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
         setTopics([])
         setTopicsLoaded(true)
       })
-  }, [apiClient, mode])
-
-  useEffect(() => {
-    if (mode !== "landing") return
-
-    let active = true
-    setFeaturedChannelsLoading(true)
-
-    apiClient
-      .featuredChannels()
-      .then(({server_channels}) => {
-        if (!active) return
-        if (!Array.isArray(server_channels) || !server_channels.every(validServerChannel)) {
-          throw new Error("invalid featured channels payload")
-        }
-
-        setFeaturedChannels(server_channels)
-      })
-      .catch(() => {
-        if (active) setFeaturedChannels([])
-      })
-      .finally(() => {
-        if (active) setFeaturedChannelsLoading(false)
-      })
-
-    return () => {
-      active = false
-    }
   }, [apiClient, mode])
 
   useEffect(() => {

@@ -48,7 +48,8 @@ defmodule TopicsClubWeb.Api.NotificationEligibilityControllerTest do
         ~p"/api/notifications/#{notification.id}/eligibility?#{%{session_generation: "stale"}}"
       )
 
-    assert %{"eligible" => false} = json_response(anonymous, 200)
+    assert %{"error" => "authentication_required"} = json_response(anonymous, 401)
+    assert ["no-store"] = get_resp_header(anonymous, "cache-control")
 
     stale =
       get(
