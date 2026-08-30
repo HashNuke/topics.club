@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -43,6 +45,145 @@ def run(
 
 def output(command: list[str], *, cwd: Path = PROJECT_ROOT) -> str:
     return run(command, cwd=cwd, capture=True).stdout.strip()
+
+
+def onepassword_item(vault: str, item: str) -> dict[str, object]:
+    try:
+        document = json.loads(
+            output(["op", "item", "get", item, "--vault", vault, "--format=json"])
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("1Password CLI (`op`) is not installed") from error
+    except json.JSONDecodeError as error:
+        raise RuntimeError("1Password CLI returned invalid item JSON") from error
+
+    if not isinstance(document, dict):
+        raise RuntimeError("1Password CLI returned an invalid item")
+    return document
+
+
+def onepassword_fields(document: dict[str, object]) -> dict[tuple[str, str], dict[str, object]]:
+    raw_sections = document.get("sections", [])
+    raw_fields = document.get("fields", [])
+    if not isinstance(raw_sections, list) or not isinstance(raw_fields, list):
+        raise RuntimeError("1Password item has invalid sections or fields")
+
+    sections = {
+        section.get("id"): section.get("label")
+        for section in raw_sections
+        if isinstance(section, dict)
+        and isinstance(section.get("id"), str)
+        and isinstance(section.get("label"), str)
+    }
+    indexed: dict[tuple[str, str], dict[str, object]] = {}
+    for field in raw_fields:
+        if not isinstance(field, dict) or not isinstance(field.get("label"), str):
+            continue
+        section = field.get("section")
+        if not isinstance(section, dict):
+            continue
+        section_label = section.get("label") or sections.get(section.get("id"))
+        if not isinstance(section_label, str):
+            continue
+        key = (section_label, field["label"])
+        if key in indexed:
+            raise RuntimeError(f"duplicate 1Password field: {section_label}.{field['label']}")
+        indexed[key] = field
+    return indexed
+
+
+def populated(field: dict[str, object] | None) -> bool:
+    if field is None:
+        return False
+    value = field.get("value")
+    return isinstance(value, str) and bool(value.strip())
+
+
+def vapid_keypair() -> tuple[str, str]:
+    values: dict[str, str] = {}
+    for line in output(["mix", "topics_club.gen_vapid_keys"]).splitlines():
+        name, separator, value = line.strip().partition("=")
+        if separator and name in {"VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"}:
+            values[name] = value
+    if not values.get("VAPID_PUBLIC_KEY") or not values.get("VAPID_PRIVATE_KEY"):
+        raise RuntimeError("VAPID key generator did not return a complete keypair")
+    return values["VAPID_PUBLIC_KEY"], values["VAPID_PRIVATE_KEY"]
+
+
+GENERATED_ONEPASSWORD_FIELDS = {
+    ("shared", "IRC_CREDENTIALS_KEY"): "password",
+    ("shared", "RELEASE_COOKIE"): "password",
+    ("gateway", "SECRET_KEY_BASE"): "password",
+    ("gateway", "VAPID_PUBLIC_KEY"): "text",
+    ("gateway", "VAPID_PRIVATE_KEY"): "password",
+}
+
+
+def generate_onepassword_secrets(vault: str, item: str) -> list[str]:
+    document = onepassword_item(vault, item)
+    fields = onepassword_fields(document)
+    missing_fields = [key for key in GENERATED_ONEPASSWORD_FIELDS if key not in fields]
+    if missing_fields:
+        assignments = [
+            f"{section}.{label}[{GENERATED_ONEPASSWORD_FIELDS[(section, label)]}]="
+            for section, label in missing_fields
+        ]
+        run(
+            ["op", "item", "edit", item, "--vault", vault, *assignments],
+            quiet=True,
+        )
+        document = onepassword_item(vault, item)
+        fields = onepassword_fields(document)
+
+    public_field = fields.get(("gateway", "VAPID_PUBLIC_KEY"))
+    private_field = fields.get(("gateway", "VAPID_PRIVATE_KEY"))
+    if populated(public_field) != populated(private_field):
+        raise RuntimeError(
+            "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must both be empty or both have values"
+        )
+
+    generated: dict[tuple[str, str], str] = {}
+    credentials_field = fields.get(("shared", "IRC_CREDENTIALS_KEY"))
+    if not populated(credentials_field):
+        generated[("shared", "IRC_CREDENTIALS_KEY")] = base64.b64encode(
+            secrets.token_bytes(32)
+        ).decode("ascii")
+
+    cookie_field = fields.get(("shared", "RELEASE_COOKIE"))
+    if not populated(cookie_field):
+        generated[("shared", "RELEASE_COOKIE")] = secrets.token_hex(32)
+
+    secret_key_field = fields.get(("gateway", "SECRET_KEY_BASE"))
+    if not populated(secret_key_field):
+        generated[("gateway", "SECRET_KEY_BASE")] = secrets.token_urlsafe(64)
+
+    if not populated(public_field):
+        public_key, private_key = vapid_keypair()
+        generated[("gateway", "VAPID_PUBLIC_KEY")] = public_key
+        generated[("gateway", "VAPID_PRIVATE_KEY")] = private_key
+
+    if not generated:
+        return []
+
+    for key, value in generated.items():
+        field = fields.get(key)
+        if field is None:
+            raise RuntimeError(f"1Password field was not created: {key[0]}.{key[1]}")
+        field["value"] = value
+
+    try:
+        subprocess.run(
+            ["op", "item", "edit", item, "--vault", vault],
+            cwd=PROJECT_ROOT,
+            check=True,
+            text=True,
+            input=json.dumps(document),
+            stdout=subprocess.DEVNULL,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("1Password CLI (`op`) is not installed") from error
+
+    return [f"{section}.{label}" for section, label in generated]
 
 
 def split_host(host: str, ssh_port: int | None, ssh_key: str | None) -> tuple[str, str, int, str | None]:
@@ -214,6 +355,21 @@ class AppTools:
     """Provision and deploy TopicsClub to one SSH-accessible app host."""
 
     testvps = VpsCommands()
+
+    def create_secrets(
+        self,
+        env: str,
+        vault: str = "app-secrets",
+    ) -> None:
+        """Generate only empty TopicsClub cryptographic fields in 1Password."""
+        if env not in {"dev", "prod"}:
+            raise ValueError("env must be dev or prod")
+        item = f"topics-club-{env}"
+        generated = generate_onepassword_secrets(vault, item)
+        if generated:
+            print(f"Generated {', '.join(generated)} in {vault}/{item}.")
+        else:
+            print(f"All generated fields in {vault}/{item} already have values; no changes made.")
 
     def provision_db(
         self,

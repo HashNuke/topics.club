@@ -31,17 +31,17 @@ This installs PostgreSQL, creates `topics_club_prod` owned by `topics_club`, and
 
 ## 3. Generate application secrets
 
-Run locally and retain the results in your password manager:
+Install and sign in to the 1Password CLI. In the `app-secrets` vault, create a Secure Note
+named `topics-club-prod` with `shared` and `gateway` sections. Then run:
 
 ```bash
-mix phx.gen.secret
-mix topics_club.gen_credentials_key
-mix topics_club.gen_vapid_keys
-openssl rand -hex 32
+bin/apptools create-secrets --env prod
 ```
 
-The last value is `RELEASE_COOKIE`. Use the same `IRC_CREDENTIALS_KEY` and
-`RELEASE_COOKIE` for both services.
+The command fills only empty or missing `IRC_CREDENTIALS_KEY`, `RELEASE_COOKIE`,
+`SECRET_KEY_BASE`, `VAPID_PUBLIC_KEY`, and `VAPID_PRIVATE_KEY` fields. It never prints or
+replaces their values. Add the remaining gateway values to the note manually.
+Use `--env dev` to target `app-secrets/topics-club-dev` instead.
 
 ## 4. Create the application environment files
 

@@ -1,4 +1,7 @@
 import base64
+import contextlib
+import io
+import json
 import subprocess
 import sys
 import unittest
@@ -127,6 +130,133 @@ class ValidationTest(unittest.TestCase):
             with self.subTest(health_url=health_url):
                 with self.assertRaises(ValueError):
                     apptools.validate_health_url(health_url)
+
+
+def onepassword_document(values: dict[tuple[str, str], str]) -> dict[str, object]:
+    return {
+        "id": "item-id",
+        "title": "topics-club-prod",
+        "category": "SECURE_NOTE",
+        "vault": {"id": "vault-id"},
+        "sections": [
+            {"id": "shared-id", "label": "shared"},
+            {"id": "gateway-id", "label": "gateway"},
+        ],
+        "fields": [
+            {
+                "id": label.lower(),
+                "label": label,
+                "type": "CONCEALED" if field_type == "password" else "STRING",
+                "value": values.get((section, label), ""),
+                "section": {"id": f"{section}-id"},
+            }
+            for (section, label), field_type in apptools.GENERATED_ONEPASSWORD_FIELDS.items()
+        ],
+    }
+
+
+class OnePasswordSecretsTest(unittest.TestCase):
+    @mock.patch.object(apptools, "generate_onepassword_secrets", return_value=[])
+    def test_create_secrets_selects_the_item_from_the_environment(
+        self,
+        generate_mock: mock.Mock,
+    ) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            apptools.AppTools().create_secrets(env="prod")
+        generate_mock.assert_called_once_with("app-secrets", "topics-club-prod")
+
+        with self.assertRaisesRegex(ValueError, "env must be dev or prod"):
+            apptools.AppTools().create_secrets(env="staging")
+
+    @mock.patch.object(apptools, "vapid_keypair", return_value=("public-new", "private-new"))
+    @mock.patch.object(apptools.subprocess, "run")
+    @mock.patch.object(apptools, "onepassword_item")
+    def test_generates_only_empty_fields_without_putting_values_in_arguments(
+        self,
+        item_mock: mock.Mock,
+        subprocess_mock: mock.Mock,
+        _vapid_mock: mock.Mock,
+    ) -> None:
+        item_mock.return_value = onepassword_document(
+            {
+                ("shared", "IRC_CREDENTIALS_KEY"): "existing-key",
+                ("gateway", "SECRET_KEY_BASE"): "existing-secret",
+            }
+        )
+
+        generated = apptools.generate_onepassword_secrets(
+            "app-secrets", "topics-club-prod"
+        )
+
+        self.assertEqual(
+            generated,
+            [
+                "shared.RELEASE_COOKIE",
+                "gateway.VAPID_PUBLIC_KEY",
+                "gateway.VAPID_PRIVATE_KEY",
+            ],
+        )
+        command = subprocess_mock.call_args.args[0]
+        self.assertEqual(
+            command,
+            [
+                "op",
+                "item",
+                "edit",
+                "topics-club-prod",
+                "--vault",
+                "app-secrets",
+            ],
+        )
+        submitted = json.loads(subprocess_mock.call_args.kwargs["input"])
+        submitted_fields = apptools.onepassword_fields(submitted)
+        self.assertEqual(
+            submitted_fields[("shared", "IRC_CREDENTIALS_KEY")]["value"],
+            "existing-key",
+        )
+        self.assertEqual(
+            submitted_fields[("gateway", "SECRET_KEY_BASE")]["value"],
+            "existing-secret",
+        )
+
+    @mock.patch.object(apptools.subprocess, "run")
+    @mock.patch.object(apptools, "onepassword_item")
+    def test_refuses_to_replace_half_of_an_existing_vapid_pair(
+        self,
+        item_mock: mock.Mock,
+        subprocess_mock: mock.Mock,
+    ) -> None:
+        item_mock.return_value = onepassword_document(
+            {("gateway", "VAPID_PUBLIC_KEY"): "existing-public"}
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "must both be empty"):
+            apptools.generate_onepassword_secrets("app-secrets", "topics-club-prod")
+
+        subprocess_mock.assert_not_called()
+
+    @mock.patch.object(apptools, "vapid_keypair", return_value=("public-new", "private-new"))
+    @mock.patch.object(apptools.subprocess, "run")
+    @mock.patch.object(apptools, "run")
+    @mock.patch.object(apptools, "onepassword_item")
+    def test_creates_missing_fields_with_empty_assignments_before_populating(
+        self,
+        item_mock: mock.Mock,
+        run_mock: mock.Mock,
+        _subprocess_mock: mock.Mock,
+        _vapid_mock: mock.Mock,
+    ) -> None:
+        empty_item = onepassword_document({})
+        empty_item["fields"] = []
+        item_mock.side_effect = [empty_item, onepassword_document({})]
+
+        apptools.generate_onepassword_secrets("app-secrets", "topics-club-prod")
+
+        field_command = run_mock.call_args.args[0]
+        self.assertEqual(len(field_command[6:]), 5)
+        self.assertTrue(all(argument.endswith("=") for argument in field_command[6:]))
+        self.assertNotIn("public-new", field_command)
+        self.assertNotIn("private-new", field_command)
 
 
 class DeploySelectionTest(unittest.TestCase):
