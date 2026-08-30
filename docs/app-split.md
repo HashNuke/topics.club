@@ -1516,16 +1516,22 @@ Verification checkpoint, 2026-08-28:
 
 Size: **L**. Risk: **High**. These checks turn a working demo into a supportable production architecture.
 
+Checklist audit, 2026-08-29: CI, focused contract and lifecycle tests, the combined Docker/Compose
+smokes, and the production-like pseudo-VPS rehearsals already satisfy several items that remained
+unchecked below. Protocol N/N-1 testing begins only when protocol v2 creates a real prior protocol
+to support. The singleton and network checks are scoped to the supported one-host deployment;
+partition-safe multi-engine ownership remains explicitly deferred until leases and fencing exist.
+
 #### CI and artifact verification
 
 - [x] Run root formatting, compilation with warnings as errors, frontend type checks, frontend tests, Storybook build, and Elixir tests.
-- [ ] Build all three releases from a clean CI checkout.
-- [ ] Inspect release contents to enforce the expected application and asset boundaries.
-- [ ] Build and smoke-test the default combined Docker image with no cluster variables.
-- [ ] Validate and smoke-test the production Compose package.
+- [x] Build all three releases from a clean CI checkout.
+- [x] Inspect release contents to enforce the expected application and asset boundaries.
+- [x] Build and smoke-test the default combined Docker image with no cluster variables.
+- [x] Validate and smoke-test the production Compose package.
 - [x] Keep the split-release/local-IRC acceptance check explicit on the pseudo-VPS rather than in routine CI.
-- [ ] Verify migrations run once and never from engine startup.
-- [ ] Verify only the intended Oban queues, plugins, and cron entries run in each release.
+- [x] Verify migrations run once and never from engine startup.
+- [x] Verify only the intended Oban queues, plugins, and cron entries run in each release.
 
 #### Compatibility and failure testing
 
@@ -1533,26 +1539,26 @@ Size: **L**. Risk: **High**. These checks turn a working demo into a supportable
 - [x] Verify bidirectional message traffic, persistence, engine restart, and transport recovery at the documented planning ceiling.
 - [x] Benchmark the combined release under resident IRC load with public and authenticated HTTP traffic.
 - [x] Document the reproducible harness, resource limits, lab notes, results, and remaining SLA work in `docs/load-tests.md`.
-- [ ] Verify every request/event version accepts documented fields and rejects unsupported versions.
-- [ ] Verify contracts contain no Ecto structs, PIDs, functions, exceptions, or engine-private structs.
-- [ ] Verify web N with engine N-1 for every supported operation and event.
+- [x] Verify every request/event version accepts documented fields and rejects unsupported versions.
+- [x] Verify contracts contain no Ecto structs, PIDs, functions, exceptions, or engine-private structs.
+- [ ] Deferred until protocol v2: verify web protocol N with engine protocol N-1 for every operation and event retained during the compatibility window.
 - [ ] Verify additive migrations work while the older engine remains online.
 - [ ] Verify a web rollback after additive migrations.
-- [ ] Verify an engine rollback while the schema remains compatible.
-- [ ] Inject web crashes, engine crashes, node disconnects, RPC timeouts, PostgreSQL outages, and IRC outages.
-- [ ] Verify no failure path starts a second active engine.
-- [ ] Verify browser history reconciliation after missed PubSub events.
+- [x] Verify an engine rollback while the schema remains compatible.
+- [x] Inject web crashes, engine crashes, node disconnects, RPC timeouts, PostgreSQL outages, and IRC outages.
+- [x] Verify visible duplicates are rejected and no supported single-host deployment or failure path starts a second engine; disconnected engines remain unsupported until leases and fencing exist.
+- [x] Verify browser history reconciliation after missed PubSub events.
 - [ ] Verify retention, unread counts, mentions, notifications, presence, and direct messages across the split boundary.
 
 #### Security and operational documentation
 
 - [ ] Threat-model Erlang cookie compromise and distribution-port exposure.
-- [ ] Verify private firewall rules from production-like hosts.
-- [ ] Verify release users cannot read secrets belonging only to the other role unless required.
+- [x] Verify EPMD and distribution listeners bind only to loopback on the supported production-like one-host deployment.
+- [x] Verify release users cannot read secrets belonging only to the other role unless required.
 - [ ] Optional/deferred: configure and test PostgreSQL backup, restore, and recovery.
-- [ ] Document expand-and-contract migrations and destructive-change coordination.
-- [ ] Document web deployment, engine deployment, rollback, and combined-mode recovery.
-- [ ] Document cookie rotation and node-name changes.
+- [x] Document expand-and-contract migrations and destructive-change coordination.
+- [ ] Add emergency split-to-combined recovery to the existing web/engine deployment and rollback runbook.
+- [ ] Document coordinated node-name changes; cookie rotation is already documented.
 - [x] Document health responses, log collection, stable operational events, and external alerting.
 - [ ] Optional/deferred: select a production log backend or dashboard if operating experience justifies one.
 - [ ] Update README with combined Docker and Compose first, and split deployment as an advanced operator workflow.
@@ -1560,11 +1566,11 @@ Size: **L**. Risk: **High**. These checks turn a working demo into a supportable
 
 #### Final exit gate
 
-- [ ] Combined Docker/Compose remains the simple supported default.
-- [ ] First-party web deploys do not reconnect IRC clients.
-- [ ] Engine restarts restore desired-connected sessions and never restore paused sessions.
-- [ ] Split failure modes are visible, bounded, and documented.
-- [ ] Rollback procedures have been rehearsed against a production-like database copy.
+- [x] Combined Docker/Compose remains the simple supported default.
+- [x] First-party web deploys do not reconnect IRC clients.
+- [x] Engine restarts restore desired-connected sessions and never restore paused sessions.
+- [x] Split failure modes are visible, bounded, and documented.
+- [ ] Rollback procedures have been rehearsed against a representative production-like database snapshot.
 - [ ] The initial production rollout is approved with an explicit maintenance window.
 
 ## Initial production rollout checklist
