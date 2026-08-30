@@ -106,12 +106,15 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(testvps.VPS_CONTAINER, "topics-club-vps")
         self.assertIsInstance(apptools.AppTools.testvps, testvps.VpsCommands)
 
-    def test_repository_rejects_credentials_and_non_https_remotes(self) -> None:
+    def test_repository_accepts_https_and_constrained_github_ssh_remotes(self) -> None:
         apptools.validate_repository("https://github.com/HashNuke/topics.club.git")
+        apptools.validate_repository("git@github.com:HashNuke/topics.club.git")
         apptools.validate_repository("file:///mnt/topics-club.git")
 
         for repository in [
-            "git@github.com:HashNuke/topics.club.git",
+            "git@example.com:HashNuke/topics.club.git",
+            "ssh://git@github.com/HashNuke/topics.club.git",
+            "git@github.com:HashNuke/topics.club.git --upload-pack=evil",
             "https://user:secret@example.com/topics.club.git",
             "https://example.com/topics.club.git?token=secret",
         ]:
@@ -131,6 +134,22 @@ class ValidationTest(unittest.TestCase):
             with self.subTest(health_url=health_url):
                 with self.assertRaises(ValueError):
                     apptools.validate_health_url(health_url)
+
+    def test_gateway_host_is_one_lower_case_dns_name(self) -> None:
+        apptools.validate_gateway_host("")
+        apptools.validate_gateway_host("topics.club")
+        apptools.validate_gateway_host("chat-preview.topics.club")
+
+        for gateway_host in [
+            "localhost",
+            "TOPICS.club",
+            "https://topics.club",
+            "topics.club/path",
+            "topics..club",
+        ]:
+            with self.subTest(gateway_host=gateway_host):
+                with self.assertRaises(ValueError):
+                    apptools.validate_gateway_host(gateway_host)
 
 
 def onepassword_document(values: dict[tuple[str, str], str]) -> dict[str, object]:

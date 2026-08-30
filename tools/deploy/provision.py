@@ -1,4 +1,5 @@
 import hashlib
+import io
 import shlex
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from pyinfra.operations import apt, files, server, systemd
 
 
 DEPLOY_DIR = Path(__file__).resolve().parent
+gateway_host = host.data.gateway_host
 SYSTEMD_UNITS = [
     "topics-club-gateway.service",
     "topics-club-engine.service",
@@ -28,7 +30,9 @@ apt.packages(
         "libstdc++6",
         "locales",
         "openssl",
+        "openssh-client",
         "util-linux",
+        "ufw",
     ],
     present=True,
     update=True,
@@ -109,6 +113,102 @@ systemd.service(
     enabled=True,
 )
 
+if gateway_host:
+    apt.packages(
+        name="Install the HTTPS reverse proxy",
+        packages=["caddy"],
+        present=True,
+        update=False,
+        no_recommends=True,
+    )
+
+    caddyfile = (
+        f"{gateway_host} {{\n"
+        "\treverse_proxy 127.0.0.1:4000\n"
+        "}\n\n"
+        f"www.{gateway_host} {{\n"
+        f"\tredir https://{gateway_host}{{uri}} permanent\n"
+        "}\n"
+    )
+    caddyfile_path = "/etc/caddy/Caddyfile"
+    caddyfile_changed = (
+        host.get_fact(Sha256File, path=caddyfile_path)
+        != hashlib.sha256(caddyfile.encode()).hexdigest()
+    )
+
+    files.put(
+        name="Configure the TopicsClub HTTPS reverse proxy",
+        src=io.StringIO(caddyfile),
+        dest=caddyfile_path,
+        user="root",
+        group="root",
+        mode="0644",
+    )
+    if caddyfile_changed:
+        server.shell(
+            name="Validate the Caddy configuration",
+            commands=f"caddy validate --config {caddyfile_path}",
+        )
+    systemd.service(
+        name="Enable and start the HTTPS reverse proxy",
+        service="caddy.service",
+        running=True,
+        enabled=True,
+        restarted=caddyfile_changed,
+    )
+
+    ufw_binary = host.get_fact(File, path="/usr/sbin/ufw")
+    if ufw_binary is False:
+        raise RuntimeError("/usr/sbin/ufw exists but is not a regular file")
+    ufw_exists = ufw_binary is not None
+    if ufw_exists:
+        ufw_rules = host.get_fact(Command, command="ufw show added")
+        ufw_status = host.get_fact(Command, command="ufw status")
+        ufw_defaults = host.get_fact(
+            Command,
+            command="grep -E '^(IPV6|DEFAULT_INPUT_POLICY|DEFAULT_OUTPUT_POLICY)=' /etc/default/ufw",
+        )
+    else:
+        ufw_rules = ""
+        ufw_status = ""
+        ufw_defaults = ""
+
+    if 'IPV6=yes' not in ufw_defaults:
+        server.shell(
+            name="Enable IPv6 firewall coverage",
+            commands=(
+                "grep -qx 'IPV6=yes' /etc/default/ufw || "
+                "sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw"
+            ),
+        )
+    if 'DEFAULT_INPUT_POLICY="DROP"' not in ufw_defaults:
+        server.shell(
+            name="Deny unsolicited inbound traffic by default",
+            commands="ufw default deny incoming",
+        )
+    if 'DEFAULT_OUTPUT_POLICY="ACCEPT"' not in ufw_defaults:
+        server.shell(
+            name="Allow outbound traffic by default",
+            commands="ufw default allow outgoing",
+        )
+
+    for port, comment in [
+        (int(host.data.ssh_port), "SSH"),
+        (80, "HTTP"),
+        (443, "HTTPS"),
+    ]:
+        if f"ufw allow {port}/tcp" not in ufw_rules:
+            server.shell(
+                name=f"Permit {comment} through the host firewall",
+                commands=f"ufw allow {port}/tcp comment '{comment}'",
+            )
+
+    if "Status: active" not in ufw_status:
+        server.shell(
+            name="Enable the host firewall",
+            commands="ufw --force enable",
+        )
+
 server.group(
     name="Create the TopicsClub deployment group",
     group="topics-club-deploy",
@@ -162,6 +262,70 @@ for path, user, group, mode in [
         user=user,
         group=group,
         mode=mode,
+    )
+
+if host.data.repo_url.startswith("git@github.com:"):
+    ssh_directory = "/srv/topics-club/build-home/.ssh"
+    deploy_key = f"{ssh_directory}/id_ed25519"
+    deploy_public_key = f"{deploy_key}.pub"
+
+    files.directory(
+        name="Configure the deployment user's SSH directory",
+        path=ssh_directory,
+        user="topics-club-deploy",
+        group="topics-club-deploy",
+        mode="0700",
+    )
+
+    existing_deploy_key = host.get_fact(File, path=deploy_key)
+    existing_deploy_public_key = host.get_fact(File, path=deploy_public_key)
+    if existing_deploy_key is False:
+        raise RuntimeError(f"{deploy_key} exists but is not a regular file")
+    if existing_deploy_public_key is False:
+        raise RuntimeError(f"{deploy_public_key} exists but is not a regular file")
+    if existing_deploy_key is None and existing_deploy_public_key is not None:
+        raise RuntimeError(f"{deploy_public_key} exists without its private key")
+    if existing_deploy_key is None:
+        server.shell(
+            name="Generate the destination-only GitHub deploy key",
+            commands=(
+                "runuser -u topics-club-deploy -- "
+                f"ssh-keygen -q -t ed25519 -N '' -C topics-club-deploy -f {deploy_key}"
+            ),
+        )
+    elif existing_deploy_public_key is None:
+        server.shell(
+            name="Restore the GitHub deploy public key",
+            commands=(
+                f"ssh-keygen -y -f {deploy_key} | "
+                f"sed 's/$/ topics-club-deploy/' > {deploy_public_key}"
+            ),
+        )
+
+    files.file(
+        name="Protect the GitHub deploy key",
+        path=deploy_key,
+        user="topics-club-deploy",
+        group="topics-club-deploy",
+        mode="0600",
+    )
+    files.file(
+        name="Publish the GitHub deploy public key locally",
+        path=deploy_public_key,
+        user="topics-club-deploy",
+        group="topics-club-deploy",
+        mode="0644",
+    )
+    files.put(
+        name="Pin GitHub's published Ed25519 host key",
+        src=io.StringIO(
+            "github.com ssh-ed25519 "
+            "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"
+        ),
+        dest=f"{ssh_directory}/known_hosts",
+        user="topics-club-deploy",
+        group="topics-club-deploy",
+        mode="0644",
     )
 
 database_environment_path = "/etc/topics-club/db.env"

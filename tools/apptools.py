@@ -24,6 +24,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPOSITORY = "https://github.com/HashNuke/topics.club.git"
 RELEASE_TAG = re.compile(r"^(\d{8})\.(\d+)$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
+GITHUB_SSH_REPOSITORY = re.compile(
+    r"^git@github\.com:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?$"
+)
+DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 def run(
@@ -388,6 +392,8 @@ def split_host(host: str, ssh_port: int | None, ssh_key: str | None) -> tuple[st
 def validate_repository(repository: str) -> None:
     if repository == "file:///mnt/topics-club.git":
         return
+    if GITHUB_SSH_REPOSITORY.fullmatch(repository):
+        return
     parsed = urlparse(repository)
     if (
         parsed.scheme != "https"
@@ -399,7 +405,22 @@ def validate_repository(repository: str) -> None:
         or parsed.fragment
         or any(character.isspace() for character in repository)
     ):
-        raise ValueError("repository must be one HTTPS URL")
+        raise ValueError(
+            "repository must be one HTTPS URL or a git@github.com:OWNER/REPO.git URL"
+        )
+
+
+def validate_gateway_host(gateway_host: str) -> None:
+    if not gateway_host:
+        return
+    labels = gateway_host.split(".")
+    if (
+        len(gateway_host) > 253
+        or len(labels) < 2
+        or gateway_host != gateway_host.lower()
+        or any(DNS_LABEL.fullmatch(label) is None for label in labels)
+    ):
+        raise ValueError("gateway_host must be one lower-case DNS hostname")
 
 
 def validate_health_url(health_url: str) -> None:
@@ -584,16 +605,23 @@ class AppTools:
         ssh_port: int | None = None,
         ssh_key: str | None = None,
         repository: str = DEFAULT_REPOSITORY,
+        gateway_host: str = "",
     ) -> None:
         """Converge one Ubuntu 26.04 destination host with pyinfra."""
         validate_repository(repository)
+        validate_gateway_host(gateway_host)
+        resolved_ssh_port = split_host(host, ssh_port, ssh_key)[2]
         run(
             pyinfra_command(
                 "provision.py",
                 host=host,
                 ssh_port=ssh_port,
                 ssh_key=ssh_key,
-                data={"repo_url": repository},
+                data={
+                    "repo_url": repository,
+                    "gateway_host": gateway_host,
+                    "ssh_port": str(resolved_ssh_port),
+                },
             )
         )
 

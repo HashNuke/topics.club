@@ -69,8 +69,29 @@ role-specific `RELEASE_NODE` values; `DATABASE_URL` remains in the separately ge
 ## 5. Provision the application host
 
 ```bash
-bin/apptools provision --host root@YOUR_SERVER_IP
+bin/apptools provision --host root@YOUR_SERVER_IP --gateway_host=YOUR_HOST
 ```
+
+Supplying `--gateway_host` also installs Caddy, obtains HTTPS certificates, redirects the
+`www` hostname to the root hostname, and enables a host firewall with rules for the SSH
+connection port plus HTTP and HTTPS. Application, Erlang distribution, and PostgreSQL ports
+remain loopback-only. Audit any pre-existing firewall rules separately; provisioning does not
+silently delete operator-managed rules.
+
+The default HTTPS repository URL works once the repository is public. For a private GitHub
+repository, provision with its SSH URL instead:
+
+```bash
+bin/apptools provision --host root@YOUR_SERVER_IP \
+  --gateway_host=YOUR_HOST \
+  --repository=git@github.com:OWNER/REPOSITORY.git
+ssh root@YOUR_SERVER_IP \
+  'cat /srv/topics-club/build-home/.ssh/id_ed25519.pub'
+```
+
+Add the printed public key to that repository under **Settings → Deploy keys** without write
+access, then continue. The private key is generated on and never leaves the destination;
+GitHub's published Ed25519 host key is pinned during provisioning.
 
 ## 6. Tag and deploy
 
@@ -80,15 +101,13 @@ git push origin THE_TAG_PRINTED_ABOVE
 bin/apptools deploy --host root@YOUR_SERVER_IP --tag THE_TAG_PRINTED_ABOVE
 ```
 
-## 7. Add HTTPS
+## 7. Confirm HTTPS
 
-Configure a reverse proxy on the VPS to terminate HTTPS and proxy the public hostname to
-`http://127.0.0.1:4000`. For example, the Caddy site block is:
+Provisioning configures Caddy to terminate HTTPS and proxy to `127.0.0.1:4000`. Confirm
+that Caddy obtained certificates before verification:
 
-```caddyfile
-YOUR_HOST {
-  reverse_proxy 127.0.0.1:4000
-}
+```bash
+ssh root@YOUR_SERVER_IP 'systemctl --no-pager status caddy'
 ```
 
 ## 8. Verify

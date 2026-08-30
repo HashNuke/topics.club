@@ -4,6 +4,7 @@ set -euo pipefail
 repository_url={{ repo_url_quoted }}
 deploy_user=topics-club-deploy
 base=/srv/topics-club
+build_home="$base/build-home"
 lock_file=/run/lock/topics-club-deploy.lock
 
 fail() {
@@ -38,7 +39,7 @@ release_name() {
 }
 
 git_as_deploy() {
-  runuser -u "$deploy_user" -- git "$@"
+  runuser -u "$deploy_user" -- env HOME="$build_home" git "$@"
 }
 
 atomic_link() {
@@ -81,11 +82,11 @@ prepare_source() {
   fi
 
   rm -rf -- "$temporary"
-  if ! runuser -u "$deploy_user" -- git clone --no-checkout "$repository_url" "$temporary"; then
+  if ! git_as_deploy clone --no-checkout "$repository_url" "$temporary"; then
     rm -rf -- "$temporary"
     fail "could not clone $repository_url"
   fi
-  if ! runuser -u "$deploy_user" -- git -C "$temporary" checkout --detach "$commit"; then
+  if ! git_as_deploy -C "$temporary" checkout --detach "$commit"; then
     rm -rf -- "$temporary"
     fail "could not check out requested commit $commit"
   fi
