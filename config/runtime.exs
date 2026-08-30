@@ -202,14 +202,16 @@ if config_env() == :prod do
 
     host = System.get_env("GATEWAY_HOST") || "example.com"
 
+    bind_ip =
+      case System.get_env("PHX_IP", "::") |> String.to_charlist() |> :inet.parse_address() do
+        {:ok, address} -> address
+        {:error, :einval} -> raise "PHX_IP must be an IPv4 or IPv6 address"
+      end
+
     config :topics_club_gateway, TopicsClubWeb.Endpoint,
       url: [host: host, port: 443, scheme: "https"],
       http: [
-        # Enable IPv6 and bind on all interfaces.
-        # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-        # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
-        # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-        ip: {0, 0, 0, 0, 0, 0, 0, 0},
+        ip: bind_ip,
         port: String.to_integer(System.get_env("PORT", "4000"))
       ],
       secret_key_base: secret_key_base

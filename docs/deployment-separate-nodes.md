@@ -78,7 +78,8 @@ Supplying `--gateway_host` also installs Caddy, obtains HTTPS certificates, redi
 `www` hostname to the root hostname, and enables a host firewall with rules for the SSH
 connection port plus HTTP and HTTPS. Application, Erlang distribution, and PostgreSQL ports
 remain loopback-only. Audit any pre-existing firewall rules separately; provisioning does not
-silently delete operator-managed rules.
+silently delete operator-managed rules. The installed gateway service sets `PHX_IP=127.0.0.1`
+itself; this is deployment configuration, not a value to add to the secrets file.
 
 The default HTTPS repository URL works once the repository is public. For a private GitHub
 repository, provision with its SSH URL instead:

@@ -18,6 +18,7 @@ Environment=HOME=/var/lib/topics-club/gateway
 Environment=RELEASE_TMP=/var/lib/topics-club/gateway/tmp
 Environment=ERL_CRASH_DUMP=/var/lib/topics-club/gateway/erl_crash.dump
 Environment=ERL_EPMD_ADDRESS=127.0.0.1
+Environment=PHX_IP=127.0.0.1
 ExecStart=/srv/topics-club/current-gateway/bin/server
 KillSignal=SIGTERM
 TimeoutStartSec=90
