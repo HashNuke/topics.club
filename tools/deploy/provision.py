@@ -40,16 +40,21 @@ apt.packages(
 # with less than 4 GiB of swap get one exact, persistent build-swap file. The
 # pseudo-VPS already uses the outer Docker host's swap through its cgroup limit.
 containerized = host.get_fact(File, path="/.dockerenv") is not None
-swap_total_lines = host.get_fact(
+swap_total_output = host.get_fact(
     Command,
     command="awk '/^SwapTotal:/ {print $2}' /proc/meminfo",
 )
-memory_total_lines = host.get_fact(
+active_swap_output = host.get_fact(
+    Command,
+    command="swapon --show=NAME --noheadings",
+)
+memory_total_output = host.get_fact(
     Command,
     command="awk '/^MemTotal:/ {print $2}' /proc/meminfo",
 )
-swap_total_kib = int(swap_total_lines[0]) if swap_total_lines else 0
-memory_total_kib = int(memory_total_lines[0]) if memory_total_lines else 0
+swap_total_kib = int(swap_total_output.strip()) if swap_total_output else 0
+memory_total_kib = int(memory_total_output.strip()) if memory_total_output else 0
+active_swaps = {line.strip() for line in active_swap_output.splitlines()}
 
 if (
     not containerized
@@ -84,10 +89,11 @@ if (
         ensure_newline=True,
     )
 
-    server.shell(
-        name="Enable the build swap file",
-        commands="swapon /swapfile",
-    )
+    if "/swapfile" not in active_swaps:
+        server.shell(
+            name="Enable the build swap file",
+            commands="swapon --show=NAME --noheadings | grep -Fxq /swapfile || swapon /swapfile",
+        )
 
 apt.packages(
     name="Keep host Erlang, Elixir, Node.js, and npm packages absent",
