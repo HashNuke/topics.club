@@ -17,6 +17,8 @@ SYSTEMD_UNITS = [
     "topics-club-migrate.service",
     "topics-club-engine-health.service",
 ]
+SSHD_CONFIG = DEPLOY_DIR / "sshd-topics-club.conf"
+SSHD_CONFIG_PATH = "/etc/ssh/sshd_config.d/00-topics-club-hardening.conf"
 
 apt.packages(
     name="Install the TopicsClub host runtime and container build tools",
@@ -111,6 +113,29 @@ systemd.service(
     service="docker.service",
     running=True,
     enabled=True,
+)
+
+sshd_config_changed = (
+    host.get_fact(Sha256File, path=SSHD_CONFIG_PATH)
+    != hashlib.sha256(SSHD_CONFIG.read_bytes()).hexdigest()
+)
+files.put(
+    name="Require key authentication for SSH",
+    src=str(SSHD_CONFIG),
+    dest=SSHD_CONFIG_PATH,
+    user="root",
+    group="root",
+    mode="0644",
+)
+server.shell(
+    name="Validate the hardened SSH configuration",
+    commands="sshd -t",
+)
+systemd.service(
+    name="Reload SSH after hardening",
+    service="ssh.service",
+    running=True,
+    reloaded=sshd_config_changed,
 )
 
 if gateway_host:

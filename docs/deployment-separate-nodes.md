@@ -85,6 +85,9 @@ remain loopback-only. Audit any pre-existing firewall rules separately; provisio
 silently delete operator-managed rules. The installed gateway service sets `PHX_IP=127.0.0.1`
 itself; this is deployment configuration, not a value to add to the secrets file.
 
+Provisioning also disables SSH password and keyboard-interactive authentication after validating
+the OpenSSH configuration. Confirm key-based root access before running it.
+
 The default HTTPS repository URL works once the repository is public. For a private GitHub
 repository, provision with its SSH URL instead:
 
