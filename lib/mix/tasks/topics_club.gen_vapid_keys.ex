@@ -5,10 +5,10 @@ defmodule Mix.Tasks.TopicsClub.GenVapidKeys do
 
   @impl Mix.Task
   def run(_args) do
-    keys = TopicsClub.Notifications.WebPush.generate_keypair()
+    {public_key, private_key} = :crypto.generate_key(:ecdh, :prime256v1)
 
-    Mix.shell().info("VAPID_PUBLIC_KEY=#{keys.public_key}")
-    Mix.shell().info("VAPID_PRIVATE_KEY=#{keys.private_key}")
+    Mix.shell().info("VAPID_PUBLIC_KEY=#{Base.url_encode64(public_key, padding: false)}")
+    Mix.shell().info("VAPID_PRIVATE_KEY=#{Base.url_encode64(private_key, padding: false)}")
     Mix.shell().info("VAPID_SUBJECT=notifications@example.com")
   end
 end
