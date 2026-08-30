@@ -53,49 +53,18 @@ bin/apptools copy-secrets --env prod
 This uses `pbcopy` on macOS and supports `wl-copy`, `xclip`, or `xsel` on Linux. It omits
 the destination-generated `DATABASE_URL` and component-specific `RELEASE_NODE`.
 
-## 4. Create the application environment files
+## 4. Install the application environment files
 
-Open an SSH session:
-
-```bash
-ssh root@YOUR_SERVER_IP
-install -d -m 0755 /etc/topics-club
-install -m 0600 /dev/null /etc/topics-club/gateway.env
-install -m 0600 /dev/null /etc/topics-club/engine.env
-editor /etc/topics-club/gateway.env
-```
-
-Enter:
-
-```dotenv
-IRC_CREDENTIALS_KEY=...
-RELEASE_COOKIE=...
-SECRET_KEY_BASE=...
-GATEWAY_HOST=YOUR_HOST
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-VAPID_PUBLIC_KEY=...
-VAPID_PRIVATE_KEY=...
-VAPID_SUBJECT=notifications@YOUR_HOST
-ENABLE_DISCOVERY=false
-RELEASE_NODE=topics_club_gateway@localhost
-```
-
-Then edit the engine file:
+While signed in to the 1Password CLI locally, run:
 
 ```bash
-editor /etc/topics-club/engine.env
+bin/apptools deploy install-secrets --env prod --host root@YOUR_SERVER_IP
 ```
 
-Enter:
-
-```dotenv
-IRC_CREDENTIALS_KEY=...
-RELEASE_COOKIE=...
-RELEASE_NODE=topics_club_engine@localhost
-```
-
-Exit SSH. Never commit or copy these filled files into the repository.
+This reads `app-secrets/topics-club-prod` into memory and streams role-specific files over
+encrypted SSH to `/etc/topics-club/gateway.env` and `/etc/topics-club/engine.env` with mode
+`0600`. It creates no local plaintext file and does not print the values. The files get stable
+role-specific `RELEASE_NODE` values; `DATABASE_URL` remains in the separately generated `db.env`.
 
 ## 5. Provision the application host
 

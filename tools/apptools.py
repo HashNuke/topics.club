@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import re
 import secrets
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -219,14 +221,7 @@ def dotenv_value(value: str, field: str) -> str:
 
 
 def onepassword_dotenv(vault: str, item: str) -> str:
-    fields = onepassword_fields(onepassword_item(vault, item))
-    missing = [
-        f"{section}.{label}"
-        for section, label in COPIED_ONEPASSWORD_FIELDS
-        if not populated(fields.get((section, label)))
-    ]
-    if missing:
-        raise RuntimeError(f"1Password fields are missing or empty: {', '.join(missing)}")
+    fields = required_onepassword_fields(vault, item)
 
     lines = []
     for section, label in COPIED_ONEPASSWORD_FIELDS:
@@ -236,6 +231,113 @@ def onepassword_dotenv(vault: str, item: str) -> str:
         lines.append(f"{label}={dotenv_value(value, f'{section}.{label}')}")
     lines.append("ENABLE_DISCOVERY=false")
     return "\n".join(lines) + "\n"
+
+
+def required_onepassword_fields(
+    vault: str, item: str
+) -> dict[tuple[str, str], dict[str, object]]:
+    fields = onepassword_fields(onepassword_item(vault, item))
+    missing = [
+        f"{section}.{label}"
+        for section, label in COPIED_ONEPASSWORD_FIELDS
+        if not populated(fields.get((section, label)))
+    ]
+    if missing:
+        raise RuntimeError(f"1Password fields are missing or empty: {', '.join(missing)}")
+    return fields
+
+
+def role_dotenv_documents(vault: str, item: str) -> dict[str, str]:
+    fields = required_onepassword_fields(vault, item)
+
+    def lines_for(keys: list[tuple[str, str]]) -> list[str]:
+        lines = []
+        for section, label in keys:
+            value = fields[(section, label)]["value"]
+            if not isinstance(value, str):
+                raise RuntimeError(f"1Password field is not text: {section}.{label}")
+            lines.append(f"{label}={dotenv_value(value, f'{section}.{label}')}")
+        return lines
+
+    shared = [("shared", "IRC_CREDENTIALS_KEY"), ("shared", "RELEASE_COOKIE")]
+    gateway = lines_for(COPIED_ONEPASSWORD_FIELDS)
+    gateway.extend(
+        [
+            "ENABLE_DISCOVERY=false",
+            "RELEASE_NODE=topics_club_gateway@localhost",
+        ]
+    )
+    engine = lines_for(shared)
+    engine.append("RELEASE_NODE=topics_club_engine@localhost")
+    return {
+        "gateway.env": "\n".join(gateway) + "\n",
+        "engine.env": "\n".join(engine) + "\n",
+    }
+
+
+def environment_archive(documents: dict[str, str]) -> bytes:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w") as tar:
+        for name, contents in documents.items():
+            encoded = contents.encode("utf-8")
+            info = tarfile.TarInfo(name)
+            info.mode = 0o600
+            info.size = len(encoded)
+            tar.addfile(info, io.BytesIO(encoded))
+    return archive.getvalue()
+
+
+INSTALL_ENV_COMMAND = r"""
+set -eu
+umask 077
+install -d -m 0755 /etc/topics-club
+stage=$(mktemp -d /etc/topics-club/.env-install.XXXXXX)
+trap 'rm -rf "$stage"' EXIT HUP INT TERM
+tar -xf - -C "$stage"
+for role in gateway engine; do
+  install -m 0600 "$stage/$role.env" "/etc/topics-club/$role.env.new"
+  if id "topics-club-$role" >/dev/null 2>&1; then
+    chown "topics-club-$role:topics-club-$role" "/etc/topics-club/$role.env.new"
+  else
+    chown root:root "/etc/topics-club/$role.env.new"
+  fi
+done
+mv /etc/topics-club/gateway.env.new /etc/topics-club/gateway.env
+mv /etc/topics-club/engine.env.new /etc/topics-club/engine.env
+""".strip()
+
+
+def install_onepassword_secrets(
+    vault: str,
+    item: str,
+    host: str,
+    ssh_port: int | None,
+    ssh_key: str | None,
+) -> None:
+    documents = role_dotenv_documents(vault, item)
+    inventory_host, ssh_user, resolved_port, resolved_key = split_host(
+        host, ssh_port, ssh_key
+    )
+    command = [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-p",
+        str(resolved_port),
+    ]
+    if resolved_key:
+        command.extend(["-i", str(Path(resolved_key).expanduser())])
+    command.extend([f"{ssh_user}@{inventory_host}", INSTALL_ENV_COMMAND])
+    try:
+        subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            input=environment_archive(documents),
+            stdout=subprocess.DEVNULL,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("SSH client (`ssh`) is not installed") from error
 
 
 def clipboard_command() -> list[str]:
@@ -503,10 +605,23 @@ class AppTools:
         ssh_port: int | None = None,
         ssh_key: str | None = None,
         health_url: str = "http://127.0.0.1:4000/health",
+        env: str = "prod",
+        vault: str = "app-secrets",
     ) -> None:
-        """Deploy all roles, or explicitly deploy only gateway or engine."""
+        """Deploy roles, or install role env files from 1Password."""
+        if component == "install-secrets":
+            if env not in {"dev", "prod"}:
+                raise ValueError("env must be dev or prod")
+            item = f"topics-club-{env}"
+            install_onepassword_secrets(
+                vault, item, host, ssh_port, ssh_key
+            )
+            print(f"Installed secrets from {vault}/{item} on {host}.")
+            return
         if component not in {"all", "gateway", "engine"}:
-            raise ValueError("component must be all, gateway, or engine")
+            raise ValueError(
+                "component must be all, gateway, engine, or install-secrets"
+            )
         validate_health_url(health_url)
         resolved_tag, commit = resolve_release_tag(tag)
         # Gateway migrations must land while the old engine is still running.

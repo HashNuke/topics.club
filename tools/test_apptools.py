@@ -4,6 +4,7 @@ import io
 import json
 import subprocess
 import sys
+import tarfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -192,6 +193,59 @@ class OnePasswordSecretsTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "fields are missing or empty"):
             apptools.onepassword_dotenv("app-secrets", "topics-club-prod")
 
+    @mock.patch.object(apptools.subprocess, "run")
+    @mock.patch.object(apptools, "onepassword_item")
+    def test_installs_role_specific_env_files_over_ssh_stdin(
+        self,
+        item_mock: mock.Mock,
+        subprocess_mock: mock.Mock,
+    ) -> None:
+        values = {
+            key: f"value-{index}"
+            for index, key in enumerate(apptools.COPIED_ONEPASSWORD_FIELDS)
+        }
+        item_mock.return_value = onepassword_document(values)
+
+        apptools.install_onepassword_secrets(
+            "app-secrets",
+            "topics-club-prod",
+            "deploy@app.example.test",
+            2222,
+            "/tmp/deploy-key",
+        )
+
+        command = subprocess_mock.call_args.args[0]
+        self.assertEqual(command[:7], [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-p",
+            "2222",
+            "-i",
+            "/tmp/deploy-key",
+        ])
+        self.assertEqual(command[7], "deploy@app.example.test")
+        self.assertNotIn("value-0", " ".join(command))
+
+        archive = io.BytesIO(subprocess_mock.call_args.kwargs["input"])
+        with tarfile.open(fileobj=archive, mode="r") as tar:
+            gateway = tar.extractfile("gateway.env")
+            engine = tar.extractfile("engine.env")
+            assert gateway is not None
+            assert engine is not None
+            gateway_contents = gateway.read().decode("utf-8")
+            engine_contents = engine.read().decode("utf-8")
+
+        self.assertIn("SECRET_KEY_BASE=value-2\n", gateway_contents)
+        self.assertIn(
+            "RELEASE_NODE=topics_club_gateway@localhost\n", gateway_contents
+        )
+        self.assertIn("IRC_CREDENTIALS_KEY=value-0\n", engine_contents)
+        self.assertNotIn("SECRET_KEY_BASE", engine_contents)
+        self.assertIn(
+            "RELEASE_NODE=topics_club_engine@localhost\n", engine_contents
+        )
+
     def test_dotenv_quotes_and_escapes_unsafe_values(self) -> None:
         self.assertEqual(apptools.dotenv_value("safe-Value_1=", "field"), "safe-Value_1=")
         self.assertEqual(apptools.dotenv_value("value with #", "field"), '"value with #"')
@@ -304,6 +358,31 @@ class OnePasswordSecretsTest(unittest.TestCase):
 
 
 class DeploySelectionTest(unittest.TestCase):
+    @mock.patch.object(apptools, "install_onepassword_secrets")
+    @mock.patch.object(apptools, "resolve_release_tag")
+    def test_install_secrets_selects_the_item_without_resolving_a_release(
+        self,
+        resolve_mock: mock.Mock,
+        install_mock: mock.Mock,
+    ) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            apptools.AppTools().deploy(
+                "install-secrets",
+                env="prod",
+                host="root@app.example.test",
+                ssh_port=2222,
+                ssh_key="/tmp/deploy-key",
+            )
+
+        install_mock.assert_called_once_with(
+            "app-secrets",
+            "topics-club-prod",
+            "root@app.example.test",
+            2222,
+            "/tmp/deploy-key",
+        )
+        resolve_mock.assert_not_called()
+
     @mock.patch.object(apptools, "run")
     def test_database_provisioning_uses_the_dedicated_pyinfra_deploy(
         self,

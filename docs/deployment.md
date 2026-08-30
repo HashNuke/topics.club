@@ -89,24 +89,17 @@ the password, and a repeat run does not rotate it:
 bin/apptools provision-db --host root@203.0.113.10
 ```
 
-Then create the two application environment files directly on the destination. Do not copy a
-filled environment file from the repository or commit it, encrypted or otherwise. The committed
-`tools/deploy/gateway.env.example` and `tools/deploy/engine.env.example` files are variable lists
-only. On the server:
+Then install the two application environment files from the local 1Password CLI session:
 
 ```bash
-install -d -m 0755 /etc/topics-club
-install -m 0600 /dev/null /etc/topics-club/gateway.env
-install -m 0600 /dev/null /etc/topics-club/engine.env
-editor /etc/topics-club/gateway.env
-editor /etc/topics-club/engine.env
+bin/apptools deploy install-secrets --env prod --host root@203.0.113.10
 ```
 
-Both files need the same `IRC_CREDENTIALS_KEY` and `RELEASE_COOKIE`; neither contains
-`DATABASE_URL`, because both services load it from the generated `db.env`. Use stable
-`RELEASE_NODE` names `topics_club_gateway@localhost` and `topics_club_engine@localhost`. Gateway
-also needs `SECRET_KEY_BASE`, `GATEWAY_HOST`, and `PORT`; it defaults the engine target to
-`topics_club_engine@localhost`.
+The command resolves `app-secrets/topics-club-prod` in memory and streams the role-specific files
+over encrypted SSH. It creates no local plaintext file and prints no values. Both files receive
+the shared `IRC_CREDENTIALS_KEY` and `RELEASE_COOKIE`; neither contains `DATABASE_URL`, because
+both services load it from the generated `db.env`. The command assigns stable role-specific
+`RELEASE_NODE` names and installs the files with mode `0600`.
 Only the gateway starts Phoenix. Add engine-only hosted-IRC listener secrets to `engine.env` when
 that feature exists. Application provisioning checks the role files' existence, ownership, and
 mode without reading, printing, templating, replacing, or transferring their contents. It also
