@@ -356,6 +356,8 @@ Rationale: the UI needs many IRC buffers, but the browser should not create a We
 - [x] Integration tests using local InspIRCd and irssi where useful.
   - [x] Opt-in local check: `TOPICS_CLUB_LOCAL_IRC_INTEGRATION=1 mix test test/topics_club/irc/local_integration_test.exs`
   - [x] Verifies `irssi` is installed and local InspIRCd relays messages between IRC clients on `127.0.0.1:6669`.
+  - [x] Verifies delay-join does not hide a visible client's disconnect and only defers its rejoin until it speaks.
+  - [x] Verifies a gateway restart preserves twelve live IRC sessions, emits no JOIN/QUIT churn, and keeps two-way traffic working.
 - [x] Frontend hook/store tests for realtime event application.
 - [x] Frontend component tests for the chat shell.
 - [x] Frontend tests for slash command completion.

@@ -118,26 +118,29 @@ The repository defaults to `https://github.com/HashNuke/topics.club.git`. Create
 `bin/release`, push it to `origin`, and deploy either the newest numeric release tag or an exact tag:
 
 ```bash
-bin/apptools deploy --host root@203.0.113.10 --tag latest
-bin/apptools deploy --host root@203.0.113.10 --tag 20260828.1
+bin/apptools deploy all --host root@203.0.113.10 --tag latest
+bin/apptools deploy all --host root@203.0.113.10 --tag 20260828.1
 ```
 
-The combined command deploys gateway first, while the old engine remains online, then deploys the
-matching engine. The gateway build runs locked migrations before its symlink changes. An explicit
-engine deployment is accepted only after the same tag and commit are active in a healthy gateway,
-which confirms that its schema migration step completed:
+The default command deploys only the gateway, preserving active IRC engine processes and their
+network connections. Use `all` when a release changes both roles; it deploys the gateway first,
+while the old engine remains online, then deploys the matching engine. The gateway build runs
+locked migrations before its symlink changes. An explicit engine deployment is accepted only after
+the same tag and commit are active in a healthy gateway, which confirms that its schema migration
+step completed:
 
 ```bash
+bin/apptools deploy all --host root@203.0.113.10 --tag latest
 bin/apptools deploy gateway --host root@203.0.113.10 --tag latest
 bin/apptools deploy engine --host root@203.0.113.10 --tag latest
 ```
 
-A gateway-only deployment never selects or restarts the engine service. The deploy program checks
-out an exact clean commit away from the running release, builds into a new versioned directory,
-checks the artifact manifest, atomically changes the role's `current` symlink, restarts only that
-role, and checks readiness. It keeps five release directories per role and two recent source
-checkouts, protecting current and previous targets. A deployment lock rejects concurrent builds.
-Re-running the active tag is a no-op.
+A default or explicit gateway deployment never selects or restarts the engine service. The deploy
+program checks out an exact clean commit away from the running release, builds into a new versioned
+directory, checks the artifact manifest, atomically changes the role's `current` symlink, restarts
+only that role, and checks readiness. It keeps five release directories per role and two recent
+source checkouts, protecting current and previous targets. A deployment lock rejects concurrent
+builds. Re-running the active tag is a no-op.
 
 Gateway readiness requires PostgreSQL plus connectivity to the engine. During the first empty-host
 bootstrap only, gateway database readiness is sufficient until the engine starts. Engine readiness
@@ -208,7 +211,7 @@ and PostgreSQL sidecar:
 ```bash
 bin/apptools testvps create
 bin/apptools provision --repository file:///mnt/topics-club.git
-bin/apptools deploy --tag latest
+bin/apptools deploy all --tag latest
 bin/apptools testvps acceptance
 bin/apptools testvps status
 bin/apptools testvps destroy

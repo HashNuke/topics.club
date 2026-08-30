@@ -1409,11 +1409,12 @@ role-specific values remain readable only by that role. The database provisionin
 filled plaintext or encrypted secret file belongs in the public repository. The committed examples
 contain variable names and placeholders only.
 
-`bin/apptools` is the operator interface. `deploy` defaults to both roles in schema-safe order
-(gateway migrations while the old engine stays online, followed by the matching engine), while
-`deploy gateway` and `deploy engine` remain independently selectable. The engine command requires
-the same tag and commit to be active in the gateway before it can stop the old engine. The complete
-operator runbook is in `docs/deployment.md`.
+`bin/apptools` is the operator interface. `deploy` defaults to the gateway so routine application
+deployments preserve active IRC sessions. `deploy all` keeps the schema-safe order of gateway
+migrations while the old engine stays online, followed by the matching engine; `deploy engine`
+remains independently selectable for engine-only changes. The engine command requires the same tag
+and commit to be active in the gateway before it can stop the old engine. The complete operator
+runbook is in `docs/deployment.md`.
 
 #### Host and directory preparation
 
@@ -1504,6 +1505,12 @@ Verification checkpoint, 2026-08-28:
   lifecycle test separately kept a live IRC session PID through a gateway restart. An engine
   deploy and two engine rollbacks left the gateway PID unchanged; the focused engine lifecycle
   test restored only desired-connected sessions and their autojoins.
+- A 2026-08-30 opt-in local InspIRCd rehearsal kept twelve live session PIDs and sockets unchanged
+  through a gateway restart, emitted no JOIN or QUIT lines to an observing client, persisted an
+  inbound message for all twelve users while the gateway was down, and sent outbound traffic after
+  it returned. A separate `+D` delay-join probe showed that a visible client still emits QUIT
+  immediately when disconnected and its JOIN is only hidden until it next speaks, so delay-join is
+  retained as a local compatibility test rather than used as deployment recovery.
 - Live failure drills rejected a mismatched engine release, a dirty source checkout, and a
   concurrent deploy lock. PostgreSQL unavailability aborted before gateway selection and left its
   PID unchanged. A forced post-activation readiness failure automatically restored both the prior
