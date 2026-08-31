@@ -996,6 +996,43 @@ defmodule TopicsClub.WirekeeperTest do
     refute_receive {:wirekeeper_test_server, :accepted, ^server, 1}, 100
   end
 
+  test "manager failure cancels its in-progress connection opens" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("manager-failure-during-open")
+    test_process = self()
+
+    _caller =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             result =
+               open_tcp(key, server,
+                 protocol_adapter: {BlockingProtocolAdapter, owner: test_process}
+               )
+
+             send(test_process, {:manager_failure_open_result, result})
+           end},
+          id: {:manager_failure_during_open, self()}
+        )
+      )
+
+    assert_receive {:wirekeeper_blocking_adapter, :init_started, connection}
+    connection_ref = Process.monitor(connection)
+    manager = Process.whereis(Manager)
+    manager_ref = Process.monitor(manager)
+    Process.exit(manager, :kill)
+
+    assert_receive {:DOWN, ^manager_ref, :process, ^manager, :killed}
+    assert_receive {:manager_failure_open_result, {:error, :unavailable}}
+    send(connection, :continue_wirekeeper_adapter_init)
+
+    assert_receive {:DOWN, ^connection_ref, :process, ^connection, _reason}, 500
+    _replacement_manager = await_named_process(Manager, manager)
+    assert {:error, :not_found} = await_missing_connection(key)
+    refute_receive {:wirekeeper_test_server, :accepted, ^server, 1}, 100
+  end
+
   test "fast-closing peers cannot crash the manager or unrelated connections" do
     healthy_server = start_supervised!({TestTcpServer, self()})
     closing_server = start_supervised!({ClosingTcpServer, self()})
@@ -1109,7 +1146,7 @@ defmodule TopicsClub.WirekeeperTest do
                     :shutdown}
 
     assert_receive {:DOWN, ^task_supervisor_ref, :process, ^task_supervisor, :shutdown}
-    assert_receive {:DOWN, ^manager_ref, :process, ^manager, :shutdown}
+    assert_receive {:DOWN, ^manager_ref, :process, ^manager, _reason}
     assert_receive {:wirekeeper_test_server, :closed, ^server, 0}
 
     _replacement_registry =

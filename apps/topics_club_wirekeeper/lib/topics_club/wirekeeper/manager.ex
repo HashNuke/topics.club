@@ -21,6 +21,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
 
   @impl true
   def init(_opts) do
+    Process.flag(:trap_exit, true)
     {:ok, %{opening_by_key: %{}, opening_by_ref: %{}}}
   end
 
@@ -155,7 +156,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
 
   defp start_open_task(child_opts) do
     task =
-      Task.Supervisor.async_nolink(OpenTaskSupervisor, fn ->
+      Task.Supervisor.async(OpenTaskSupervisor, fn ->
         child_opts = Keyword.put(child_opts, :ready_recipient, self())
 
         case DynamicSupervisor.start_child(ConnectionSupervisor, {Connection, child_opts}) do
