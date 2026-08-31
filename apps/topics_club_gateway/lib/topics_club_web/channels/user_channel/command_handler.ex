@@ -50,15 +50,17 @@ defmodule TopicsClubWeb.UserChannel.CommandHandler do
     do: Reply.error(socket, %{reason: "invalid_buffer", command: command})
 
   defp run_command(%{name: "join", args: [channel]} = command, user, buffer_id, socket) do
-    with {:ok, connection} <- BufferResolver.connection(user, buffer_id),
-         {:ok, result} <- execute_intent(connection, "JOIN #{channel}", buffer_id, socket),
-         {:ok, membership} <- BufferResolver.channel_membership(user, connection, channel) do
-      Reply.ok(
-        socket,
-        result
-        |> Map.put(:command, command)
-        |> Map.put(:buffer_id, "channel:#{membership.id}")
-      )
+    with {:ok, connection} <- BufferResolver.connection(user, buffer_id) do
+      case BufferResolver.channel_membership(user, connection, channel) do
+        {:ok, membership} ->
+          join_reply(socket, command, connection, membership, %{status: membership.status})
+
+        {:error, :invalid_buffer} ->
+          execute_join(command, connection, channel, buffer_id, socket)
+
+        {:error, reason} ->
+          Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+      end
     else
       {:error, %{code: _code} = error} ->
         command_error(socket, command, error)
@@ -137,6 +139,48 @@ defmodule TopicsClubWeb.UserChannel.CommandHandler do
       [] ->
         Reply.error(socket, %{reason: "send_failed", command: command})
     end
+  end
+
+  defp run_command(
+         %{name: "me", args: [body]} = command,
+         user,
+         "direct:" <> thread_id,
+         socket
+       ) do
+    with {:ok, thread} <- BufferResolver.direct_message_thread(user, thread_id),
+         connection = thread.server_connection,
+         {:ok, result} <-
+           execute_intent(
+             connection,
+             "PRIVMSG #{thread.peer_nick} :\x01ACTION #{body}\x01",
+             "server:#{connection.id}",
+             socket
+           ),
+         [%{thread: sent_thread, message: message}] <- result.direct_messages do
+      event = Event.direct_message_thread(sent_thread, connection)
+
+      Reply.ok(
+        socket,
+        Map.merge(event, %{
+          command: command,
+          command_id: result.command_id,
+          status: result.status,
+          message:
+            Event.message(message, "direct:#{sent_thread.id}", %{peer_nick: sent_thread.peer_nick})
+        })
+      )
+    else
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
+
+      {:error, reason} ->
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+
+      [] ->
+        Reply.error(socket, %{reason: "send_failed", command: command})
+    end
+  rescue
+    Ecto.NoResultsError -> Reply.error(socket, %{reason: "send_failed", command: command})
   end
 
   defp run_command(%{name: "msg", args: [target, body]} = command, user, buffer_id, socket) do
@@ -289,6 +333,33 @@ defmodule TopicsClubWeb.UserChannel.CommandHandler do
 
   defp run_command(command, _user, _buffer_id, socket) do
     Reply.error(socket, %{reason: "invalid_command_args", command: command})
+  end
+
+  defp execute_join(command, connection, channel, buffer_id, socket) do
+    case execute_intent(connection, "JOIN #{channel}", buffer_id, socket) do
+      {:ok, %{membership: membership} = result} ->
+        join_reply(socket, command, connection, membership, result)
+
+      {:ok, _result} ->
+        Reply.error(socket, %{reason: "send_failed", command: command})
+
+      {:error, %{code: _code} = error} ->
+        command_error(socket, command, error)
+
+      {:error, reason} ->
+        Reply.error(socket, %{reason: ErrorResponse.reason(reason), command: command})
+    end
+  end
+
+  defp join_reply(socket, command, connection, membership, result) do
+    reply =
+      connection
+      |> Event.buffer_joined(membership)
+      |> Map.merge(Map.take(result, [:command_id, :display, :status]))
+      |> Map.put(:command, command)
+      |> Map.put(:buffer_id, "channel:#{membership.id}")
+
+    Reply.ok(socket, reply)
   end
 
   defp put_reply_command_id({:reply, {status, payload}, socket}, command_id) do

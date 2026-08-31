@@ -5,7 +5,7 @@ const MAX_COMPOSER_HEIGHT = 136
 
 export interface ChatComposerProps {
   commandCatalog?: CommandCatalogEntry[]
-  context?: "server" | "channel"
+  context?: "server" | "channel" | "direct"
   disabled?: boolean
   draft: string
   error?: string | null
@@ -276,7 +276,7 @@ function ComposerStatus({actionLabel, id, label, onAction}: {actionLabel?: strin
   )
 }
 
-function commandSuggestionsFor(value: string, commandCatalog: CommandCatalogEntry[], context?: "server" | "channel"): CommandCatalogEntry[] {
+function commandSuggestionsFor(value: string, commandCatalog: CommandCatalogEntry[], context?: "server" | "channel" | "direct"): CommandCatalogEntry[] {
   const trimmedStart = value.trimStart()
   if (!trimmedStart.startsWith("/") || trimmedStart.includes(" ")) return []
 

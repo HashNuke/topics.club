@@ -13,7 +13,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/join #channel",
       description: "Join a channel",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/join #elixir"]
     },
@@ -23,7 +23,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/list",
       description: "Browse channels on this server",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/list"]
     },
@@ -33,7 +33,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/part [#channel]",
       description: "Leave a channel",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/part", "/part #elixir"]
     },
@@ -43,7 +43,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/leave [#channel]",
       description: "Leave a channel",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/leave", "/leave #elixir"]
     },
@@ -53,7 +53,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/msg nick message",
       description: "Send a retained private message",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/msg NickServ help"]
     },
@@ -63,7 +63,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/me action",
       description: "Send an action message",
       required_permission: "user",
-      contexts: ["channel"],
+      contexts: ["channel", "direct"],
       availability: "enabled",
       examples: ["/me waves"]
     },
@@ -73,7 +73,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/nick newnick",
       description: "Change nickname",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/nick mira_"]
     },
@@ -83,7 +83,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/whoami",
       description: "Show your current IRC identity",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/whoami"]
     },
@@ -93,7 +93,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/whois nick",
       description: "Show an IRC user's identity",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/whois mira"]
     },
@@ -103,7 +103,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/topic #channel [topic]",
       description: "Set or view a topic",
       required_permission: "channel_operator",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/topic #elixir", "/topic #elixir Releases and OTP"]
     },
@@ -113,7 +113,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/quote RAW COMMAND",
       description: "Run a managed IRC command",
       required_permission: "user",
-      contexts: ["server", "channel"],
+      contexts: ["server", "channel", "direct"],
       availability: "managed_only",
       examples: ["/quote WHO #elixir", "/quote WHOIS nick"]
     }

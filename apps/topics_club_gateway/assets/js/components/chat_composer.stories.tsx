@@ -9,7 +9,7 @@ const commandCatalog: CommandCatalogEntry[] = [
     usage: "/join #channel",
     description: "Join a channel",
     required_permission: "user",
-    contexts: ["server", "channel"],
+    contexts: ["server", "channel", "direct"],
     availability: "enabled",
     examples: ["/join #elixir"],
   },
@@ -18,7 +18,7 @@ const commandCatalog: CommandCatalogEntry[] = [
     usage: "/list",
     description: "Browse channels",
     required_permission: "user",
-    contexts: ["server", "channel"],
+    contexts: ["server", "channel", "direct"],
     availability: "enabled",
     examples: ["/list"],
   },
@@ -27,7 +27,7 @@ const commandCatalog: CommandCatalogEntry[] = [
     usage: "/me action",
     description: "Send an action",
     required_permission: "user",
-    contexts: ["channel"],
+    contexts: ["channel", "direct"],
     availability: "enabled",
     examples: ["/me waves"],
   },
@@ -135,6 +135,15 @@ export const ServerCommand = {
     draft: "/j",
     inputId: "storybook-server-composer",
     placeholder: "/msg NickServ help or /quote WHOIS nick",
+  },
+}
+
+export const DirectMessageCommands = {
+  args: {
+    context: "direct",
+    draft: "/",
+    inputId: "storybook-direct-message-composer",
+    placeholder: "Write a private message",
   },
 }
 

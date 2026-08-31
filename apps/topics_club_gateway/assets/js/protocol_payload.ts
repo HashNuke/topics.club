@@ -458,7 +458,9 @@ function validCommandCatalogEntry(value: unknown): value is CommandCatalogEntry 
       (value.required_permission === "user" || value.required_permission === "channel_operator") &&
       Array.isArray(value.contexts) &&
       value.contexts.length > 0 &&
-      value.contexts.every((context) => context === "server" || context === "channel") &&
+      value.contexts.every(
+        (context) => context === "server" || context === "channel" || context === "direct"
+      ) &&
       (value.availability === "enabled" || value.availability === "managed_only") &&
       Array.isArray(value.examples) &&
       value.examples.length > 0 &&

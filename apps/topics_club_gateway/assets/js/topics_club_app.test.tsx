@@ -457,9 +457,9 @@ function mockBootstrapFetch({
           },
           server_time: "2026-05-13T10:00:00Z",
           command_catalog: [
-            {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel"], availability: "enabled", examples: ["/join #testing"]},
-            {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server", "channel"], availability: "enabled", examples: ["/list"]},
-            {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/me waves"]},
+            {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/join #testing"]},
+            {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/list"]},
+            {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel", "direct"], availability: "enabled", examples: ["/me waves"]},
           ],
           connections: [
             {
@@ -817,7 +817,11 @@ function directMessageApiClient() {
         "server:2": null,
       },
       users_by_buffer: {"channel:3": [], "channel:4": []},
-      command_catalog: [{name: "/msg", usage: "/msg nick message", description: "Send a private message", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/msg akash hello"]}],
+      command_catalog: [
+        {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/join #elixir"]},
+        {name: "/msg", usage: "/msg nick message", description: "Send a private message", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/msg akash hello"]},
+        {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel", "direct"], availability: "enabled", examples: ["/me waves"]},
+      ],
       topics: [],
     }),
   }
@@ -948,7 +952,7 @@ describe("TopicsClubApp UI prototype", () => {
     render(<TopicsClubApp apiClient={apiClient as any} currentUser={{id: 1, email: "mira@example.com"}} developerOauth={true} />)
 
     expect(await screen.findByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
-    expect(apiClient.discoveryServerChannels).toHaveBeenCalledOnce()
+    await waitFor(() => expect(apiClient.discoveryServerChannels).toHaveBeenCalledOnce())
   })
 
   test("opens discover and joins a backend topic in the app shell", async () => {
@@ -2220,6 +2224,188 @@ describe("TopicsClubApp UI prototype", () => {
     expect(screen.queryByRole("button", {name: "Retry"})).not.toBeInTheDocument()
     expect(screen.getByText("hello privately").closest("div")?.querySelector("time")).toHaveAttribute("datetime", "2026-08-26T00:00:00Z")
     expect(push).toHaveBeenCalledWith("command:run", expect.objectContaining({input: "/msg akash hello privately", buffer_id: "channel:7"}))
+  })
+
+  test("opens a joined channel when join runs from a direct-message composer", async () => {
+    window.history.replaceState({}, "", "/chat")
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    const push = vi.fn().mockResolvedValue(canonicalBufferJoined({
+      connection: {
+        id: 1,
+        name: "Old Network",
+        host: "irc.old.test",
+        nickname: "mira",
+        status: "connected",
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
+      },
+      buffer: {
+        buffer_id: "channel:11",
+        buffer_type: "channel",
+        server_connection_id: 1,
+        channel_membership_id: 11,
+        title: "#founders",
+        subtitle: "on irc.old.test",
+        status: "connected",
+        membership_status: "pending",
+        unread_count: 0,
+        mention_count: 0,
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
+      },
+    }))
+    let realtimeHandlers
+
+    render(
+      <TopicsClubApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    realtimeHandlers.onJoinOk()
+    await user.type(screen.getByLabelText("Message composer"), "/join #founders")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(push).toHaveBeenCalledWith(
+      "command:run",
+      expect.objectContaining({input: "/join #founders", buffer_id: "direct:9"})
+    )
+    expect(await screen.findByRole("heading", {name: "#founders"})).toBeInTheDocument()
+    await waitFor(() => expect(window.location.pathname).toBe("/chat/1/%23founders"))
+    expect(screen.queryByText("Choose a connected server or channel before running a command.")).not.toBeInTheDocument()
+  })
+
+  test("accepts a msg reply after realtime already opened the direct-message thread", async () => {
+    window.history.replaceState({}, "", "/chat")
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    let realtimeHandlers
+    const reply = directThreadPayload({
+      connection: {
+        id: 1,
+        name: "Old Network",
+        host: "irc.old.test",
+        nickname: "mira",
+        status: "connected",
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
+      },
+      buffer: {
+        buffer_id: "direct:12",
+        buffer_type: "direct_message",
+        server_connection_id: 1,
+        direct_message_thread_id: 12,
+        direct_message_revision: 1,
+        title: "Mona",
+        unread_count: 0,
+        blocked: false,
+      },
+      revision: 1,
+      message: canonicalMessage({
+        id: 91,
+        buffer_id: "direct:12",
+        server_connection_id: 1,
+        nick: "mira",
+        body: "hello from a DM",
+        occurred_at: "2026-08-26T00:00:00Z",
+      }),
+    })
+    const push = vi.fn().mockImplementation((event) => {
+      if (event !== "command:run") return Promise.resolve({})
+      realtimeHandlers.onDirectMessageThread(reply)
+      return Promise.resolve(reply)
+    })
+
+    render(
+      <TopicsClubApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    realtimeHandlers.onJoinOk()
+    await user.type(screen.getByLabelText("Message composer"), "/msg Mona hello from a DM")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(push).toHaveBeenCalledWith(
+      "command:run",
+      expect.objectContaining({input: "/msg Mona hello from a DM", buffer_id: "direct:9"})
+    )
+    expect(await screen.findByRole("heading", {name: "Mona"})).toBeInTheDocument()
+    expect(screen.getByText("hello from a DM")).toBeInTheDocument()
+    expect(screen.getByLabelText("Message composer")).toHaveValue("")
+    expect(screen.queryByText("The IRC command could not be sent.")).not.toBeInTheDocument()
+  })
+
+  test("sends me actions from a direct-message composer", async () => {
+    window.history.replaceState({}, "", "/chat")
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    const push = vi.fn().mockImplementation((event) => {
+      if (event !== "command:run") return Promise.resolve({})
+
+      return Promise.resolve(directThreadPayload({
+        connection: {
+          id: 1,
+          name: "Old Network",
+          host: "irc.old.test",
+          nickname: "mira",
+          status: "connected",
+          mention_notifications_enabled: true,
+          notification_preference_revision: 0,
+        },
+        buffer: directBufferRecord(9, "Zed", {unread_count: 2, account: "zed-account"}),
+        revision: 1,
+        message: canonicalMessage({
+          id: 92,
+          buffer_id: "direct:9",
+          server_connection_id: 1,
+          nick: "mira",
+          body: "waves",
+          kind: "action",
+          occurred_at: "2026-08-26T00:00:00Z",
+        }),
+      }))
+    })
+    let realtimeHandlers
+
+    render(
+      <TopicsClubApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    realtimeHandlers.onJoinOk()
+    await user.type(screen.getByLabelText("Message composer"), "/me waves")
+    await user.click(screen.getByRole("button", {name: "Send"}))
+
+    expect(push).toHaveBeenCalledWith(
+      "command:run",
+      expect.objectContaining({input: "/me waves", buffer_id: "direct:9"})
+    )
+    expect(await screen.findByText("waves")).toBeInTheDocument()
+    expect(screen.queryByText("The IRC command could not be sent.")).not.toBeInTheDocument()
   })
 
   test("rejects a msg reply whose authoritative message body does not match the command", async () => {
@@ -4972,7 +5158,34 @@ describe("TopicsClubApp UI prototype", () => {
   test("runs slash command submissions through the realtime client", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
-    const push = vi.fn().mockResolvedValue({command: {name: "join", args: ["#ops"]}})
+    const push = vi.fn().mockResolvedValue(canonicalBufferJoined({
+      connection: {
+        id: 42,
+        name: "local",
+        host: "127.0.0.1",
+        port: 6669,
+        use_tls: false,
+        nickname: "mira",
+        status: "connected",
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
+      },
+      buffer: {
+        buffer_id: "channel:8",
+        buffer_type: "channel",
+        server_connection_id: 42,
+        channel_membership_id: 8,
+        title: "#ops",
+        subtitle: "on 127.0.0.1",
+        status: "connected",
+        membership_status: "pending",
+        unread_count: 0,
+        mention_count: 0,
+        mention_notifications_enabled: true,
+        notification_preference_revision: 0,
+      },
+      command: {name: "join", args: ["#ops"]},
+    }))
     const client = fakeRealtimeClient(push)
     let realtimeHandlers
 
@@ -5001,6 +5214,8 @@ describe("TopicsClubApp UI prototype", () => {
       })
     )
     await waitFor(() => expect(screen.getByLabelText("Message composer")).toHaveValue(""))
+    expect(await screen.findByRole("heading", {name: "#ops"})).toBeInTheDocument()
+    await waitFor(() => expect(window.location.pathname).toBe("/chat/42/%23ops"))
     expect(screen.queryByText("Command accepted.")).not.toBeInTheDocument()
     expect(screen.queryByText("/join #ops")).not.toBeInTheDocument()
   })

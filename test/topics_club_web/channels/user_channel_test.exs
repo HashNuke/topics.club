@@ -167,7 +167,19 @@ defmodule TopicsClubWeb.UserChannelTest do
         "buffer_id" => "server:#{connection.id}"
       })
 
-    assert_reply ref, :ok, %{command: %{name: "join", args: ["#ops"]}, buffer_id: buffer_id}
+    assert_reply ref, :ok, %{
+      type: "buffer:joined",
+      version: 1,
+      command: %{name: "join", args: ["#ops"]},
+      connection: %{id: connection_id},
+      buffer: %{
+        buffer_id: buffer_id,
+        title: "#ops",
+        membership_status: "pending"
+      }
+    }
+
+    assert connection_id == connection.id
     assert_receive {:irc_server_line, "JOIN #ops"}, 1_000
 
     assert_push "buffer:joined", %{
@@ -187,6 +199,75 @@ defmodule TopicsClubWeb.UserChannelTest do
              &(&1.kind == "command" and &1.body == "JOIN #ops")
            )
 
+    assert :ok = Session.quit(connection)
+  end
+
+  test "opens pending joins immediately and accepts joins from channel and direct buffers" do
+    server = start_supervised!({IrcTestServer, {self(), join_replies?: false}})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "local",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    {:ok, source_membership} = Chat.join_channel(user, connection, "#elixir")
+    {:ok, direct_thread} = DirectMessageLifecycle.open(user, connection, "akash")
+    socket = join_user_channel(user)
+    {:ok, _pid} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+    assert_receive {:irc_server_line, "JOIN #elixir"}, 1_000
+
+    ref =
+      push(socket, "command:run", %{
+        "input" => "/join #ops",
+        "buffer_id" => "channel:#{source_membership.id}"
+      })
+
+    assert_reply ref, :ok, %{
+      type: "buffer:joined",
+      connection: %{id: connection_id},
+      buffer: %{
+        buffer_id: ops_buffer_id,
+        title: "#ops",
+        membership_status: "pending"
+      }
+    }
+
+    assert connection_id == connection.id
+    assert_receive {:irc_server_line, "JOIN #ops"}, 1_000
+
+    repeated_ref =
+      push(socket, "command:run", %{
+        "input" => "/join #ops",
+        "buffer_id" => "channel:#{source_membership.id}"
+      })
+
+    assert_reply repeated_ref, :ok, %{
+      type: "buffer:joined",
+      buffer: %{buffer_id: ^ops_buffer_id, title: "#ops", membership_status: "pending"}
+    }
+
+    refute_receive {:irc_server_line, "JOIN #ops"}, 100
+
+    direct_ref =
+      push(socket, "command:run", %{
+        "input" => "/join #founders",
+        "buffer_id" => "direct:#{direct_thread.id}"
+      })
+
+    assert_reply direct_ref, :ok, %{
+      type: "buffer:joined",
+      buffer: %{buffer_id: "channel:" <> _, title: "#founders", membership_status: "pending"}
+    }
+
+    assert_receive {:irc_server_line, "JOIN #founders"}, 1_000
     assert :ok = Session.quit(connection)
   end
 
@@ -289,6 +370,34 @@ defmodule TopicsClubWeb.UserChannelTest do
     assert message_thread_id == thread_id
     assert_receive {:irc_server_line, "PRIVMSG akash :hello privately"}, 1_000
     assert_push "direct_message:thread", %{buffer: %{buffer_id: ^buffer_id, title: "akash"}}
+
+    direct_msg_ref =
+      push(socket, "command:run", %{
+        "input" => "/msg river hello from a direct buffer",
+        "buffer_id" => buffer_id
+      })
+
+    assert_reply direct_msg_ref, :ok, %{
+      type: "direct_message:thread",
+      buffer: %{buffer_id: "direct:" <> _, title: "river"},
+      message: %{body: "hello from a direct buffer", nick: "mira"}
+    }
+
+    assert_receive {:irc_server_line, "PRIVMSG river :hello from a direct buffer"}, 1_000
+
+    action_ref =
+      push(socket, "command:run", %{
+        "input" => "/me waves",
+        "buffer_id" => buffer_id
+      })
+
+    assert_reply action_ref, :ok, %{
+      type: "direct_message:thread",
+      buffer: %{buffer_id: ^buffer_id, title: "akash"},
+      message: %{buffer_id: ^buffer_id, body: "waves", kind: "action", nick: "mira"}
+    }
+
+    assert_receive {:irc_server_line, "PRIVMSG akash :\x01ACTION waves\x01"}, 1_000
 
     server_history = MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
 

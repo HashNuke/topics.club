@@ -45,7 +45,7 @@ export function ChatPane({activeChannel, commandCatalog, composerError, connecti
       {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}
       <ChatComposer
         commandCatalog={commandCatalog}
-        context="channel"
+        context={activeChannel?.buffer_type === "direct_message" ? "direct" : "channel"}
         error={composerError}
         inputId="chat-message-input"
         draft={draft}

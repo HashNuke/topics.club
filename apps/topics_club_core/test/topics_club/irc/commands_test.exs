@@ -41,6 +41,14 @@ defmodule TopicsClub.Irc.CommandsTest do
              Commands.parse("/whois mira")
   end
 
+  test "exposes server-wide commands in direct-message composers" do
+    commands = Map.new(Commands.all(), &{&1.name, &1})
+
+    assert %{contexts: ["server", "channel", "direct"]} = commands["/join"]
+    assert %{contexts: ["server", "channel", "direct"]} = commands["/msg"]
+    assert %{contexts: ["channel", "direct"]} = commands["/me"]
+  end
+
   test "rejects normal messages and unknown slash commands" do
     assert {:error, :not_a_command} = Commands.parse("hello")
     assert {:error, {:unknown_command, "wat"}} = Commands.parse("/wat")

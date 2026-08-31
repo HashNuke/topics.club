@@ -411,6 +411,21 @@ defmodule TopicsClub.Engine.APITest do
 
     refute_receive {:irc_server_line, "LIST"}, 100
 
+    assert {:ok, %{result: join_command_result}} =
+             EngineClient.execute_command(
+               user.id,
+               connection.id,
+               "JOIN #command-result",
+               "command-api-join",
+               "server:#{connection.id}"
+             )
+
+    assert join_command_result.command == "join"
+    assert join_command_result.command_id == "command-api-join"
+    assert join_command_result.membership.channel == "#command-result"
+    assert join_command_result.membership.status == "pending"
+    assert_receive {:irc_server_line, "JOIN #command-result"}, 1_000
+
     assert {:ok, %{result: command_result}} =
              EngineClient.execute_command(
                user.id,

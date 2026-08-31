@@ -6,8 +6,8 @@ import type {CommandCatalogEntry} from "../types.ts"
 import ChatComposer from "./chat_composer.tsx"
 
 const defaultCommandCatalog: CommandCatalogEntry[] = [
-  {name: "/join", usage: "/join #channel", description: "Join", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: []},
-  {name: "/list", usage: "/list", description: "List", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: []},
+  {name: "/join", usage: "/join #channel", description: "Join", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: []},
+  {name: "/list", usage: "/list", description: "List", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: []},
 ]
 
 class TestResizeObserver {
@@ -34,13 +34,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function ComposerHarness({commandCatalog = defaultCommandCatalog, disabled = false, onStatusAction, onSubmit = vi.fn(), initialDraft = "", readOnly = false}: {commandCatalog?: CommandCatalogEntry[]; disabled?: boolean; onStatusAction?: () => void; onSubmit?: () => void; initialDraft?: string; readOnly?: boolean}) {
+function ComposerHarness({commandCatalog = defaultCommandCatalog, context = "channel", disabled = false, onStatusAction, onSubmit = vi.fn(), initialDraft = "", readOnly = false}: {commandCatalog?: CommandCatalogEntry[]; context?: "server" | "channel" | "direct"; disabled?: boolean; onStatusAction?: () => void; onSubmit?: () => void; initialDraft?: string; readOnly?: boolean}) {
   const [draft, setDraft] = useState(initialDraft)
 
   return (
     <ChatComposer
       commandCatalog={commandCatalog}
-      context="channel"
+      context={context}
       disabled={disabled}
       draft={draft}
       inputId="composer-test"
@@ -175,6 +175,25 @@ describe("ChatComposer", () => {
     await user.click(option)
 
     expect(screen.getByLabelText("Message composer")).toHaveValue("/join ")
+  })
+
+  test("offers server commands and actions from a direct-message composer", async () => {
+    const user = userEvent.setup()
+    const commandCatalog: CommandCatalogEntry[] = [
+      ...defaultCommandCatalog,
+      {name: "/msg", usage: "/msg nick message", description: "Message", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: []},
+      {name: "/me", usage: "/me action", description: "Action", required_permission: "user", contexts: ["channel", "direct"], availability: "enabled", examples: []},
+    ]
+    render(<ComposerHarness commandCatalog={commandCatalog} context="direct" />)
+
+    await user.type(screen.getByLabelText("Message composer"), "/")
+
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      expect.stringContaining("/join"),
+      expect.stringContaining("/list"),
+      expect.stringContaining("/msg"),
+      expect.stringContaining("/me"),
+    ])
   })
 
   test("scrolls later keyboard-selected suggestions into view", async () => {

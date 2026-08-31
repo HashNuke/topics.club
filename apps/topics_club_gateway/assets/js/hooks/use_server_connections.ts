@@ -165,8 +165,8 @@ export default function useServerConnections({
     applyJoinedTopic(payload, true)
   }
 
-  function applyJoinedTopicResponse(payload: JoinedTopicPayload): void {
-    applyJoinedTopic(payload)
+  function applyJoinedTopicResponse(payload: JoinedTopicPayload): boolean {
+    return applyJoinedTopic(payload) === true
   }
 
   function applyJoinedTopic(

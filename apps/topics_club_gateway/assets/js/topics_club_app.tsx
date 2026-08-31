@@ -48,6 +48,7 @@ import {
   validChatMessage,
   validDirectMessageThreadPayload,
   validEntityId,
+  validJoinedTopicPayload,
   validNotificationPreferencePayload,
   validNotificationPreferenceResponse,
   validServerChannel,
@@ -128,8 +129,12 @@ function validSentMessageReply(
 }
 
 function parsedDirectMessageBody(input: string): string | null {
-  const match = input.trim().match(/^\/msg\s+\S+\s+(.+)$/is)
-  return match?.[1] || null
+  const trimmed = input.trim()
+  const messageMatch = trimmed.match(/^\/msg\s+\S+\s+(.+)$/is)
+  if (messageMatch) return messageMatch[1] || null
+
+  const actionMatch = trimmed.match(/^\/me\s+(.+)$/is)
+  return actionMatch?.[1] || null
 }
 
 function notificationBufferId(value: unknown): string | null {
@@ -746,13 +751,20 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
       setComposerError(null)
 
       try {
-        const reply = await realtimeClientRef.current.push<DirectMessageThreadPayload & {message: unknown}>("command:run", {
+        const reply = await realtimeClientRef.current.push<Record<string, unknown>>("command:run", {
           command_id: commandId,
           input: body,
           buffer_id: bufferId,
         })
 
-        if ("buffer" in reply && reply.buffer?.buffer_type === "direct_message") {
+        if (validJoinedTopicPayload(reply)) {
+          if (!applyJoinedTopicResponse(reply)) throw new Error("invalid_join_reply")
+          const joinedChannel = connectionsRef.current
+            .flatMap((connection) => connection.channels)
+            .find((channel) => channel.id === reply.buffer.buffer_id)
+          if (!joinedChannel) throw new Error("invalid_join_reply")
+          navigateToChannel(joinedChannel)
+        } else if (validDirectMessageThreadPayload(reply)) {
           const expectedBody = parsedDirectMessageBody(body)
           if (!expectedBody || !openDirectMessage(reply, reply.message, expectedBody)) {
             throw new Error("invalid_direct_message_reply")
@@ -1527,7 +1539,30 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
     if (!server) return false
 
     if (!validDirectMessageReply(message, buffer, expectedBody)) return false
-    if (!applyDirectMessageThread(payload)) return false
+
+    const applied = applyDirectMessageThread(payload)
+    const currentBuffer = connectionsRef.current
+      .flatMap((connection) => connection.channels)
+      .find((channel) => channel.id === buffer.buffer_id)
+    const currentOwnerId = bufferServerConnectionId(connectionsRef.current, buffer.buffer_id)
+
+    if (
+      !applied &&
+      (
+        currentBuffer?.buffer_type !== "direct_message" ||
+        currentBuffer.direct_message_revision !== buffer.direct_message_revision ||
+        String(currentOwnerId) !== String(buffer.server_connection_id) ||
+        String(currentBuffer.direct_message_thread_id) !== String(buffer.direct_message_thread_id) ||
+        currentBuffer.channel !== buffer.title ||
+        currentBuffer.blocked !== buffer.blocked ||
+        (currentBuffer.closed_at || null) !== buffer.closed_at
+      )
+    ) return false
+
+    const selectedBuffer = connectionsRef.current
+      .flatMap((connection) => connection.channels)
+      .find((channel) => channel.id === buffer.buffer_id)
+    if (!selectedBuffer) return false
 
     const normalizedMessage = normalizeMessage(message)
     setMessagesByChannel((current) => {
@@ -1542,12 +1577,7 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
         [buffer.buffer_id]: [...currentMessages, normalizedMessage],
       }
     })
-    activeChannelIdRef.current = buffer.buffer_id
-    activeServerIdRef.current = server.id
-    viewRef.current = "chat"
-    setActiveChannelId(buffer.buffer_id)
-    setActiveServerId(server.id)
-    setView("chat")
+    navigateToChannel(selectedBuffer)
     return true
   }
 

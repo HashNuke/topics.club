@@ -116,10 +116,10 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
       ) do
     user = Repo.get!(User, state.connection.user_id)
 
-    next_state =
+    {memberships, next_state} =
       channels
       |> String.split(",", trim: true)
-      |> Enum.reduce(state, fn channel, current_state ->
+      |> Enum.map_reduce(state, fn channel, current_state ->
         {:ok, membership} =
           ChannelJoinRequest.request(
             user,
@@ -130,12 +130,15 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
 
         key = Targets.key(current_state, membership.channel)
 
-        current_state
-        |> Map.update!(:pending_joins, &MapSet.put(&1, key))
-        |> Map.update!(:sent_joins, &MapSet.put(&1, key))
+        next_state =
+          current_state
+          |> Map.update!(:pending_joins, &MapSet.put(&1, key))
+          |> Map.update!(:sent_joins, &MapSet.put(&1, key))
+
+        {membership, next_state}
       end)
 
-    {next_state, %{}}
+    {next_state, %{membership: List.first(memberships)}}
   end
 
   def persist_outcome(

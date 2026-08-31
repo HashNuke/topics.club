@@ -15,7 +15,7 @@ const commandCatalog: CommandCatalogEntry[] = [{
   usage: "/join #channel",
   description: "Join a channel",
   required_permission: "user",
-  contexts: ["server", "channel"],
+  contexts: ["server", "channel", "direct"],
   availability: "enabled",
   examples: ["/join #elixir"],
 }]
@@ -145,6 +145,7 @@ describe("buildBootstrapState", () => {
     expect(buildBootstrapState({...base, command_catalog: [command], topics: [topic]})).not.toBeNull()
     expect(buildBootstrapState({...base, command_catalog: [{...command, name: {}}]})).toBeNull()
     expect(buildBootstrapState({...base, command_catalog: [{...command, contexts: ["channel", 7]}]})).toBeNull()
+    expect(buildBootstrapState({...base, command_catalog: [{...command, contexts: ["direct"]}]})).not.toBeNull()
     expect(buildBootstrapState({...base, topics: [{...topic, description: {}}]})).toBeNull()
     expect(buildBootstrapState({...base, topics: [{...topic, server_port: 70_000}]})).toBeNull()
 

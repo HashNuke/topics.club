@@ -98,6 +98,7 @@ defmodule TopicsClub.Engine.Serialization do
   def command_result(result) when is_map(result) do
     result
     |> Map.take([:command_id, :status, :command, :display])
+    |> maybe_put_membership(Map.get(result, :membership))
     |> Map.put(
       :channel_messages,
       result |> Map.get(:channel_messages, []) |> Enum.map(&message/1)
@@ -111,6 +112,12 @@ defmodule TopicsClub.Engine.Serialization do
       end)
     )
   end
+
+  defp maybe_put_membership(result, %ChannelMembership{} = membership) do
+    Map.put(result, :membership, membership(membership))
+  end
+
+  defp maybe_put_membership(result, _membership), do: result
 
   def error_details(%{code: code} = error) when is_binary(code) do
     error

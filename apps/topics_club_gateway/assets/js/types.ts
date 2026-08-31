@@ -348,7 +348,7 @@ export interface CommandCatalogEntry {
   usage: string
   description: string
   required_permission: "user" | "channel_operator"
-  contexts: Array<"server" | "channel">
+  contexts: Array<"server" | "channel" | "direct">
   availability: "enabled" | "managed_only"
   examples: string[]
   [key: string]: unknown
