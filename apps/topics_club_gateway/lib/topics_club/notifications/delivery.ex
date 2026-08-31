@@ -127,6 +127,7 @@ defmodule TopicsClub.Notifications.Delivery do
       nick: message.nick,
       channel: membership.channel,
       channel_membership_id: membership.id,
+      server_connection_id: connection.id,
       server_name: connection.name,
       server_enabled: connection.mention_notifications_enabled,
       channel_enabled: membership.mention_notifications_enabled
@@ -158,6 +159,7 @@ defmodule TopicsClub.Notifications.Delivery do
       nick: message.nick,
       peer_nick: thread.peer_nick,
       direct_message_thread_id: thread.id,
+      server_connection_id: connection.id,
       server_name: connection.name,
       server_enabled: true,
       channel_enabled: true
@@ -296,7 +298,8 @@ defmodule TopicsClub.Notifications.Delivery do
       channel_membership_id: record.channel_membership_id,
       channel: record.channel,
       buffer_id: "channel:#{record.channel_membership_id}",
-      url: "/chat?buffer=channel:#{record.channel_membership_id}"
+      server_connection_id: record.server_connection_id,
+      url: chat_url(record.server_connection_id, record.channel)
     }
   end
 
@@ -313,8 +316,13 @@ defmodule TopicsClub.Notifications.Delivery do
       direct_message_thread_id: record.direct_message_thread_id,
       peer_nick: record.peer_nick,
       buffer_id: "direct:#{record.direct_message_thread_id}",
-      url: "/chat?buffer=direct:#{record.direct_message_thread_id}"
+      server_connection_id: record.server_connection_id,
+      url: chat_url(record.server_connection_id, record.peer_nick)
     }
+  end
+
+  defp chat_url(server_connection_id, target) do
+    "/chat/#{server_connection_id}/#{URI.encode(target, &URI.char_unreserved?/1)}"
   end
 
   defp mark_success(subscription) do

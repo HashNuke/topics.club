@@ -18,31 +18,63 @@ const serverChannels: ServerChannel[] = [
   {id: 3, name: "#medium", topic: "A medium room", user_count: 120, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true},
 ]
 
+function renderPane(overrides = {}) {
+  const props = {
+    activeServer,
+    onJoinServerChannel: () => {},
+    onJoinThisServer: () => {},
+    onPageChange: () => {},
+    onSearch: () => {},
+    onSelectTab: () => {},
+    page: 1,
+    pageSize: 25,
+    query: "",
+    serverChannels,
+    tab: "all" as const,
+    totalChannels: serverChannels.length,
+    totalPages: 1,
+    ...overrides,
+  }
+
+  return render(<DiscoverPane {...props} />)
+}
+
 describe("DiscoverPane", () => {
-  test("shows popular channels across networks in descending user order", () => {
-    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} onJoinServerChannel={() => {}} onJoinThisServer={() => {}} />)
+  test("shows the remotely ordered channel page", () => {
+    renderPane()
 
     const cards = screen.getAllByTestId("discover-channel")
     expect(cards.map((card) => card.textContent)).toEqual([
+      expect.stringContaining("#small"),
       expect.stringContaining("#largest"),
       expect.stringContaining("#medium"),
-      expect.stringContaining("#small"),
     ])
     expect(screen.getByRole("tab", {name: "All IRC servers"})).toHaveAttribute("aria-selected", "true")
   })
 
-  test("paginates the catalog in the browser", () => {
-    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} pageSize={2} onJoinServerChannel={() => {}} onJoinThisServer={() => {}} />)
+  test("requests remote pages from pagination above and below the results", () => {
+    const onPageChange = vi.fn()
+    renderPane({onPageChange, page: 1, totalChannels: 53, totalPages: 3})
 
-    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", {name: "Next page"}))
-    expect(screen.getByText("#small")).toBeInTheDocument()
-    expect(screen.queryByText("#largest")).not.toBeInTheDocument()
+    expect(screen.getAllByText("Page 1 of 3")).toHaveLength(2)
+    fireEvent.click(screen.getAllByRole("button", {name: "Next channel page"})[0])
+    fireEvent.click(screen.getAllByRole("button", {name: "Next channel page"})[1])
+    expect(onPageChange.mock.calls).toEqual([[2], [2]])
+  })
+
+  test("submits search to the remote directory", () => {
+    const onSearch = vi.fn()
+    renderPane({onSearch})
+
+    fireEvent.change(screen.getByLabelText("Search public channels"), {target: {value: "  linux  "}})
+    fireEvent.submit(screen.getByRole("search", {name: "Search discovered channels"}))
+
+    expect(onSearch).toHaveBeenCalledWith("linux")
   })
 
   test("joins a catalog channel from its card", () => {
     const onJoinServerChannel = vi.fn()
-    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} onJoinServerChannel={onJoinServerChannel} onJoinThisServer={() => {}} />)
+    renderPane({onJoinServerChannel})
 
     fireEvent.click(screen.getByRole("button", {name: "Join #largest on OFTC"}))
     expect(onJoinServerChannel).toHaveBeenCalledWith(serverChannels[1])
@@ -50,9 +82,9 @@ describe("DiscoverPane", () => {
 
   test("joins a typed channel on the active server", () => {
     const onJoinThisServer = vi.fn()
-    render(<DiscoverPane activeServer={activeServer} serverChannels={serverChannels} onJoinServerChannel={() => {}} onJoinThisServer={onJoinThisServer} />)
+    const onSelectTab = vi.fn()
+    renderPane({onJoinThisServer, onSelectTab, tab: "server"})
 
-    fireEvent.click(screen.getByRole("tab", {name: "This server · Libera.Chat"}))
     fireEvent.change(screen.getByLabelText("Channel name"), {target: {value: "elixir"}})
     fireEvent.submit(screen.getByRole("form", {name: "Join a channel on Libera.Chat"}))
 
@@ -60,7 +92,7 @@ describe("DiscoverPane", () => {
   })
 
   test("hides the current-server tab when there is no active server", () => {
-    render(<DiscoverPane serverChannels={[]} onJoinServerChannel={() => {}} onJoinThisServer={() => {}} />)
+    renderPane({activeServer: undefined, serverChannels: [], totalChannels: 0})
 
     expect(screen.queryByRole("tab", {name: "This server"})).not.toBeInTheDocument()
     expect(screen.getByRole("tab", {name: "All IRC servers"})).toBeInTheDocument()

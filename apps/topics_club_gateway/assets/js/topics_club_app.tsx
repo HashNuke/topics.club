@@ -1,10 +1,14 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
+import {BrowserRouter, Route, Routes, useLocation, useNavigate} from "react-router-dom"
+import {selectPreferredBuffer} from "./active_buffer_preference.ts"
 import {
-  loadActiveBufferPreference,
-  requestedBufferId,
-  saveActiveBufferPreference,
-  selectPreferredBuffer,
-} from "./active_buffer_preference.ts"
+  bufferPath,
+  directoryPath,
+  discoverPath,
+  readChatRoute,
+  selectRouteBuffer,
+  type ChatRoute,
+} from "./chat_route.ts"
 import {bufferServerConnectionId} from "./connection_store.ts"
 import {createApiClient, type ApiClient} from "./api_client.ts"
 import {
@@ -28,6 +32,7 @@ import {
   synchronizeServiceWorkerClientLease,
 } from "./service_worker_account.ts"
 import AppShell from "./components/app_shell.tsx"
+import type {DiscoverTab} from "./components/discover_pane.tsx"
 import LandingPage from "./components/landing_page.tsx"
 import {
   isRealtimeChannel,
@@ -145,7 +150,20 @@ interface NotificationBufferRequest {
   userId: string
 }
 
-export default function TopicsClubApp({apiClient: providedApiClient, appMode, currentUser, developerOauth, initialFeaturedChannels = [], realtimeClientFactory}: TopicsClubAppProps) {
+export default function TopicsClubApp(props: TopicsClubAppProps) {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="*" element={<TopicsClubAppContent {...props} />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+
+function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUser, developerOauth, initialFeaturedChannels = [], realtimeClientFactory}: TopicsClubAppProps) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const initialRouteRef = useRef<ChatRoute>(readChatRoute(location))
   const apiClient = useMemo(() => providedApiClient || createApiClient({csrfToken}), [providedApiClient])
   const mode = appMode || (currentUser ? "chat" : "landing")
   const [topics, setTopics] = useState<Topic[]>([])
@@ -168,6 +186,13 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
   const [discoverServerChannels, setDiscoverServerChannels] = useState<ServerChannel[]>([])
   const [discoverError, setDiscoverError] = useState<string | null>(null)
   const [discoverLoading, setDiscoverLoading] = useState(false)
+  const [discoverPage, setDiscoverPage] = useState(initialRouteRef.current.kind === "discover" ? initialRouteRef.current.page : 1)
+  const [discoverPageSize, setDiscoverPageSize] = useState(25)
+  const [discoverQuery, setDiscoverQuery] = useState(initialRouteRef.current.kind === "discover" ? initialRouteRef.current.query : "")
+  const [discoverTab, setDiscoverTab] = useState<DiscoverTab>(initialRouteRef.current.kind === "discover" && initialRouteRef.current.connectionId ? "server" : "all")
+  const [discoverTotalChannels, setDiscoverTotalChannels] = useState(0)
+  const [discoverTotalPages, setDiscoverTotalPages] = useState(1)
+  const [discoverReloadVersion, setDiscoverReloadVersion] = useState(0)
   const [joiningDiscoveryServerChannelId, setJoiningDiscoveryServerChannelId] = useState<string | number | null>(null)
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalogEntry[]>([])
   const [bootstrapLoading, setBootstrapLoading] = useState(Boolean(currentUser && mode !== "landing"))
@@ -176,7 +201,7 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
   const activeChannelIdRef = useRef(activeChannelId)
   const activeServerIdRef = useRef(activeServerId)
   const connectionsRef = useRef<ServerConnection[]>([])
-  const discoverRequestedRef = useRef(false)
+  const discoverRequestRef = useRef(0)
   const notificationDeviceStateRef = useRef(notificationDeviceState)
   const notificationOperationIdRef = useRef(0)
   const notificationPreferenceEpochRef = useRef(0)
@@ -189,7 +214,8 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
   const notificationBufferRequestRef = useRef<NotificationBufferRequest | null>(null)
   const refreshAuthoritativeBootstrapRef = useRef<() => void>(() => undefined)
   const selectBufferRef = useRef<(bufferId: string) => boolean>(() => false)
-  const requestedBufferIdRef = useRef(requestedBufferId())
+  const initialRouteAppliedRef = useRef(false)
+  const routeSelectionPendingRef = useRef<string | null>(null)
   const requestedTopicIdRef = useRef(requestedTopicId())
   const realtimeClientRef = useRef<RealtimeClient | null>(null)
   const viewRef = useRef(view)
@@ -378,13 +404,6 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
   }, [activeChannelId, activeServerId, view])
 
   useEffect(() => {
-    if (!currentUser || mode === "landing") return
-
-    const bufferId = view === "chat" ? activeChannelId : view === "server" ? activeServerId : null
-    if (bufferId) saveActiveBufferPreference(currentUser.id, bufferId)
-  }, [activeChannelId, activeServerId, currentUser?.id, mode, view])
-
-  useEffect(() => {
     notificationDeviceStateRef.current = notificationDeviceState
   }, [notificationDeviceState])
 
@@ -466,8 +485,8 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
 
     requestedTopicIdRef.current = null
     joinTopic(requestedTopic)
-    if (window.history?.replaceState) window.history.replaceState(null, "", window.location.pathname)
-  }, [currentUser?.id, mode, topics, topicsLoaded])
+    navigate(location.pathname, {replace: true})
+  }, [currentUser?.id, location.pathname, mode, navigate, topics, topicsLoaded])
 
   useEffect(() => {
     if (!currentUser || mode === "landing") {
@@ -502,18 +521,43 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
   }, [apiClient, currentUser?.id, mode])
 
   useEffect(() => {
-    if (mode === "landing" || view !== "discover" || discoverRequestedRef.current) return
+    if (mode === "landing" || view !== "discover") return
 
-    discoverRequestedRef.current = true
+    const scopedServer =
+      discoverTab === "server"
+        ? connectionsRef.current.find((connection) => connection.id === activeServerId)
+        : null
+    if (discoverTab === "server" && !scopedServer?.server_connection_id) return
+
+    const requestId = ++discoverRequestRef.current
     setDiscoverLoading(true)
     setDiscoverError(null)
 
     apiClient
-      .discoveryServerChannels()
-      .then(({server_channels}) => setDiscoverServerChannels(server_channels || []))
-      .catch(() => setDiscoverError("The IRC directory could not be loaded. Try again later."))
-      .finally(() => setDiscoverLoading(false))
-  }, [apiClient, mode, view])
+      .discoveryServerChannels({
+        connectionId: scopedServer?.server_connection_id,
+        page: discoverPage,
+        query: discoverQuery,
+      })
+      .then((directory) => {
+        if (requestId !== discoverRequestRef.current) return
+        const serverChannels = directory.server_channels || []
+        setDiscoverServerChannels(serverChannels)
+        setDiscoverPage(directory.page || 1)
+        setDiscoverPageSize(directory.page_size || 25)
+        setDiscoverQuery(directory.query || "")
+        setDiscoverTotalChannels(directory.total_channels ?? serverChannels.length)
+        setDiscoverTotalPages(directory.total_pages || 1)
+      })
+      .catch(() => {
+        if (requestId === discoverRequestRef.current) {
+          setDiscoverError("The IRC directory could not be loaded. Try again later.")
+        }
+      })
+      .finally(() => {
+        if (requestId === discoverRequestRef.current) setDiscoverLoading(false)
+      })
+  }, [activeServerId, apiClient, discoverPage, discoverQuery, discoverReloadVersion, discoverTab, mode, view])
 
   useActivityHeartbeat(apiClient, Boolean(currentUser && mode !== "landing"))
 
@@ -527,6 +571,124 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
   const messages = activeChannel ? messagesByChannel[activeChannel.id] || [] : []
   const serverMessages = activeServer ? messagesByServer[activeServer.id] || [] : []
   const users = activeChannel ? usersByChannel[activeChannel.id] || [] : []
+
+  useEffect(() => {
+    if (!bootstrapReady || mode === "landing") return
+
+    const route = readChatRoute(location)
+
+    if (route.kind === "buffer") {
+      const selected = selectRouteBuffer(connectionsRef.current, route)
+      if (!selected) return
+
+      cancelChannelDirectory()
+      routeSelectionPendingRef.current = selected.activeChannelId || selected.activeServerId
+      activeChannelIdRef.current = selected.activeChannelId
+      activeServerIdRef.current = selected.activeServerId
+      viewRef.current = selected.view
+      setActiveChannelId(selected.activeChannelId)
+      setActiveServerId(selected.activeServerId)
+      setView(selected.view)
+      return
+    }
+
+    if (route.kind === "discover") {
+      const requestedServer = connectionsRef.current.find(
+        (connection) => String(connection.server_connection_id) === route.connectionId
+      )
+
+      cancelChannelDirectory()
+      routeSelectionPendingRef.current = "discover"
+      viewRef.current = "discover"
+      setDiscoverTab(requestedServer ? "server" : "all")
+      setDiscoverPage(route.page)
+      setDiscoverQuery(route.query)
+      if (requestedServer) {
+        activeServerIdRef.current = requestedServer.id
+        setActiveServerId(requestedServer.id)
+      }
+      setView("discover")
+      return
+    }
+
+    if (route.kind === "directory") {
+      const requestedServer = connectionsRef.current.find(
+        (connection) => String(connection.server_connection_id) === route.connectionId
+      )
+      if (!requestedServer) return
+
+      routeSelectionPendingRef.current = "directory"
+      activeServerIdRef.current = requestedServer.id
+      viewRef.current = "directory"
+      setActiveServerId(requestedServer.id)
+      setView("directory")
+
+      if (
+        channelDirectory.serverId !== requestedServer.id ||
+        channelDirectory.page !== route.page ||
+        channelDirectory.query !== route.query ||
+        channelDirectory.status === "idle"
+      ) {
+        openChannelDirectory(requestedServer, {page: route.page, query: route.query})
+      }
+    }
+  }, [bootstrapReady, location.pathname, location.search, mode])
+
+  useEffect(() => {
+    if (!bootstrapReady || mode === "landing") return
+
+    const pendingRoute = routeSelectionPendingRef.current
+    if (pendingRoute) {
+      const applied =
+        (pendingRoute === "discover" && view === "discover") ||
+        (pendingRoute === "directory" && view === "directory") ||
+        (view === "chat" && activeChannelId === pendingRoute) ||
+        (view === "server" && activeServerId === pendingRoute)
+
+      if (applied) routeSelectionPendingRef.current = null
+      return
+    }
+
+    let desiredPath: string | null = null
+
+    if (view === "chat" && activeChannel?.connection?.server_connection_id) {
+      desiredPath = bufferPath(activeChannel.connection.server_connection_id, activeChannel)
+    } else if (view === "server" && activeServer?.server_connection_id) {
+      desiredPath = bufferPath(activeServer.server_connection_id)
+    } else if (view === "discover") {
+      desiredPath = discoverPath(
+        discoverTab === "server" ? activeServer?.server_connection_id || null : null,
+        discoverPage,
+        discoverQuery
+      )
+    } else if (view === "directory" && activeServer?.server_connection_id) {
+      desiredPath = directoryPath(
+        activeServer.server_connection_id,
+        channelDirectory.page,
+        channelDirectory.query
+      )
+    }
+
+    if (desiredPath && `${location.pathname}${location.search}` !== desiredPath) {
+      navigate(desiredPath, {replace: true})
+    }
+  }, [
+    activeChannel?.channel,
+    activeChannelId,
+    activeServer?.server_connection_id,
+    activeServerId,
+    bootstrapReady,
+    channelDirectory.page,
+    channelDirectory.query,
+    discoverPage,
+    discoverQuery,
+    discoverTab,
+    location.pathname,
+    location.search,
+    mode,
+    navigate,
+    view,
+  ])
 
   useEffect(() => {
     if (
@@ -576,7 +738,7 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
       if (body.toLowerCase() === "/list") {
         setComposerError(null)
         setDraft("")
-        await openChannelDirectory(activeChannel?.connection || activeServer)
+        navigateToChannelDirectory(activeChannel?.connection || activeServer)
         return
       }
 
@@ -1045,27 +1207,29 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
     const currentPreferredBuffer = preserveSelection
       ? selectPreferredBuffer(state.connections, currentBufferId())
       : null
-    const requestedPreferredBuffer = selectPreferredBuffer(
-      state.connections,
-      requestedBufferIdRef.current
-    )
-    const storedPreferredBuffer = selectPreferredBuffer(
-      state.connections,
-      loadActiveBufferPreference(bootstrapUser.id)
-    )
+    const initialRoute = initialRouteAppliedRef.current ? null : initialRouteRef.current
+    const routePreferredBuffer = initialRoute ? selectRouteBuffer(state.connections, initialRoute) : null
+    const initialDirectoryServer = initialRoute?.kind === "directory"
+      ? state.connections.find(
+          (connection) => String(connection.server_connection_id) === initialRoute.connectionId
+        )
+      : null
     const preferredBuffer = notificationPreferredBuffer ||
       currentPreferredBuffer ||
-      requestedPreferredBuffer ||
-      storedPreferredBuffer
+      routePreferredBuffer
+    const preservedView =
+      preserveSelection && (viewRef.current === "directory" || viewRef.current === "discover")
+        ? viewRef.current
+        : null
+    const canPreserveView =
+      preservedView === "discover" ||
+      (preservedView === "directory" &&
+        state.connections.some((connection) => connection.id === activeServerIdRef.current))
 
-    requestedBufferIdRef.current = null
+    initialRouteAppliedRef.current = true
     if (notificationPreferredBuffer) {
       notificationBufferRequestRef.current = null
     }
-    if (preferredBuffer && window.history?.replaceState && new URLSearchParams(window.location.search).has("buffer")) {
-      window.history.replaceState(null, "", window.location.pathname)
-    }
-
     if (state.topics) setTopics(state.topics)
     setCommandCatalog(state.commandCatalog)
     applyPushConfig(state.push)
@@ -1081,7 +1245,31 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
     replaceBootstrapMessages(state.messagesByChannel, state.messagesByServer)
     reconcileDirectMessageHistories(previousConnections, state.connections)
     setUsersByChannel(state.usersByChannel)
-    if (preferredBuffer) {
+    if (canPreserveView) {
+      setView(preservedView!)
+    } else if (initialRoute?.kind === "discover") {
+      const requestedServer = state.connections.find(
+        (connection) => String(connection.server_connection_id) === initialRoute.connectionId
+      )
+      const nextServer = requestedServer || state.connections[0]
+      const nextTab = requestedServer ? "server" : "all"
+
+      activeChannelIdRef.current = null
+      activeServerIdRef.current = nextServer?.id || null
+      viewRef.current = "discover"
+      setActiveChannelId(null)
+      setActiveServerId(nextServer?.id || null)
+      setDiscoverPage(initialRoute.page)
+      setDiscoverQuery(initialRoute.query)
+      setDiscoverTab(nextTab)
+      setView("discover")
+    } else if (initialDirectoryServer) {
+      activeServerIdRef.current = initialDirectoryServer.id
+      viewRef.current = "directory"
+      setActiveServerId(initialDirectoryServer.id)
+      setView("directory")
+    } else if (preferredBuffer) {
+      routeSelectionPendingRef.current = preferredBuffer.activeChannelId || preferredBuffer.activeServerId
       setActiveChannelId(preferredBuffer.activeChannelId)
       setActiveServerId(preferredBuffer.activeServerId)
       setView(preferredBuffer.view)
@@ -1155,6 +1343,72 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
     return true
   }
 
+  function navigateToChannel(channel: Channel): void {
+    const server = connectionsRef.current.find((connection) =>
+      connection.channels.some((candidate) => candidate.id === channel.id)
+    )
+    if (!server?.server_connection_id) return
+
+    cancelChannelDirectory()
+    routeSelectionPendingRef.current = channel.id
+    activeChannelIdRef.current = channel.id
+    activeServerIdRef.current = server.id
+    viewRef.current = "chat"
+    setActiveServerId(server.id)
+    setActiveChannelId(channel.id)
+    setView("chat")
+    navigate(bufferPath(server.server_connection_id, channel))
+  }
+
+  function navigateToServer(server: ServerConnection): void {
+    if (!server.server_connection_id) return
+
+    cancelChannelDirectory()
+    routeSelectionPendingRef.current = server.id
+    activeServerIdRef.current = server.id
+    viewRef.current = "server"
+    setActiveServerId(server.id)
+    setView("server")
+    navigate(bufferPath(server.server_connection_id))
+  }
+
+  function navigateToChannelDirectory(server?: ServerConnection | null): void {
+    if (!server?.server_connection_id) return
+    const path = directoryPath(server.server_connection_id)
+
+    if (`${location.pathname}${location.search}` === path) {
+      openChannelDirectory(server)
+    } else {
+      navigate(path)
+    }
+  }
+
+  function navigateWithinChannelDirectory(page: number, query: string): void {
+    if (!activeServer?.server_connection_id) return
+    const path = directoryPath(activeServer.server_connection_id, page, query)
+
+    if (`${location.pathname}${location.search}` === path) {
+      openChannelDirectory(activeServer, {page, query})
+    } else {
+      navigate(path)
+    }
+  }
+
+  function navigateToDiscover(tab: DiscoverTab, page = 1, query = ""): void {
+    const connectionId = tab === "server" ? activeServer?.server_connection_id : null
+    if (tab === "server" && !connectionId) return
+
+    cancelChannelDirectory()
+    routeSelectionPendingRef.current = "discover"
+    viewRef.current = "discover"
+    setDiscoverTab(tab)
+    setDiscoverPage(page)
+    setDiscoverQuery(query)
+    setDiscoverReloadVersion((version) => version + 1)
+    setView("discover")
+    navigate(discoverPath(connectionId || null, page, query))
+  }
+
   function selectPendingNotificationBuffer(): void {
     const request = notificationBufferRequestRef.current
     if (request) selectBuffer(request.bufferId)
@@ -1192,6 +1446,12 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
       discoverServerChannels={discoverServerChannels}
       discoverError={discoverError}
       discoverLoading={discoverLoading}
+      discoverPage={discoverPage}
+      discoverPageSize={discoverPageSize}
+      discoverQuery={discoverQuery}
+      discoverTab={discoverTab}
+      discoverTotalChannels={discoverTotalChannels}
+      discoverTotalPages={discoverTotalPages}
       draft={draft}
       joiningDiscoveryServerChannelId={joiningDiscoveryServerChannelId}
       messages={messages}
@@ -1202,11 +1462,11 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
       topics={topics}
       users={users}
       view={view}
-      onDiscover={() => {
-        cancelChannelDirectory()
-        viewRef.current = "discover"
-        setView("discover")
-      }}
+      onDiscover={() => navigateToDiscover("all")}
+      onDiscoverPageChange={(page) => navigateToDiscover(discoverTab, page, discoverQuery)}
+      onDiscoverSearch={(query) => navigateToDiscover(discoverTab, 1, query)}
+      onDiscoverTabChange={(tab) => navigateToDiscover(tab)}
+      onChangeChannelDirectoryPage={(page) => navigateWithinChannelDirectory(page, channelDirectory.query)}
       onJoinDirectoryChannel={joinDirectoryChannel}
       onJoinDiscoverServerChannel={joinDiscoveredServerChannel}
       onJoinThisServerChannel={joinThisServerChannel}
@@ -1218,27 +1478,14 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
       onToggleChannelNotifications={toggleChannelNotifications}
       onSetDirectMessageBlocked={setDirectMessageBlocked}
       onToggleServerNotifications={toggleServerNotifications}
-      onOpenChannelDirectory={openChannelDirectory}
+      onOpenChannelDirectory={navigateToChannelDirectory}
       onDisconnectServer={disconnectServer}
       onLeaveServer={leaveServer}
       onReconnectServer={reconnectServer}
       onUpdateServer={updateServerConnection}
-      onSelectChannel={(channel: Channel) => {
-        cancelChannelDirectory()
-        viewRef.current = "chat"
-        activeChannelIdRef.current = channel.id
-        activeServerIdRef.current = channel.connection?.id || activeServerId
-        setActiveServerId(channel.connection?.id || activeServerId)
-        setActiveChannelId(channel.id)
-        setView("chat")
-      }}
-      onSelectServer={(server: ServerConnection) => {
-        cancelChannelDirectory()
-        viewRef.current = "server"
-        activeServerIdRef.current = server.id
-        setActiveServerId(server.id)
-        setView("server")
-      }}
+      onSelectChannel={navigateToChannel}
+      onSearchChannelDirectory={(query) => navigateWithinChannelDirectory(1, query)}
+      onSelectServer={navigateToServer}
       onSelectTopic={selectTopic}
       onRetryMessage={retryMessage}
       onRetryRealtime={retryRealtimeConnection}
@@ -1246,9 +1493,8 @@ export default function TopicsClubApp({apiClient: providedApiClient, appMode, cu
       onLoadOlderMessages={loadOlderMessages}
       onReadingStateChange={updateBufferReadingState}
       onShowChat={() => {
-        cancelChannelDirectory()
-        viewRef.current = "chat"
-        setView("chat")
+        if (activeChannel) navigateToChannel(activeChannel)
+        else if (activeServer) navigateToServer(activeServer)
       }}
       onUpdateDraft={(value: string) => {
         setDraft(value)

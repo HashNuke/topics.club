@@ -1003,6 +1003,86 @@ describe("TopicsClubApp UI prototype", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/bootstrap", expect.objectContaining({credentials: "same-origin"}))
   })
 
+  test("loads a channel deep link and follows browser history between buffers", async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/chat/42/%23testing")
+    mockBootstrapFetch()
+
+    render(<TopicsClubApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/chat/42/%23testing")
+
+    const nav = screen.getByRole("navigation", {name: "Joined topics"})
+    await user.click(within(nav).getByText("local"))
+    expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/chat/42")
+
+    await user.click(within(nav).getByText("#testing"))
+    expect(await screen.findByRole("heading", {name: "#testing"})).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/chat/42/%23testing")
+
+    act(() => window.history.back())
+    await waitFor(() => expect(window.location.pathname).toBe("/chat/42"))
+    expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
+  })
+
+  test("loads discovery routes and keeps remote search and pagination in the URL", async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, "", "/chat/discover/all?p=2&q=linux")
+    const apiClient = directMessageApiClient()
+    apiClient.discoveryServerChannels = vi.fn(({connectionId, page = 1, query = ""} = {}) => Promise.resolve({
+      page,
+      page_size: 25,
+      query,
+      server_channels: [{
+        id: `${connectionId || "all"}-${page}-${query || "all"}`,
+        name: "#linux",
+        topic: "Linux discussion",
+        user_count: 120,
+        network_id: 1,
+        network_name: "Old Network",
+        server_host: "irc.old.test",
+        server_port: 6697,
+        use_tls: true,
+      }],
+      total_channels: 70,
+      total_pages: 3,
+    }))
+
+    render(<TopicsClubApp apiClient={apiClient as any} currentUser={{id: 1, email: "mira@example.com"}} developerOauth={true} />)
+
+    expect(await screen.findByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
+    await waitFor(() => expect(apiClient.discoveryServerChannels).toHaveBeenCalledWith({
+      connectionId: undefined,
+      page: 2,
+      query: "linux",
+    }))
+    expect(screen.getAllByText("Page 2 of 3")).toHaveLength(2)
+
+    await user.click(screen.getAllByRole("button", {name: "Next channel page"})[0])
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/chat/discover/all?p=3&q=linux"
+    ))
+
+    const search = screen.getByLabelText("Search public channels")
+    await user.clear(search)
+    await user.type(search, "beam")
+    await user.click(screen.getByRole("button", {name: "Search"}))
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/chat/discover/all?q=beam"
+    ))
+
+    await user.click(screen.getByRole("tab", {name: "This server · Old Network"}))
+    await waitFor(() => expect(window.location.pathname).toBe("/chat/discover/1"))
+    expect(window.location.search).toBe("")
+    await waitFor(() => expect(apiClient.discoveryServerChannels).toHaveBeenCalledWith({
+      connectionId: 1,
+      page: 1,
+      query: "",
+    }))
+  })
+
   test("renders ordered private-message navigation, unread state, and peer context", async () => {
     const apiClient = directMessageApiClient()
 
@@ -1031,6 +1111,38 @@ describe("TopicsClubApp UI prototype", () => {
     expect(scopedControlIds).toContain("desktop-direct-message-block-button")
     expect(scopedControlIds).toContain("mobile-direct-message-block-button")
     expect(new Set(scopedControlIds).size).toBe(scopedControlIds.length)
+  })
+
+  test("updates an active private-message route when the peer changes nick", async () => {
+    window.history.replaceState(null, "", "/chat/1/Zed")
+    const apiClient = directMessageApiClient()
+    const client = fakeRealtimeClient(vi.fn().mockResolvedValue({}))
+    let realtimeHandlers
+
+    render(
+      <TopicsClubApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return client
+        }}
+      />
+    )
+
+    expect(await screen.findByRole("heading", {name: "Zed"})).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/chat/1/Zed")
+
+    act(() => realtimeHandlers.onDirectMessageThread(directThreadPayload({
+      connection: {id: 1, name: "Old Network", host: "irc.old.test", nickname: "mira", status: "connected", mention_notifications_enabled: true, notification_preference_revision: 0},
+      buffer: {buffer_id: "direct:9", buffer_type: "direct_message", server_connection_id: 1, direct_message_thread_id: 9, direct_message_revision: 2, title: "Zelda", unread_count: 2, blocked: false},
+      revision: 2,
+    })))
+
+    expect(await screen.findByRole("heading", {name: "Zelda"})).toBeInTheDocument()
+    expect(within(screen.getByRole("navigation", {name: "Joined topics"})).getByText("Zelda")).toBeInTheDocument()
+    await waitFor(() => expect(window.location.pathname).toBe("/chat/1/Zelda"))
   })
 
   test("adds incoming private-message threads without stealing focus", async () => {
@@ -3758,9 +3870,7 @@ describe("TopicsClubApp UI prototype", () => {
     render(<TopicsClubApp currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}} developerOauth={true} />)
 
     await user.click(screen.getByLabelText("Join another server"))
-    await user.clear(screen.getByLabelText("Server"))
     await user.type(screen.getByLabelText("Server"), "irc.example.net")
-    await user.clear(screen.getByLabelText("Auto-join channels"))
     await user.type(screen.getByLabelText("Auto-join channels"), "#music, ##deep")
     await user.click(screen.getByText("Advanced connection options"))
     await user.type(screen.getByLabelText("Nickname (optional)"), "mira")
@@ -4445,17 +4555,27 @@ describe("TopicsClubApp UI prototype", () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
     let realtimeHandlers
-    const push = vi.fn((event) => {
+    const push = vi.fn((event, payload) => {
       if (event === "server:list") {
+        const quietSearch = payload?.query === "quiet"
+        const page = payload?.page || 1
+
         return Promise.resolve({
           directory: {
             server_connection_id: 42,
             server_name: "local",
             server_host: "127.0.0.1",
-            channels: [
-              {channel: "#elixir", users: 42, topic: "Phoenix, OTP, and releases"},
-              {channel: "~quiet", users: 4, topic: "A slower room"},
-            ],
+            page,
+            page_size: 25,
+            query: quietSearch ? "quiet" : "",
+            total_channels: quietSearch ? 1 : 30,
+            total_pages: quietSearch ? 1 : 2,
+            channels: quietSearch
+              ? [{channel: "~quiet", users: 4, topic: "A slower room"}]
+              : [
+                  {channel: "#elixir", users: 42, topic: "Phoenix, OTP, and releases"},
+                  {channel: "~quiet", users: 4, topic: "A slower room"},
+                ],
           },
         })
       }
@@ -4477,12 +4597,28 @@ describe("TopicsClubApp UI prototype", () => {
 
     await user.click(await screen.findByRole("button", {name: "Browse channels on local"}))
 
-    expect(push).toHaveBeenCalledWith("server:list", {server_connection_id: 42})
+    expect(push).toHaveBeenCalledWith("server:list", {page: 1, query: "", server_connection_id: 42})
     expect(await screen.findByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/chat/42/%2Flist")
     expect(screen.getByText("Phoenix, OTP, and releases")).toBeInTheDocument()
     expect(screen.getByText("42 people")).toBeInTheDocument()
+    expect(screen.getAllByText("Page 1 of 2")).toHaveLength(2)
+
+    await user.click(screen.getAllByRole("button", {name: "Next channel page"})[0])
+    await waitFor(() => expect(push).toHaveBeenLastCalledWith(
+      "server:list",
+      {page: 2, query: "", server_connection_id: 42}
+    ))
+    expect(screen.getAllByText("Page 2 of 2")).toHaveLength(2)
+    expect(window.location.search).toBe("?p=2")
 
     await user.type(screen.getByLabelText("Search this server"), "quiet")
+    await user.click(screen.getByRole("button", {name: "Search"}))
+    await waitFor(() => expect(push).toHaveBeenLastCalledWith(
+      "server:list",
+      {page: 1, query: "quiet", server_connection_id: 42}
+    ))
+    expect(window.location.search).toBe("?q=quiet")
     expect(screen.queryByText("#elixir")).not.toBeInTheDocument()
     expect(screen.getByText("~quiet")).toBeInTheDocument()
 
@@ -4727,6 +4863,51 @@ describe("TopicsClubApp UI prototype", () => {
     expect(screen.queryByRole("heading", {name: "Channels on local"})).not.toBeInTheDocument()
   })
 
+  test("preserves the directory while a reconnect bootstrap refreshes buffers", async () => {
+    const user = userEvent.setup()
+    mockBootstrapFetch()
+    const push = vi.fn((event) => event === "server:list"
+      ? Promise.resolve({
+          directory: {
+            server_connection_id: 42,
+            server_name: "local",
+            server_host: "127.0.0.1",
+            page: 1,
+            page_size: 25,
+            query: "",
+            total_channels: 1,
+            total_pages: 1,
+            channels: [{channel: "#elixir", users: 42, topic: "Phoenix and OTP"}],
+          },
+        })
+      : Promise.resolve({ok: true}))
+    let realtimeHandlers
+
+    render(
+      <TopicsClubApp
+        currentUser={{id: 1, email: "mira@example.com", message_retention_days: 3}}
+        developerOauth={true}
+        realtimeClientFactory={({handlers}) => {
+          realtimeHandlers = handlers
+          return fakeRealtimeClient(push)
+        }}
+      />
+    )
+
+    await user.click(await screen.findByRole("button", {name: "Browse channels on local"}))
+    expect(await screen.findByText("#elixir")).toBeInTheDocument()
+
+    await act(async () => realtimeHandlers.onJoinOk())
+
+    await waitFor(() => {
+      const bootstrapCalls = globalThis.fetch.mock.calls.filter(([path]) => path === "/api/bootstrap")
+      expect(bootstrapCalls).toHaveLength(2)
+    })
+    expect(screen.getByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
+    expect(screen.getByText("#elixir")).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/chat/42/%2Flist")
+  })
+
   test("opens the active server directory from the /list command", async () => {
     const user = userEvent.setup()
     mockBootstrapFetch()
@@ -4756,10 +4937,11 @@ describe("TopicsClubApp UI prototype", () => {
     await user.type(screen.getByLabelText("Message composer"), "/list")
     await user.click(screen.getByRole("button", {name: "Send"}))
 
-    expect(push).toHaveBeenCalledWith("server:list", {server_connection_id: 42})
+    expect(push).toHaveBeenCalledWith("server:list", {page: 1, query: "", server_connection_id: 42})
     expect(screen.getByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
     expect(screen.getByRole("status", {name: /Loading channels from local/i})).toBeInTheDocument()
-    expect(screen.getByRole("button", {name: "Refresh list"})).toBeDisabled()
+    expect(screen.getByText(/cached for up to one hour/i)).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Refresh list"})).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Message composer")).not.toBeInTheDocument()
 
     resolveList({

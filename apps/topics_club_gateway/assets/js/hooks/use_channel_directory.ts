@@ -25,6 +25,11 @@ export interface ChannelDirectoryState {
   error: string | null
   joinError: string | null
   joiningChannel: string | null
+  page: number
+  pageSize: number
+  query: string
+  totalChannels: number
+  totalPages: number
 }
 
 const emptyDirectory: ChannelDirectoryState = {
@@ -34,6 +39,11 @@ const emptyDirectory: ChannelDirectoryState = {
   error: null,
   joinError: null,
   joiningChannel: null,
+  page: 1,
+  pageSize: 25,
+  query: "",
+  totalChannels: 0,
+  totalPages: 1,
 }
 
 interface ChannelDirectoryOptions {
@@ -92,12 +102,17 @@ export default function useChannelDirectory({
       error: null,
       joinError: null,
       joiningChannel: null,
+      page: directory.page || 1,
+      pageSize: directory.page_size || 25,
+      query: directory.query || "",
+      totalChannels: directory.total_channels || 0,
+      totalPages: directory.total_pages || 1,
     })
     setView("directory")
     return true
   }
 
-  async function openChannelDirectory(server?: ServerConnection | null): Promise<void> {
+  async function requestChannelDirectory(server: ServerConnection, query: string, page: number): Promise<void> {
     if (!server) return
     const requestId = beginChannelDirectoryRequest()
 
@@ -111,6 +126,11 @@ export default function useChannelDirectory({
       error: null,
       joinError: null,
       joiningChannel: null,
+      page,
+      pageSize: 25,
+      query,
+      totalChannels: 0,
+      totalPages: 1,
     })
     setView("directory")
 
@@ -125,6 +145,8 @@ export default function useChannelDirectory({
 
     try {
       const reply = await realtimeClientRef.current.push<{directory: ChannelDirectory}>("server:list", {
+        page,
+        query,
         server_connection_id: server.server_connection_id,
       })
       if (
@@ -151,6 +173,26 @@ export default function useChannelDirectory({
           : current
       )
     }
+  }
+
+  function openChannelDirectory(
+    server?: ServerConnection | null,
+    options: {page?: number; query?: string} = {}
+  ): Promise<void> {
+    if (!server) return Promise.resolve()
+    return requestChannelDirectory(server, options.query || "", options.page || 1)
+  }
+
+  function searchChannelDirectory(query: string): Promise<void> {
+    const server = connectionsRef.current.find((connection) => connection.id === channelDirectory.serverId)
+    if (!server) return Promise.resolve()
+    return requestChannelDirectory(server, query, 1)
+  }
+
+  function changeChannelDirectoryPage(page: number): Promise<void> {
+    const server = connectionsRef.current.find((connection) => connection.id === channelDirectory.serverId)
+    if (!server) return Promise.resolve()
+    return requestChannelDirectory(server, channelDirectory.query, page)
   }
 
   async function joinDirectoryChannel(channelName: string): Promise<void> {
@@ -189,8 +231,10 @@ export default function useChannelDirectory({
     applyChannelDirectory,
     beginChannelDirectoryRequest,
     cancelChannelDirectory,
+    changeChannelDirectoryPage,
     channelDirectory,
     joinDirectoryChannel,
     openChannelDirectory,
+    searchChannelDirectory,
   }
 }

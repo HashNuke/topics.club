@@ -17,9 +17,10 @@ export default {
     ),
   ],
   args: {
-    directory: {channels, joiningChannel: null, status: "ready"},
+    directory: {channels, joiningChannel: null, page: 2, pageSize: 25, query: "", serverId: "server:42", status: "ready", totalChannels: 53, totalPages: 3},
     onJoinChannel: () => {},
-    onRefresh: () => {},
+    onPageChange: () => {},
+    onSearch: () => {},
     server: {id: "server:42", name: "Libera Chat"},
   },
 }
@@ -27,11 +28,11 @@ export default {
 export const Ready = {}
 
 export const Loading = {
-  args: {directory: {channels: [], status: "loading"}},
+  args: {directory: {channels: [], page: 1, pageSize: 25, query: "", serverId: "server:42", status: "loading", totalChannels: 0, totalPages: 1}},
 }
 
 export const Empty = {
-  args: {directory: {channels: [], status: "ready"}},
+  args: {directory: {channels: [], page: 1, pageSize: 25, query: "obscure", serverId: "server:42", status: "ready", totalChannels: 0, totalPages: 1}},
 }
 
 export const LoadError = {
@@ -39,13 +40,19 @@ export const LoadError = {
     directory: {
       channels: [],
       error: "The server took too long to return its channel list.",
-      status: "ready",
+      page: 1,
+      pageSize: 25,
+      query: "",
+      serverId: "server:42",
+      status: "error",
+      totalChannels: 0,
+      totalPages: 1,
     },
   },
 }
 
 export const JoiningChannel = {
-  args: {directory: {channels, joiningChannel: "#phoenix", status: "ready"}},
+  args: {directory: {channels, joiningChannel: "#phoenix", page: 1, pageSize: 25, query: "", serverId: "server:42", status: "ready", totalChannels: 3, totalPages: 1}},
 }
 
 export const MobileWidth = {

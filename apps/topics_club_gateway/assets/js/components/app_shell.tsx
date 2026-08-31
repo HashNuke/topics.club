@@ -3,6 +3,7 @@ import {randomIrcNickname, type ConnectionEditFocus} from "../connection_issue.t
 import ChannelDirectoryPane from "./channel_directory_pane.tsx"
 import ChatPane from "./chat_pane.tsx"
 import DiscoverPane from "./discover_pane.tsx"
+import type {DiscoverTab} from "./discover_pane.tsx"
 import LeftSidebar from "./left_sidebar.tsx"
 import MobileDrawer from "./mobile_drawer.tsx"
 import RightSidebar from "./right_sidebar.tsx"
@@ -38,6 +39,12 @@ export interface AppShellProps {
   discoverServerChannels: ServerChannel[]
   discoverError?: string | null
   discoverLoading: boolean
+  discoverPage: number
+  discoverPageSize: number
+  discoverQuery: string
+  discoverTab: DiscoverTab
+  discoverTotalChannels: number
+  discoverTotalPages: number
   joiningDiscoveryServerChannelId?: string | number | null
   initialMobileMenuOpen?: boolean
   initialMobileUsersOpen?: boolean
@@ -51,7 +58,11 @@ export interface AppShellProps {
   view: AppView
   onDiscover: () => void
   onCloseDirectMessage: (channel: Channel) => void
+  onChangeChannelDirectoryPage: (page: number) => void
   onDisconnectServer: (server: ServerConnection) => void
+  onDiscoverPageChange: (page: number) => void
+  onDiscoverSearch: (query: string) => void
+  onDiscoverTabChange: (tab: DiscoverTab) => void
   onJoinDirectoryChannel: (channel: string) => void
   onJoinDiscoverServerChannel: (serverChannel: ServerChannel) => void
   onJoinThisServerChannel: (channel: string) => void
@@ -72,6 +83,7 @@ export interface AppShellProps {
   onSelectChannel: (channel: Channel) => void
   onSelectServer: (server: ServerConnection) => void
   onSelectTopic: (topic: Topic) => void
+  onSearchChannelDirectory: (query: string) => void
   onSendMessage: React.FormEventHandler<HTMLFormElement>
   onShowChat: () => void
   onUpdateDraft: (value: string) => void
@@ -101,8 +113,8 @@ export default function AppShell(props: AppShellProps) {
       <LeftSidebar {...props} onEditServer={(server) => openServerEditor(server)} />
       <section className="flex min-h-0 min-w-0 flex-col">
         <TopBar {...props} showsUserSidebar={showsUserSidebar} onOpenMobileMenu={() => setMobileMenuOpen(true)} onOpenMobileUsers={() => setMobileUsersOpen(true)} />
-        {props.view === "discover" ? <DiscoverPane activeServer={props.activeServer} serverChannels={props.discoverServerChannels} error={props.discoverError} joiningServerChannelId={props.joiningDiscoveryServerChannelId} loading={props.discoverLoading} onJoinServerChannel={props.onJoinDiscoverServerChannel} onJoinThisServer={props.onJoinThisServerChannel} />
-          : props.view === "directory" ? <ChannelDirectoryPane directory={props.channelDirectory} onJoinChannel={props.onJoinDirectoryChannel} onRefresh={() => props.activeServer && props.onOpenChannelDirectory(props.activeServer)} server={props.activeServer} />
+        {props.view === "discover" ? <DiscoverPane activeServer={props.activeServer} serverChannels={props.discoverServerChannels} error={props.discoverError} joiningServerChannelId={props.joiningDiscoveryServerChannelId} loading={props.discoverLoading} onJoinServerChannel={props.onJoinDiscoverServerChannel} onJoinThisServer={props.onJoinThisServerChannel} onPageChange={props.onDiscoverPageChange} onSearch={props.onDiscoverSearch} onSelectTab={props.onDiscoverTabChange} page={props.discoverPage} pageSize={props.discoverPageSize} query={props.discoverQuery} tab={props.discoverTab} totalChannels={props.discoverTotalChannels} totalPages={props.discoverTotalPages} />
+          : props.view === "directory" ? <ChannelDirectoryPane directory={props.channelDirectory} onJoinChannel={props.onJoinDirectoryChannel} onPageChange={props.onChangeChannelDirectoryPage} onSearch={props.onSearchChannelDirectory} server={props.activeServer} />
             : props.view === "server" ? <ServerBufferPane commandCatalog={props.commandCatalog} composerError={props.composerError} draft={props.draft} messages={props.serverMessages} onEditServer={(server, focus) => openServerEditor(server, focus, true)} onLoadOlderMessages={props.onLoadOlderMessages} onReadingStateChange={props.onReadingStateChange} onReconnectServer={props.onReconnectServer} onUseRandomNickname={useRandomNickname} server={props.activeServer} onSendMessage={props.onSendMessage} onUpdateDraft={props.onUpdateDraft} connectionHealth={props.connectionHealth} />
               : <ChatPane {...props} />}
       </section>

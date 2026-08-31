@@ -1,19 +1,27 @@
-import React, {useMemo, useState} from "react"
+import React, {useEffect, useState} from "react"
+import ChannelDirectoryPagination from "./channel_directory_pagination.tsx"
 import DiscoveryChannelCard from "./discovery_channel_card.tsx"
 import type {ServerChannel, ServerConnection} from "../types.ts"
 
-type DiscoverTab = "all" | "server"
+export type DiscoverTab = "all" | "server"
 
 export interface DiscoverPaneProps {
   activeServer?: ServerConnection
   serverChannels: ServerChannel[]
   error?: string | null
-  initialTab?: DiscoverTab
   joiningServerChannelId?: string | number | null
   loading?: boolean
   onJoinServerChannel: (serverChannel: ServerChannel) => void
   onJoinThisServer: (channel: string) => void
-  pageSize?: number
+  onPageChange: (page: number) => void
+  onSearch: (query: string) => void
+  onSelectTab: (tab: DiscoverTab) => void
+  page: number
+  pageSize: number
+  query: string
+  tab: DiscoverTab
+  totalChannels: number
+  totalPages: number
 }
 
 function normalizeChannelName(value: string): string {
@@ -35,27 +43,20 @@ function refreshedLabel(serverChannels: ServerChannel[]): string | null {
   return `Updated ${date.toLocaleDateString(undefined, {month: "short", day: "numeric"})}`
 }
 
-export default function DiscoverPane({activeServer, serverChannels, error, initialTab = "all", joiningServerChannelId, loading = false, onJoinServerChannel, onJoinThisServer, pageSize = 12}: DiscoverPaneProps) {
-  const [tab, setTab] = useState<DiscoverTab>(initialTab === "server" && !activeServer ? "all" : initialTab)
-  const [page, setPage] = useState(1)
+export default function DiscoverPane({activeServer, serverChannels, error, joiningServerChannelId, loading = false, onJoinServerChannel, onJoinThisServer, onPageChange, onSearch, onSelectTab, page, pageSize, query, tab, totalChannels, totalPages}: DiscoverPaneProps) {
   const [manualChannel, setManualChannel] = useState("")
+  const [search, setSearch] = useState(query)
   const serverLabel = activeServer?.name || activeServer?.host
 
-  const sortedChannels = useMemo(
-    () => [...serverChannels].sort((left, right) => right.user_count - left.user_count || left.name.localeCompare(right.name)),
-    [serverChannels]
-  )
-  const visibleChannels = tab === "server" && activeServer
-    ? sortedChannels.filter((channel) => channel.server_host.toLowerCase() === activeServer.host.toLowerCase())
-    : sortedChannels
-  const pageCount = Math.max(1, Math.ceil(visibleChannels.length / pageSize))
-  const currentPage = Math.min(page, pageCount)
-  const paginatedChannels = visibleChannels.slice((currentPage - 1) * pageSize, currentPage * pageSize)
-  const updated = refreshedLabel(visibleChannels)
+  useEffect(() => setSearch(query), [query, tab])
 
   function selectTab(nextTab: DiscoverTab): void {
-    setTab(nextTab)
-    setPage(1)
+    onSelectTab(nextTab)
+  }
+
+  function submitSearch(event: React.FormEvent<HTMLFormElement>): void {
+    event.preventDefault()
+    onSearch(search.trim())
   }
 
   function submitManualChannel(event: React.FormEvent<HTMLFormElement>): void {
@@ -82,6 +83,17 @@ export default function DiscoverPane({activeServer, serverChannels, error, initi
           {activeServer && <button role="tab" aria-selected={tab === "server"} type="button" onClick={() => selectTab("server")} className={["relative px-1 pb-3 pl-5 text-sm font-semibold transition", tab === "server" ? "text-white after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-cyan-300" : "text-white/45 hover:text-white/75"].join(" ")}>{`This server · ${serverLabel}`}</button>}
         </div>
 
+        <form aria-label="Search discovered channels" className="mt-6" onSubmit={submitSearch} role="search">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="discover-channel-search">Search public channels</label>
+          <div className="flex h-11 max-w-2xl overflow-hidden rounded-xl border border-white/10 bg-[var(--app-input)] transition focus-within:border-cyan-300/60 focus-within:ring-2 focus-within:ring-cyan-300/10">
+            <span className="flex min-w-0 flex-1 items-center gap-2 px-3.5">
+              <span className="hero-magnifying-glass size-4 text-slate-500" aria-hidden="true" />
+              <input id="discover-channel-search" className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-600" onChange={(event) => setSearch(event.target.value)} placeholder="Search channels, topics, or networks" type="search" value={search} />
+            </span>
+            <button className="border-l border-white/10 px-5 text-sm font-bold text-cyan-200 transition hover:bg-cyan-300 hover:text-cyan-950" type="submit">Search</button>
+          </div>
+        </form>
+
         {tab === "server" && (
           <form role="form" aria-label={`Join a channel on ${serverLabel || "this server"}`} onSubmit={submitManualChannel} className="mt-6 rounded-2xl border border-white/8 bg-white/[0.025] p-4 sm:flex sm:items-end sm:gap-3 sm:p-5">
             <label className="block min-w-0 flex-1 text-xs font-semibold text-slate-300">
@@ -95,17 +107,22 @@ export default function DiscoverPane({activeServer, serverChannels, error, initi
         <div className="mt-7 flex items-end justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold text-white">{tab === "all" ? "Popular across IRC" : serverLabel ? `Popular on ${serverLabel}` : "Channels on this server"}</h2>
-            <p className="mt-1 text-xs text-slate-500">{visibleChannels.length ? `${formatUsers(visibleChannels.length)} public channels` : "Public channel listings will appear here."}</p>
+            <p className="mt-1 text-xs text-slate-500">{totalChannels ? `${formatUsers(totalChannels)} public channels` : "Public channel listings will appear here."}</p>
           </div>
-          {updated && <span className="shrink-0 text-xs text-slate-600">{updated}</span>}
+          {refreshedLabel(serverChannels) && <span className="shrink-0 text-xs text-slate-600">{refreshedLabel(serverChannels)}</span>}
         </div>
 
         {error && <div role="alert" className="mt-5 rounded-xl border border-rose-300/20 bg-rose-300/8 px-4 py-3 text-sm text-rose-200">{error}</div>}
+        {!loading && totalPages > 1 && (
+          <div className="mt-5 rounded-xl border border-white/8 bg-white/[0.02]">
+            <ChannelDirectoryPagination ariaLabel="Discover pagination above results" onPageChange={onPageChange} page={page} pageSize={pageSize} totalChannels={totalChannels} totalPages={totalPages} />
+          </div>
+        )}
         {loading ? (
           <div aria-label="Loading channel directory" className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{Array.from({length: 6}, (_, index) => <div key={index} className="h-44 animate-pulse rounded-2xl border border-white/6 bg-white/[0.035]" />)}</div>
-        ) : paginatedChannels.length ? (
+        ) : serverChannels.length ? (
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {paginatedChannels.map((serverChannel) => <DiscoveryChannelCard key={serverChannel.id} serverChannel={serverChannel} joining={String(joiningServerChannelId) === String(serverChannel.id)} onJoin={() => onJoinServerChannel(serverChannel)} />)}
+            {serverChannels.map((serverChannel) => <DiscoveryChannelCard key={serverChannel.id} serverChannel={serverChannel} joining={String(joiningServerChannelId) === String(serverChannel.id)} onJoin={() => onJoinServerChannel(serverChannel)} />)}
           </div>
         ) : (
           <div className="mt-5 rounded-2xl border border-dashed border-white/10 px-6 py-14 text-center">
@@ -114,12 +131,10 @@ export default function DiscoverPane({activeServer, serverChannels, error, initi
           </div>
         )}
 
-        {!loading && visibleChannels.length > pageSize && (
-          <nav aria-label="Discover pagination" className="mt-7 flex items-center justify-between border-t border-white/8 pt-5">
-            <button type="button" aria-label="Previous page" disabled={currentPage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:opacity-30">Previous</button>
-            <span className="text-xs font-medium tabular-nums text-slate-500">Page {currentPage} of {pageCount}</span>
-            <button type="button" aria-label="Next page" disabled={currentPage === pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))} className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:border-white/20 hover:text-white disabled:opacity-30">Next</button>
-          </nav>
+        {!loading && totalPages > 1 && (
+          <div className="mt-7 rounded-xl border border-white/8 bg-white/[0.02]">
+            <ChannelDirectoryPagination ariaLabel="Discover pagination below results" onPageChange={onPageChange} page={page} pageSize={pageSize} totalChannels={totalChannels} totalPages={totalPages} />
+          </div>
         )}
       </div>
     </section>

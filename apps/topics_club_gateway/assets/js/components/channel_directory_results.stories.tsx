@@ -12,8 +12,9 @@ export default {
   decorators: [(Story: React.ComponentType) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
   args: {
     channels,
-    directory: {status: "ready", joiningChannel: null},
+    directory: {status: "ready", joiningChannel: null, page: 2, pageSize: 25, totalChannels: 53, totalPages: 3},
     onJoinChannel: () => {},
+    onPageChange: () => {},
     serverName: "Libera Chat",
   },
 }
@@ -21,15 +22,15 @@ export default {
 export const Ready = {}
 
 export const Joining = {
-  args: {directory: {status: "ready", joiningChannel: "#phoenix"}},
+  args: {directory: {status: "ready", joiningChannel: "#phoenix", page: 2, pageSize: 25, totalChannels: 53, totalPages: 3}},
 }
 
 export const Loading = {
-  args: {channels: [], directory: {status: "loading"}},
+  args: {channels: [], directory: {status: "loading", page: 1, pageSize: 25, totalChannels: 0, totalPages: 1}},
 }
 
 export const Empty = {
-  args: {channels: []},
+  args: {channels: [], directory: {status: "ready", joiningChannel: null, page: 1, pageSize: 25, totalChannels: 0, totalPages: 1}},
 }
 
 export const MobileWidth = {

@@ -36,7 +36,7 @@ self.addEventListener("push", (event) => {
     const visibleChat = windows.some((client) => {
       const pathname = new URL(client.url).pathname
       return client.visibilityState === "visible" &&
-        pathname === "/chat" &&
+        chatPathname(pathname) &&
         healthyNotificationClient(client, payload.session_generation)
     })
     if (visibleChat) return
@@ -49,7 +49,9 @@ self.addEventListener("push", (event) => {
       data: {
         bufferId: payload.buffer_id,
         notificationId: payload.notification_id,
+        serverConnectionId: payload.server_connection_id,
         sessionGeneration: payload.session_generation,
+        target: payload.target,
         userId: payload.user_id,
         url: payload.url,
       },
@@ -209,7 +211,7 @@ self.addEventListener("notificationclick", (event) => {
     const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
     const existing = windows.find((client) => {
       const pathname = new URL(client.url).pathname
-      return pathname === "/chat" &&
+      return chatPathname(pathname) &&
         healthyNotificationClient(client, data.sessionGeneration)
     })
 
@@ -243,6 +245,7 @@ function notificationPayload(eventData) {
     payload.version !== 1 ||
     !validPositiveId(payload.notification_id) ||
     !validPositiveId(payload.message_id) ||
+    !validPositiveId(payload.server_connection_id) ||
     !validPositiveId(payload.user_id) ||
     !nonemptyString(payload.session_generation) ||
     !nonemptyString(payload.title) ||
@@ -251,6 +254,7 @@ function notificationPayload(eventData) {
   ) return null
 
   let expectedTag
+  let target
   if (payload.type === "notification:mention") {
     if (
       !validPositiveId(payload.channel_membership_id) ||
@@ -258,6 +262,7 @@ function notificationPayload(eventData) {
       !nonemptyString(payload.channel)
     ) return null
     expectedTag = `notification_mention:message:${payload.message_id}`
+    target = payload.channel
   } else if (payload.type === "notification:direct_message") {
     if (
       !validPositiveId(payload.direct_message_thread_id) ||
@@ -265,15 +270,21 @@ function notificationPayload(eventData) {
       !nonemptyString(payload.peer_nick)
     ) return null
     expectedTag = `notification_direct_message:message:${payload.message_id}`
+    target = payload.peer_nick
   } else {
     return null
   }
 
   if (payload.tag !== expectedTag) return null
-  const url = notificationUrl(payload.url, payload.buffer_id)
+  const url = notificationUrl(
+    payload.url,
+    payload.buffer_id,
+    payload.server_connection_id,
+    target
+  )
   if (!url) return null
 
-  return {...payload, url}
+  return {...payload, target, url}
 }
 
 function notificationData(value) {
@@ -282,35 +293,50 @@ function notificationData(value) {
     typeof value !== "object" ||
     !validNotificationBufferId(value.bufferId) ||
     !validPositiveId(value.notificationId) ||
+    !validPositiveId(value.serverConnectionId) ||
     !nonemptyString(value.sessionGeneration) ||
+    !nonemptyString(value.target) ||
     !validPositiveId(value.userId)
   ) return null
 
-  const url = notificationUrl(value.url, value.bufferId)
+  const url = notificationUrl(
+    value.url,
+    value.bufferId,
+    value.serverConnectionId,
+    value.target
+  )
   return url ? {...value, url} : null
 }
 
-function notificationUrl(value, bufferId) {
-  if (!nonemptyString(value) || !validNotificationBufferId(bufferId)) {
+function notificationUrl(value, bufferId, serverConnectionId, target) {
+  if (
+    !nonemptyString(value) ||
+    !validNotificationBufferId(bufferId) ||
+    !validPositiveId(serverConnectionId) ||
+    !nonemptyString(target)
+  ) {
     return null
   }
 
   try {
     const url = new URL(value, self.location.origin)
     const entries = [...url.searchParams.entries()]
+    const pathname = `/chat/${encodeURIComponent(String(serverConnectionId))}/${encodeURIComponent(target)}`
     if (
       url.origin !== self.location.origin ||
-      url.pathname !== "/chat" ||
+      url.pathname !== pathname ||
       url.hash !== "" ||
-      entries.length !== 1 ||
-      entries[0][0] !== "buffer" ||
-      entries[0][1] !== bufferId
+      entries.length !== 0
     ) return null
 
-    return new URL(`/chat?buffer=${encodeURIComponent(bufferId)}`, self.location.origin).href
+    return new URL(pathname, self.location.origin).href
   } catch (_error) {
     return null
   }
+}
+
+function chatPathname(pathname) {
+  return pathname === "/chat" || pathname.startsWith("/chat/")
 }
 
 function validPositiveId(value) {

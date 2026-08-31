@@ -5,17 +5,11 @@ export default {
   component: ChannelDirectoryHeader,
   decorators: [(Story: React.ComponentType) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
   args: {
-    loading: false,
-    onRefresh: () => {},
     serverName: "Libera Chat",
   },
 }
 
 export const Ready = {}
-
-export const Loading = {
-  args: {loading: true},
-}
 
 export const MobileWidth = {
   decorators: [(Story: React.ComponentType) => <div className="w-80 max-w-full"><Story /></div>],

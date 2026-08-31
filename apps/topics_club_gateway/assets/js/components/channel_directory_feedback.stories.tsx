@@ -4,7 +4,7 @@ export default {
   title: "Directory/ChannelDirectoryFeedback",
   component: ChannelDirectoryFeedback,
   decorators: [(Story: React.ComponentType) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
-  args: {error: null, joinError: null, onRefresh: () => {}},
+  args: {error: null, joinError: null, onRetry: () => {}},
 }
 
 export const LoadError = {
@@ -17,7 +17,7 @@ export const JoinError = {
 
 export const BothErrors = {
   args: {
-    error: "The channel list could not be refreshed.",
+    error: "The channel list could not be loaded.",
     joinError: "The selected channel could not be joined.",
   },
 }

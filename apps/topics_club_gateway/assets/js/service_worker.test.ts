@@ -11,10 +11,11 @@ function directPush(overrides: Record<string, unknown> = {}) {
     message_id: 10,
     user_id: "2",
     session_generation: "session-b",
+    server_connection_id: 1,
     direct_message_thread_id: 3,
     peer_nick: "akash",
     buffer_id: "direct:3",
-    url: "/chat?buffer=direct:3",
+    url: "/chat/1/akash",
     ...overrides,
   }
 }
@@ -109,6 +110,16 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   })
 
   expect(showNotification).toHaveBeenCalledOnce()
+  expect(showNotification).toHaveBeenCalledWith(
+    "Private message",
+    expect.objectContaining({
+      data: expect.objectContaining({
+        serverConnectionId: 1,
+        target: "akash",
+        url: "https://topics.example.test/chat/1/akash",
+      }),
+    })
+  )
 
   notificationEligible = false
   await dispatchExtendableEvent(handlers.get("push"), {
@@ -122,7 +133,7 @@ test("ignores a stale tab account during replacement and trusts the server sessi
   notificationEligible = true
   const visibleClient = {
     id: "visible-chat",
-    url: "https://topics.example.test/chat",
+    url: "https://topics.example.test/chat/1/akash",
     visibilityState: "visible",
   }
   worker.clients.matchAll.mockResolvedValue([visibleClient])
@@ -206,10 +217,10 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     data: {json: () => directPush({tag: "arbitrary-tag"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => directPush({url: "/chat?buffer=direct:4"})},
+    data: {json: () => directPush({url: "/chat/1/Zed"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
-    data: {json: () => directPush({url: "/chat?buffer=direct:3&extra=true"})},
+    data: {json: () => directPush({url: "/chat/1/akash?extra=true"})},
   })
   await dispatchExtendableEvent(handlers.get("push"), {
     data: {json: () => ({...directPush(), type: undefined})},
@@ -223,7 +234,6 @@ test("ignores a stale tab account during replacement and trusts the server sessi
       notification_id: 27,
       direct_message_thread_id: postgresBigintMax,
       buffer_id: `direct:${postgresBigintMax}`,
-      url: `/chat?buffer=direct:${postgresBigintMax}`,
     })},
   })
   expect(showNotification).toHaveBeenCalledTimes(5)
@@ -233,7 +243,6 @@ test("ignores a stale tab account during replacement and trusts the server sessi
       notification_id: 28,
       direct_message_thread_id: oversizedPostgresBigint,
       buffer_id: `direct:${oversizedPostgresBigint}`,
-      url: `/chat?buffer=direct:${oversizedPostgresBigint}`,
     })},
   })
   expect(showNotification).toHaveBeenCalledTimes(5)
@@ -243,9 +252,11 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     data: {
       bufferId: "direct:3",
       notificationId: 20,
+      serverConnectionId: 1,
       sessionGeneration: "session-b",
+      target: "akash",
       userId: "2",
-      url: "/settings?buffer=direct:3",
+      url: "/settings/1/akash",
     },
   }
   await dispatchExtendableEvent(handlers.get("notificationclick"), {
@@ -275,9 +286,11 @@ test("ignores a stale tab account during replacement and trusts the server sessi
     data: {
       bufferId: "direct:3",
       notificationId: 20,
+      serverConnectionId: 1,
       sessionGeneration: "session-b",
+      target: "akash",
       userId: "2",
-      url: "/chat?buffer=direct:3",
+      url: "/chat/1/akash",
     },
   }
   await dispatchExtendableEvent(handlers.get("notificationclick"), {
@@ -297,9 +310,11 @@ test("ignores a stale tab account during replacement and trusts the server sessi
       data: {
         bufferId: `direct:${postgresBigintMax}`,
         notificationId: 20,
+        serverConnectionId: 1,
         sessionGeneration: "session-b",
+        target: "akash",
         userId: "2",
-        url: `/chat?buffer=direct:${postgresBigintMax}`,
+        url: "/chat/1/akash",
       },
     },
   })
@@ -311,9 +326,11 @@ test("ignores a stale tab account during replacement and trusts the server sessi
       data: {
         bufferId: `direct:${oversizedPostgresBigint}`,
         notificationId: 20,
+        serverConnectionId: 1,
         sessionGeneration: "session-b",
+        target: "akash",
         userId: "2",
-        url: `/chat?buffer=direct:${oversizedPostgresBigint}`,
+        url: "/chat/1/akash",
       },
     },
   })

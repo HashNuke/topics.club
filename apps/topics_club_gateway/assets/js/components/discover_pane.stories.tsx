@@ -10,13 +10,16 @@ const serverChannels: ServerChannel[] = [
   {id: 4, name: "#gentoo", topic: "Gentoo Linux users and developers", user_count: 318, network_id: 1, network_name: "Libera.Chat", server_host: "irc.libera.chat", server_port: 6697, use_tls: true, refreshed_at: "2026-08-26T02:00:00Z"},
 ]
 
-const meta = {title: "Discover/DiscoverPane", component: DiscoverPane, parameters: {layout: "fullscreen"}, decorators: [(Story) => <div className="flex h-[46rem] bg-[var(--app-canvas)]"><Story /></div>], args: {activeServer, serverChannels, onJoinServerChannel: () => {}, onJoinThisServer: () => {}}} satisfies Meta<typeof DiscoverPane>
+const meta = {title: "Discover/DiscoverPane", component: DiscoverPane, parameters: {layout: "fullscreen"}, decorators: [(Story) => <div className="flex h-[46rem] bg-[var(--app-canvas)]"><Story /></div>], args: {activeServer, onJoinServerChannel: () => {}, onJoinThisServer: () => {}, onPageChange: () => {}, onSearch: () => {}, onSelectTab: () => {}, page: 1, pageSize: 25, query: "", serverChannels, tab: "all", totalChannels: 4, totalPages: 1}} satisfies Meta<typeof DiscoverPane>
 export default meta
 type Story = StoryObj<typeof meta>
 
 export const AllServers: Story = {}
-export const ThisServer: Story = {args: {initialTab: "server"}}
+export const ThisServer: Story = {args: {tab: "server"}}
+export const PaginatedSearch: Story = {args: {page: 2, query: "linux", totalChannels: 64, totalPages: 3}}
 export const Loading: Story = {args: {serverChannels: [], loading: true}}
-export const EmptyCatalog: Story = {args: {serverChannels: []}}
-export const NoActiveServer: Story = {args: {activeServer: undefined, initialTab: "server"}}
+export const EmptyCatalog: Story = {args: {serverChannels: [], totalChannels: 0}}
+export const LoadError: Story = {args: {error: "The IRC directory could not be loaded. Try again later.", serverChannels: [], totalChannels: 0}}
+export const JoiningChannel: Story = {args: {joiningServerChannelId: 1}}
+export const NoActiveServer: Story = {args: {activeServer: undefined}}
 export const Mobile: Story = {decorators: [(Story) => <div className="flex h-[46rem] w-[390px] bg-[var(--app-canvas)]"><Story /></div>]}

@@ -48,6 +48,25 @@ describe("api client", () => {
     )
   })
 
+  test("requests remote discovery pages, searches, and connection scope", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({server_channels: []})})
+    const api = createApiClient({fetchImpl})
+
+    await api.discoveryServerChannels({connectionId: 42, page: 3, query: "beam tools"})
+    await api.discoveryServerChannels({page: 1})
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "/api/discovery/server_channels?connection_id=42&page=3&query=beam+tools",
+      expect.objectContaining({credentials: "same-origin"})
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      "/api/discovery/server_channels",
+      expect.objectContaining({credentials: "same-origin"})
+    )
+  })
+
   test("updates a server connection", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ok: true, json: async () => ({connection: {id: 42}})})
     const api = createApiClient({csrfToken: "csrf", fetchImpl})

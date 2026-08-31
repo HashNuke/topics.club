@@ -363,6 +363,11 @@ export interface ChannelDirectoryEntry {
 export interface ChannelDirectory {
   server_connection_id?: EntityId
   channels: ChannelDirectoryEntry[]
+  page: number
+  page_size: number
+  query: string
+  total_channels: number
+  total_pages: number
 }
 
 export interface ServerChannel {

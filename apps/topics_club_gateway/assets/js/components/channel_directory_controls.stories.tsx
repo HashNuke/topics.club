@@ -13,6 +13,7 @@ function InteractiveControls(args: ControlsArgs) {
       {...args}
       manualChannel={manualChannel}
       onJoinManualChannel={(event) => event.preventDefault()}
+      onSearch={(event) => event.preventDefault()}
       onUpdateManualChannel={setManualChannel}
       onUpdateQuery={setQuery}
       query={query}
@@ -25,7 +26,7 @@ export default {
   component: ChannelDirectoryControls,
   render: (args: ControlsArgs) => <InteractiveControls {...args} />,
   decorators: [(Story: React.ComponentType) => <div className="w-[52rem] max-w-[calc(100vw-2rem)]"><Story /></div>],
-  args: {manualChannel: "", query: ""},
+  args: {manualChannel: "", onSearch: () => {}, query: ""},
 }
 
 export const Empty = {}
