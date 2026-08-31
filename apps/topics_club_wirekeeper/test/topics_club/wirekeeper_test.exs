@@ -60,6 +60,23 @@ defmodule TopicsClub.WirekeeperTest do
     assert TestTcpServer.connection_count(server) == 1
   end
 
+  test "rejects malformed outbound data without closing a healthy connection" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("invalid-outbound-data")
+
+    assert {:ok, opened} = open_tcp(key, server)
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+
+    assert {:error, :invalid_data} =
+             Wirekeeper.send_data(key, opened.generation, :not_iodata)
+
+    assert {:ok, %{status: :open, upstream_closed_reason: nil}} = Wirekeeper.info(key)
+    assert :ok = Wirekeeper.send_data(key, opened.generation, ["still ", "connected"])
+    assert_server_data(server, "still connected")
+    assert TestTcpServer.connection_count(server) == 1
+  end
+
   test "buffers detached IRC records separately and replays them in order" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("buffered-records")

@@ -232,6 +232,9 @@ defmodule TopicsClub.Wirekeeper.Connection do
       state.status == :closed ->
         {:reply, {:error, :upstream_closed}, state}
 
+      not valid_iodata?(data) ->
+        {:reply, {:error, :invalid_data}, state}
+
       true ->
         case Socket.send(state.socket, data) do
           :ok ->
@@ -570,6 +573,13 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   defp monotonic_ms, do: System.monotonic_time(:millisecond)
   defp positive_integer?(value), do: is_integer(value) and value > 0
+
+  defp valid_iodata?(data) do
+    _size = :erlang.iolist_size(data)
+    true
+  rescue
+    ArgumentError -> false
+  end
 
   defp protocol_adapter?(adapter) do
     Code.ensure_loaded?(adapter) and function_exported?(adapter, :init, 1) and
