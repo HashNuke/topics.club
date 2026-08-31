@@ -105,11 +105,6 @@ defmodule TopicsClub.Wirekeeper.Buffer do
     }
   end
 
-  @spec reset_drop_counters(t()) :: t()
-  def reset_drop_counters(%__MODULE__{} = buffer) do
-    %{buffer | dropped_records: 0, dropped_bytes: 0}
-  end
-
   defp evict_until_bounded(buffer, overflow)
        when buffer.records > buffer.max_records or buffer.bytes > buffer.max_bytes do
     sequence = :ets.first(buffer.table)

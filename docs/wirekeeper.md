@@ -62,7 +62,8 @@ sequence scoped to one connection generation. The keeper retains records until t
 cumulatively acknowledges their sequence with `ack/4`. If that consumer exits or detaches first, the
 next consumer receives the unacknowledged records again. Consumers must therefore process records
 idempotently. At most `:max_in_flight` unacknowledged records are placed in a consumer mailbox at once;
-ACKs release credit for later records.
+ACKs release credit for later records. Cumulative ACK retries at or below the generation watermark
+are idempotent for the attached consumer, making an ambiguous RPC result safe to retry.
 
 The buffer uses an anonymous private ETS table owned by the socket process. It adds no dependency and
 keeps message bodies outside manager state. It is intentionally memory-only: losing the keeper
@@ -75,7 +76,9 @@ without evicting retained records.
 An evicted record that was already delivered still occupies its in-flight credit until the consumer
 ACKs it or detaches. This prevents a non-acking consumer from turning steady overflow into an
 unbounded mailbox. Live overflow notifications are coalesced to one outstanding signal per ACK or
-attachment boundary; `info/1` and the next attachment summary provide the current exact totals.
+attachment boundary. Dropped record and byte totals are generation-cumulative and are never cleared
+merely by attaching, so consumer failure cannot erase an unreconciled gap; `info/1` and every later
+attachment summary provide the current exact totals.
 
 If the upstream closes while detached or records remain unacknowledged, the connection becomes a
 closed tombstone. It retains the bounded buffer and close reason for `:closed_retention_ms` (60 seconds

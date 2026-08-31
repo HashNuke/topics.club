@@ -352,6 +352,67 @@ defmodule TopicsClub.WirekeeperTest do
     assert ninth_sequence > first_sequence
   end
 
+  test "preserves overflow evidence when the first replay consumer dies" do
+    server = start_supervised!({TestTcpServer, self()})
+    first_consumer = start_supervised!({RelayConsumer, self()})
+    key = unique_key("persistent-gap")
+
+    assert {:ok, opened} =
+             open_tcp(key, server,
+               protocol_adapter: {IrcKeepalive, []},
+               buffer: [max_records: 1, max_bytes: 1_024, max_in_flight: 1]
+             )
+
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    first = ":server NOTICE nick :dropped\r\n"
+    second = ":server NOTICE nick :retained\r\n"
+    assert :ok = TestTcpServer.send_data(server, first <> second)
+    assert {:ok, %{buffered_records: 1, dropped_records: 1}} = await_buffered_records(key, 1)
+
+    assert {:ok, first_replay} = Wirekeeper.attach(key, opened.generation, first_consumer)
+    assert first_replay.gap?
+    assert first_replay.dropped_records == 1
+
+    first_consumer_ref = Process.monitor(first_consumer)
+    GenServer.stop(first_consumer)
+    assert_receive {:DOWN, ^first_consumer_ref, :process, ^first_consumer, :normal}
+    assert {:ok, %{attached?: false}} = await_detached_connection(key)
+
+    assert {:ok, second_replay} = Wirekeeper.attach(key, opened.generation, self())
+    assert second_replay.gap?
+    assert second_replay.dropped_records == 1
+    assert second_replay.dropped_bytes == byte_size(first)
+  end
+
+  test "accepts cumulative ACK retries after a same-consumer replay duplicate" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("idempotent-ack")
+
+    assert {:ok, opened} =
+             open_tcp(key, server,
+               protocol_adapter: {IrcKeepalive, []},
+               buffer: [max_records: 10, max_bytes: 1_024, max_in_flight: 1]
+             )
+
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:ok, _replay} = Wirekeeper.attach(key, opened.generation, self())
+    line = ":server NOTICE nick :ack me\r\n"
+    assert :ok = TestTcpServer.send_data(server, line)
+
+    assert_receive {:topics_club_wirekeeper, {:data, %{sequence: sequence, payload: ^line}}}
+
+    assert :ok = Wirekeeper.detach(key, opened.generation, self())
+    assert {:ok, _replay} = Wirekeeper.attach(key, opened.generation, self())
+
+    assert_receive {:topics_club_wirekeeper, {:data, %{sequence: ^sequence, payload: ^line}}}
+
+    assert :ok = Wirekeeper.ack(key, opened.generation, sequence)
+    assert :ok = Wirekeeper.ack(key, opened.generation, sequence)
+    assert {:ok, %{acked_through: ^sequence, buffered_records: 0}} = Wirekeeper.info(key)
+  end
+
   test "retains buffered records and the close reason until a detached consumer returns" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("detached-close")

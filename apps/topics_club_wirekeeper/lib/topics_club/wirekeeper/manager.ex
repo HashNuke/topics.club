@@ -150,6 +150,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
        status: :open,
        upstream_closed_reason: nil,
        attached?: false,
+       acked_through: 0,
        buffered_records: 0,
        buffered_bytes: 0,
        in_flight_records: 0,

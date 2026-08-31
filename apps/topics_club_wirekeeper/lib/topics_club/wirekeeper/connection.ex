@@ -71,6 +71,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
          buffer: buffer,
          consumer: nil,
          consumer_ref: nil,
+         acked_through: 0,
          in_flight: [],
          overflow_notification_pending?: false,
          closure_notified?: false,
@@ -122,7 +123,6 @@ defmodule TopicsClub.Wirekeeper.Connection do
             closure_notified?: false,
             detached_episode?: false
           })
-          |> Map.update!(:buffer, &Buffer.reset_drop_counters/1)
           |> dispatch_available()
           |> maybe_notify_closed()
 
@@ -158,7 +158,13 @@ defmodule TopicsClub.Wirekeeper.Connection do
       state.consumer != consumer ->
         {:reply, {:error, :not_attached}, state}
 
-      not is_integer(sequence) or sequence <= 0 or sequence not in state.in_flight ->
+      not is_integer(sequence) or sequence <= 0 ->
+        {:reply, {:error, :invalid_ack}, state}
+
+      sequence <= state.acked_through ->
+        {:reply, :ok, state}
+
+      sequence not in state.in_flight ->
         {:reply, {:error, :invalid_ack}, state}
 
       true ->
@@ -169,6 +175,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
           state
           |> Map.merge(%{
             buffer: buffer,
+            acked_through: sequence,
             in_flight: in_flight,
             overflow_notification_pending?: false
           })
@@ -456,6 +463,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
         status: state.status,
         upstream_closed_reason: state.upstream_closed_reason,
         attached?: is_pid(state.consumer),
+        acked_through: state.acked_through,
         in_flight_records: length(state.in_flight),
         detached_for_ms: detached_for_ms(state)
       },

@@ -31,6 +31,7 @@ defmodule TopicsClub.Wirekeeper do
           status: :open | :closed,
           upstream_closed_reason: nil | atom() | tuple(),
           attached?: boolean(),
+          acked_through: non_neg_integer(),
           buffered_records: non_neg_integer(),
           buffered_bytes: non_neg_integer(),
           in_flight_records: non_neg_integer(),
