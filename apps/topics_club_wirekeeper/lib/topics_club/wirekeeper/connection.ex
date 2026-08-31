@@ -43,6 +43,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
   def init(opts) do
     key = Keyword.fetch!(opts, :key)
     generation = Keyword.fetch!(opts, :generation)
+    transport_options = Keyword.fetch!(opts, :transport)
+    ready_recipient = Keyword.get(opts, :ready_recipient)
     {adapter, adapter_opts} = Keyword.fetch!(opts, :protocol_adapter)
     closed_retention_ms = Keyword.get(opts, :closed_retention_ms, @default_closed_retention_ms)
 
@@ -50,19 +52,16 @@ defmodule TopicsClub.Wirekeeper.Connection do
          true <- positive_integer?(closed_retention_ms),
          {:ok, buffer} <- Buffer.new(Keyword.get(opts, :buffer, [])),
          {:ok, adapter_state} <- adapter.init(adapter_opts),
-         {:ok, _registry_owner} <- Registry.register(@registry, key, {:opening, generation}),
-         {:ok, socket} <- Socket.connect(Keyword.fetch!(opts, :transport)),
-         :ok <- Socket.arm(socket) do
-      {{:open, ^generation}, {:opening, ^generation}} =
-        Registry.update_value(@registry, key, fn _old_value -> {:open, generation} end)
-
+         {:ok, _registry_owner} <- Registry.register(@registry, key, {:opening, generation}) do
       {:ok,
        %{
          key: key,
          generation: generation,
-         transport: Socket.transport_name(socket),
-         socket: socket,
-         status: :open,
+         transport: transport_name(transport_options),
+         transport_options: transport_options,
+         ready_recipient: ready_recipient,
+         socket: nil,
+         status: :opening,
          upstream_closed_reason: nil,
          closed_retention_ms: closed_retention_ms,
          closed_timer_ref: nil,
@@ -77,12 +76,39 @@ defmodule TopicsClub.Wirekeeper.Connection do
          closure_notified?: false,
          detached_at: monotonic_ms(),
          detached_episode?: false
-       }}
+       }, {:continue, :connect}}
     else
       false -> {:stop, :invalid_options}
       {:error, {:already_registered, _connection}} -> {:stop, :already_open}
       {:error, :invalid_buffer_options} -> {:stop, :invalid_buffer_options}
       {:error, reason} -> {:stop, {:transport, reason}}
+    end
+  end
+
+  @impl true
+  def handle_continue(:connect, state) do
+    with {:ok, socket} <- Socket.connect(state.transport_options),
+         :ok <- Socket.arm(socket) do
+      {{:open, generation}, {:opening, generation}} =
+        Registry.update_value(@registry, state.key, fn _old_value ->
+          {:open, state.generation}
+        end)
+
+      state =
+        state
+        |> Map.merge(%{
+          socket: socket,
+          status: :open,
+          transport: Socket.transport_name(socket)
+        })
+        |> Map.delete(:transport_options)
+        |> notify_ready(:ok)
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        state = notify_ready(state, {:error, {:transport, reason}})
+        {:stop, :normal, state}
     end
   end
 
@@ -523,6 +549,16 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   defp close_socket(nil), do: :ok
   defp close_socket(socket), do: Socket.close(socket)
+
+  defp notify_ready(%{ready_recipient: recipient} = state, result) when is_pid(recipient) do
+    send(recipient, {:topics_club_wirekeeper_connection_ready, self(), result})
+    %{state | ready_recipient: nil}
+  end
+
+  defp notify_ready(state, _result), do: state
+
+  defp transport_name({transport, _opts}) when transport in [:tcp, :tls], do: transport
+  defp transport_name(_transport), do: :tcp
 
   defp monotonic_ms, do: System.monotonic_time(:millisecond)
   defp positive_integer?(value), do: is_integer(value) and value > 0

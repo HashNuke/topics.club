@@ -692,6 +692,173 @@ defmodule TopicsClub.WirekeeperTest do
     assert_receive {:slow_open_result, {:error, {:transport, _reason}}}, 2_000
   end
 
+  test "a stalled connection handshake does not serialize healthy connection opens" do
+    stalled_server = start_supervised!({TestTcpServer, self()})
+
+    healthy_server =
+      start_supervised!(
+        Supervisor.child_spec({TestTcpServer, self()}, id: {:healthy_parallel_server, self()})
+      )
+
+    test_process = self()
+
+    _stalled_open =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             result =
+               Wirekeeper.open(
+                 unique_key("parallel-stalled-open"),
+                 {:tls,
+                  host: "127.0.0.1",
+                  port: TestTcpServer.port(stalled_server),
+                  connect_timeout: 1_000,
+                  tls_options: [verify: :verify_none]}
+               )
+
+             send(test_process, {:parallel_stalled_result, result})
+           end},
+          id: {:parallel_stalled_open, self()}
+        )
+      )
+
+    assert_receive {:wirekeeper_test_server, :accepted, ^stalled_server, 1}, 1_000
+    healthy_key = unique_key("parallel-healthy-open")
+
+    _healthy_open =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             result = open_tcp(healthy_key, healthy_server)
+             send(test_process, {:parallel_healthy_result, result})
+           end},
+          id: {:parallel_healthy_open, self()}
+        )
+      )
+
+    assert_receive {:wirekeeper_test_server, :accepted, ^healthy_server, 1}, 250
+    assert_receive {:parallel_healthy_result, {:ok, healthy}}, 250
+    assert :ok = Wirekeeper.close(healthy_key, healthy.generation)
+    assert_receive {:parallel_stalled_result, {:error, {:transport, _reason}}}, 2_000
+  end
+
+  test "bounds pending opens while a connection handshake is stalled" do
+    stalled_server = start_supervised!({TestTcpServer, self()})
+    test_process = self()
+
+    _first_open =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             result =
+               Wirekeeper.open(
+                 unique_key("first-stalled-open"),
+                 {:tls,
+                  host: "127.0.0.1",
+                  port: TestTcpServer.port(stalled_server),
+                  connect_timeout: 2_000,
+                  tls_options: [verify: :verify_none]}
+               )
+
+             send(test_process, {:stalled_open_result, result})
+           end},
+          id: {:first_stalled_open, self()}
+        )
+      )
+
+    assert_receive {:wirekeeper_test_server, :accepted, ^stalled_server, 1}, 1_000
+
+    Enum.each(1..20, fn index ->
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             result =
+               Wirekeeper.open(
+                 unique_key("queued-stalled-open-#{index}"),
+                 {:tls,
+                  host: "127.0.0.1",
+                  port: TestTcpServer.port(stalled_server),
+                  connect_timeout: 2_000,
+                  tls_options: [verify: :verify_none]}
+               )
+
+             send(test_process, {:queued_open_result, result})
+           end},
+          id: {:queued_stalled_open, index, self()}
+        )
+      )
+    end)
+
+    assert_receive {:queued_open_result, {:error, :overloaded}}, 500
+    manager_state = :sys.get_state(Manager)
+    assert map_size(manager_state.opening_by_key) <= 8
+    assert length(Task.Supervisor.children(TopicsClub.Wirekeeper.OpenTaskSupervisor)) <= 8
+  end
+
+  test "cancels pending opens when their callers terminate" do
+    stalled_server = start_supervised!({TestTcpServer, self()})
+    test_process = self()
+
+    callers =
+      Enum.map(1..8, fn index ->
+        key = unique_key("abandoned-stalled-open-#{index}")
+
+        caller =
+          start_supervised!(
+            Supervisor.child_spec(
+              {Task,
+               fn ->
+                 send(test_process, {:abandoned_open_started, self(), key})
+
+                 Wirekeeper.open(
+                   key,
+                   {:tls,
+                    host: "127.0.0.1",
+                    port: TestTcpServer.port(stalled_server),
+                    connect_timeout: 5_000,
+                    tls_options: [verify: :verify_none]}
+                 )
+               end},
+              id: {:abandoned_stalled_open, index, self()}
+            )
+          )
+
+        assert_receive {:abandoned_open_started, ^caller, ^key}
+        {caller, key}
+      end)
+
+    assert %{opening_by_key: opening_by_key} = await_pending_open_count(8)
+    assert map_size(opening_by_key) == 8
+
+    Enum.each(callers, fn {caller, _key} ->
+      caller_ref = Process.monitor(caller)
+      Process.exit(caller, :kill)
+      assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}
+    end)
+
+    assert %{opening_by_key: opening_by_key} = await_pending_open_count(0)
+    assert opening_by_key == %{}
+    assert Task.Supervisor.children(TopicsClub.Wirekeeper.OpenTaskSupervisor) == []
+
+    Enum.each(callers, fn {_caller, key} ->
+      assert {:error, :not_found} = await_missing_connection(key)
+    end)
+
+    healthy_server =
+      start_supervised!(
+        Supervisor.child_spec({TestTcpServer, self()}, id: {:healthy_after_abandon, self()})
+      )
+
+    healthy_key = unique_key("healthy-after-abandon")
+    assert {:ok, opened} = open_tcp(healthy_key, healthy_server)
+    assert_receive {:wirekeeper_test_server, :accepted, ^healthy_server, 1}, 250
+    assert :ok = Wirekeeper.close(healthy_key, opened.generation)
+  end
+
   test "fast-closing peers cannot crash the manager or unrelated connections" do
     healthy_server = start_supervised!({TestTcpServer, self()})
     closing_server = start_supervised!({ClosingTcpServer, self()})
@@ -1131,6 +1298,27 @@ defmodule TopicsClub.WirekeeperTest do
 
   defp await_connection_status(key, expected, 0) do
     flunk("#{inspect(key)} did not reach #{inspect(expected)}")
+  end
+
+  defp await_pending_open_count(expected, attempts \\ 1_000)
+
+  defp await_pending_open_count(expected, attempts) when attempts > 0 do
+    state = :sys.get_state(Manager)
+
+    if map_size(state.opening_by_key) == expected do
+      state
+    else
+      receive do
+      after
+        1 -> await_pending_open_count(expected, attempts - 1)
+      end
+    end
+  end
+
+  defp await_pending_open_count(expected, 0) do
+    state = :sys.get_state(Manager)
+
+    flunk("expected #{expected} pending opens, found #{map_size(state.opening_by_key)}")
   end
 
   defp collect_trace_messages(messages) do

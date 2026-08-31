@@ -12,7 +12,7 @@ defmodule TopicsClub.Wirekeeper.Supervisor do
     children = [
       {Registry, keys: :unique, name: TopicsClub.Wirekeeper.ConnectionRegistry},
       {TopicsClub.Wirekeeper.ConnectionSupervisor, []},
-      {Task.Supervisor, name: TopicsClub.Wirekeeper.OpenTaskSupervisor},
+      {Task.Supervisor, name: TopicsClub.Wirekeeper.OpenTaskSupervisor, max_children: 8},
       {TopicsClub.Wirekeeper.Manager, []}
     ]
 

@@ -6,6 +6,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
   alias TopicsClub.Wirekeeper.{Connection, ConnectionSupervisor, OpenTaskSupervisor}
 
   @registry TopicsClub.Wirekeeper.ConnectionRegistry
+  @max_pending_opens 8
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -35,30 +36,38 @@ defmodule TopicsClub.Wirekeeper.Manager do
       Map.has_key?(state.opening_by_key, key) or registered?(key) ->
         {:reply, {:error, :already_open}, state}
 
+      map_size(state.opening_by_ref) >= @max_pending_opens ->
+        {:reply, {:error, :overloaded}, state}
+
       true ->
         generation = generate_generation()
         child_opts = connection_options(key, generation, transport, opts)
 
-        task =
-          Task.Supervisor.async_nolink(OpenTaskSupervisor, fn ->
-            DynamicSupervisor.start_child(ConnectionSupervisor, {Connection, child_opts})
-          end)
+        case start_open_task(child_opts) do
+          {:ok, task} ->
+            {caller_pid, _reply_tag} = from
+            caller_ref = Process.monitor(caller_pid)
 
-        opening = %{
-          from: from,
-          key: key,
-          generation: generation,
-          transport: transport,
-          task_pid: task.pid
-        }
+            opening = %{
+              from: from,
+              caller_ref: caller_ref,
+              key: key,
+              generation: generation,
+              transport: transport,
+              task_pid: task.pid
+            }
 
-        state = %{
-          state
-          | opening_by_key: Map.put(state.opening_by_key, key, task.ref),
-            opening_by_ref: Map.put(state.opening_by_ref, task.ref, opening)
-        }
+            state = %{
+              state
+              | opening_by_key: Map.put(state.opening_by_key, key, task.ref),
+                opening_by_ref: Map.put(state.opening_by_ref, task.ref, opening)
+            }
 
-        {:noreply, state}
+            {:noreply, state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
     end
   end
 
@@ -94,6 +103,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
 
       {opening, opening_by_ref} ->
         Process.demonitor(task_ref, [:flush])
+        Process.demonitor(opening.caller_ref, [:flush])
         GenServer.reply(opening.from, normalize_open_result(result, opening))
 
         state = %{
@@ -109,6 +119,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
   def handle_info({:DOWN, task_ref, :process, task_pid, reason}, state) do
     case Map.get(state.opening_by_ref, task_ref) do
       %{task_pid: ^task_pid} = opening ->
+        Process.demonitor(opening.caller_ref, [:flush])
         GenServer.reply(opening.from, {:error, normalize_task_error(reason)})
 
         state = %{
@@ -120,7 +131,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
         {:noreply, state}
 
       _unknown_task ->
-        {:noreply, state}
+        cancel_open_for_caller(task_ref, state)
     end
   end
 
@@ -140,6 +151,74 @@ defmodule TopicsClub.Wirekeeper.Manager do
           {TopicsClub.Wirekeeper.ProtocolAdapter.Passthrough, []}
         )
     ]
+  end
+
+  defp start_open_task(child_opts) do
+    task =
+      Task.Supervisor.async_nolink(OpenTaskSupervisor, fn ->
+        child_opts = Keyword.put(child_opts, :ready_recipient, self())
+
+        case DynamicSupervisor.start_child(ConnectionSupervisor, {Connection, child_opts}) do
+          {:ok, connection} -> await_connection_ready(connection)
+          {:error, reason} -> {:error, reason}
+        end
+      end)
+
+    {:ok, task}
+  catch
+    :exit, _reason -> {:error, :connection_start_failed}
+  end
+
+  defp await_connection_ready(connection) do
+    connection_ref = Process.monitor(connection)
+
+    receive do
+      {:topics_club_wirekeeper_connection_ready, ^connection, :ok} ->
+        Process.demonitor(connection_ref, [:flush])
+        {:ok, connection}
+
+      {:topics_club_wirekeeper_connection_ready, ^connection, {:error, reason}} ->
+        Process.demonitor(connection_ref, [:flush])
+        {:error, reason}
+
+      {:DOWN, ^connection_ref, :process, ^connection, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp cancel_open_for_caller(caller_ref, state) do
+    opening_entry =
+      Enum.find(state.opening_by_ref, fn {_task_ref, opening} ->
+        opening.caller_ref == caller_ref
+      end)
+
+    case opening_entry do
+      nil ->
+        {:noreply, state}
+
+      {task_ref, opening} ->
+        _result = Task.Supervisor.terminate_child(OpenTaskSupervisor, opening.task_pid)
+        Process.demonitor(task_ref, [:flush])
+        terminate_opening_connection(opening)
+
+        state = %{
+          state
+          | opening_by_key: Map.delete(state.opening_by_key, opening.key),
+            opening_by_ref: Map.delete(state.opening_by_ref, task_ref)
+        }
+
+        {:noreply, state}
+    end
+  end
+
+  defp terminate_opening_connection(opening) do
+    case Registry.lookup(@registry, opening.key) do
+      [{connection, {_status, generation}}] when generation == opening.generation ->
+        DynamicSupervisor.terminate_child(ConnectionSupervisor, connection)
+
+      _missing_or_replaced ->
+        :ok
+    end
   end
 
   defp registered?(key), do: Registry.lookup(@registry, key) != []
