@@ -158,10 +158,15 @@ defmodule TopicsClub.Wirekeeper.Connection do
           |> dispatch_available()
           |> maybe_notify_closed()
 
-        if state.status == :closed and state.buffer.records == 0 and is_pid(state.consumer) do
-          {:stop, :normal, {:ok, replay}, state}
-        else
-          {:reply, {:ok, replay}, state}
+        cond do
+          not is_pid(state.consumer) ->
+            {:reply, {:error, :consumer_unreachable}, state}
+
+          state.status == :closed and state.buffer.records == 0 ->
+            {:stop, :normal, {:ok, replay}, state}
+
+          true ->
+            {:reply, {:ok, replay}, state}
         end
     end
   end

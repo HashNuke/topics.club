@@ -169,6 +169,12 @@ defmodule TopicsClub.WirekeeperTest do
 
     refute_receive {:topics_club_wirekeeper, {:data, _event}}
 
+    assert {:error, :consumer_unreachable} =
+             Wirekeeper.attach(key, opened.generation, self())
+
+    assert {:ok, %{attached?: false, buffered_records: 1, in_flight_records: 0}} =
+             Wirekeeper.info(key)
+
     :sys.replace_state(connection, fn state ->
       Map.put(state, :delivery, TopicsClub.Wirekeeper.Delivery)
     end)
