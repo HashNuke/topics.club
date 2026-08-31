@@ -10,7 +10,7 @@ defmodule TopicsClub.Wirekeeper.Supervisor do
   @impl true
   def init(_opts) do
     children = [
-      {Registry, keys: :unique, name: TopicsClub.Wirekeeper.ConnectionRegistry},
+      {TopicsClub.Wirekeeper.ConnectionRegistryOwner, []},
       {TopicsClub.Wirekeeper.ConnectionSupervisor, []},
       {Task.Supervisor, name: TopicsClub.Wirekeeper.OpenTaskSupervisor, max_children: 8},
       {TopicsClub.Wirekeeper.Manager, []}

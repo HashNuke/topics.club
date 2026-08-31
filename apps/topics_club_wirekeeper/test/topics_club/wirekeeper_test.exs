@@ -1081,6 +1081,55 @@ defmodule TopicsClub.WirekeeperTest do
     assert TestTcpServer.connection_count(server) == 1
   end
 
+  test "registry failure replaces every identity-dependent process without orphaning sockets" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("registry-lifecycle")
+
+    assert {:ok, _opened} = open_tcp(key, server)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:ok, connection} = Manager.lookup(key)
+
+    registry = Process.whereis(TopicsClub.Wirekeeper.ConnectionRegistry)
+    connection_supervisor = Process.whereis(TopicsClub.Wirekeeper.ConnectionSupervisor)
+    task_supervisor = Process.whereis(TopicsClub.Wirekeeper.OpenTaskSupervisor)
+    manager = Process.whereis(Manager)
+
+    registry_ref = Process.monitor(registry)
+    connection_ref = Process.monitor(connection)
+    connection_supervisor_ref = Process.monitor(connection_supervisor)
+    task_supervisor_ref = Process.monitor(task_supervisor)
+    manager_ref = Process.monitor(manager)
+
+    Process.exit(registry, :kill)
+
+    assert_receive {:DOWN, ^registry_ref, :process, ^registry, :killed}
+    assert_receive {:DOWN, ^connection_ref, :process, ^connection, :shutdown}
+
+    assert_receive {:DOWN, ^connection_supervisor_ref, :process, ^connection_supervisor,
+                    :shutdown}
+
+    assert_receive {:DOWN, ^task_supervisor_ref, :process, ^task_supervisor, :shutdown}
+    assert_receive {:DOWN, ^manager_ref, :process, ^manager, :shutdown}
+    assert_receive {:wirekeeper_test_server, :closed, ^server, 0}
+
+    _replacement_registry =
+      await_named_process(TopicsClub.Wirekeeper.ConnectionRegistry, registry)
+
+    _replacement_connection_supervisor =
+      await_named_process(TopicsClub.Wirekeeper.ConnectionSupervisor, connection_supervisor)
+
+    _replacement_task_supervisor =
+      await_named_process(TopicsClub.Wirekeeper.OpenTaskSupervisor, task_supervisor)
+
+    _replacement_manager = await_named_process(Manager, manager)
+
+    assert {:ok, replacement} = open_tcp(key, server)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:error, :already_open} = open_tcp(key, server)
+    assert TestTcpServer.connection_count(server) == 1
+    assert :ok = Wirekeeper.close(key, replacement.generation)
+  end
+
   test "lists and diagnoses both open connections and retained closed tombstones" do
     open_server = start_supervised!({TestTcpServer, self()})
 
