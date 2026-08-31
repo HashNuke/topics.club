@@ -21,7 +21,7 @@ export function LabeledInput({autoComplete, autoFocus, id, label, onChange, plac
       <input
         id={id}
         autoFocus={autoFocus}
-        className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 outline-none transition focus:border-cyan-300"
+        className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-cyan-300"
         autoComplete={autoComplete}
         placeholder={placeholder}
         type={type}
@@ -35,9 +35,9 @@ export function LabeledInput({autoComplete, autoFocus, id, label, onChange, plac
 export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin}: {initialAdvancedOpen?: boolean; onClose: () => void; onJoin: (form: ManualServerForm) => void}) {
   const [advancedOpen, setAdvancedOpen] = useState(initialAdvancedOpen)
   const [form, setForm] = useState({
-    host: "127.0.0.1",
+    host: "",
     port: "6669",
-    channels: "#elixir, #phoenix",
+    channels: "",
     nickname: "",
     saslPassword: "",
     serverPassword: "",
@@ -54,7 +54,7 @@ export function ManualJoinDialog({initialAdvancedOpen = false, onClose, onJoin}:
       <form aria-label="Join another server" className="w-full max-w-md rounded-lg border border-slate-700 bg-[var(--app-panel)] p-5 shadow-2xl" onSubmit={submit} role="dialog">
         <DialogHeader title="Join another server" description="Specify connection details to connect to a new server." onClose={onClose} />
         <div className="mt-5 space-y-3">
-          <LabeledInput id="server-host" label="Server" value={form.host} onChange={(host) => setForm({...form, host})} />
+          <LabeledInput id="server-host" label="Server" placeholder="irc.example.com" value={form.host} onChange={(host) => setForm({...form, host})} />
           <div className="grid grid-cols-[1fr_auto] items-end gap-3">
             <LabeledInput id="server-port" label="Port" value={form.port} onChange={(port) => setForm({...form, port})} />
             <TlsToggle checked={form.useTls} onChange={(useTls) => setForm({...form, useTls})} />
