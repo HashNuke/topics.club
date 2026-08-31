@@ -52,10 +52,17 @@ The consumer receives plain messages shaped as:
  {:upstream_closed, %{key: key, generation: generation, reason: reason}}}
 ```
 
-The future engine session can be a process on the same BEAM node or another connected node. The
-keeper monitors its PID. Consumer or node loss starts a detached episode without closing the
-upstream socket. Complete adapter records remain in ETS while detached. Reattachment reports the
-records available for replay, any records evicted by the configured bounds, and detached duration.
+The future engine session can be a process on the same BEAM node or another connected node. One
+short-lived local watcher per attachment performs any distributed monitor work, keeping a busy BEAM
+distribution channel outside the socket owner's hot path. Consumer or node loss starts a detached
+episode without closing the upstream socket. Complete adapter records remain in ETS while detached.
+Reattachment reports the records available for replay, any records evicted by the configured bounds,
+and detached duration.
+
+Consumer delivery uses non-blocking `:nosuspend` and `:noconnect` sends. If a local or remote consumer
+cannot accept a data, overflow, or close notification immediately, the keeper detaches it and retains
+the bounded records or tombstone for a later attachment. If this happens while `attach/3` is replaying,
+the call returns `{:error, :consumer_unreachable}` instead of claiming that the consumer attached.
 
 Delivery is deliberately **bounded at-least-once**, not exactly-once. Each record has a monotonic
 sequence scoped to one connection generation. The keeper retains records until the attached consumer
