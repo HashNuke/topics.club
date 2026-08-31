@@ -9,6 +9,11 @@ defmodule TopicsClub.Wirekeeper.Supervisor do
 
   @impl true
   def init(_opts) do
-    Supervisor.init([], strategy: :one_for_one)
+    children = [
+      {TopicsClub.Wirekeeper.ConnectionSupervisor, []},
+      {TopicsClub.Wirekeeper.Manager, []}
+    ]
+
+    Supervisor.init(children, strategy: :one_for_one)
   end
 end
