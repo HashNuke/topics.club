@@ -1,37 +1,141 @@
-# Connection keeper
+# Wirekeeper
 
-`topics_club_wirekeeper` is an independent umbrella application for owning long-lived upstream
-TCP/TLS connections separately from the processes that consume their traffic. It is deliberately
-not integrated with the IRC engine and is not included in any production release yet.
+Wirekeeper is the `:topics_club_wirekeeper` OTP application under
+`apps/topics_club_wirekeeper`. It owns long-lived upstream TCP/TLS connections independently from
+the processes that consume their traffic. This lets an engine consumer disappear and reattach
+without making consumer loss mean socket loss.
 
-Deployment packaging is deferred until the engine integration establishes both required runtime
-forms:
+Wirekeeper currently lives inside the TopicsClub umbrella. It has its own application callback,
+supervision tree, public API, tests, and no dependencies on the other umbrella applications. It has
+not yet been extracted into the separate `wirekeeper` repository.
 
-- combined hosting can run the keeper in the same release when connection continuity across a
-  whole-container replacement is not promised;
-- continuity-focused hosting must run the keeper in a separate operating-system process or
-  service whose lifecycle is not coupled to engine or gateway deployments.
+No other TopicsClub application currently declares Wirekeeper as an umbrella dependency, the IRC
+engine does not call it, and none of the `topics_club`, `topics_club_gateway`, or
+`topics_club_engine` releases includes it. The root test and documentation tasks do include the
+application. Engine integration and production packaging remain later work.
 
-Adding the application to the current combined, engine, Railway, or Docker Compose artifacts before
-that choice would create deployment shape without proving the consumer contract.
+## Relationship to the original concept
 
-## Ownership contract
+The implementation keeps the central premise described by the standalone Wirekeeper project:
+socket ownership is independent from consumer ownership, connections have opaque identities and
+generations, and application protocol policy stays outside the transport core.
 
-Each open connection has:
+The OTP application in this umbrella makes these concrete choices today:
 
-- an opaque integer or binary key selected by the caller;
-- a random generation unique to that opening of the key;
-- one TCP or TLS socket owned exclusively by a keeper connection process;
-- at most one attached local or remote consumer PID;
-- protocol-adapter state;
-- a private OTP ETS `ordered_set` containing complete, sequence-numbered protocol records;
-- record-count and byte-count limits, an in-flight delivery window, and explicit overflow counters.
+| Concern | Current implementation |
+| --- | --- |
+| Upstream leg | Raw binary TCP or TLS owned by a Wirekeeper connection process; UDP is not implemented. |
+| Consumer leg | One local or remote Erlang PID; a TCP or WebSocket consumer adapter is not implemented. |
+| Detached traffic | Bounded, sequence-numbered records are retained for replay instead of being drained and discarded. |
+| Delivery | Bounded at-least-once delivery with cumulative ACKs, not exactly-once delivery. |
+| Protocol awareness | The core executes a per-connection protocol adapter. The included IRC adapter frames lines and owns PING/PONG; the core itself remains protocol-neutral. |
 
-Every attach, send, detach, and close operation must include the current generation. A stale engine
-therefore cannot send through, detach, or close a replacement socket using an earlier generation.
-Opening a key that is already present is rejected rather than implicitly replacing its socket.
+The protocol-adapter boundary is a notable extension to the original transport-only premise. It
+allows maintenance traffic that must survive the consumer to execute beside the socket without
+putting general IRC session behavior into Wirekeeper.
 
-The consumer receives plain messages shaped as:
+## Runtime architecture
+
+The `:topics_club_wirekeeper` application callback starts this `:rest_for_one` tree:
+
+```text
+TopicsClub.Wirekeeper.Supervisor
+├── ConnectionRegistryOwner
+│   └── unique TopicsClub.Wirekeeper.ConnectionRegistry
+├── ConnectionSupervisor (DynamicSupervisor)
+│   └── one temporary Connection process per open or retained connection
+├── OpenTaskSupervisor (at most 8 children)
+└── Manager
+```
+
+The manager serializes key reservations but performs adapter initialization and network connection
+work in supervised tasks. A slow TCP connect or TLS handshake therefore does not block lookup or
+other connection routing. At most eight opens may be pending; another open is rejected with
+`{:error, :overloaded}`. If an opening caller exits, its task and any connection created for that
+opening are cleaned up.
+
+The unique Registry maps a connection key to its connection process and its `:opening`, `:open`, or
+`:closed` generation state. Calls do not need to query a potentially busy socket owner merely to
+find it.
+
+Each connection GenServer exclusively owns:
+
+- one TCP or TLS socket;
+- one opaque integer or non-empty binary key;
+- one random 128-bit generation encoded as lowercase hexadecimal;
+- adapter module and adapter state;
+- an anonymous private ETS `ordered_set` of sequence-numbered binary records;
+- delivery credit, cumulative ACK state, and overflow counters; and
+- at most one attached local or remote consumer PID.
+
+A connection child is temporary. Wirekeeper never automatically reconnects an upstream connection.
+Restarting only the manager leaves established connection processes, sockets, and ETS buffers
+intact. Losing the registry owner restarts the later children in the `:rest_for_one` tree, which
+closes connections because Wirekeeper can no longer safely enforce unique connection identity.
+
+## Identity and consumer ownership
+
+Opening a key that is opening, open, or retained as a closed tombstone returns
+`{:error, :already_open}`; it never replaces the existing socket implicitly. Every attach, detach,
+ACK, send, and close operation must include the generation returned by `open/3`. A stale consumer
+therefore cannot operate on a replacement socket that reused the same key.
+
+Only one consumer PID can be attached to a generation. One small local watcher monitors the
+consumer, including when it is a PID on a connected Erlang node. Consumer or node loss starts a
+detached episode without closing the upstream socket. An explicit generation-matched detach has the
+same effect.
+
+Delivery uses `:erlang.send/3` with `:nosuspend` and `:noconnect`. Wirekeeper does not block a socket
+owner or establish a distribution connection to deliver an event. If the consumer cannot accept a
+data, overflow, or close event immediately, Wirekeeper detaches it and retains bounded state for a
+later attachment. If this happens during `attach/3`, that call returns
+`{:error, :consumer_unreachable}` instead of reporting a successful attachment.
+
+Wirekeeper does not authenticate or authorize a remote PID. Any future cross-node boundary must add
+that policy outside or in front of the current API.
+
+## Buffering, replay, and ACKs
+
+Every `{:forward, payload}` action from the adapter becomes one complete record. The connection
+assigns a monotonically increasing sequence scoped to the generation, copies the payload into its
+private ETS table, and then attempts bounded delivery.
+
+The defaults per connection are:
+
+| Option | Default | Meaning |
+| --- | ---: | --- |
+| `:max_records` | 1,000 | Maximum retained records |
+| `:max_bytes` | 1,048,576 | Maximum retained payload bytes |
+| `:max_in_flight` | 64 | Maximum delivered but unacknowledged records |
+
+These values are set under the `:buffer` option to `open/3`. All three must be positive integers.
+The buffer is memory-only because losing its owning connection process also loses the socket whose
+session the records describe; disk or database persistence would not preserve that TCP session.
+
+Delivery is bounded at-least-once:
+
+- Records remain retained until the attached consumer cumulatively acknowledges a delivered
+  sequence with `ack/4`.
+- An ACK deletes that sequence and every retained earlier sequence. ACKs at or below the current
+  watermark are idempotent for the attached consumer.
+- If the consumer exits or detaches first, in-flight credit is reset and the next consumer receives
+  the retained unacknowledged records again. Consumers must tolerate duplicates.
+- No more than `:max_in_flight` records are placed in a consumer mailbox without ACKs. ACKing a
+  delivered sequence releases credit and dispatches later retained records in order.
+
+When a record or byte bound is exceeded, Wirekeeper evicts the oldest retained complete records. A
+single record larger than `:max_bytes` is dropped without evicting the records already retained.
+Dropped record and byte counters are cumulative for the generation and are not reset by attachment.
+An attachment summary sets `gap?: true` after any drop and reports the exact totals, replay size,
+and detached duration.
+
+An evicted record that was already delivered still occupies in-flight credit until it is ACKed or
+the consumer detaches. This prevents a non-acking consumer from turning steady overflow into an
+unbounded mailbox. Live overflow events are coalesced to one outstanding notification per ACK or
+attachment boundary; `info/1` and every later attachment summary continue to expose the cumulative
+totals.
+
+The consumer receives plain messages:
 
 ```elixir
 {:topics_club_wirekeeper,
@@ -44,138 +148,155 @@ The consumer receives plain messages shaped as:
     generation: generation,
     dropped_records: records,
     dropped_bytes: bytes,
-    total_dropped_records: records,
-    total_dropped_bytes: bytes
+    total_dropped_records: total_records,
+    total_dropped_bytes: total_bytes
   }}}
 
 {:topics_club_wirekeeper,
  {:upstream_closed, %{key: key, generation: generation, reason: reason}}}
 ```
 
-The future engine session can be a process on the same BEAM node or another connected node. One
-bounded local watcher per attachment performs any distributed monitor work, keeping a busy BEAM
-distribution channel outside the socket owner's hot path. Consumer or node loss starts a detached
-episode without closing the upstream socket. Complete adapter records remain in ETS while detached.
-Reattachment reports the records available for replay, any records evicted by the configured bounds,
-and detached duration.
+## Upstream closure and tombstones
 
-Consumer delivery uses non-blocking `:nosuspend` and `:noconnect` sends. If a local or remote consumer
-cannot accept a data, overflow, or close notification immediately, the keeper detaches it and retains
-the bounded records or tombstone for a later attachment. If this happens while `attach/3` is replaying,
-the call returns `{:error, :consumer_unreachable}` instead of claiming that the consumer attached.
+An explicit `close/2` closes the socket and terminates the connection immediately. A peer close,
+transport error, send failure, or protocol-adapter error instead transitions the connection to
+`:closed` and records the reason.
 
-Delivery is deliberately **bounded at-least-once**, not exactly-once. Each record has a monotonic
-sequence scoped to one connection generation. The keeper retains records until the attached consumer
-cumulatively acknowledges their sequence with `ack/4`. If that consumer exits or detaches first, the
-next consumer receives the unacknowledged records again. Consumers must therefore process records
-idempotently. At most `:max_in_flight` unacknowledged records are placed in a consumer mailbox at once;
-ACKs release credit for later records. Cumulative ACK retries at or below the generation watermark
-are idempotent for the attached consumer, making an ambiguous RPC result safe to retry.
+If records remain unacknowledged, no consumer is attached, or a close event cannot be delivered,
+the closed connection remains registered as a tombstone for `:closed_retention_ms`, which defaults
+to 60 seconds. A consumer may attach during that period. Wirekeeper delivers retained records in
+sequence before the `:upstream_closed` event. The tombstone terminates after the last retained record
+is ACKed or when its retention timer expires. Wirekeeper does not reopen it.
 
-The buffer uses an anonymous private ETS table owned by the socket process. It adds no dependency and
-keeps message bodies outside manager state. It is intentionally memory-only: losing the keeper
-connection process also loses its socket, so Mnesia or disk persistence would not preserve the TCP
-session it belonged to. Defaults are 1,000 records, 1 MiB, and 64 in-flight records per connection;
-`:buffer` accepts `:max_records`, `:max_bytes`, and `:max_in_flight`. Overflow evicts the oldest
-retained complete records and sets `gap?: true`; a single record larger than the byte limit is rejected
-without evicting retained records.
+## Protocol adapters
 
-An evicted record that was already delivered still occupies its in-flight credit until the consumer
-ACKs it or detaches. This prevents a non-acking consumer from turning steady overflow into an
-unbounded mailbox. Live overflow notifications are coalesced to one outstanding signal per ACK or
-attachment boundary. Dropped record and byte totals are generation-cumulative and are never cleared
-merely by attaching, so consumer failure cannot erase an unreconciled gap; `info/1` and every later
-attachment summary provide the current exact totals.
-
-If the upstream closes while detached or records remain unacknowledged, the connection becomes a
-closed tombstone. It retains the bounded buffer and close reason for `:closed_retention_ms` (60 seconds
-by default). Reattachment delivers records before the close event. The tombstone disappears after the
-last ACK or when its retention timer expires.
-
-The manager serializes key reservations but performs network connection work in supervised tasks, so
-one slow dial or TLS handshake cannot block routing. A unique OTP Registry indexes connection identity
-without calling potentially busy socket owners. Registry and connection-supervisor lifecycles are
-coupled with `:rest_for_one`; manager restarts leave both established connections and their ETS buffers
-intact, while registry loss closes the sockets whose identity it could no longer safely enforce.
-
-## Protocol adapters and IRC PING
-
-`TopicsClub.Wirekeeper.ProtocolAdapter` receives inbound byte chunks and returns ordered actions:
+`TopicsClub.Wirekeeper.ProtocolAdapter` is initialized once for each connection and consumes raw
+inbound socket chunks in the socket-owning process. It returns ordered actions:
 
 ```elixir
-{:forward, bytes}
-{:reply, bytes}
+{:forward, binary_record}
+{:reply, iodata}
 ```
 
-Every forward action is one complete protocol record. The connection layer assigns its sequence and
-stores it in ETS before bounded delivery; it does not need to know the record's protocol. Reply actions
-always go directly to the upstream socket, whether a consumer is attached or not. This is the
-customization point for framing and maintenance traffic that must outlive the engine without putting
-general IRC behavior in the keeper core.
+A forward action is copied into the replay buffer before delivery. A reply action is written
+directly to the upstream socket whether or not a consumer is attached and is never added to the
+buffer. Adapter actions are applied in order. Invalid callback results or actions close only the
+affected connection with a protocol or transport error.
 
-`TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive` provides the required IRC behavior. It:
+Adapters run inside the connection process, so they must not block and must not attempt to own the
+socket themselves.
 
-- frames fragmented socket input into bounded IRC lines;
-- recognizes `PING` after valid optional IRCv3 tags and an IRC prefix;
-- replies once with `PONG` directly from the socket-owning process;
-- does not forward handled `PING` lines, preventing a duplicate engine reply;
-- emits every other complete IRC line byte-for-byte as a separate buffer record;
-- closes only the affected connection if an unterminated line exceeds the configured bound.
+### Passthrough
 
-The passthrough adapter is available for protocols that do not require socket-layer maintenance.
-Additional protocol behavior belongs in focused adapters, not conditionals in the connection owner.
+`TopicsClub.Wirekeeper.ProtocolAdapter.Passthrough` is the default. It emits every inbound transport
+chunk unchanged as one retained record. TCP chunk boundaries are not application message
+boundaries, so a protocol that needs framing must select another adapter.
 
-## Current API
+### IRC keepalive
+
+`TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive` is the implemented IRC adapter. It:
+
+- reconstructs complete IRC records from fragmented TCP/TLS chunks and preserves non-PING records
+  byte-for-byte;
+- treats each line ending in `\n` as one record, including both CRLF and LF input;
+- skips optional leading IRCv3 tag and prefix sections before matching the `PING` command
+  case-insensitively;
+- replies once with `PONG` and the received PING parameters directly from the connection process;
+- does not forward or buffer a handled PING, so an engine cannot send a duplicate PONG and PING
+  traffic cannot contribute to replay overflow; and
+- bounds a complete or partial line with `:max_line_bytes`, defaulting to 16,384 bytes.
+
+If a line exceeds the bound, actions for earlier complete lines in the same chunk are applied first,
+then the affected connection closes with `{:protocol_error, :line_too_long}`. General IRC behavior
+such as registration, capabilities, SASL, nicknames, joins, messages, persistence, and reconnect
+policy does not belong in this adapter.
+
+## Public API
 
 The public entry point is `TopicsClub.Wirekeeper`:
 
+| Function | Current behavior |
+| --- | --- |
+| `open/3` | Reserves a key, connects TCP/TLS, starts detached, and returns its generation and initial info. |
+| `attach/3` | Attaches one PID and returns a replay/overflow summary while dispatching retained records. |
+| `detach/3` | Detaches only the matching PID without closing upstream. |
+| `ack/4` | Cumulatively acknowledges a sequence delivered to the matching PID. |
+| `send_data/3` | Sends iodata upstream through the generation-matched open socket. |
+| `close/2` | Explicitly closes and removes the generation-matched connection. |
+| `info/1` | Returns one connection's status and bounded counters, but no payloads or credentials. |
+| `list/0` | Returns sorted info for current open connections and retained tombstones; openings are omitted. |
+| `diagnostics/0` | Aggregates open/closed, attached/detached, buffer, and overflow counts. |
+
+Typical IRC-oriented use is:
+
 ```elixir
+alias TopicsClub.Wirekeeper
+alias TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive
+
 {:ok, opened} =
-  TopicsClub.Wirekeeper.open(
+  Wirekeeper.open(
     connection_id,
-    {:tcp, host: "irc.example.net", port: 6667},
-    protocol_adapter: {TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive, []}
+    {:tls, host: "irc.example.net", port: 6697},
+    protocol_adapter: {IrcKeepalive, []},
+    buffer: [max_records: 1_000, max_bytes: 1_048_576, max_in_flight: 64]
   )
 
-{:ok, replay} =
-  TopicsClub.Wirekeeper.attach(connection_id, opened.generation, self())
+{:ok, replay} = Wirekeeper.attach(connection_id, opened.generation, self())
 
 receive do
   {:topics_club_wirekeeper, {:data, %{sequence: sequence, payload: line}}} ->
     process_irc_line(line)
-    :ok = TopicsClub.Wirekeeper.ack(connection_id, opened.generation, sequence)
+    :ok = Wirekeeper.ack(connection_id, opened.generation, sequence)
 end
 
-:ok =
-  TopicsClub.Wirekeeper.send_data(
-    connection_id,
-    opened.generation,
-    "NICK example\r\n"
-  )
+:ok = Wirekeeper.send_data(connection_id, opened.generation, "NICK example\r\n")
 ```
 
-TLS uses `{:tls, host: host, port: port}` and verifies peers with the host trust store and hostname
-checking by default, including IP subject-alternative-name verification without sending IP-valued SNI.
-Explicit `:tls_options` may refine those defaults for a particular connection. TCP and TLS writes use
-a finite five-second send timeout by default; `:send_timeout` may shorten or extend it.
+`attach/3`, `detach/3`, and `ack/4` default their consumer argument to the calling process. Repeating
+`attach/3` from the already attached PID is idempotent and does not replay records a second time.
 
-`info/1` and the tagged results from `list/0` and `diagnostics/0` expose bounded
-record/byte/overflow runtime state without message bodies or IRC credentials. Manager or connection
-call failures return `{:error, :unavailable}` rather than being misreported as missing connections.
+The `open/3` connection options are:
 
-## Deliberate exclusions
+| Location | Option | Default |
+| --- | --- | --- |
+| Transport | `:host` | required non-empty string |
+| Transport | `:port` | required integer from 1 through 65,535 |
+| Transport | `:connect_timeout` | 10,000 ms |
+| Transport | `:send_timeout` | 5,000 ms |
+| TLS transport | `:tls_options` | peer verification using the host trust store and HTTPS-style hostname checking |
+| Open options | `:protocol_adapter` | `{TopicsClub.Wirekeeper.ProtocolAdapter.Passthrough, []}` |
+| Open options | `:buffer` | the buffer defaults documented above |
+| Open options | `:closed_retention_ms` | 60,000 ms |
 
-This application currently does not:
+TCP and TLS use raw binary sockets with active-once reads and finite sends. TCP also enables
+`nodelay` and transport keepalive. TLS verifies DNS hostnames and IP subject alternative names by
+default; IP literals are connected as addresses rather than sent as IP-valued SNI. Caller-supplied
+`:tls_options` may override TLS policy, but Wirekeeper always enforces raw binary mode, passive
+setup, and the top-level finite `:send_timeout`.
 
-- connect to PostgreSQL or interpret connection keys;
-- register, authenticate, join, part, reconnect, or choose IRC policy;
-- persist buffers across loss of the keeper connection process, container, or host;
-- provide exactly-once delivery (consumer ACKs provide bounded at-least-once delivery);
-- persist sockets or survive its own process/container/host replacement;
-- authorize a future remote engine node or define the versioned engine-to-keeper RPC envelope;
-- hide bounded-buffer overflow; the future engine must reconcile after `gap?: true`;
-- participate in combined, engine-only, Railway, Docker, Compose, or systemd releases.
+Public calls convert manager or connection call exits to `{:error, :unavailable}`. This keeps a
+temporarily unavailable supervision component distinct from `{:error, :not_found}` and
+`{:error, :opening}`.
 
-Those are engine-integration and deployment decisions. They should be added only after a real engine
-session can attach to one kept connection, exchange traffic, detach, and safely resume without a
-second IRC registration or JOIN burst.
+## Not implemented yet
+
+The current umbrella application does not:
+
+- integrate with `TopicsClub.Engine`, `Ircxd.Client`, or `server_connections`;
+- connect to PostgreSQL or assign application meaning to keys;
+- implement UDP, a consumer-side TCP/WebSocket listener, or an adapter for the consumer leg;
+- register, authenticate, negotiate capabilities, join, part, interpret chat traffic, persist
+  messages, or choose reconnect policy;
+- persist sockets or replay buffers across loss of the connection process, BEAM node, container, or
+  host;
+- provide exactly-once delivery;
+- authorize remote engine nodes or expose a versioned engine-to-Wirekeeper RPC envelope;
+- reconcile application state after `gap?: true`; or
+- participate in the combined, gateway-only, or engine-only production releases and their Railway,
+  Docker Compose, or systemd deployment definitions.
+
+Extraction to the standalone repository can happen later. Before production packaging, a real
+engine session still needs to attach to a kept IRC connection, exchange and ACK traffic, detach, and
+resume safely without a second registration or JOIN burst. A continuity-focused deployment must
+then place Wirekeeper in a process or service whose lifecycle is not coupled to engine deployments;
+co-locating it in the same release cannot preserve sockets across replacement of that release.
