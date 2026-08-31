@@ -3,7 +3,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   use GenServer
 
-  alias TopicsClub.Wirekeeper.{Buffer, Delivery, Socket}
+  alias TopicsClub.Wirekeeper.{Buffer, ConsumerWatcher, Delivery, Socket}
 
   @default_closed_retention_ms 60_000
   @registry TopicsClub.Wirekeeper.ConnectionRegistry
@@ -71,6 +71,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
          delivery: Delivery,
          buffer: buffer,
          consumer: nil,
+         consumer_watcher_spec: {ConsumerWatcher, []},
+         consumer_watcher_pid: nil,
          consumer_ref: nil,
          acked_through: 0,
          in_flight: [],
@@ -143,12 +145,13 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
       true ->
         replay = replay_summary(state)
-        consumer_ref = Process.monitor(consumer)
+        {consumer_watcher_pid, consumer_ref} = start_consumer_watcher(state, consumer)
 
         state =
           state
           |> Map.merge(%{
             consumer: consumer,
+            consumer_watcher_pid: consumer_watcher_pid,
             consumer_ref: consumer_ref,
             in_flight: [],
             overflow_notification_pending?: false,
@@ -183,7 +186,6 @@ defmodule TopicsClub.Wirekeeper.Connection do
         {:reply, {:error, :not_attached}, state}
 
       true ->
-        Process.demonitor(state.consumer_ref, [:flush])
         {:reply, :ok, begin_detached_episode(state)}
     end
   end
@@ -265,8 +267,15 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   @impl true
   def handle_info(
-        {:DOWN, consumer_ref, :process, consumer, _reason},
-        %{consumer: consumer, consumer_ref: consumer_ref} = state
+        {:topics_club_wirekeeper_consumer_down, consumer_watcher_pid, consumer, _reason},
+        %{consumer: consumer, consumer_watcher_pid: consumer_watcher_pid} = state
+      ) do
+    {:noreply, begin_detached_episode(state)}
+  end
+
+  def handle_info(
+        {:DOWN, consumer_ref, :process, consumer_watcher_pid, _reason},
+        %{consumer_ref: consumer_ref, consumer_watcher_pid: consumer_watcher_pid} = state
       ) do
     {:noreply, begin_detached_episode(state)}
   end
@@ -303,6 +312,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   @impl true
   def terminate(_reason, state) do
+    _state = stop_consumer_watcher(state)
     close_socket(state.socket)
     :ok
   end
@@ -506,9 +516,12 @@ defmodule TopicsClub.Wirekeeper.Connection do
   end
 
   defp begin_detached_episode(state) do
+    state = stop_consumer_watcher(state)
+
     %{
       state
       | consumer: nil,
+        consumer_watcher_pid: nil,
         consumer_ref: nil,
         in_flight: [],
         overflow_notification_pending?: false,
@@ -526,11 +539,24 @@ defmodule TopicsClub.Wirekeeper.Connection do
   end
 
   defp detach_consumer(state) do
+    begin_detached_episode(state)
+  end
+
+  defp start_consumer_watcher(state, consumer) do
+    {watcher, opts} = state.consumer_watcher_spec
+    watcher.start(self(), consumer, opts)
+  end
+
+  defp stop_consumer_watcher(state) do
     if is_reference(state.consumer_ref) do
       Process.demonitor(state.consumer_ref, [:flush])
     end
 
-    begin_detached_episode(state)
+    if is_pid(state.consumer_watcher_pid) do
+      Process.exit(state.consumer_watcher_pid, :kill)
+    end
+
+    state
   end
 
   defp connection_info(state) do

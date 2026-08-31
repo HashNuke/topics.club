@@ -3,6 +3,7 @@ defmodule TopicsClub.WirekeeperTest do
 
   alias TopicsClub.Wirekeeper
   alias TopicsClub.Wirekeeper.BlockingProtocolAdapter
+  alias TopicsClub.Wirekeeper.BlockingConsumerWatcher
   alias TopicsClub.Wirekeeper.ClosingTcpServer
   alias TopicsClub.Wirekeeper.Manager
   alias TopicsClub.Wirekeeper.NonReadingTcpServer
@@ -185,6 +186,40 @@ defmodule TopicsClub.WirekeeperTest do
     assert_receive {:topics_club_wirekeeper, {:data, %{sequence: sequence, payload: ^payload}}}
 
     assert :ok = Wirekeeper.ack(key, opened.generation, sequence)
+  end
+
+  test "keeps remote consumer monitoring outside the connection process" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("consumer-watcher")
+
+    assert {:ok, opened} = open_tcp(key, server)
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:ok, connection} = Manager.lookup(key)
+    test_process = self()
+
+    :sys.replace_state(connection, fn state ->
+      Map.put(
+        state,
+        :consumer_watcher_spec,
+        {BlockingConsumerWatcher, owner: test_process}
+      )
+    end)
+
+    assert {:ok, _replay} = Wirekeeper.attach(key, opened.generation, self())
+
+    assert_receive {:wirekeeper_blocking_consumer_watcher, watcher, ^connection, ^test_process}
+
+    watcher_ref = Process.monitor(watcher)
+    _state = :sys.get_state(connection)
+    payload = "socket handling remains live while the watcher is blocked"
+    assert :ok = TestTcpServer.send_data(server, payload)
+
+    assert_receive {:topics_club_wirekeeper, {:data, %{sequence: sequence, payload: ^payload}}}
+
+    assert :ok = Wirekeeper.ack(key, opened.generation, sequence)
+    assert :ok = Wirekeeper.detach(key, opened.generation, self())
+    assert_receive {:DOWN, ^watcher_ref, :process, ^watcher, :killed}
   end
 
   test "keeps a fragmented IRC record whole when it completes while detached" do
