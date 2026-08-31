@@ -11,6 +11,8 @@ defmodule TopicsClub.Wirekeeper do
 
   alias TopicsClub.Wirekeeper.{Connection, Manager}
 
+  @snapshot_timeout 250
+
   @typedoc "An application-selected stable connection identifier."
   @type key :: integer() | binary()
 
@@ -107,17 +109,21 @@ defmodule TopicsClub.Wirekeeper do
   @spec list() :: {:ok, [connection_info()]} | {:error, :unavailable}
   def list do
     with {:ok, connections} <- safe_manager_connections() do
-      infos =
-        connections
-        |> Enum.flat_map(fn connection ->
-          case safe_connection_call(fn -> Connection.info(connection) end) do
-            {:ok, info} -> [info]
-            {:error, _reason} -> []
-          end
-        end)
-        |> Enum.sort_by(&inspect(&1.key))
-
-      {:ok, infos}
+      connections
+      |> Task.async_stream(&safe_connection_info/1,
+        max_concurrency: max(length(connections), 1),
+        ordered: false,
+        timeout: @snapshot_timeout,
+        on_timeout: :kill_task
+      )
+      |> Enum.reduce_while({:ok, []}, fn
+        {:ok, {:ok, info}}, {:ok, infos} -> {:cont, {:ok, [info | infos]}}
+        _error, _infos -> {:halt, {:error, :unavailable}}
+      end)
+      |> case do
+        {:ok, infos} -> {:ok, Enum.sort_by(infos, &inspect(&1.key))}
+        {:error, :unavailable} = error -> error
+      end
     end
   end
 
@@ -196,5 +202,9 @@ defmodule TopicsClub.Wirekeeper do
     callback.()
   catch
     :exit, _reason -> {:error, :unavailable}
+  end
+
+  defp safe_connection_info(connection) do
+    safe_connection_call(fn -> Connection.info(connection) end)
   end
 end

@@ -719,6 +719,28 @@ defmodule TopicsClub.WirekeeperTest do
             }} = Wirekeeper.diagnostics()
   end
 
+  test "list and diagnostics never omit a busy live connection from a successful snapshot" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("busy-list")
+
+    assert {:ok, opened} = open_tcp(key, server)
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:ok, connection} = Manager.lookup(key)
+    :ok = :sys.suspend(connection)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(connection)
+      catch
+        :exit, _reason -> :ok
+      end
+    end)
+
+    assert {:error, :unavailable} = Wirekeeper.list()
+    assert {:error, :unavailable} = Wirekeeper.diagnostics()
+  end
+
   test "closes a connection when a non-reading peer exceeds the configured send timeout" do
     server = start_supervised!({NonReadingTcpServer, self()})
     key = unique_key("send-timeout")
