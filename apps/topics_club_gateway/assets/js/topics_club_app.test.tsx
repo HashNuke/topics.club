@@ -5126,7 +5126,7 @@ describe("TopicsClubApp UI prototype", () => {
     expect(push).toHaveBeenCalledWith("server:list", {page: 1, query: "", server_connection_id: 42})
     expect(screen.getByRole("heading", {name: "Channels on local"})).toBeInTheDocument()
     expect(screen.getByRole("status", {name: /Loading channels from local/i})).toBeInTheDocument()
-    expect(screen.getByText(/cached for up to one hour/i)).toBeInTheDocument()
+    expect(screen.getByText(/cached for up to 24 hours/i)).toBeInTheDocument()
     expect(screen.queryByRole("button", {name: "Refresh list"})).not.toBeInTheDocument()
     expect(screen.queryByLabelText("Message composer")).not.toBeInTheDocument()
 

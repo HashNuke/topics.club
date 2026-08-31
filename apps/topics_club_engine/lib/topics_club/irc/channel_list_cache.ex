@@ -5,7 +5,7 @@ defmodule TopicsClub.Irc.ChannelListCache do
 
   alias TopicsClub.Chat.ServerConnection
 
-  @default_ttl_ms :timer.hours(1)
+  @default_ttl_ms :timer.hours(24)
   @prune_interval_ms :timer.minutes(5)
 
   def start_link(opts) do
@@ -24,6 +24,11 @@ defmodule TopicsClub.Irc.ChannelListCache do
     GenServer.call(server, {:fetch, cache_key(connection), callback}, :infinity)
   end
 
+  def invalidate(%ServerConnection{} = connection, opts \\ []) do
+    server = Keyword.get(opts, :server, __MODULE__)
+    GenServer.call(server, {:invalidate, cache_key(connection)})
+  end
+
   def cache_key(%ServerConnection{} = connection) do
     host =
       connection.host
@@ -31,7 +36,15 @@ defmodule TopicsClub.Irc.ChannelListCache do
       |> String.trim_trailing(".")
       |> String.downcase()
 
-    {host, connection.port, connection.use_tls}
+    {
+      connection.user_id,
+      connection.id,
+      host,
+      connection.port,
+      connection.use_tls,
+      normalize_identity(connection.nickname),
+      normalize_identity(connection.sasl_username)
+    }
   end
 
   @impl true
@@ -39,6 +52,7 @@ defmodule TopicsClub.Irc.ChannelListCache do
     state = %{
       clock: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end),
       entries: %{},
+      generations: %{},
       pending: %{},
       refs: %{},
       task_supervisor:
@@ -60,16 +74,23 @@ defmodule TopicsClub.Irc.ChannelListCache do
 
       _missing_or_expired ->
         state = %{state | entries: Map.delete(state.entries, key)}
-        fetch_or_wait(state, key, callback, from)
+        generation = Map.get(state.generations, key, 0)
+        fetch_or_wait(state, key, generation, callback, from)
     end
+  end
+
+  def handle_call({:invalidate, key}, _from, state) do
+    generations = Map.update(state.generations, key, 1, &(&1 + 1))
+
+    {:reply, :ok, %{state | entries: Map.delete(state.entries, key), generations: generations}}
   end
 
   @impl true
   def handle_info({ref, result}, state) when is_reference(ref) do
     case Map.fetch(state.refs, ref) do
-      {:ok, key} ->
+      {:ok, pending_key} ->
         Process.demonitor(ref, [:flush])
-        complete_fetch(state, key, result)
+        complete_fetch(state, pending_key, result)
 
       :error ->
         {:noreply, state}
@@ -78,7 +99,7 @@ defmodule TopicsClub.Irc.ChannelListCache do
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
     case Map.fetch(state.refs, ref) do
-      {:ok, key} -> complete_fetch(state, key, {:error, :internal_error})
+      {:ok, pending_key} -> complete_fetch(state, pending_key, {:error, :internal_error})
       :error -> {:noreply, state}
     end
   end
@@ -90,30 +111,32 @@ defmodule TopicsClub.Irc.ChannelListCache do
     {:noreply, %{state | entries: entries}}
   end
 
-  defp fetch_or_wait(state, key, callback, from) do
-    case Map.get(state.pending, key) do
+  defp fetch_or_wait(state, key, generation, callback, from) do
+    pending_key = {key, generation}
+
+    case Map.get(state.pending, pending_key) do
       nil ->
         task = Task.Supervisor.async_nolink(state.task_supervisor, callback)
-        pending = Map.put(state.pending, key, %{ref: task.ref, waiters: [from]})
-        refs = Map.put(state.refs, task.ref, key)
+        pending = Map.put(state.pending, pending_key, %{ref: task.ref, waiters: [from]})
+        refs = Map.put(state.refs, task.ref, pending_key)
         {:noreply, %{state | pending: pending, refs: refs}}
 
       pending ->
-        pending = put_in(state.pending[key].waiters, [from | pending.waiters])
+        pending = put_in(state.pending[pending_key].waiters, [from | pending.waiters])
         {:noreply, %{state | pending: pending}}
     end
   end
 
-  defp complete_fetch(state, key, result) do
-    {pending, pending_by_key} = Map.pop(state.pending, key)
+  defp complete_fetch(state, {key, generation} = pending_key, result) do
+    {pending, pending_by_key} = Map.pop(state.pending, pending_key)
 
     if pending do
       Enum.each(pending.waiters, &GenServer.reply(&1, result))
     end
 
     entries =
-      case result do
-        {:ok, channels} when is_list(channels) ->
+      case {result, Map.get(state.generations, key, 0)} do
+        {{:ok, channels}, ^generation} when is_list(channels) ->
           Map.put(state.entries, key, %{
             channels: channels,
             expires_at: state.clock.() + state.ttl_ms
@@ -130,4 +153,12 @@ defmodule TopicsClub.Irc.ChannelListCache do
   defp schedule_prune do
     Process.send_after(self(), :prune, @prune_interval_ms)
   end
+
+  defp normalize_identity(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalize_identity(_value), do: nil
 end

@@ -2,6 +2,7 @@ defmodule TopicsClub.Irc.Session.EventPipeline do
   @moduledoc false
 
   alias TopicsClub.Irc.Session.{
+    ChannelListVisibility,
     CommandLifecycle,
     EventRecorder,
     JoinReconciliation,
@@ -16,6 +17,7 @@ defmodule TopicsClub.Irc.Session.EventPipeline do
     state =
       state
       |> Registration.refresh(event.name)
+      |> ChannelListVisibility.refresh(event)
       |> CommandLifecycle.process_event(event)
       |> JoinReconciliation.reconcile_event(event)
 

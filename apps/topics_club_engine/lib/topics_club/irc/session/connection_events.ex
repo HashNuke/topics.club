@@ -4,6 +4,7 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
   require Logger
 
   alias TopicsClub.Chat.{ConnectionLifecycle, ServerConnectionLock}
+  alias TopicsClub.Irc.ChannelListCache
   alias TopicsClub.Irc.ConnectionLock
 
   alias TopicsClub.Irc.Session.{
@@ -89,6 +90,7 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
         else: "Connected to #{updated.host}."
 
     EventRecorder.server_line(updated, message)
+    :ok = ChannelListCache.invalidate(updated)
     cancel_retry_timer(Map.get(state, :retry_timer))
 
     state
