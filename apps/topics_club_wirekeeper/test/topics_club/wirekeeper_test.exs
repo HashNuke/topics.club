@@ -181,6 +181,45 @@ defmodule TopicsClub.WirekeeperTest do
     assert {:ok, %{buffered_records: 0, buffered_bytes: 0}} = Wirekeeper.info(key)
   end
 
+  test "retains complete IRC records that precede a terminal protocol error" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("record-before-protocol-error")
+
+    assert {:ok, opened} =
+             open_tcp(key, server,
+               protocol_adapter: {IrcKeepalive, max_line_bytes: 32},
+               closed_retention_ms: 5_000
+             )
+
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    valid = ":s NOTICE n :ok\r\n"
+    oversized_tail = String.duplicate("x", 33)
+    assert :ok = TestTcpServer.send_data(server, valid <> oversized_tail)
+
+    assert {:ok,
+            %{
+              status: :closed,
+              upstream_closed_reason: {:protocol_error, :line_too_long},
+              buffered_records: 1
+            }} = await_connection_status(key, :closed)
+
+    assert {:ok, %{replayed_records: 1}} = Wirekeeper.attach(key, opened.generation, self())
+
+    assert_receive {:topics_club_wirekeeper, {:data, %{sequence: sequence, payload: ^valid}}}
+
+    assert_receive {:topics_club_wirekeeper,
+                    {:upstream_closed,
+                     %{
+                       key: ^key,
+                       generation: generation,
+                       reason: {:protocol_error, :line_too_long}
+                     }}}
+
+    assert generation == opened.generation
+    assert :ok = Wirekeeper.ack(key, opened.generation, sequence)
+    assert {:error, :not_found} = await_missing_connection(key)
+  end
+
   test "bounds detached records by evicting the oldest complete record and reports the gap" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("bounded-buffer")

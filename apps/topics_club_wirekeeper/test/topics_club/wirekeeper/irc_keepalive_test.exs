@@ -40,4 +40,13 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepaliveTest do
     assert state.buffer == tail
     assert :binary.referenced_byte_size(state.buffer) == byte_size(tail)
   end
+
+  test "preserves complete records before an oversized tail in the same chunk" do
+    assert {:ok, state} = IrcKeepalive.init(max_line_bytes: 32)
+    valid = ":s NOTICE n :ok\r\n"
+    oversized_tail = String.duplicate("x", 33)
+
+    assert {:error, :line_too_long, [{:forward, ^valid}], %{buffer: ""}} =
+             IrcKeepalive.handle_inbound(valid <> oversized_tail, state)
+  end
 end

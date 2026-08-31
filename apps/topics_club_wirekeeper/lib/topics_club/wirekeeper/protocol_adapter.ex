@@ -16,5 +16,7 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter do
 
   @doc "Consumes one chunk and emits ordered complete records or immediate upstream replies."
   @callback handle_inbound(binary(), state()) ::
-              {:ok, [action()], state()} | {:error, error_reason(), state()}
+              {:ok, [action()], state()}
+              | {:error, error_reason(), state()}
+              | {:error, error_reason(), [action()], state()}
 end

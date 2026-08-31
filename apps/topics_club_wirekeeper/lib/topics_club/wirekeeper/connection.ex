@@ -283,6 +283,17 @@ defmodule TopicsClub.Wirekeeper.Connection do
             handle_upstream_closed({:transport_error, reason}, state)
         end
 
+      {:error, reason, actions, adapter_state} when is_list(actions) ->
+        state = %{state | adapter_state: adapter_state}
+
+        case apply_actions(actions, state) do
+          {:ok, state} ->
+            handle_upstream_closed({:protocol_error, reason}, state)
+
+          {:error, transport_reason, state} ->
+            handle_upstream_closed({:transport_error, transport_reason}, state)
+        end
+
       {:error, reason, adapter_state} ->
         state = %{state | adapter_state: adapter_state}
         handle_upstream_closed({:protocol_error, reason}, state)

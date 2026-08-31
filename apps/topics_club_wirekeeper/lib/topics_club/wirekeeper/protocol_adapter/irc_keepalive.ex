@@ -35,8 +35,9 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive do
         actions = Enum.map(lines, &line_action/1)
         {:ok, actions, %{state | buffer: buffer}}
 
-      {:error, :line_too_long} ->
-        {:error, :line_too_long, state}
+      {:error, :line_too_long, lines} ->
+        actions = Enum.map(lines, &line_action/1)
+        {:error, :line_too_long, actions, %{state | buffer: ""}}
     end
   end
 
@@ -46,7 +47,7 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive do
         line_bytes = newline_index + 1
 
         if line_bytes > max_line_bytes do
-          {:error, :line_too_long}
+          {:error, :line_too_long, Enum.reverse(lines)}
         else
           line = binary_part(data, 0, line_bytes)
           rest = binary_part(data, line_bytes, byte_size(data) - line_bytes)
@@ -54,7 +55,7 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive do
         end
 
       :nomatch when byte_size(data) > max_line_bytes ->
-        {:error, :line_too_long}
+        {:error, :line_too_long, Enum.reverse(lines)}
 
       :nomatch ->
         {:ok, Enum.reverse(lines), :binary.copy(data)}
