@@ -102,7 +102,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
           socket: socket,
           status: :open,
           transport: Socket.transport_name(socket),
-          adapter_state: adapter_state
+          adapter_state: adapter_state,
+          detached_at: monotonic_ms()
         })
         |> Map.delete(:transport_options)
         |> Map.delete(:adapter_opts)

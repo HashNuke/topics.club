@@ -77,6 +77,39 @@ defmodule TopicsClub.WirekeeperTest do
     assert TestTcpServer.connection_count(server) == 1
   end
 
+  test "detached duration starts when the upstream connection becomes ready" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("detached-after-ready")
+    test_process = self()
+
+    _caller =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             result =
+               open_tcp(key, server,
+                 protocol_adapter: {BlockingProtocolAdapter, owner: test_process}
+               )
+
+             send(test_process, {:delayed_ready_open_result, result})
+           end},
+          id: {:delayed_ready_open, self()}
+        )
+      )
+
+    assert_receive {:wirekeeper_blocking_adapter, :init_started, connection}
+    _timer = Process.send_after(self(), :release_delayed_adapter, 250)
+    assert_receive :release_delayed_adapter, 500
+    send(connection, :continue_wirekeeper_adapter_init)
+
+    assert_receive {:delayed_ready_open_result, {:ok, opened}}
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:ok, replay} = Wirekeeper.attach(key, opened.generation, self())
+    assert replay.detached_for_ms < 100
+    assert :ok = Wirekeeper.close(key, opened.generation)
+  end
+
   test "buffers detached IRC records separately and replays them in order" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("buffered-records")
