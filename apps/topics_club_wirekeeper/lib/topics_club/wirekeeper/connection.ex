@@ -104,7 +104,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
         {:reply, {:error, :invalid_consumer}, state}
 
       state.consumer == consumer ->
-        {:reply, {:ok, empty_replay(state)}, state}
+        {:reply, {:ok, attach_retry_summary(state)}, state}
 
       is_pid(state.consumer) ->
         {:reply, {:error, :already_attached}, state}
@@ -126,7 +126,11 @@ defmodule TopicsClub.Wirekeeper.Connection do
           |> dispatch_available()
           |> maybe_notify_closed()
 
-        {:reply, {:ok, replay}, state}
+        if state.status == :closed and state.buffer.records == 0 do
+          {:stop, :normal, {:ok, replay}, state}
+        else
+          {:reply, {:ok, replay}, state}
+        end
     end
   end
 
@@ -487,16 +491,18 @@ defmodule TopicsClub.Wirekeeper.Connection do
     }
   end
 
-  defp empty_replay(state) do
+  defp attach_retry_summary(state) do
+    buffer_info = Buffer.info(state.buffer)
+
     %{
       key: state.key,
       generation: state.generation,
       delivery_guarantee: :at_least_once,
-      gap?: false,
+      gap?: buffer_info.dropped_records > 0 or buffer_info.dropped_bytes > 0,
       replayed_records: 0,
       replayed_bytes: 0,
-      dropped_records: 0,
-      dropped_bytes: 0,
+      dropped_records: buffer_info.dropped_records,
+      dropped_bytes: buffer_info.dropped_bytes,
       detached_for_ms: 0
     }
   end

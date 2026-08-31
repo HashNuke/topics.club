@@ -374,6 +374,12 @@ defmodule TopicsClub.WirekeeperTest do
     assert first_replay.gap?
     assert first_replay.dropped_records == 1
 
+    assert {:ok, retry_summary} = Wirekeeper.attach(key, opened.generation, first_consumer)
+    assert retry_summary.gap?
+    assert retry_summary.dropped_records == 1
+    assert retry_summary.dropped_bytes == byte_size(first)
+    assert retry_summary.replayed_records == 0
+
     first_consumer_ref = Process.monitor(first_consumer)
     GenServer.stop(first_consumer)
     assert_receive {:DOWN, ^first_consumer_ref, :process, ^first_consumer, :normal}
@@ -441,6 +447,27 @@ defmodule TopicsClub.WirekeeperTest do
     assert generation == opened.generation
     assert :ok = Wirekeeper.ack(key, opened.generation, sequence)
     assert {:error, :not_found} = await_missing_connection(key)
+  end
+
+  test "removes an empty closed tombstone as soon as its consumer observes closure" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("empty-detached-close")
+
+    assert {:ok, opened} = open_tcp(key, server, closed_retention_ms: 5_000)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert :ok = TestTcpServer.close_clients(server)
+    assert {:ok, %{status: :closed}} = await_connection_status(key, :closed)
+
+    assert {:ok, %{replayed_records: 0}} = Wirekeeper.attach(key, opened.generation, self())
+
+    assert_receive {:topics_club_wirekeeper,
+                    {:upstream_closed, %{key: ^key, generation: generation, reason: :closed}}}
+
+    assert generation == opened.generation
+    assert {:error, :not_found} = await_missing_connection(key)
+    assert {:ok, reopened} = open_tcp(key, server)
+    on_exit(fn -> Wirekeeper.close(key, reopened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
   end
 
   test "rejects stale generations and a second attached consumer" do
