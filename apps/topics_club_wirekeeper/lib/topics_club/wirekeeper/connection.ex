@@ -3,7 +3,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   use GenServer
 
-  alias TopicsClub.Wirekeeper.{Buffer, Socket}
+  alias TopicsClub.Wirekeeper.{Buffer, Delivery, Socket}
 
   @default_closed_retention_ms 60_000
   @registry TopicsClub.Wirekeeper.ConnectionRegistry
@@ -68,6 +68,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
          adapter: adapter,
          adapter_opts: adapter_opts,
          adapter_state: nil,
+         delivery: Delivery,
          buffer: buffer,
          consumer: nil,
          consumer_ref: nil,
@@ -157,7 +158,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
           |> dispatch_available()
           |> maybe_notify_closed()
 
-        if state.status == :closed and state.buffer.records == 0 do
+        if state.status == :closed and state.buffer.records == 0 and is_pid(state.consumer) do
           {:stop, :normal, {:ok, replay}, state}
         else
           {:reply, {:ok, replay}, state}
@@ -217,7 +218,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
           |> dispatch_available()
           |> maybe_notify_closed()
 
-        if state.status == :closed and state.buffer.records == 0 do
+        if state.status == :closed and state.buffer.records == 0 and is_pid(state.consumer) do
           {:stop, :normal, :ok, state}
         else
           {:reply, :ok, state}
@@ -371,20 +372,25 @@ defmodule TopicsClub.Wirekeeper.Connection do
       |> Enum.reject(fn {sequence, _payload} -> MapSet.member?(in_flight, sequence) end)
       |> Enum.take(available_slots)
 
-    Enum.each(records, fn {sequence, payload} ->
-      send(consumer, {
-        :topics_club_wirekeeper,
-        {:data,
-         %{
-           key: state.key,
-           generation: state.generation,
-           sequence: sequence,
-           payload: payload
-         }}
-      })
-    end)
+    Enum.reduce_while(records, state, fn {sequence, payload}, current_state ->
+      message =
+        {:topics_club_wirekeeper,
+         {:data,
+          %{
+            key: current_state.key,
+            generation: current_state.generation,
+            sequence: sequence,
+            payload: payload
+          }}}
 
-    %{state | in_flight: state.in_flight ++ Enum.map(records, &elem(&1, 0))}
+      case deliver_to_consumer(current_state, message) do
+        {:ok, current_state} ->
+          {:cont, %{current_state | in_flight: current_state.in_flight ++ [sequence]}}
+
+        {:error, current_state} ->
+          {:halt, current_state}
+      end
+    end)
   end
 
   defp dispatch_available(state), do: state
@@ -396,20 +402,22 @@ defmodule TopicsClub.Wirekeeper.Connection do
   defp notify_overflow(%{consumer: consumer} = state, overflow) when is_pid(consumer) do
     totals = Buffer.info(state.buffer)
 
-    send(consumer, {
-      :topics_club_wirekeeper,
-      {:overflow,
-       %{
-         key: state.key,
-         generation: state.generation,
-         dropped_records: overflow.records,
-         dropped_bytes: overflow.bytes,
-         total_dropped_records: totals.dropped_records,
-         total_dropped_bytes: totals.dropped_bytes
-       }}
-    })
+    message =
+      {:topics_club_wirekeeper,
+       {:overflow,
+        %{
+          key: state.key,
+          generation: state.generation,
+          dropped_records: overflow.records,
+          dropped_bytes: overflow.bytes,
+          total_dropped_records: totals.dropped_records,
+          total_dropped_bytes: totals.dropped_bytes
+        }}}
 
-    %{state | overflow_notification_pending?: true}
+    case deliver_to_consumer(state, message) do
+      {:ok, state} -> %{state | overflow_notification_pending?: true}
+      {:error, state} -> state
+    end
   end
 
   defp notify_overflow(state, _overflow), do: state
@@ -462,17 +470,19 @@ defmodule TopicsClub.Wirekeeper.Connection do
       end)
 
     if not state.closure_notified? and all_records_dispatched? do
-      send(consumer, {
-        :topics_club_wirekeeper,
-        {:upstream_closed,
-         %{
-           key: state.key,
-           generation: state.generation,
-           reason: state.upstream_closed_reason
-         }}
-      })
+      message =
+        {:topics_club_wirekeeper,
+         {:upstream_closed,
+          %{
+            key: state.key,
+            generation: state.generation,
+            reason: state.upstream_closed_reason
+          }}}
 
-      %{state | closure_notified?: true}
+      case deliver_to_consumer(state, message) do
+        {:ok, state} -> %{state | closure_notified?: true}
+        {:error, state} -> state
+      end
     else
       state
     end
@@ -501,6 +511,21 @@ defmodule TopicsClub.Wirekeeper.Connection do
         detached_at: monotonic_ms(),
         detached_episode?: true
     }
+  end
+
+  defp deliver_to_consumer(state, message) do
+    case state.delivery.send(state.consumer, message) do
+      :ok -> {:ok, state}
+      reason when reason in [:nosuspend, :noconnect] -> {:error, detach_consumer(state)}
+    end
+  end
+
+  defp detach_consumer(state) do
+    if is_reference(state.consumer_ref) do
+      Process.demonitor(state.consumer_ref, [:flush])
+    end
+
+    begin_detached_episode(state)
   end
 
   defp connection_info(state) do

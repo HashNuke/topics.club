@@ -7,6 +7,7 @@ defmodule TopicsClub.WirekeeperTest do
   alias TopicsClub.Wirekeeper.Manager
   alias TopicsClub.Wirekeeper.NonReadingTcpServer
   alias TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive
+  alias TopicsClub.Wirekeeper.RejectingDelivery
   alias TopicsClub.Wirekeeper.RelayConsumer
   alias TopicsClub.Wirekeeper.TestTcpServer
 
@@ -144,6 +145,40 @@ defmodule TopicsClub.WirekeeperTest do
     assert {:ok, %{buffered_records: 2}} = Wirekeeper.info(key)
     assert :ok = Wirekeeper.ack(key, opened.generation, second_sequence)
     assert {:ok, %{buffered_records: 0, buffered_bytes: 0}} = Wirekeeper.info(key)
+  end
+
+  test "detaches a backpressured consumer and retains its record for replay" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("consumer-backpressure")
+
+    assert {:ok, opened} = open_tcp(key, server)
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:ok, _replay} = Wirekeeper.attach(key, opened.generation, self())
+    assert {:ok, connection} = Manager.lookup(key)
+
+    :sys.replace_state(connection, fn state ->
+      Map.put(state, :delivery, RejectingDelivery)
+    end)
+
+    payload = "retained while distribution is backpressured"
+    assert :ok = TestTcpServer.send_data(server, payload)
+
+    assert {:ok, %{attached?: false, buffered_records: 1, in_flight_records: 0}} =
+             await_detached_connection(key)
+
+    refute_receive {:topics_club_wirekeeper, {:data, _event}}
+
+    :sys.replace_state(connection, fn state ->
+      Map.put(state, :delivery, TopicsClub.Wirekeeper.Delivery)
+    end)
+
+    assert {:ok, %{replayed_records: 1}} =
+             Wirekeeper.attach(key, opened.generation, self())
+
+    assert_receive {:topics_club_wirekeeper, {:data, %{sequence: sequence, payload: ^payload}}}
+
+    assert :ok = Wirekeeper.ack(key, opened.generation, sequence)
   end
 
   test "keeps a fragmented IRC record whole when it completes while detached" do
