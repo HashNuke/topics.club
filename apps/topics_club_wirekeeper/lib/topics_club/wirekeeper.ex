@@ -26,6 +26,21 @@ defmodule TopicsClub.Wirekeeper do
   @typedoc "A protocol adapter module and its initialization options."
   @type protocol_adapter :: {module(), keyword()}
 
+  @typedoc "One recursively plain value in a retained consumer checkpoint."
+  @type checkpoint_value ::
+          nil
+          | boolean()
+          | number()
+          | atom()
+          | binary()
+          | [checkpoint_value()]
+          | checkpoint()
+
+  @typedoc "Bounded plain consumer state retained without interpretation."
+  @type checkpoint :: %{
+          optional(atom() | binary() | integer()) => checkpoint_value()
+        }
+
   @typedoc "Public information about one open connection."
   @type connection_info :: %{
           key: key(),
@@ -53,7 +68,8 @@ defmodule TopicsClub.Wirekeeper do
           replayed_bytes: non_neg_integer(),
           dropped_records: non_neg_integer(),
           dropped_bytes: non_neg_integer(),
-          detached_for_ms: non_neg_integer()
+          detached_for_ms: non_neg_integer(),
+          checkpoint: nil | checkpoint()
         }
 
   @doc """
@@ -98,6 +114,20 @@ defmodule TopicsClub.Wirekeeper do
   @spec ack(key(), generation(), pos_integer(), pid()) :: :ok | {:error, atom()}
   def ack(key, generation, sequence, consumer \\ self()) do
     with_connection(key, &Connection.ack(&1, generation, sequence, consumer))
+  end
+
+  @doc """
+  Stores a bounded plain-data checkpoint for the matching attached consumer.
+
+  Wirekeeper validates shape and encoded size, but cannot identify secrets. The caller must exclude
+  credentials and other sensitive values.
+  """
+  @spec put_checkpoint(key(), generation(), checkpoint(), pid()) :: :ok | {:error, atom()}
+  def put_checkpoint(key, generation, checkpoint, consumer \\ self()) do
+    with_connection(
+      key,
+      &Connection.put_checkpoint(&1, generation, checkpoint, consumer)
+    )
   end
 
   @doc "Sends bytes to the upstream socket when the generation still matches."

@@ -65,7 +65,8 @@ Each connection GenServer exclusively owns:
 - one random 128-bit generation encoded as lowercase hexadecimal;
 - adapter module and adapter state;
 - an anonymous private ETS `ordered_set` of sequence-numbered binary records;
-- delivery credit, cumulative ACK state, and overflow counters; and
+- delivery credit, cumulative ACK state, and overflow counters;
+- one bounded plain-data consumer checkpoint retained without interpretation; and
 - at most one attached local or remote consumer PID.
 
 A connection child is temporary. Wirekeeper never automatically reconnects an upstream connection.
@@ -93,6 +94,15 @@ later attachment. If this happens during `attach/3`, that call returns
 
 Wirekeeper does not authenticate or authorize a remote PID. Any future cross-node boundary must add
 that policy outside or in front of the current API.
+
+The attached consumer may store a checkpoint with `put_checkpoint/4`. A checkpoint is a plain map
+containing only nested maps, lists, atoms, numbers, booleans, and binaries; structs, tuples, PIDs,
+references, ports, and functions are rejected. The default encoded-size limit is 65,536 bytes, and
+Wirekeeper retains a serialized copy so a small sub-binary cannot keep a much larger source binary
+alive. The checkpoint is generation-scoped, can only be replaced on behalf of the currently attached
+PID, and is returned in later attachment summaries. Wirekeeper neither interprets it nor exposes it
+through `info/1`, `list/0`, or `diagnostics/0`. Shape validation cannot identify secrets: callers
+must never include credentials, tokens, or other sensitive values.
 
 ## Buffering, replay, and ACKs
 
@@ -221,6 +231,7 @@ The public entry point is `TopicsClub.Wirekeeper`:
 | `attach/3` | Attaches one PID and returns a replay/overflow summary while dispatching retained records. |
 | `detach/3` | Detaches only the matching PID without closing upstream. |
 | `ack/4` | Cumulatively acknowledges a sequence delivered to the matching PID. |
+| `put_checkpoint/4` | Replaces the bounded checkpoint for the generation's matching attached PID. |
 | `send_data/3` | Sends iodata upstream through the generation-matched open socket. |
 | `close/2` | Explicitly closes and removes the generation-matched connection. |
 | `info/1` | Returns one connection's status and bounded counters, but no payloads or credentials. |
@@ -266,6 +277,7 @@ The `open/3` connection options are:
 | TLS transport | `:tls_options` | peer verification using the host trust store and HTTPS-style hostname checking |
 | Open options | `:protocol_adapter` | `{TopicsClub.Wirekeeper.ProtocolAdapter.Passthrough, []}` |
 | Open options | `:buffer` | the buffer defaults documented above |
+| Open options | `:checkpoint_max_bytes` | 65,536 bytes |
 | Open options | `:closed_retention_ms` | 60,000 ms |
 
 TCP and TLS use raw binary sockets with active-once reads and finite sends. TCP also enables

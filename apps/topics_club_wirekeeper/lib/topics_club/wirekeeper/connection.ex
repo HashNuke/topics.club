@@ -3,9 +3,10 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   use GenServer
 
-  alias TopicsClub.Wirekeeper.{Buffer, ConsumerWatcher, Delivery, Socket}
+  alias TopicsClub.Wirekeeper.{Buffer, Checkpoint, ConsumerWatcher, Delivery, Socket}
 
   @default_closed_retention_ms 60_000
+  @default_checkpoint_max_bytes 65_536
   @registry TopicsClub.Wirekeeper.ConnectionRegistry
 
   def child_spec(opts) do
@@ -33,6 +34,10 @@ defmodule TopicsClub.Wirekeeper.Connection do
     GenServer.call(connection, {:ack, generation, sequence, consumer})
   end
 
+  def put_checkpoint(connection, generation, checkpoint, consumer) do
+    GenServer.call(connection, {:put_checkpoint, generation, checkpoint, consumer})
+  end
+
   def send_data(connection, generation, data) do
     GenServer.call(connection, {:send_data, generation, data}, :infinity)
   end
@@ -48,9 +53,13 @@ defmodule TopicsClub.Wirekeeper.Connection do
     {adapter, adapter_opts} = Keyword.fetch!(opts, :protocol_adapter)
     closed_retention_ms = Keyword.get(opts, :closed_retention_ms, @default_closed_retention_ms)
 
+    checkpoint_max_bytes =
+      Keyword.get(opts, :checkpoint_max_bytes, @default_checkpoint_max_bytes)
+
     with true <- link_ready_recipient(ready_recipient),
          true <- protocol_adapter?(adapter),
          true <- positive_integer?(closed_retention_ms),
+         true <- positive_integer?(checkpoint_max_bytes),
          {:ok, buffer} <- Buffer.new(Keyword.get(opts, :buffer, [])),
          {:ok, _registry_owner} <- Registry.register(@registry, key, {:opening, generation}) do
       {:ok,
@@ -64,6 +73,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
          status: :opening,
          upstream_closed_reason: nil,
          closed_retention_ms: closed_retention_ms,
+         checkpoint_max_bytes: checkpoint_max_bytes,
+         checkpoint: nil,
          closed_timer_ref: nil,
          adapter: adapter,
          adapter_opts: adapter_opts,
@@ -229,6 +240,25 @@ defmodule TopicsClub.Wirekeeper.Connection do
           {:stop, :normal, :ok, state}
         else
           {:reply, :ok, state}
+        end
+    end
+  end
+
+  def handle_call({:put_checkpoint, generation, checkpoint, consumer}, _from, state) do
+    cond do
+      generation != state.generation ->
+        {:reply, {:error, :stale_generation}, state}
+
+      not is_pid(consumer) ->
+        {:reply, {:error, :invalid_consumer}, state}
+
+      state.consumer != consumer ->
+        {:reply, {:error, :not_attached}, state}
+
+      true ->
+        case Checkpoint.encode(checkpoint, state.checkpoint_max_bytes) do
+          {:ok, encoded} -> {:reply, :ok, %{state | checkpoint: encoded}}
+          {:error, reason} -> {:reply, {:error, reason}, state}
         end
     end
   end
@@ -588,7 +618,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
       replayed_bytes: buffer_info.buffered_bytes,
       dropped_records: buffer_info.dropped_records,
       dropped_bytes: buffer_info.dropped_bytes,
-      detached_for_ms: detached_for_ms(state)
+      detached_for_ms: detached_for_ms(state),
+      checkpoint: Checkpoint.decode(state.checkpoint)
     }
   end
 
@@ -604,7 +635,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
       replayed_bytes: 0,
       dropped_records: buffer_info.dropped_records,
       dropped_bytes: buffer_info.dropped_bytes,
-      detached_for_ms: 0
+      detached_for_ms: 0,
+      checkpoint: Checkpoint.decode(state.checkpoint)
     }
   end
 
