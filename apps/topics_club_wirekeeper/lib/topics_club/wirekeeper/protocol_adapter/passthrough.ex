@@ -2,7 +2,8 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.Passthrough do
   @moduledoc """
   Forwards each inbound socket chunk without interpreting it.
 
-  Detached chunks are still discarded and counted by the connection owner.
+  Each transport chunk becomes one retained record. Protocols that require semantic message
+  boundaries should provide a framing adapter instead.
   """
 
   @behaviour TopicsClub.Wirekeeper.ProtocolAdapter

@@ -5,7 +5,8 @@ defmodule TopicsClub.Wirekeeper do
   Connections use an opaque key and a random generation. The generation must match for every
   mutating operation, preventing a stale consumer from affecting a replacement socket. Exactly one
   consumer PID may be attached at a time; losing that process detaches it without closing the
-  upstream connection.
+  upstream connection. Complete adapter records remain in bounded ETS storage until cumulatively
+  acknowledged, providing bounded at-least-once delivery across consumer replacement.
   """
 
   alias TopicsClub.Wirekeeper.{Connection, Manager}
@@ -27,19 +28,27 @@ defmodule TopicsClub.Wirekeeper do
           key: key(),
           generation: generation(),
           transport: :tcp | :tls,
+          status: :open | :closed,
+          upstream_closed_reason: nil | atom() | tuple(),
           attached?: boolean(),
-          discarded_frames: non_neg_integer(),
-          discarded_bytes: non_neg_integer(),
+          buffered_records: non_neg_integer(),
+          buffered_bytes: non_neg_integer(),
+          in_flight_records: non_neg_integer(),
+          dropped_records: non_neg_integer(),
+          dropped_bytes: non_neg_integer(),
           detached_for_ms: non_neg_integer()
         }
 
-  @typedoc "Traffic loss observed before a consumer attached."
-  @type gap_summary :: %{
+  @typedoc "Buffered replay and overflow observed before a consumer attached."
+  @type replay_summary :: %{
           key: key(),
           generation: generation(),
+          delivery_guarantee: :at_least_once,
           gap?: boolean(),
-          discarded_frames: non_neg_integer(),
-          discarded_bytes: non_neg_integer(),
+          replayed_records: non_neg_integer(),
+          replayed_bytes: non_neg_integer(),
+          dropped_records: non_neg_integer(),
+          dropped_bytes: non_neg_integer(),
           detached_for_ms: non_neg_integer()
         }
 
@@ -53,10 +62,12 @@ defmodule TopicsClub.Wirekeeper do
           {:ok, connection_info()} | {:error, atom() | {:transport, atom()}}
   def open(key, transport, opts \\ []) do
     Manager.open(key, transport, opts)
+  catch
+    :exit, _reason -> {:error, :unavailable}
   end
 
   @doc "Attaches one local or remote consumer process to an open generation."
-  @spec attach(key(), generation(), pid()) :: {:ok, gap_summary()} | {:error, atom()}
+  @spec attach(key(), generation(), pid()) :: {:ok, replay_summary()} | {:error, atom()}
   def attach(key, generation, consumer \\ self()) do
     with_connection(key, &Connection.attach(&1, generation, consumer))
   end
@@ -65,6 +76,12 @@ defmodule TopicsClub.Wirekeeper do
   @spec detach(key(), generation(), pid()) :: :ok | {:error, atom()}
   def detach(key, generation, consumer \\ self()) do
     with_connection(key, &Connection.detach(&1, generation, consumer))
+  end
+
+  @doc "Acknowledges all delivered records through `sequence` for the matching consumer."
+  @spec ack(key(), generation(), pos_integer(), pid()) :: :ok | {:error, atom()}
+  def ack(key, generation, sequence, consumer \\ self()) do
+    with_connection(key, &Connection.ack(&1, generation, sequence, consumer))
   end
 
   @doc "Sends bytes to the upstream socket when the generation still matches."
@@ -80,72 +97,95 @@ defmodule TopicsClub.Wirekeeper do
   end
 
   @doc "Returns information about one open connection."
-  @spec info(key()) :: {:ok, connection_info()} | {:error, :not_found}
+  @spec info(key()) :: {:ok, connection_info()} | {:error, :not_found | :unavailable | :opening}
   def info(key) do
     with_connection(key, &Connection.info/1)
   end
 
-  @doc "Lists all currently open connections."
-  @spec list() :: [connection_info()]
+  @doc "Lists all currently open and retained closed connections."
+  @spec list() :: {:ok, [connection_info()]} | {:error, :unavailable}
   def list do
-    Manager.connections()
-    |> Enum.flat_map(fn connection ->
-      case safe_connection_call(fn -> Connection.info(connection) end) do
-        {:ok, info} -> [info]
-        {:error, :not_found} -> []
-      end
-    end)
-    |> Enum.sort_by(&inspect(&1.key))
+    with {:ok, connections} <- safe_manager_connections() do
+      infos =
+        connections
+        |> Enum.flat_map(fn connection ->
+          case safe_connection_call(fn -> Connection.info(connection) end) do
+            {:ok, info} -> [info]
+            {:error, _reason} -> []
+          end
+        end)
+        |> Enum.sort_by(&inspect(&1.key))
+
+      {:ok, infos}
+    end
   end
 
-  @doc "Returns bounded aggregate connection and discarded-traffic counters."
-  @spec diagnostics() :: %{
-          open_connections: non_neg_integer(),
-          attached_connections: non_neg_integer(),
-          detached_connections: non_neg_integer(),
-          discarded_frames: non_neg_integer(),
-          discarded_bytes: non_neg_integer()
-        }
+  @doc "Returns bounded aggregate connection, replay-buffer, and overflow counters."
+  @spec diagnostics() ::
+          {:ok,
+           %{
+             open_connections: non_neg_integer(),
+             attached_connections: non_neg_integer(),
+             detached_connections: non_neg_integer(),
+             buffered_records: non_neg_integer(),
+             buffered_bytes: non_neg_integer(),
+             dropped_records: non_neg_integer(),
+             dropped_bytes: non_neg_integer()
+           }}
+          | {:error, :unavailable}
   def diagnostics do
-    infos = list()
-
-    Enum.reduce(
-      infos,
-      %{
-        open_connections: length(infos),
-        attached_connections: 0,
-        detached_connections: 0,
-        discarded_frames: 0,
-        discarded_bytes: 0
-      },
-      fn info, totals ->
-        totals
-        |> Map.update!(
-          if(info.attached?, do: :attached_connections, else: :detached_connections),
-          &(&1 + 1)
+    with {:ok, infos} <- list() do
+      totals =
+        Enum.reduce(
+          infos,
+          %{
+            open_connections: length(infos),
+            attached_connections: 0,
+            detached_connections: 0,
+            buffered_records: 0,
+            buffered_bytes: 0,
+            dropped_records: 0,
+            dropped_bytes: 0
+          },
+          fn info, totals ->
+            totals
+            |> Map.update!(
+              if(info.attached?, do: :attached_connections, else: :detached_connections),
+              &(&1 + 1)
+            )
+            |> Map.update!(:buffered_records, &(&1 + info.buffered_records))
+            |> Map.update!(:buffered_bytes, &(&1 + info.buffered_bytes))
+            |> Map.update!(:dropped_records, &(&1 + info.dropped_records))
+            |> Map.update!(:dropped_bytes, &(&1 + info.dropped_bytes))
+          end
         )
-        |> Map.update!(:discarded_frames, &(&1 + info.discarded_frames))
-        |> Map.update!(:discarded_bytes, &(&1 + info.discarded_bytes))
-      end
-    )
+
+      {:ok, totals}
+    end
   end
 
   defp with_connection(key, callback) do
     case safe_manager_lookup(key) do
       {:ok, connection} -> safe_connection_call(fn -> callback.(connection) end)
-      {:error, :not_found} = error -> error
+      {:error, _reason} = error -> error
     end
   end
 
   defp safe_manager_lookup(key) do
     Manager.lookup(key)
   catch
-    :exit, _reason -> {:error, :not_found}
+    :exit, _reason -> {:error, :unavailable}
+  end
+
+  defp safe_manager_connections do
+    {:ok, Manager.connections()}
+  catch
+    :exit, _reason -> {:error, :unavailable}
   end
 
   defp safe_connection_call(callback) do
     callback.()
   catch
-    :exit, _reason -> {:error, :not_found}
+    :exit, _reason -> {:error, :unavailable}
   end
 end

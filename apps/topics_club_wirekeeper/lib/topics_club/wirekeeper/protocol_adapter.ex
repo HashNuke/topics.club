@@ -14,7 +14,7 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter do
   @doc "Initializes protocol-specific state for one upstream connection."
   @callback init(keyword()) :: {:ok, state()}
 
-  @doc "Consumes one chunk of upstream bytes and returns ordered relay or reply actions."
+  @doc "Consumes one chunk and emits ordered complete records or immediate upstream replies."
   @callback handle_inbound(binary(), state()) ::
               {:ok, [action()], state()} | {:error, error_reason(), state()}
 end

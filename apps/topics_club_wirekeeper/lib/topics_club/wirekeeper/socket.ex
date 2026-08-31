@@ -6,10 +6,18 @@ defmodule TopicsClub.Wirekeeper.Socket do
 
   @spec connect(transport()) :: {:ok, socket()} | {:error, atom()}
   def connect({:tcp, opts}) when is_list(opts) do
-    with {:ok, host, port, timeout} <- connection_options(opts) do
-      socket_options = [:binary, packet: :raw, active: false, nodelay: true, keepalive: true]
+    with {:ok, host, port, connect_timeout, send_timeout} <- connection_options(opts) do
+      socket_options = [
+        :binary,
+        packet: :raw,
+        active: false,
+        nodelay: true,
+        keepalive: true,
+        send_timeout: send_timeout,
+        send_timeout_close: true
+      ]
 
-      case :gen_tcp.connect(String.to_charlist(host), port, socket_options, timeout) do
+      case :gen_tcp.connect(String.to_charlist(host), port, socket_options, connect_timeout) do
         {:ok, socket} -> {:ok, {:tcp, socket}}
         {:error, reason} -> {:error, reason}
       end
@@ -17,8 +25,9 @@ defmodule TopicsClub.Wirekeeper.Socket do
   end
 
   def connect({:tls, opts}) when is_list(opts) do
-    with {:ok, host, port, timeout} <- connection_options(opts) do
+    with {:ok, host, port, connect_timeout, send_timeout} <- connection_options(opts) do
       host_charlist = String.to_charlist(host)
+      connect_host = tls_connect_host(host_charlist)
 
       defaults = [
         mode: :binary,
@@ -29,7 +38,8 @@ defmodule TopicsClub.Wirekeeper.Socket do
         customize_hostname_check: [
           match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
         ],
-        server_name_indication: server_name_indication(host_charlist)
+        send_timeout: send_timeout,
+        send_timeout_close: true
       ]
 
       tls_options =
@@ -39,7 +49,7 @@ defmodule TopicsClub.Wirekeeper.Socket do
         |> Keyword.put(:mode, :binary)
         |> Keyword.put(:packet, :raw)
 
-      case :ssl.connect(host_charlist, port, tls_options, timeout) do
+      case :ssl.connect(connect_host, port, tls_options, connect_timeout) do
         {:ok, socket} -> {:ok, {:tls, socket}}
         {:error, reason} -> {:error, reason}
       end
@@ -66,19 +76,21 @@ defmodule TopicsClub.Wirekeeper.Socket do
   defp connection_options(opts) do
     host = Keyword.get(opts, :host)
     port = Keyword.get(opts, :port)
-    timeout = Keyword.get(opts, :connect_timeout, 10_000)
+    connect_timeout = Keyword.get(opts, :connect_timeout, 10_000)
+    send_timeout = Keyword.get(opts, :send_timeout, 5_000)
 
     if is_binary(host) and byte_size(host) > 0 and is_integer(port) and port in 1..65_535 and
-         is_integer(timeout) and timeout > 0 do
-      {:ok, host, port, timeout}
+         is_integer(connect_timeout) and connect_timeout > 0 and is_integer(send_timeout) and
+         send_timeout > 0 do
+      {:ok, host, port, connect_timeout, send_timeout}
     else
       {:error, :invalid_transport_options}
     end
   end
 
-  defp server_name_indication(host) do
+  defp tls_connect_host(host) do
     case :inet.parse_address(host) do
-      {:ok, _address} -> :disable
+      {:ok, address} -> address
       {:error, :einval} -> host
     end
   end

@@ -3,23 +3,27 @@ defmodule TopicsClub.Wirekeeper.TestTlsServer do
 
   use GenServer
 
-  def start_link(owner) do
-    GenServer.start_link(__MODULE__, owner)
+  def start_link(owner) when is_pid(owner), do: start_link(owner: owner)
+
+  def start_link(opts) when is_list(opts) do
+    GenServer.start_link(__MODULE__, opts)
   end
 
   def port(server), do: GenServer.call(server, :port)
   def send_data(server, data), do: GenServer.call(server, {:send_data, data})
 
   @impl true
-  def init(owner) do
+  def init(opts) do
     certificates = TopicsClub.Wirekeeper.TestCertificate.ensure!()
+    owner = Keyword.fetch!(opts, :owner)
+    ip = Keyword.get(opts, :ip, {127, 0, 0, 1})
 
     options = [
       :binary,
       packet: :raw,
       active: false,
       reuseaddr: true,
-      ip: {127, 0, 0, 1},
+      ip: ip,
       certfile: certificates.server_certificate,
       keyfile: certificates.server_key
     ]

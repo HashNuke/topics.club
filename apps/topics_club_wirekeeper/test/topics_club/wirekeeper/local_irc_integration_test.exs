@@ -33,10 +33,12 @@ if System.get_env("TOPICS_CLUB_LOCAL_IRC_INTEGRATION") == "1" do
                  "USER #{nick} 0 * :#{nick}\r\n"
                )
 
-      assert_receive_line(&String.contains?(&1, " 001 #{nick} "), 15_000)
+      assert_receive_line(key, opened.generation, &String.contains?(&1, " 001 #{nick} "), 15_000)
       assert :ok = Wirekeeper.send_data(key, opened.generation, "JOIN #{channel}\r\n")
 
       assert_receive_line(
+        key,
+        opened.generation,
         &String.contains?(&1, " 366 #{nick} #{channel} "),
         5_000
       )
@@ -54,18 +56,27 @@ if System.get_env("TOPICS_CLUB_LOCAL_IRC_INTEGRATION") == "1" do
                  5_000
                )
 
-      assert :ok = send_line(observer, "PRIVMSG #{channel} :discarded while detached")
-      assert {:ok, discarded_info} = await_discarded_frame(key)
-      assert discarded_info.generation == opened.generation
+      assert :ok = send_line(observer, "PRIVMSG #{channel} :buffered while detached")
+      assert {:ok, buffered_info} = await_buffered_record(key)
+      assert buffered_info.generation == opened.generation
 
-      assert {:ok, gap} = Wirekeeper.attach(key, opened.generation, self())
-      assert gap.gap?
-      assert gap.discarded_frames > 0
-      assert gap.discarded_bytes > 0
+      assert {:ok, replay} = Wirekeeper.attach(key, opened.generation, self())
+      refute replay.gap?
+      assert replay.replayed_records > 0
+      assert replay.replayed_bytes > 0
+
+      assert_receive_line(
+        key,
+        opened.generation,
+        &String.contains?(&1, "PRIVMSG #{channel} :buffered while detached"),
+        5_000
+      )
 
       assert :ok = send_line(observer, "PRIVMSG #{channel} :delivered after reattach")
 
       assert_receive_line(
+        key,
+        opened.generation,
         &String.contains?(&1, "PRIVMSG #{channel} :delivered after reattach"),
         5_000
       )
@@ -108,36 +119,42 @@ if System.get_env("TOPICS_CLUB_LOCAL_IRC_INTEGRATION") == "1" do
       end
     end
 
-    defp await_discarded_frame(key, attempts \\ 5_000)
+    defp await_buffered_record(key, attempts \\ 5_000)
 
-    defp await_discarded_frame(key, attempts) when attempts > 0 do
+    defp await_buffered_record(key, attempts) when attempts > 0 do
       case Wirekeeper.info(key) do
-        {:ok, %{discarded_frames: frames}} = info when frames > 0 ->
+        {:ok, %{buffered_records: records}} = info when records > 0 ->
           info
 
-        _not_discarded_yet ->
+        _not_buffered_yet ->
           receive do
           after
-            1 -> await_discarded_frame(key, attempts - 1)
+            1 -> await_buffered_record(key, attempts - 1)
           end
       end
     end
 
-    defp await_discarded_frame(key, 0) do
-      flunk("#{inspect(key)} did not account for detached IRC traffic")
+    defp await_buffered_record(key, 0) do
+      flunk("#{inspect(key)} did not buffer detached IRC traffic")
     end
 
-    defp assert_receive_line(predicate, timeout_ms) do
+    defp assert_receive_line(key, generation, predicate, timeout_ms) do
       deadline = System.monotonic_time(:millisecond) + timeout_ms
-      assert_receive_line_before(predicate, deadline)
+      assert_receive_line_before(key, generation, predicate, deadline)
     end
 
-    defp assert_receive_line_before(predicate, deadline) do
+    defp assert_receive_line_before(key, generation, predicate, deadline) do
       remaining = max(deadline - System.monotonic_time(:millisecond), 0)
 
       receive do
-        {:topics_club_wirekeeper, {:data, %{payload: line}}} ->
-          if predicate.(line), do: :ok, else: assert_receive_line_before(predicate, deadline)
+        {:topics_club_wirekeeper, {:data, %{sequence: sequence, payload: line}}} ->
+          assert :ok = Wirekeeper.ack(key, generation, sequence)
+
+          if predicate.(line) do
+            :ok
+          else
+            assert_receive_line_before(key, generation, predicate, deadline)
+          end
       after
         remaining -> flunk("expected IRC line was not received")
       end
