@@ -116,7 +116,7 @@ defmodule TopicsClubWeb.Api.DiscoveryControllerTest do
            } = json_response(search_conn, 200)
   end
 
-  test "scopes cached discovery to a connection owned by the current user", %{
+  test "ignores the legacy connection filter for the cached catalog", %{
     conn: conn,
     user: user
   } do
@@ -151,8 +151,8 @@ defmodule TopicsClubWeb.Api.DiscoveryControllerTest do
       get(conn, "/api/discovery/server_channels?connection_id=#{connection.id}")
 
     assert %{
-             "total_channels" => 1,
-             "server_channels" => [%{"name" => "#local"}]
+             "total_channels" => 2,
+             "server_channels" => [%{"name" => "#remote"}, %{"name" => "#local"}]
            } = json_response(scoped_conn, 200)
   end
 
