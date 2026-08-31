@@ -34,6 +34,13 @@ defmodule TopicsClub.Wirekeeper.Connection do
     GenServer.call(connection, {:ack, generation, sequence, consumer})
   end
 
+  def ack_with_checkpoint(connection, generation, sequence, checkpoint, consumer) do
+    GenServer.call(
+      connection,
+      {:ack_with_checkpoint, generation, sequence, checkpoint, consumer}
+    )
+  end
+
   def put_checkpoint(connection, generation, checkpoint, consumer) do
     GenServer.call(connection, {:put_checkpoint, generation, checkpoint, consumer})
   end
@@ -75,6 +82,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
          closed_retention_ms: closed_retention_ms,
          checkpoint_max_bytes: checkpoint_max_bytes,
          checkpoint: nil,
+         checkpoint_sequence: nil,
          closed_timer_ref: nil,
          adapter: adapter,
          adapter_opts: adapter_opts,
@@ -218,28 +226,55 @@ defmodule TopicsClub.Wirekeeper.Connection do
       sequence <= state.acked_through ->
         {:reply, :ok, state}
 
+      is_integer(state.checkpoint_sequence) ->
+        {:reply, {:error, :checkpoint_required}, state}
+
       sequence not in state.in_flight ->
         {:reply, {:error, :invalid_ack}, state}
 
       true ->
-        buffer = Buffer.delete_through(state.buffer, sequence)
-        in_flight = Enum.reject(state.in_flight, &(&1 <= sequence))
+        state |> acknowledge_through(sequence) |> ack_reply()
+    end
+  end
 
-        state =
-          state
-          |> Map.merge(%{
-            buffer: buffer,
-            acked_through: sequence,
-            in_flight: in_flight,
-            overflow_notification_pending?: false
-          })
-          |> dispatch_available()
-          |> maybe_notify_closed()
+  def handle_call(
+        {:ack_with_checkpoint, generation, sequence, checkpoint, consumer},
+        _from,
+        state
+      ) do
+    cond do
+      generation != state.generation ->
+        {:reply, {:error, :stale_generation}, state}
 
-        if state.status == :closed and state.buffer.records == 0 and is_pid(state.consumer) do
-          {:stop, :normal, :ok, state}
-        else
+      not is_pid(consumer) ->
+        {:reply, {:error, :invalid_consumer}, state}
+
+      state.consumer != consumer ->
+        {:reply, {:error, :not_attached}, state}
+
+      not is_integer(sequence) or sequence <= 0 ->
+        {:reply, {:error, :invalid_ack}, state}
+
+      sequence <= state.acked_through ->
+        if is_integer(state.checkpoint_sequence) and state.checkpoint_sequence >= sequence do
           {:reply, :ok, state}
+        else
+          {:reply, {:error, :checkpoint_not_recorded}, state}
+        end
+
+      sequence not in state.in_flight ->
+        {:reply, {:error, :invalid_ack}, state}
+
+      true ->
+        case Checkpoint.encode(checkpoint, state.checkpoint_max_bytes) do
+          {:ok, encoded} ->
+            state
+            |> Map.merge(%{checkpoint: encoded, checkpoint_sequence: sequence})
+            |> acknowledge_through(sequence)
+            |> ack_reply()
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
         end
     end
   end
@@ -254,6 +289,9 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
       state.consumer != consumer ->
         {:reply, {:error, :not_attached}, state}
+
+      is_integer(state.checkpoint_sequence) ->
+        {:reply, {:error, :checkpoint_ack_required}, state}
 
       true ->
         case Checkpoint.encode(checkpoint, state.checkpoint_max_bytes) do
@@ -587,6 +625,26 @@ defmodule TopicsClub.Wirekeeper.Connection do
     end
 
     state
+  end
+
+  defp acknowledge_through(state, sequence) do
+    state
+    |> Map.merge(%{
+      buffer: Buffer.delete_through(state.buffer, sequence),
+      acked_through: sequence,
+      in_flight: Enum.reject(state.in_flight, &(&1 <= sequence)),
+      overflow_notification_pending?: false
+    })
+    |> dispatch_available()
+    |> maybe_notify_closed()
+  end
+
+  defp ack_reply(state) do
+    if state.status == :closed and state.buffer.records == 0 and is_pid(state.consumer) do
+      {:stop, :normal, :ok, state}
+    else
+      {:reply, :ok, state}
+    end
   end
 
   defp connection_info(state) do

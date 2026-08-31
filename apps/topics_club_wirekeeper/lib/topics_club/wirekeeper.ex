@@ -117,6 +117,26 @@ defmodule TopicsClub.Wirekeeper do
   end
 
   @doc """
+  Atomically stores a checkpoint and acknowledges all records through `sequence`.
+
+  Validation happens before either value changes. Retrying an already acknowledged sequence is a
+  no-op only when a checkpoint at or beyond that sequence is already retained, so an older retry
+  cannot replace a newer checkpoint. After the first successful call, later records in the
+  generation must also use this function rather than `ack/4` or `put_checkpoint/4`.
+
+  Wirekeeper validates shape and encoded size, but cannot identify secrets. The caller must exclude
+  credentials and other sensitive values.
+  """
+  @spec ack_with_checkpoint(key(), generation(), pos_integer(), checkpoint(), pid()) ::
+          :ok | {:error, atom()}
+  def ack_with_checkpoint(key, generation, sequence, checkpoint, consumer \\ self()) do
+    with_connection(
+      key,
+      &Connection.ack_with_checkpoint(&1, generation, sequence, checkpoint, consumer)
+    )
+  end
+
+  @doc """
   Stores a bounded plain-data checkpoint for the matching attached consumer.
 
   Wirekeeper validates shape and encoded size, but cannot identify secrets. The caller must exclude

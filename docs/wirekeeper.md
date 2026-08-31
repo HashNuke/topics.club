@@ -104,6 +104,12 @@ PID, and is returned in later attachment summaries. Wirekeeper neither interpret
 through `info/1`, `list/0`, or `diagnostics/0`. Shape validation cannot identify secrets: callers
 must never include credentials, tokens, or other sensitive values.
 
+A resumable consumer instead uses `ack_with_checkpoint/5` to encode the post-record checkpoint and
+cumulatively ACK its matching sequence in one connection-process state transition. Validation
+failure changes neither value. The first successful combined call puts that generation into
+checkpointed-ACK mode: later new ACKs must also carry checkpoints, and separate checkpoint writes
+are rejected. Idempotent retries cannot replace a checkpoint associated with a newer sequence.
+
 ## Buffering, replay, and ACKs
 
 Every `{:forward, payload}` action from the adapter becomes one complete record. The connection
@@ -231,6 +237,7 @@ The public entry point is `TopicsClub.Wirekeeper`:
 | `attach/3` | Attaches one PID and returns a replay/overflow summary while dispatching retained records. |
 | `detach/3` | Detaches only the matching PID without closing upstream. |
 | `ack/4` | Cumulatively acknowledges a sequence delivered to the matching PID. |
+| `ack_with_checkpoint/5` | Atomically retains post-record consumer state and cumulatively acknowledges its matching sequence. |
 | `put_checkpoint/4` | Replaces the bounded checkpoint for the generation's matching attached PID. |
 | `send_data/3` | Sends iodata upstream through the generation-matched open socket. |
 | `close/2` | Explicitly closes and removes the generation-matched connection. |
