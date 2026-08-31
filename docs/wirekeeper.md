@@ -72,6 +72,11 @@ session it belonged to. Defaults are 1,000 records, 1 MiB, and 64 in-flight reco
 retained complete records and sets `gap?: true`; a single record larger than the byte limit is rejected
 without evicting retained records.
 
+An evicted record that was already delivered still occupies its in-flight credit until the consumer
+ACKs it or detaches. This prevents a non-acking consumer from turning steady overflow into an
+unbounded mailbox. Live overflow notifications are coalesced to one outstanding signal per ACK or
+attachment boundary; `info/1` and the next attachment summary provide the current exact totals.
+
 If the upstream closes while detached or records remain unacknowledged, the connection becomes a
 closed tombstone. It retains the bounded buffer and close reason for `:closed_retention_ms` (60 seconds
 by default). Reattachment delivers records before the close event. The tombstone disappears after the

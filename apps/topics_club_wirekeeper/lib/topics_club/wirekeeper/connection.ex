@@ -72,6 +72,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
          consumer: nil,
          consumer_ref: nil,
          in_flight: [],
+         overflow_notification_pending?: false,
          closure_notified?: false,
          detached_at: monotonic_ms(),
          detached_episode?: false
@@ -117,6 +118,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
             consumer: consumer,
             consumer_ref: consumer_ref,
             in_flight: [],
+            overflow_notification_pending?: false,
             closure_notified?: false,
             detached_episode?: false
           })
@@ -165,7 +167,11 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
         state =
           state
-          |> Map.merge(%{buffer: buffer, in_flight: in_flight})
+          |> Map.merge(%{
+            buffer: buffer,
+            in_flight: in_flight,
+            overflow_notification_pending?: false
+          })
           |> dispatch_available()
           |> maybe_notify_closed()
 
@@ -289,7 +295,6 @@ defmodule TopicsClub.Wirekeeper.Connection do
         current_state =
           current_state
           |> Map.put(:buffer, buffer)
-          |> reconcile_in_flight()
           |> notify_overflow(overflow)
           |> dispatch_available()
 
@@ -328,12 +333,9 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   defp dispatch_available(state), do: state
 
-  defp reconcile_in_flight(state) do
-    retained_sequences = state.buffer |> Buffer.records() |> MapSet.new(&elem(&1, 0))
-    %{state | in_flight: Enum.filter(state.in_flight, &MapSet.member?(retained_sequences, &1))}
-  end
-
   defp notify_overflow(state, %{records: 0}), do: state
+
+  defp notify_overflow(%{overflow_notification_pending?: true} = state, _overflow), do: state
 
   defp notify_overflow(%{consumer: consumer} = state, overflow) when is_pid(consumer) do
     totals = Buffer.info(state.buffer)
@@ -351,7 +353,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
        }}
     })
 
-    state
+    %{state | overflow_notification_pending?: true}
   end
 
   defp notify_overflow(state, _overflow), do: state
@@ -396,7 +398,12 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   defp maybe_notify_closed(%{status: :closed, consumer: consumer} = state)
        when is_pid(consumer) do
-    all_records_dispatched? = state.buffer.records == length(state.in_flight)
+    in_flight = MapSet.new(state.in_flight)
+
+    all_records_dispatched? =
+      Enum.all?(Buffer.records(state.buffer), fn {sequence, _payload} ->
+        MapSet.member?(in_flight, sequence)
+      end)
 
     if not state.closure_notified? and all_records_dispatched? do
       send(consumer, {
@@ -433,6 +440,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
       | consumer: nil,
         consumer_ref: nil,
         in_flight: [],
+        overflow_notification_pending?: false,
         closure_notified?: false,
         detached_at: monotonic_ms(),
         detached_episode?: true

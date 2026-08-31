@@ -308,6 +308,50 @@ defmodule TopicsClub.WirekeeperTest do
     assert {:ok, %{buffered_records: 0}} = Wirekeeper.info(key)
   end
 
+  test "evicted delivered records retain credit and overflow signals are coalesced" do
+    server = start_supervised!({TestTcpServer, self()})
+    consumer = start_supervised!({RelayConsumer, self()})
+    key = unique_key("bounded-credit")
+
+    assert {:ok, opened} =
+             open_tcp(key, server,
+               protocol_adapter: {IrcKeepalive, []},
+               buffer: [max_records: 2, max_bytes: 1_024, max_in_flight: 1]
+             )
+
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    assert {:ok, _replay} = Wirekeeper.attach(key, opened.generation, consumer)
+
+    lines = Enum.map(1..10, &":server NOTICE nick :record-#{&1}\r\n")
+    assert :ok = TestTcpServer.send_data(server, Enum.join(lines))
+
+    first = hd(lines)
+
+    assert_receive {:relay_consumer, ^consumer,
+                    {:topics_club_wirekeeper,
+                     {:data, %{sequence: first_sequence, payload: ^first}}}}
+
+    assert_receive {:relay_consumer, ^consumer,
+                    {:topics_club_wirekeeper,
+                     {:overflow, %{dropped_records: 1, dropped_bytes: dropped_bytes}}}}
+
+    assert dropped_bytes == byte_size(first)
+    assert {:ok, info} = await_dropped_records(key, 8)
+    assert info.buffered_records == 2
+    assert info.in_flight_records == 1
+    refute_receive {:relay_consumer, ^consumer, {:topics_club_wirekeeper, _event}}
+
+    assert :ok = Wirekeeper.ack(key, opened.generation, first_sequence, consumer)
+    ninth = Enum.at(lines, 8)
+
+    assert_receive {:relay_consumer, ^consumer,
+                    {:topics_club_wirekeeper,
+                     {:data, %{sequence: ninth_sequence, payload: ^ninth}}}}
+
+    assert ninth_sequence > first_sequence
+  end
+
   test "retains buffered records and the close reason until a detached consumer returns" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("detached-close")
@@ -735,6 +779,25 @@ defmodule TopicsClub.WirekeeperTest do
 
   defp await_buffered_records(key, expected, 0) do
     flunk("#{inspect(key)} did not buffer #{expected} records")
+  end
+
+  defp await_dropped_records(key, expected, attempts \\ 1_000)
+
+  defp await_dropped_records(key, expected, attempts) when attempts > 0 do
+    case Wirekeeper.info(key) do
+      {:ok, %{dropped_records: ^expected}} = info ->
+        info
+
+      _not_dropped_yet ->
+        receive do
+        after
+          1 -> await_dropped_records(key, expected, attempts - 1)
+        end
+    end
+  end
+
+  defp await_dropped_records(key, expected, 0) do
+    flunk("#{inspect(key)} did not report #{expected} dropped records")
   end
 
   defp await_adapter_buffer(connection, expected, attempts \\ 1_000)
