@@ -102,7 +102,7 @@ defmodule TopicsClub.EngineClient.Contract do
     list_channels: %{
       connection?: true,
       required: %{},
-      optional: %{},
+      optional: %{page: :positive_integer, query: :string},
       timeout: 12_000,
       retry: :safe
     }

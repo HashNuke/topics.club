@@ -1327,6 +1327,10 @@ defmodule TopicsClubWeb.UserChannelTest do
       directory: %{
         server_connection_id: server_connection_id,
         server_name: "local",
+        page: 1,
+        page_size: 25,
+        total_channels: 3,
+        total_pages: 1,
         channels: [
           %{channel: "#elixir", users: 42},
           %{channel: "#quiet", users: 4},
@@ -1337,6 +1341,23 @@ defmodule TopicsClubWeb.UserChannelTest do
 
     assert server_connection_id == connection.id
     assert_receive {:irc_server_line, "LIST"}, 1_000
+
+    search_ref =
+      push(socket, "server:list", %{
+        "server_connection_id" => connection.id,
+        "query" => "quiet",
+        "page" => 1
+      })
+
+    assert_reply search_ref, :ok, %{
+      directory: %{
+        query: "quiet",
+        total_channels: 1,
+        channels: [%{channel: "#quiet"}]
+      }
+    }
+
+    refute_receive {:irc_server_line, "LIST"}, 100
 
     command_ref =
       push(socket, "command:run", %{
@@ -1352,7 +1373,7 @@ defmodule TopicsClubWeb.UserChannelTest do
       }
     }
 
-    assert_receive {:irc_server_line, "LIST"}, 1_000
+    refute_receive {:irc_server_line, "LIST"}, 100
     assert :ok = Session.quit(connection)
   end
 

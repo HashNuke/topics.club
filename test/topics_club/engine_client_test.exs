@@ -48,6 +48,20 @@ defmodule TopicsClub.EngineClientTest do
     refute_receive {:engine_client_request, _request, _timeout}
   end
 
+  test "sends channel-directory search and pagination through the engine boundary" do
+    assert {:ok, %{accepted: true}} =
+             EngineClient.list_channels(1, 2,
+               query: "elixir",
+               page: 3,
+               request_id: "list-page-3"
+             )
+
+    assert_receive {:engine_client_request, request, 12_000}
+    assert request.operation == :list_channels
+    assert request.request_id == "list-page-3"
+    assert request.payload == %{page: 3, query: "elixir"}
+  end
+
   test "normalizes malformed adapter replies" do
     Application.put_env(:topics_club_core, :engine_client_test_reply, :malformed)
 

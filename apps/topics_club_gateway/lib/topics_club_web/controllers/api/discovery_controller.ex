@@ -7,9 +7,36 @@ defmodule TopicsClubWeb.Api.DiscoveryController do
   alias TopicsClubWeb.Api.EngineErrorResponse
   alias TopicsClubWeb.Api.ServerChannelJSON
 
-  def index(conn, _params) do
-    server_channels = Discovery.list_popular_server_channels()
-    json(conn, %{server_channels: Enum.map(server_channels, &ServerChannelJSON.render/1)})
+  def index(conn, params) do
+    user = conn.assigns.current_scope.user
+    server = resolve_server(user, Map.get(params, "connection_id"))
+
+    page =
+      case Integer.parse(Map.get(params, "page", "1")) do
+        {value, ""} when value > 0 -> value
+        _invalid -> 1
+      end
+
+    directory =
+      Discovery.paginate_server_channels(
+        page: page,
+        search: Map.get(params, "query", ""),
+        server: server
+      )
+
+    json(conn, %{
+      page: directory.page,
+      page_size: directory.page_size,
+      query: directory.query,
+      server_channels: Enum.map(directory.server_channels, &ServerChannelJSON.render/1),
+      total_channels: directory.total_channels,
+      total_pages: directory.total_pages
+    })
+  rescue
+    Ecto.NoResultsError ->
+      conn
+      |> put_status(:not_found)
+      |> json(%{error: "server_not_found"})
   end
 
   def join(conn, %{"id" => id}) do
@@ -81,6 +108,9 @@ defmodule TopicsClubWeb.Api.DiscoveryController do
 
   defp maybe_accept_queued(conn, "queued"), do: put_status(conn, :accepted)
   defp maybe_accept_queued(conn, "sent"), do: conn
+
+  defp resolve_server(_user, nil), do: nil
+  defp resolve_server(user, connection_id), do: Connections.get!(user, connection_id)
 
   defp error_reason(%{code: code}), do: code
   defp error_reason(reason) when is_atom(reason), do: Atom.to_string(reason)

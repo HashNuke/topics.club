@@ -77,7 +77,9 @@ defmodule TopicsClub.EngineClient do
   end
 
   def list_channels(user_id, connection_id, opts \\ []) do
-    request(:list_channels, user_id, connection_id, %{}, opts)
+    {query, opts} = Keyword.pop(opts, :query, "")
+    {page, opts} = Keyword.pop(opts, :page, 1)
+    request(:list_channels, user_id, connection_id, %{page: page, query: query}, opts)
   end
 
   def request(operation, user_id, connection_id, payload, opts \\ []) do

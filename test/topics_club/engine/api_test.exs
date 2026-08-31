@@ -394,10 +394,22 @@ defmodule TopicsClub.Engine.APITest do
     assert is_binary(channel_message.occurred_at)
     assert_receive {:irc_server_line, "PRIVMSG #pipe :hello from engine client"}, 1_000
 
-    assert {:ok, %{channels: [%{channel: "#elixir"} | _channels]}} =
+    assert {:ok,
+            %{
+              channels: [%{channel: "#elixir"} | _channels],
+              page: 1,
+              page_size: 25,
+              total_channels: 3,
+              total_pages: 1
+            }} =
              EngineClient.list_channels(user.id, connection.id)
 
     assert_receive {:irc_server_line, "LIST"}, 1_000
+
+    assert {:ok, %{channels: [%{channel: "#quiet"}], query: "quiet"}} =
+             EngineClient.list_channels(user.id, connection.id, query: "quiet")
+
+    refute_receive {:irc_server_line, "LIST"}, 100
 
     assert {:ok, %{result: command_result}} =
              EngineClient.execute_command(

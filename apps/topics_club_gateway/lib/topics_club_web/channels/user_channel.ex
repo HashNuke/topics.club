@@ -280,11 +280,11 @@ defmodule TopicsClubWeb.UserChannel do
     Reply.error(socket, %{reason: "invalid_buffer"})
   end
 
-  def handle_in("server:list", %{"server_connection_id" => connection_id}, socket) do
+  def handle_in("server:list", %{"server_connection_id" => connection_id} = payload, socket) do
     user = socket.assigns.current_user
     connection = Connections.get!(user, connection_id)
 
-    case ChannelDirectory.fetch(user, connection) do
+    case ChannelDirectory.fetch(user, connection, payload) do
       {:ok, directory} ->
         Reply.ok(socket, %{directory: directory})
 

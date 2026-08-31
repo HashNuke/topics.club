@@ -7,6 +7,7 @@ defmodule TopicsClub.Discovery do
   @channel_refresh_seconds :timer.hours(24) |> div(1_000)
   @network_refresh_seconds :timer.hours(24 * 7) |> div(1_000)
   @featured_channel_names ~w(#ruby #python #linux #rust #javascript #ubuntu)
+  @server_channel_page_size 25
 
   def sync_networks(entries, refreshed_at) when is_list(entries) do
     Repo.transaction(fn ->
@@ -89,6 +90,48 @@ defmodule TopicsClub.Discovery do
     |> Repo.all()
   end
 
+  def paginate_server_channels(opts \\ []) do
+    requested_page = Keyword.get(opts, :page, 1)
+    page = if is_integer(requested_page) and requested_page > 0, do: requested_page, else: 1
+    search = opts |> Keyword.get(:search, "") |> normalize_search()
+
+    query =
+      ServerChannel
+      |> active_server_channels_query()
+      |> maybe_filter_server(Keyword.get(opts, :server))
+      |> maybe_search(search)
+
+    total_channels =
+      query
+      |> exclude(:preload)
+      |> Repo.aggregate(:count, :id)
+
+    total_pages =
+      max(div(total_channels + @server_channel_page_size - 1, @server_channel_page_size), 1)
+
+    page = min(page, total_pages)
+
+    server_channels =
+      query
+      |> order_by([server_channel, network],
+        desc: server_channel.user_count,
+        asc: network.rank,
+        asc: server_channel.name
+      )
+      |> limit(^@server_channel_page_size)
+      |> offset(^((page - 1) * @server_channel_page_size))
+      |> Repo.all()
+
+    %{
+      page: page,
+      page_size: @server_channel_page_size,
+      query: search,
+      server_channels: server_channels,
+      total_channels: total_channels,
+      total_pages: total_pages
+    }
+  end
+
   def list_featured_server_channels(limit \\ 6) when is_integer(limit) and limit > 0 do
     candidates =
       ServerChannel
@@ -169,6 +212,45 @@ defmodule TopicsClub.Discovery do
     |> join(:inner, [server_channel], network in assoc(server_channel, :network))
     |> where([_server_channel, network], network.active)
     |> preload([_server_channel, network], network: network)
+  end
+
+  defp maybe_filter_server(query, nil), do: query
+
+  defp maybe_filter_server(query, server) do
+    where(
+      query,
+      [_server_channel, network],
+      fragment("lower(?)", network.host) == ^String.downcase(server.host) and
+        network.port == ^server.port and network.use_tls == ^server.use_tls
+    )
+  end
+
+  defp maybe_search(query, ""), do: query
+
+  defp maybe_search(query, search) do
+    pattern = "%#{escape_like(search)}%"
+
+    where(
+      query,
+      [server_channel, network],
+      ilike(server_channel.name, ^pattern) or ilike(server_channel.topic, ^pattern) or
+        ilike(network.name, ^pattern)
+    )
+  end
+
+  defp normalize_search(search) when is_binary(search) do
+    search
+    |> String.trim()
+    |> String.slice(0, 100)
+  end
+
+  defp normalize_search(_search), do: ""
+
+  defp escape_like(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
   end
 
   defp maybe_limit(query, nil), do: query

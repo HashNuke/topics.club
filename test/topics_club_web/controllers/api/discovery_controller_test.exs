@@ -81,6 +81,81 @@ defmodule TopicsClubWeb.Api.DiscoveryControllerTest do
     assert network_id == network.id
   end
 
+  test "searches and paginates the cached catalog remotely in groups of 25", %{conn: conn} do
+    now = ~U[2026-08-26 12:00:00Z]
+    {:ok, [network]} = Discovery.sync_networks([network_entry()], now)
+
+    channels =
+      Enum.map(1..30, fn index ->
+        %{
+          name: "#channel-#{index}",
+          topic: if(index == 30, do: "Needle discussion", else: "General discussion"),
+          user_count: 100 - index
+        }
+      end)
+
+    assert {:ok, 30} = Discovery.replace_server_channels(network, channels, now)
+
+    page_conn = get(conn, ~p"/api/discovery/server_channels?page=2")
+    page_response = json_response(page_conn, 200)
+
+    assert page_response["page"] == 2
+    assert page_response["page_size"] == 25
+    assert page_response["total_channels"] == 30
+    assert page_response["total_pages"] == 2
+    assert length(page_response["server_channels"]) == 5
+
+    search_conn = get(conn, ~p"/api/discovery/server_channels?query=needle")
+
+    assert %{
+             "page" => 1,
+             "query" => "needle",
+             "total_channels" => 1,
+             "total_pages" => 1,
+             "server_channels" => [%{"name" => "#channel-30"}]
+           } = json_response(search_conn, 200)
+  end
+
+  test "scopes cached discovery to a connection owned by the current user", %{
+    conn: conn,
+    user: user
+  } do
+    now = ~U[2026-08-26 12:00:00Z]
+    local = network_entry()
+    remote = %{local | name: "Remote IRC", slug: "Remote", host: "irc.remote.test", rank: 2}
+    {:ok, [local_network, remote_network]} = Discovery.sync_networks([local, remote], now)
+
+    assert {:ok, 1} =
+             Discovery.replace_server_channels(
+               local_network,
+               [%{name: "#local", topic: "Local", user_count: 10}],
+               now
+             )
+
+    assert {:ok, 1} =
+             Discovery.replace_server_channels(
+               remote_network,
+               [%{name: "#remote", topic: "Remote", user_count: 20}],
+               now
+             )
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "local discovery",
+        "host" => local.host,
+        "port" => local.port,
+        "use_tls" => local.use_tls
+      })
+
+    scoped_conn =
+      get(conn, "/api/discovery/server_channels?connection_id=#{connection.id}")
+
+    assert %{
+             "total_channels" => 1,
+             "server_channels" => [%{"name" => "#local"}]
+           } = json_response(scoped_conn, 200)
+  end
+
   test "connects to the cached network and joins the selected channel", %{
     conn: conn,
     user: user

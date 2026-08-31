@@ -19,6 +19,8 @@ defmodule TopicsClub.Engine.API do
   alias TopicsClub.EngineClient.Contract
   alias TopicsClub.EngineClient.Reply
   alias TopicsClub.Irc.CommandRegistry
+  alias TopicsClub.Irc.ChannelListCache
+  alias TopicsClub.Irc.ChannelListPage
   alias TopicsClub.Irc.ConnectionLock
   alias TopicsClub.Irc.Session
   alias TopicsClub.Irc.SessionLocator
@@ -210,9 +212,17 @@ defmodule TopicsClub.Engine.API do
     end
   end
 
-  defp execute(:list_channels, _request, _user, connection) do
-    with {:ok, channels} <- safe_session_call(fn -> Session.list_channels(connection) end) do
-      {:ok, %{channels: channels}}
+  defp execute(:list_channels, request, _user, connection) do
+    with {:ok, channels} <-
+           ChannelListCache.fetch(connection, fn ->
+             safe_session_call(fn -> Session.list_channels(connection) end)
+           end) do
+      {:ok,
+       ChannelListPage.build(
+         channels,
+         Map.get(request.payload, :query, ""),
+         Map.get(request.payload, :page, 1)
+       )}
     end
   end
 

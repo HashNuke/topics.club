@@ -15,7 +15,7 @@ defmodule TopicsClub.EngineClient.ContractTest do
     {:send_channel_message, 10, %{membership_id: 20, body: "hello", kind: "message"}},
     {:send_direct_message, 10, %{thread_id: 30, body: "hello"}},
     {:execute_command, 10, %{line: "NICK aria", command_id: "command-1", buffer_id: "server:10"}},
-    {:list_channels, 10, %{}}
+    {:list_channels, 10, %{page: 2, query: "elixir"}}
   ]
 
   test "version 1 defines every initial operation with timeout and retry policy" do

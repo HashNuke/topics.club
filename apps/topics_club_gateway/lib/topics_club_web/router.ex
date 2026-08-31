@@ -53,6 +53,7 @@ defmodule TopicsClubWeb.Router do
     pipe_through [:browser, :require_authenticated_user]
 
     get "/chat", AppController, :index
+    get "/chat/*path", AppController, :index
   end
 
   scope "/api", TopicsClubWeb.Api do
