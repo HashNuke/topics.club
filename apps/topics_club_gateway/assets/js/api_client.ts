@@ -35,7 +35,6 @@ export interface BufferMessageParams {
 }
 
 export interface DiscoveryParams {
-  connectionId?: EntityId
   page?: number
   query?: string
 }
@@ -70,7 +69,6 @@ export function createApiClient({csrfToken, fetchImpl = globalThis.fetch}: ApiCl
     joinTopic: (topicId: EntityId) => request<{connection: BackendConnection; buffer: ChannelBufferRecord; topic?: TopicInput}>(`/api/topics/${topicId}/join`, {method: "POST", body: JSON.stringify({})}),
     discoveryServerChannels: (params: DiscoveryParams = {}) => {
       const search = new URLSearchParams()
-      if (params.connectionId) search.set("connection_id", String(params.connectionId))
       if (params.page && params.page > 1) search.set("page", String(params.page))
       if (params.query) search.set("query", params.query)
       const query = search.toString()

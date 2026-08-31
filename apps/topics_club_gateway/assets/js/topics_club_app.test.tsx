@@ -1035,12 +1035,12 @@ describe("TopicsClubApp UI prototype", () => {
     const user = userEvent.setup()
     window.history.replaceState(null, "", "/chat/discover/all?p=2&q=linux")
     const apiClient = directMessageApiClient()
-    apiClient.discoveryServerChannels = vi.fn(({connectionId, page = 1, query = ""} = {}) => Promise.resolve({
+    apiClient.discoveryServerChannels = vi.fn(({page = 1, query = ""} = {}) => Promise.resolve({
       page,
       page_size: 25,
       query,
       server_channels: [{
-        id: `${connectionId || "all"}-${page}-${query || "all"}`,
+        id: `all-${page}-${query || "all"}`,
         name: "#linux",
         topic: "Linux discussion",
         user_count: 120,
@@ -1053,12 +1053,31 @@ describe("TopicsClubApp UI prototype", () => {
       total_channels: 70,
       total_pages: 3,
     }))
+    const push = vi.fn((event, payload) => event === "server:list"
+      ? Promise.resolve({
+          directory: {
+            server_connection_id: payload.server_connection_id,
+            page: payload.page,
+            page_size: 25,
+            query: payload.query,
+            channels: [{channel: "#session-only", users: 8, topic: "Visible to this IRC session"}],
+            total_channels: 1,
+            total_pages: 1,
+          },
+        })
+      : Promise.resolve({ok: true}))
 
-    render(<TopicsClubApp apiClient={apiClient as any} currentUser={{id: 1, email: "mira@example.com"}} developerOauth={true} />)
+    render(
+      <TopicsClubApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={() => fakeRealtimeClient(push)}
+      />
+    )
 
     expect(await screen.findByRole("heading", {name: "Find your next conversation."})).toBeInTheDocument()
     await waitFor(() => expect(apiClient.discoveryServerChannels).toHaveBeenCalledWith({
-      connectionId: undefined,
       page: 2,
       query: "linux",
     }))
@@ -1069,7 +1088,7 @@ describe("TopicsClubApp UI prototype", () => {
       "/chat/discover/all?p=3&q=linux"
     ))
 
-    const search = screen.getByLabelText("Search public channels")
+    const search = screen.getByLabelText("Search popular channels")
     await user.clear(search)
     await user.type(search, "beam")
     await user.click(screen.getByRole("button", {name: "Search"}))
@@ -1080,11 +1099,76 @@ describe("TopicsClubApp UI prototype", () => {
     await user.click(screen.getByRole("tab", {name: "This server · Old Network"}))
     await waitFor(() => expect(window.location.pathname).toBe("/chat/discover/1"))
     expect(window.location.search).toBe("")
-    await waitFor(() => expect(apiClient.discoveryServerChannels).toHaveBeenCalledWith({
-      connectionId: 1,
+    await waitFor(() => expect(push).toHaveBeenCalledWith("server:list", {
       page: 1,
       query: "",
+      server_connection_id: 1,
     }))
+    expect(await screen.findByText("#session-only")).toBeInTheDocument()
+  })
+
+  test("disables this-server search until LIST arrives and sends its searches to the IRC session", async () => {
+    const user = userEvent.setup()
+    const apiClient = directMessageApiClient()
+    apiClient.discoveryServerChannels = vi.fn().mockResolvedValue({
+      page: 1,
+      page_size: 25,
+      query: "",
+      server_channels: [],
+      total_channels: 0,
+      total_pages: 1,
+    })
+    let resolveInitialList
+    const push = vi.fn((event, payload) => {
+      if (event !== "server:list") return Promise.resolve({ok: true})
+
+      const response = {
+        directory: {
+          server_connection_id: payload.server_connection_id,
+          page: payload.page,
+          page_size: 25,
+          query: payload.query,
+          channels: [{channel: payload.query ? "#quiet" : "#session-only", users: 8, topic: "Visible to this IRC session"}],
+          total_channels: 1,
+          total_pages: 1,
+        },
+      }
+
+      if (payload.query) return Promise.resolve(response)
+      return new Promise((resolve) => { resolveInitialList = () => resolve(response) })
+    })
+
+    render(
+      <TopicsClubApp
+        apiClient={apiClient as any}
+        currentUser={{id: 1, email: "mira@example.com"}}
+        developerOauth={true}
+        realtimeClientFactory={() => fakeRealtimeClient(push)}
+      />
+    )
+
+    await user.click(await screen.findByRole("button", {name: /discover/i}))
+    expect(screen.getByLabelText("Search popular channels")).toBeEnabled()
+    await user.click(screen.getByRole("tab", {name: "This server · Old Network"}))
+
+    const serverSearch = screen.getByLabelText("Search this server")
+    expect(serverSearch).toBeDisabled()
+    expect(screen.getByRole("button", {name: "Search"})).toBeDisabled()
+    expect(screen.getByRole("status")).toHaveTextContent(/finish sending its channel list/i)
+
+    await act(async () => resolveInitialList())
+    expect(await screen.findByText("#session-only")).toBeInTheDocument()
+    expect(serverSearch).toBeEnabled()
+
+    await user.type(serverSearch, "quiet")
+    await user.click(screen.getByRole("button", {name: "Search"}))
+    await waitFor(() => expect(push).toHaveBeenLastCalledWith("server:list", {
+      page: 1,
+      query: "quiet",
+      server_connection_id: 1,
+    }))
+    expect(await screen.findByText("#quiet")).toBeInTheDocument()
+    expect(apiClient.discoveryServerChannels).toHaveBeenCalledTimes(1)
   })
 
   test("renders ordered private-message navigation, unread state, and peer context", async () => {

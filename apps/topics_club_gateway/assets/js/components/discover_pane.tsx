@@ -47,6 +47,8 @@ export default function DiscoverPane({activeServer, serverChannels, error, joini
   const [manualChannel, setManualChannel] = useState("")
   const [search, setSearch] = useState(query)
   const serverLabel = activeServer?.name || activeServer?.host
+  const searchDisabled = tab === "server" && loading
+  const searchLabel = tab === "server" ? "Search this server" : "Search popular channels"
 
   useEffect(() => setSearch(query), [query, tab])
 
@@ -56,6 +58,7 @@ export default function DiscoverPane({activeServer, serverChannels, error, joini
 
   function submitSearch(event: React.FormEvent<HTMLFormElement>): void {
     event.preventDefault()
+    if (searchDisabled) return
     onSearch(search.trim())
   }
 
@@ -79,19 +82,20 @@ export default function DiscoverPane({activeServer, serverChannels, error, joini
         </header>
 
         <div className="mt-7 flex border-b border-white/8" role="tablist" aria-label="Discover channels">
-          <button role="tab" aria-selected={tab === "all"} type="button" onClick={() => selectTab("all")} className={["relative px-1 pb-3 pr-5 text-sm font-semibold transition", tab === "all" ? "text-white after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-cyan-300" : "text-white/45 hover:text-white/75"].join(" ")}>All IRC servers</button>
+          <button role="tab" aria-selected={tab === "all"} type="button" onClick={() => selectTab("all")} className={["relative px-1 pb-3 pr-5 text-sm font-semibold transition", tab === "all" ? "text-white after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-cyan-300" : "text-white/45 hover:text-white/75"].join(" ")}>Popular servers</button>
           {activeServer && <button role="tab" aria-selected={tab === "server"} type="button" onClick={() => selectTab("server")} className={["relative px-1 pb-3 pl-5 text-sm font-semibold transition", tab === "server" ? "text-white after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-cyan-300" : "text-white/45 hover:text-white/75"].join(" ")}>{`This server · ${serverLabel}`}</button>}
         </div>
 
-        <form aria-label="Search discovered channels" className="mt-6" onSubmit={submitSearch} role="search">
-          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="discover-channel-search">Search public channels</label>
-          <div className="flex h-11 max-w-2xl overflow-hidden rounded-xl border border-white/10 bg-[var(--app-input)] transition focus-within:border-cyan-300/60 focus-within:ring-2 focus-within:ring-cyan-300/10">
+        <form aria-busy={searchDisabled} aria-label="Search discovered channels" className="mt-6" onSubmit={submitSearch} role="search">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="discover-channel-search">{searchLabel}</label>
+          <div className={["flex h-11 max-w-2xl overflow-hidden rounded-xl border border-white/10 bg-[var(--app-input)] transition", searchDisabled ? "opacity-60" : "focus-within:border-cyan-300/60 focus-within:ring-2 focus-within:ring-cyan-300/10"].join(" ")}>
             <span className="flex min-w-0 flex-1 items-center gap-2 px-3.5">
               <span className="hero-magnifying-glass size-4 text-slate-500" aria-hidden="true" />
-              <input id="discover-channel-search" className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-600" onChange={(event) => setSearch(event.target.value)} placeholder="Search channels, topics, or networks" type="search" value={search} />
+              <input id="discover-channel-search" className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-600 disabled:cursor-wait" disabled={searchDisabled} onChange={(event) => setSearch(event.target.value)} placeholder={tab === "server" ? "Search channels or topics" : "Search channels, topics, or networks"} type="search" value={search} />
             </span>
-            <button className="border-l border-white/10 px-5 text-sm font-bold text-cyan-200 transition hover:bg-cyan-300 hover:text-cyan-950" type="submit">Search</button>
+            <button className="border-l border-white/10 px-5 text-sm font-bold text-cyan-200 transition hover:bg-cyan-300 hover:text-cyan-950 disabled:cursor-wait disabled:text-cyan-200/40 disabled:hover:bg-transparent" disabled={searchDisabled} type="submit">Search</button>
           </div>
+          {searchDisabled && <p className="mt-2 text-xs text-slate-500" role="status">Waiting for {serverLabel || "this server"} to finish sending its channel list before search is available.</p>}
         </form>
 
         {tab === "server" && (
@@ -122,7 +126,7 @@ export default function DiscoverPane({activeServer, serverChannels, error, joini
           <div aria-label="Loading channel directory" className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{Array.from({length: 6}, (_, index) => <div key={index} className="h-44 animate-pulse rounded-2xl border border-white/6 bg-white/[0.035]" />)}</div>
         ) : serverChannels.length ? (
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {serverChannels.map((serverChannel) => <DiscoveryChannelCard key={serverChannel.id} serverChannel={serverChannel} joining={String(joiningServerChannelId) === String(serverChannel.id)} onJoin={() => onJoinServerChannel(serverChannel)} />)}
+            {serverChannels.map((serverChannel) => <DiscoveryChannelCard key={serverChannel.id} serverChannel={serverChannel} joining={tab === "all" && String(joiningServerChannelId) === String(serverChannel.id)} onJoin={() => tab === "server" ? onJoinThisServer(serverChannel.name) : onJoinServerChannel(serverChannel)} />)}
           </div>
         ) : (
           <div className="mt-5 rounded-2xl border border-dashed border-white/10 px-6 py-14 text-center">

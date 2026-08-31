@@ -14,8 +14,9 @@ const meta = {title: "Discover/DiscoverPane", component: DiscoverPane, parameter
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const AllServers: Story = {}
+export const PopularServers: Story = {}
 export const ThisServer: Story = {args: {tab: "server"}}
+export const ThisServerLoading: Story = {args: {loading: true, serverChannels: [], tab: "server"}}
 export const PaginatedSearch: Story = {args: {page: 2, query: "linux", totalChannels: 64, totalPages: 3}}
 export const Loading: Story = {args: {serverChannels: [], loading: true}}
 export const EmptyCatalog: Story = {args: {serverChannels: [], totalChannels: 0}}

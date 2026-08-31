@@ -49,7 +49,7 @@ describe("DiscoverPane", () => {
       expect.stringContaining("#largest"),
       expect.stringContaining("#medium"),
     ])
-    expect(screen.getByRole("tab", {name: "All IRC servers"})).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("tab", {name: "Popular servers"})).toHaveAttribute("aria-selected", "true")
   })
 
   test("requests remote pages from pagination above and below the results", () => {
@@ -66,7 +66,7 @@ describe("DiscoverPane", () => {
     const onSearch = vi.fn()
     renderPane({onSearch})
 
-    fireEvent.change(screen.getByLabelText("Search public channels"), {target: {value: "  linux  "}})
+    fireEvent.change(screen.getByLabelText("Search popular channels"), {target: {value: "  linux  "}})
     fireEvent.submit(screen.getByRole("search", {name: "Search discovered channels"}))
 
     expect(onSearch).toHaveBeenCalledWith("linux")
@@ -91,11 +91,31 @@ describe("DiscoverPane", () => {
     expect(onJoinThisServer).toHaveBeenCalledWith("#elixir")
   })
 
+  test("joins a LIST result through the active server instead of the shared catalog", () => {
+    const onJoinServerChannel = vi.fn()
+    const onJoinThisServer = vi.fn()
+    renderPane({onJoinServerChannel, onJoinThisServer, tab: "server"})
+
+    fireEvent.click(screen.getByRole("button", {name: "Join #small on Libera.Chat"}))
+    expect(onJoinThisServer).toHaveBeenCalledWith("#small")
+    expect(onJoinServerChannel).not.toHaveBeenCalled()
+  })
+
+  test("disables this-server search while its LIST response is loading", () => {
+    const onSearch = vi.fn()
+    renderPane({loading: true, onSearch, serverChannels: [], tab: "server"})
+
+    expect(screen.getByLabelText("Search this server")).toBeDisabled()
+    expect(screen.getByRole("button", {name: "Search"})).toBeDisabled()
+    fireEvent.submit(screen.getByRole("search", {name: "Search discovered channels"}))
+    expect(onSearch).not.toHaveBeenCalled()
+  })
+
   test("hides the current-server tab when there is no active server", () => {
     renderPane({activeServer: undefined, serverChannels: [], totalChannels: 0})
 
     expect(screen.queryByRole("tab", {name: "This server"})).not.toBeInTheDocument()
-    expect(screen.getByRole("tab", {name: "All IRC servers"})).toBeInTheDocument()
+    expect(screen.getByRole("tab", {name: "Popular servers"})).toBeInTheDocument()
     expect(screen.queryByLabelText("Channel name")).not.toBeInTheDocument()
     expect(screen.getByText("Connect to an IRC server or wait for the directory refresh.")).toBeInTheDocument()
   })

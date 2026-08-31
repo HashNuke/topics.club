@@ -98,7 +98,6 @@ defmodule TopicsClub.Discovery do
     query =
       ServerChannel
       |> active_server_channels_query()
-      |> maybe_filter_server(Keyword.get(opts, :server))
       |> maybe_search(search)
 
     total_channels =
@@ -212,17 +211,6 @@ defmodule TopicsClub.Discovery do
     |> join(:inner, [server_channel], network in assoc(server_channel, :network))
     |> where([_server_channel, network], network.active)
     |> preload([_server_channel, network], network: network)
-  end
-
-  defp maybe_filter_server(query, nil), do: query
-
-  defp maybe_filter_server(query, server) do
-    where(
-      query,
-      [_server_channel, network],
-      fragment("lower(?)", network.host) == ^String.downcase(server.host) and
-        network.port == ^server.port and network.use_tls == ^server.use_tls
-    )
   end
 
   defp maybe_search(query, ""), do: query

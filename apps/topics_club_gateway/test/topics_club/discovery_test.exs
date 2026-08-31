@@ -97,6 +97,40 @@ defmodule TopicsClub.DiscoveryTest do
     assert Repo.reload!(libera).channels_refreshed_at == now
   end
 
+  test "searches and paginates the shared popular-server catalog remotely" do
+    now = ~U[2026-08-26 12:00:00Z]
+    {:ok, [libera, oftc]} = Discovery.sync_networks(network_entries(), now)
+
+    assert {:ok, 2} =
+             Discovery.replace_server_channels(
+               libera,
+               [
+                 %{name: "#elixir", user_count: 420, topic: "Elixir and OTP"},
+                 %{name: "#linux", user_count: 1_800, topic: "Linux discussion"}
+               ],
+               now
+             )
+
+    assert {:ok, 1} =
+             Discovery.replace_server_channels(
+               oftc,
+               [%{name: "#debian", user_count: 900, topic: "Debian support"}],
+               now
+             )
+
+    assert %{
+             page: 1,
+             page_size: 25,
+             query: "support",
+             server_channels: [%{name: "#debian"}],
+             total_channels: 1,
+             total_pages: 1
+           } = Discovery.paginate_server_channels(page: 1, search: "  support  ")
+
+    assert %{total_channels: 2} =
+             Discovery.paginate_server_channels(page: 1, search: "Libera.Chat")
+  end
+
   test "finds channel catalogs due after 24 hours and the network source due after 7 days" do
     now = ~U[2026-08-26 12:00:00Z]
 

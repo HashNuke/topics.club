@@ -65,6 +65,7 @@ import type {RealtimeClient, RealtimeHandlers} from "./realtime_client.ts"
 import type {
   AppView,
   Channel,
+  ChannelDirectory,
   DirectMessageBufferRecord,
   ChatMessage,
   CommandCatalogEntry,
@@ -153,6 +154,46 @@ interface NotificationBufferRequest {
   bufferId: string
   sessionGeneration: string
   userId: string
+}
+
+interface DiscoveryDirectoryResponse {
+  page: number
+  page_size: number
+  query: string
+  server_channels: ServerChannel[]
+  total_channels: number
+  total_pages: number
+}
+
+function sessionDiscoveryDirectory(
+  directory: ChannelDirectory,
+  server: ServerConnection
+): DiscoveryDirectoryResponse {
+  const serverName = server.name || server.host
+  const channels = Array.isArray(directory.channels) ? directory.channels : []
+
+  return {
+    page: directory.page || 1,
+    page_size: directory.page_size || 25,
+    query: directory.query || "",
+    server_channels: channels
+      .filter((entry) => typeof entry?.channel === "string" && entry.channel.length > 0)
+      .map((entry) => ({
+        id: `${server.server_connection_id}:${entry.channel}`,
+        name: entry.channel,
+        topic: typeof entry.topic === "string" ? entry.topic : null,
+        user_count: Number.isSafeInteger(entry.users) && Number(entry.users) >= 0
+          ? Number(entry.users)
+          : 0,
+        network_id: server.server_connection_id,
+        network_name: serverName,
+        server_host: server.host,
+        server_port: server.port || (server.use_tls ? 6697 : 6667),
+        use_tls: Boolean(server.use_tls),
+      })),
+    total_channels: directory.total_channels || 0,
+    total_pages: directory.total_pages || 1,
+  }
 }
 
 export default function TopicsClubApp(props: TopicsClubAppProps) {
@@ -525,6 +566,8 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
     }
   }, [apiClient, currentUser?.id, mode])
 
+  const discoverRealtimeHealth = discoverTab === "server" ? connectionHealth : null
+
   useEffect(() => {
     if (mode === "landing" || view !== "discover") return
 
@@ -538,12 +581,22 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
     setDiscoverLoading(true)
     setDiscoverError(null)
 
-    apiClient
-      .discoveryServerChannels({
-        connectionId: scopedServer?.server_connection_id,
-        page: discoverPage,
-        query: discoverQuery,
-      })
+    const directoryRequest: Promise<DiscoveryDirectoryResponse> = scopedServer
+      ? realtimeClientRef.current
+        ? realtimeClientRef.current
+            .push<{directory: ChannelDirectory}>("server:list", {
+              page: discoverPage,
+              query: discoverQuery,
+              server_connection_id: scopedServer.server_connection_id,
+            })
+            .then((reply) => sessionDiscoveryDirectory(reply.directory, scopedServer))
+        : Promise.reject(new Error("realtime_unavailable"))
+      : apiClient.discoveryServerChannels({
+          page: discoverPage,
+          query: discoverQuery,
+        })
+
+    directoryRequest
       .then((directory) => {
         if (requestId !== discoverRequestRef.current) return
         const serverChannels = directory.server_channels || []
@@ -556,13 +609,17 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
       })
       .catch(() => {
         if (requestId === discoverRequestRef.current) {
-          setDiscoverError("The IRC directory could not be loaded. Try again later.")
+          setDiscoverError(
+            scopedServer
+              ? `The channel list for ${scopedServer.name || scopedServer.host} could not be loaded. Try again later.`
+              : "The IRC directory could not be loaded. Try again later."
+          )
         }
       })
       .finally(() => {
         if (requestId === discoverRequestRef.current) setDiscoverLoading(false)
       })
-  }, [activeServerId, apiClient, discoverPage, discoverQuery, discoverReloadVersion, discoverTab, mode, view])
+  }, [activeServerId, apiClient, discoverPage, discoverQuery, discoverRealtimeHealth, discoverReloadVersion, discoverTab, mode, view])
 
   useActivityHeartbeat(apiClient, Boolean(currentUser && mode !== "landing"))
 
@@ -1416,6 +1473,7 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
     setDiscoverTab(tab)
     setDiscoverPage(page)
     setDiscoverQuery(query)
+    setDiscoverLoading(true)
     setDiscoverReloadVersion((version) => version + 1)
     setView("discover")
     navigate(discoverPath(connectionId || null, page, query))
