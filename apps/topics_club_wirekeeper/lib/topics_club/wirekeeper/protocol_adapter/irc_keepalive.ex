@@ -13,9 +13,16 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive do
 
   defstruct buffer: "", max_line_bytes: @default_max_line_bytes
 
+  @typedoc "Buffered partial IRC line and the configured complete-line byte limit."
   @type t :: %__MODULE__{buffer: binary(), max_line_bytes: pos_integer()}
 
   @impl true
+  @doc """
+  Initializes IRC framing state.
+
+  `:max_line_bytes` bounds a complete or partial IRC line and defaults to
+  #{@default_max_line_bytes} bytes.
+  """
   def init(opts) do
     max_line_bytes = Keyword.get(opts, :max_line_bytes, @default_max_line_bytes)
 
@@ -27,6 +34,13 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive do
   end
 
   @impl true
+  @doc """
+  Consumes a binary transport chunk and returns ordered complete-line actions.
+
+  Complete `PING` records become immediate `PONG` reply actions. Other complete records are
+  forwarded byte-for-byte, while a trailing partial line remains in adapter state for the next
+  chunk.
+  """
   def handle_inbound(data, %__MODULE__{} = state) when is_binary(data) do
     combined = state.buffer <> data
 

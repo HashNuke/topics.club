@@ -9,9 +9,11 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.Passthrough do
   @behaviour TopicsClub.Wirekeeper.ProtocolAdapter
 
   @impl true
+  @doc "Initializes the stateless passthrough adapter."
   def init(_opts), do: {:ok, %{}}
 
   @impl true
+  @doc "Returns one forward action containing the inbound transport chunk unchanged."
   def handle_inbound(data, state) when is_binary(data) do
     {:ok, [{:forward, data}], state}
   end

@@ -7,8 +7,13 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter do
   inside one connection process and must not block or perform their own socket ownership.
   """
 
+  @typedoc "Adapter-owned framing and protocol-maintenance state."
   @type state :: map()
+
+  @typedoc "An ordered action produced while consuming inbound bytes."
   @type action :: {:forward, binary()} | {:reply, iodata()}
+
+  @typedoc "A protocol-specific reason for closing the affected connection."
   @type error_reason :: atom() | {:adapter_error, atom()}
 
   @doc "Initializes protocol-specific state for one upstream connection."

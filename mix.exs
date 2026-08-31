@@ -16,7 +16,10 @@ defmodule TopicsClub.MixProject do
       start_permanent: Mix.env() == :prod,
       default_release: :topics_club,
       aliases: aliases(),
-      deps: [],
+      deps: deps(),
+      name: "TopicsClub Wirekeeper",
+      source_url: "https://github.com/HashNuke/topics.club",
+      docs: docs(),
       releases: releases()
     ]
   end
@@ -38,6 +41,19 @@ defmodule TopicsClub.MixProject do
       topics_club_gateway:
         release(version, [:topics_club_core, :topics_club_gateway], ["rel/web"]),
       topics_club_engine: release(version, [:topics_club_core, :topics_club_engine])
+    ]
+  end
+
+  defp deps do
+    [{:ex_doc, "~> 0.40.3", only: :dev, runtime: false}]
+  end
+
+  defp docs do
+    [
+      main: "TopicsClub.Wirekeeper",
+      extras: ["docs/wirekeeper.md"],
+      ignore_apps: [:topics_club_core, :topics_club_engine, :topics_club_gateway],
+      filter_modules: ~r/^Elixir\.TopicsClub\.Wirekeeper/
     ]
   end
 
