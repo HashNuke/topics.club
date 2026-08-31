@@ -93,6 +93,34 @@ class ValidationTest(unittest.TestCase):
         )
         self.assertEqual(split_acceptance.parse_fields("active=unknown"), {})
 
+    @mock.patch.object(split_acceptance, "run")
+    def test_acceptance_health_probe_runs_inside_the_pseudo_vps(
+        self, run_mock: mock.Mock
+    ) -> None:
+        payload = {
+            "status": "ok",
+            "engine": {"status": "connected"},
+            "database": "ok",
+        }
+        run_mock.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=json.dumps(payload), stderr=""
+        )
+
+        self.assertEqual(split_acceptance.wait_gateway_health(), payload)
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[:3], ["docker", "exec", testvps.VPS_CONTAINER])
+        self.assertIn("http://127.0.0.1:4000/health", command)
+
+    @mock.patch.object(split_acceptance, "rpc_json", return_value={})
+    def test_acceptance_fixture_marks_its_synthetic_user_recently_seen(
+        self, rpc_mock: mock.Mock
+    ) -> None:
+        split_acceptance.seed_connection("fixture-token")
+
+        role, expression = rpc_mock.call_args.args
+        self.assertEqual(role, "gateway")
+        self.assertIn("last_seen_at: DateTime.utc_now(:second)", expression)
+
     def test_only_one_ssh_host_is_accepted(self) -> None:
         with self.assertRaisesRegex(ValueError, "exactly one"):
             apptools.split_host("root@one,root@two", None, None)

@@ -6,8 +6,6 @@ import json
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from typing import Any
 
@@ -15,7 +13,6 @@ from testvps import (
     POSTGRES_CONTAINER,
     PROJECT_ROOT,
     VPS_CONTAINER,
-    VPS_HTTP_PORT,
     VPS_NETWORK,
     docker_object_exists,
 )
@@ -255,7 +252,7 @@ def wait_until(label: str, timeout: int, probe: Callable[[], Any]) -> Any:
             last = probe()
             if last:
                 return last
-        except (RuntimeError, urllib.error.URLError, OSError) as error:
+        except (RuntimeError, OSError) as error:
             last = error
         time.sleep(1)
     raise TimeoutError(f"timed out waiting for {label}; last result: {last!r}")
@@ -263,14 +260,28 @@ def wait_until(label: str, timeout: int, probe: Callable[[], Any]) -> Any:
 
 def wait_gateway_health() -> dict[str, Any]:
     def probe() -> dict[str, Any] | None:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{VPS_HTTP_PORT}/health", timeout=2
-        ) as response:
-            payload = json.loads(response.read())
-            status = response.status
+        result = run(
+            [
+                "docker",
+                "exec",
+                VPS_CONTAINER,
+                "curl",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--max-time",
+                "2",
+                "http://127.0.0.1:4000/health",
+            ],
+            capture=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout).strip())
+
+        payload = json.loads(result.stdout)
         if (
-            status == 200
-            and payload.get("status") == "ok"
+            payload.get("status") == "ok"
             and payload.get("engine", {}).get("status") == "connected"
         ):
             return payload
@@ -285,6 +296,10 @@ def seed_connection(token: str) -> dict[str, Any]:
     expression = f"""
 email = {elixir_string(email)}
 {{:ok, user}} = TopicsClub.Accounts.register_user(%{{email: email}})
+user =
+  user
+  |> Ecto.Changeset.change(last_seen_at: DateTime.utc_now(:second))
+  |> TopicsClub.Repo.update!()
 {{:ok, connection}} = TopicsClub.Chat.Connections.create(user, %{{
   "name" => "split acceptance",
   "host" => {elixir_string(IRC_CONTAINER)},
