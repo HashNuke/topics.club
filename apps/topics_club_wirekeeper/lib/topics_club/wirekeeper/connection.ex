@@ -48,10 +48,10 @@ defmodule TopicsClub.Wirekeeper.Connection do
     {adapter, adapter_opts} = Keyword.fetch!(opts, :protocol_adapter)
     closed_retention_ms = Keyword.get(opts, :closed_retention_ms, @default_closed_retention_ms)
 
-    with true <- protocol_adapter?(adapter),
+    with true <- link_ready_recipient(ready_recipient),
+         true <- protocol_adapter?(adapter),
          true <- positive_integer?(closed_retention_ms),
          {:ok, buffer} <- Buffer.new(Keyword.get(opts, :buffer, [])),
-         {:ok, adapter_state} <- adapter.init(adapter_opts),
          {:ok, _registry_owner} <- Registry.register(@registry, key, {:opening, generation}) do
       {:ok,
        %{
@@ -66,7 +66,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
          closed_retention_ms: closed_retention_ms,
          closed_timer_ref: nil,
          adapter: adapter,
-         adapter_state: adapter_state,
+         adapter_opts: adapter_opts,
+         adapter_state: nil,
          buffer: buffer,
          consumer: nil,
          consumer_ref: nil,
@@ -87,7 +88,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   @impl true
   def handle_continue(:connect, state) do
-    with {:ok, socket} <- Socket.connect(state.transport_options),
+    with {:ok, adapter_state} <- state.adapter.init(state.adapter_opts),
+         {:ok, socket} <- Socket.connect(state.transport_options),
          :ok <- Socket.arm(socket) do
       {{:open, generation}, {:opening, generation}} =
         Registry.update_value(@registry, state.key, fn _old_value ->
@@ -99,9 +101,11 @@ defmodule TopicsClub.Wirekeeper.Connection do
         |> Map.merge(%{
           socket: socket,
           status: :open,
-          transport: Socket.transport_name(socket)
+          transport: Socket.transport_name(socket),
+          adapter_state: adapter_state
         })
         |> Map.delete(:transport_options)
+        |> Map.delete(:adapter_opts)
         |> notify_ready(:ok)
 
       {:noreply, state}
@@ -559,6 +563,10 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   defp transport_name({transport, _opts}) when transport in [:tcp, :tls], do: transport
   defp transport_name(_transport), do: :tcp
+
+  defp link_ready_recipient(recipient) when is_pid(recipient), do: Process.link(recipient)
+  defp link_ready_recipient(nil), do: true
+  defp link_ready_recipient(_recipient), do: false
 
   defp monotonic_ms, do: System.monotonic_time(:millisecond)
   defp positive_integer?(value), do: is_integer(value) and value > 0

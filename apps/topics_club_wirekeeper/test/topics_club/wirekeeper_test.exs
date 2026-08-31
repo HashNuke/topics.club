@@ -2,6 +2,7 @@ defmodule TopicsClub.WirekeeperTest do
   use ExUnit.Case, async: false
 
   alias TopicsClub.Wirekeeper
+  alias TopicsClub.Wirekeeper.BlockingProtocolAdapter
   alias TopicsClub.Wirekeeper.ClosingTcpServer
   alias TopicsClub.Wirekeeper.Manager
   alias TopicsClub.Wirekeeper.NonReadingTcpServer
@@ -857,6 +858,125 @@ defmodule TopicsClub.WirekeeperTest do
     assert {:ok, opened} = open_tcp(healthy_key, healthy_server)
     assert_receive {:wirekeeper_test_server, :accepted, ^healthy_server, 1}, 250
     assert :ok = Wirekeeper.close(healthy_key, opened.generation)
+  end
+
+  test "caller cancellation cannot leave a connection whose child start was in progress" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("cancel-during-child-start")
+    test_process = self()
+
+    caller =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             send(test_process, {:cancel_race_caller, self()})
+
+             open_tcp(key, server,
+               protocol_adapter: {BlockingProtocolAdapter, owner: test_process}
+             )
+           end},
+          id: {:cancel_during_child_start, self()}
+        )
+      )
+
+    assert_receive {:cancel_race_caller, ^caller}
+    assert_receive {:wirekeeper_blocking_adapter, :init_started, connection}
+    connection_ref = Process.monitor(connection)
+    caller_ref = Process.monitor(caller)
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}
+    assert await_pending_open_count(0).opening_by_key == %{}
+
+    send(connection, :continue_wirekeeper_adapter_init)
+
+    assert_receive {:DOWN, ^connection_ref, :process, ^connection, _reason}, 500
+    assert {:error, :not_found} = await_missing_connection(key)
+    refute_receive {:wirekeeper_test_server, :accepted, ^server, 1}, 100
+  end
+
+  test "caller cancellation also cancels a child start queued in the connection supervisor" do
+    canceled_server = start_supervised!({TestTcpServer, self()})
+
+    probe_server =
+      start_supervised!(
+        Supervisor.child_spec({TestTcpServer, self()}, id: {:queued_cancel_probe_server, self()})
+      )
+
+    connection_supervisor = Process.whereis(TopicsClub.Wirekeeper.ConnectionSupervisor)
+    :ok = :sys.suspend(connection_supervisor)
+
+    on_exit(fn ->
+      try do
+        :ok = :sys.resume(connection_supervisor)
+      catch
+        :exit, _reason -> :ok
+      end
+    end)
+
+    canceled_key = unique_key("queued-canceled-open")
+
+    caller =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task, fn -> open_tcp(canceled_key, canceled_server) end},
+          id: {:queued_canceled_open, self()}
+        )
+      )
+
+    assert await_pending_open_count(1).opening_by_key != %{}
+    caller_ref = Process.monitor(caller)
+    Process.exit(caller, :kill)
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}
+    assert await_pending_open_count(0).opening_by_key == %{}
+
+    :ok = :sys.resume(connection_supervisor)
+    probe_key = unique_key("queued-cancel-probe")
+    assert {:ok, probe} = open_tcp(probe_key, probe_server)
+    assert_receive {:wirekeeper_test_server, :accepted, ^probe_server, 1}
+    assert :ok = Wirekeeper.close(probe_key, probe.generation)
+
+    assert {:error, :not_found} = Wirekeeper.info(canceled_key)
+    refute_receive {:wirekeeper_test_server, :accepted, ^canceled_server, 1}, 100
+  end
+
+  test "open task supervisor failure cannot orphan an in-progress connection" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("open-task-supervisor-failure")
+    test_process = self()
+
+    _caller =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             open_tcp(key, server,
+               protocol_adapter: {BlockingProtocolAdapter, owner: test_process}
+             )
+           end},
+          id: {:open_task_supervisor_failure_caller, self()}
+        )
+      )
+
+    assert_receive {:wirekeeper_blocking_adapter, :init_started, connection}
+    task_supervisor = Process.whereis(TopicsClub.Wirekeeper.OpenTaskSupervisor)
+    manager = Process.whereis(Manager)
+    connection_ref = Process.monitor(connection)
+    task_supervisor_ref = Process.monitor(task_supervisor)
+    manager_ref = Process.monitor(manager)
+
+    Process.exit(task_supervisor, :kill)
+
+    assert_receive {:DOWN, ^task_supervisor_ref, :process, ^task_supervisor, :killed}
+    assert_receive {:DOWN, ^manager_ref, :process, ^manager, :shutdown}
+    assert_receive {:DOWN, ^connection_ref, :process, ^connection, _reason}, 500
+
+    _replacement_task_supervisor =
+      await_named_process(TopicsClub.Wirekeeper.OpenTaskSupervisor, task_supervisor)
+
+    _replacement_manager = await_named_process(Manager, manager)
+    assert {:error, :not_found} = await_missing_connection(key)
+    refute_receive {:wirekeeper_test_server, :accepted, ^server, 1}, 100
   end
 
   test "fast-closing peers cannot crash the manager or unrelated connections" do
