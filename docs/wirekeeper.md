@@ -53,7 +53,7 @@ The consumer receives plain messages shaped as:
 ```
 
 The future engine session can be a process on the same BEAM node or another connected node. One
-short-lived local watcher per attachment performs any distributed monitor work, keeping a busy BEAM
+bounded local watcher per attachment performs any distributed monitor work, keeping a busy BEAM
 distribution channel outside the socket owner's hot path. Consumer or node loss starts a detached
 episode without closing the upstream socket. Complete adapter records remain in ETS while detached.
 Reattachment reports the records available for replay, any records evicted by the configured bounds,
