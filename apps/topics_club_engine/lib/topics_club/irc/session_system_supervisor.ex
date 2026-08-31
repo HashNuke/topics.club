@@ -10,11 +10,9 @@ defmodule TopicsClub.Irc.SessionSystemSupervisor do
   @impl true
   def init(_opts) do
     children = [
-      {TopicsClub.Irc.ConnectionOperationLock, []},
       {Registry, keys: :unique, name: TopicsClub.Irc.ClientRegistry},
       {Registry, keys: :unique, name: TopicsClub.Irc.SessionRegistry},
-      {TopicsClub.Irc.SessionSupervisor, []},
-      {TopicsClub.Irc.Bouncer, []}
+      {TopicsClub.Irc.SessionSupervisor, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_all, max_restarts: 100, max_seconds: 10)

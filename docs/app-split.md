@@ -311,8 +311,8 @@ Test-only application keys are not release configuration. They are narrow synchr
 | --- | --- |
 | Combined release | The release boot script starts the core, engine, and web OTP applications directly; there is no empty assembly supervisor or fourth production application |
 | Core | `TopicsClub.CoreSupervisor`, `:one_for_one`; `TopicsClub.Vault`, `TopicsClub.Repo`, and `TopicsClub.PubSub` |
-| Engine | `TopicsClub.EngineSupervisor`, `:one_for_one`; global engine discovery marker, `TopicsClub.Engine.OperationLock`, `TopicsClub.Engine.RequestTaskSupervisor`, `TopicsClub.EngineOban`, and `TopicsClub.Irc.SessionSystemSupervisor` |
-| Engine session subsystem | `:one_for_all`; `ConnectionOperationLock`, `ClientRegistry`, `SessionRegistry`, dynamic `SessionSupervisor`, and `Bouncer`. Per-connection session/client names use `{user_id, connection_id}` registry keys |
+| Engine | `TopicsClub.EngineSupervisor`, `:one_for_one`; global engine discovery marker, `TopicsClub.Engine.OperationLock`, `TopicsClub.Engine.RequestTaskSupervisor`, `TopicsClub.EngineOban`, isolated `ConnectionOperationLock` and `Bouncer` workers, and `TopicsClub.Irc.SessionSystemSupervisor` |
+| Engine session subsystem | `:one_for_all`; `ClientRegistry`, `SessionRegistry`, and dynamic `SessionSupervisor`. Per-connection session/client names use `{user_id, connection_id}` registry keys; a registry loss restarts the group so surviving processes cannot become unregistered or unreachable |
 | Web | `TopicsClubWeb.Supervisor`, `:one_for_one`; Telemetry, `EngineRestoreTaskSupervisor`, `EngineRestorer`, `TopicsClubWeb.Oban`, optional `Discovery.Refresher`, and Endpoint last |
 
 Shared Repo, Vault, and PubSub start once in combined mode. In split mode each node starts its own core runtime instance against the shared database; only the engine starts the session subsystem and only the web starts Endpoint.
@@ -692,13 +692,21 @@ TopicsClub.EngineSupervisor (:one_for_one)
   Engine.OperationLock (per-connection API orchestration)
   Engine.RequestTaskSupervisor
   TopicsClub.EngineOban
+  ConnectionOperationLock
   TopicsClub.Irc.SessionSystemSupervisor (:one_for_all)
-    ConnectionOperationLock
     ClientRegistry
     SessionRegistry
     SessionSupervisor
-    Bouncer
+  Bouncer
 ```
+
+`ConnectionOperationLock` and `Bouncer` are siblings of the registration-consistent session group.
+Their transient coordination and scheduling state can be rebuilt independently, so either worker
+may restart without closing live IRC sockets. The two registries and dynamic session supervisor
+remain `:one_for_all`: losing a registry while leaving its registered processes alive would make
+those processes unreachable and could permit duplicate sessions for the same connection. The
+surviving bouncer monitors the dynamic session supervisor and reruns desired-session restoration
+after that registration-consistent group is replaced.
 
 The future hosted server supervisor will also be a sibling of `SessionSystemSupervisor`. `Ircxd.Server` must not be placed inside the outbound session subsystem's current `:one_for_all` boundary. A hosted-server failure must not restart every outbound client session, and an outbound registry failure must not terminate all hosted IRC clients.
 

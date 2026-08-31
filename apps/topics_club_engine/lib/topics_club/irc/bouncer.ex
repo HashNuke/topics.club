@@ -8,6 +8,7 @@ defmodule TopicsClub.Irc.Bouncer do
 
   @idle_timeout :timer.hours(24)
   @sweep_interval :timer.minutes(5)
+  @session_supervisor_retry_interval 10
 
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -28,15 +29,53 @@ defmodule TopicsClub.Irc.Bouncer do
     state = %{
       enabled?: enabled?,
       idle_timeout: Keyword.get(opts, :idle_timeout, @idle_timeout),
-      sweep_interval: Keyword.get(opts, :sweep_interval, @sweep_interval)
+      sweep_interval: Keyword.get(opts, :sweep_interval, @sweep_interval),
+      session_supervisor: nil,
+      session_supervisor_ref: nil
     }
 
+    send(self(), :monitor_session_supervisor)
+
     if state.enabled? do
-      send(self(), :start_recent_sessions)
       schedule_sweep(state)
     end
 
     {:ok, state}
+  end
+
+  def handle_info(:monitor_session_supervisor, state) do
+    case Process.whereis(SessionSupervisor) do
+      session_supervisor when is_pid(session_supervisor) ->
+        session_supervisor_ref = Process.monitor(session_supervisor)
+        if state.enabled?, do: send(self(), :start_recent_sessions)
+
+        {:noreply,
+         %{
+           state
+           | session_supervisor: session_supervisor,
+             session_supervisor_ref: session_supervisor_ref
+         }}
+
+      nil ->
+        Process.send_after(
+          self(),
+          :monitor_session_supervisor,
+          @session_supervisor_retry_interval
+        )
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_info(
+        {:DOWN, session_supervisor_ref, :process, session_supervisor, _reason},
+        %{
+          session_supervisor: session_supervisor,
+          session_supervisor_ref: session_supervisor_ref
+        } = state
+      ) do
+    send(self(), :monitor_session_supervisor)
+    {:noreply, %{state | session_supervisor: nil, session_supervisor_ref: nil}}
   end
 
   @impl true

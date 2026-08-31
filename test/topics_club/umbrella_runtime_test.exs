@@ -77,8 +77,16 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
     assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.EngineOban) ==
              Oban.whereis(TopicsClub.EngineOban)
 
+    assert direct_child_pid(
+             TopicsClub.EngineSupervisor,
+             TopicsClub.Irc.ConnectionOperationLock
+           ) == Process.whereis(TopicsClub.Irc.ConnectionOperationLock)
+
     assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Irc.SessionSystemSupervisor) ==
              Process.whereis(TopicsClub.Irc.SessionSystemSupervisor)
+
+    assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Irc.Bouncer) ==
+             Process.whereis(TopicsClub.Irc.Bouncer)
 
     assert direct_child_pid(TopicsClub.EngineSupervisor, TopicsClub.Irc.HostedServerSupervisor) ==
              Process.whereis(TopicsClub.Irc.HostedServerSupervisor)
