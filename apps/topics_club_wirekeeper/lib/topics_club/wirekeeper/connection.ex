@@ -34,7 +34,7 @@ defmodule TopicsClub.Wirekeeper.Connection do
   end
 
   def send_data(connection, generation, data) do
-    GenServer.call(connection, {:send_data, generation, data})
+    GenServer.call(connection, {:send_data, generation, data}, :infinity)
   end
 
   def close(connection, generation), do: GenServer.call(connection, {:close, generation})

@@ -695,6 +695,44 @@ defmodule TopicsClub.WirekeeperTest do
              Wirekeeper.info(key)
   end
 
+  test "honors a socket send timeout longer than the default GenServer call timeout" do
+    server = start_supervised!({NonReadingTcpServer, self()})
+    key = unique_key("extended-send-timeout")
+
+    assert {:ok, opened} =
+             Wirekeeper.open(
+               key,
+               {:tcp,
+                host: "127.0.0.1", port: NonReadingTcpServer.port(server), send_timeout: 5_250}
+             )
+
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_non_reading_server, :accepted, ^server}
+    test_process = self()
+    payload = :binary.copy(<<0>>, 1_048_576)
+
+    _sender =
+      start_supervised!(
+        {Task,
+         fn ->
+           result =
+             Enum.reduce_while(1..128, :ok, fn _attempt, :ok ->
+               case Wirekeeper.send_data(key, opened.generation, payload) do
+                 :ok -> {:cont, :ok}
+                 error -> {:halt, error}
+               end
+             end)
+
+           send(test_process, {:extended_send_timeout_result, result})
+         end}
+      )
+
+    assert_receive {:extended_send_timeout_result, {:error, {:transport, :timeout}}}, 7_000
+
+    assert {:ok, %{status: :closed, upstream_closed_reason: {:transport_error, :timeout}}} =
+             Wirekeeper.info(key)
+  end
+
   test "reports upstream closure to the attached consumer and removes the connection" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("closed")
