@@ -61,7 +61,7 @@ defmodule TopicsClubGateway.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:oban, "~> 2.24"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.12"}
     ]
   end
 end
