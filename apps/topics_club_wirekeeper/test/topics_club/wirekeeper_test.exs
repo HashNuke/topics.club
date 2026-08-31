@@ -728,6 +728,30 @@ defmodule TopicsClub.WirekeeperTest do
     assert TestTcpServer.connection_count(healthy_server) == 1
   end
 
+  test "malformed open options cannot restart the manager or drop healthy sockets" do
+    server = start_supervised!({TestTcpServer, self()})
+    healthy_key = unique_key("healthy-during-invalid-options")
+
+    assert {:ok, opened} = open_tcp(healthy_key, server)
+    on_exit(fn -> Wirekeeper.close(healthy_key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+    manager = Process.whereis(Manager)
+    supervisor = Process.whereis(TopicsClub.Wirekeeper.Supervisor)
+    transport = {:tcp, host: "127.0.0.1", port: TestTcpServer.port(server)}
+
+    results =
+      Enum.map(1..25, fn attempt ->
+        Wirekeeper.open(unique_key("invalid-options-#{attempt}"), transport, %{})
+      end)
+
+    assert Enum.uniq(results) == [{:error, :invalid_options}]
+    assert Process.whereis(Manager) == manager
+    assert Process.whereis(TopicsClub.Wirekeeper.Supervisor) == supervisor
+    assert {:ok, %{generation: generation}} = Wirekeeper.info(healthy_key)
+    assert generation == opened.generation
+    assert TestTcpServer.connection_count(server) == 1
+  end
+
   test "repeated manager crashes stay inside the manager restart boundary" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("manager-intensity")

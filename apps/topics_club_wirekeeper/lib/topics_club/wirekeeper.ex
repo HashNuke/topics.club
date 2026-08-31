@@ -63,7 +63,19 @@ defmodule TopicsClub.Wirekeeper do
   """
   @spec open(key(), transport(), keyword()) ::
           {:ok, connection_info()} | {:error, atom() | {:transport, atom()}}
-  def open(key, transport, opts \\ []) do
+  def open(key, transport, opts \\ [])
+
+  def open(key, transport, opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      call_manager_open(key, transport, opts)
+    else
+      {:error, :invalid_options}
+    end
+  end
+
+  def open(_key, _transport, _opts), do: {:error, :invalid_options}
+
+  defp call_manager_open(key, transport, opts) do
     Manager.open(key, transport, opts)
   catch
     :exit, _reason -> {:error, :unavailable}

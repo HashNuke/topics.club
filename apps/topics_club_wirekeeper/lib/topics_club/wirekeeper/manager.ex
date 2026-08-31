@@ -29,6 +29,9 @@ defmodule TopicsClub.Wirekeeper.Manager do
       not valid_key?(key) ->
         {:reply, {:error, :invalid_key}, state}
 
+      not is_list(opts) or not Keyword.keyword?(opts) ->
+        {:reply, {:error, :invalid_options}, state}
+
       Map.has_key?(state.opening_by_key, key) or registered?(key) ->
         {:reply, {:error, :already_open}, state}
 
