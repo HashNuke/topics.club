@@ -28,4 +28,16 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepaliveTest do
     assert {:error, :line_too_long, _state} =
              IrcKeepalive.handle_inbound("123456789", state)
   end
+
+  test "copies a partial tail instead of retaining its full source chunk" do
+    assert {:ok, state} = IrcKeepalive.init(max_line_bytes: 128)
+    line = String.duplicate("x", 99) <> "\r\n"
+    tail = String.duplicate("y", 100)
+    chunk = :binary.copy(line, 10_000) <> tail
+
+    assert {:ok, actions, state} = IrcKeepalive.handle_inbound(chunk, state)
+    assert length(actions) == 10_000
+    assert state.buffer == tail
+    assert :binary.referenced_byte_size(state.buffer) == byte_size(tail)
+  end
 end

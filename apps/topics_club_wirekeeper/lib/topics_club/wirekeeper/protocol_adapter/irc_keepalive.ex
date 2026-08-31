@@ -57,7 +57,7 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive do
         {:error, :line_too_long}
 
       :nomatch ->
-        {:ok, Enum.reverse(lines), data}
+        {:ok, Enum.reverse(lines), :binary.copy(data)}
     end
   end
 

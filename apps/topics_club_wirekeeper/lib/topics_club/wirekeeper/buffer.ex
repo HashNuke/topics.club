@@ -66,6 +66,7 @@ defmodule TopicsClub.Wirekeeper.Buffer do
       overflow = %{records: 1, bytes: byte_size(payload)}
       {count_drop(buffer, overflow), sequence, overflow}
     else
+      payload = :binary.copy(payload)
       true = :ets.insert(buffer.table, {sequence, payload})
 
       buffer = %{
