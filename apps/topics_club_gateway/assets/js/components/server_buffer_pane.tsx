@@ -65,7 +65,6 @@ export function ServerBufferPane({commandCatalog, composerError, connectionHealt
       {newMessageCount > 0 && <NewMessagesButton count={newMessageCount} onClick={scrollToBottom} />}
       <ChatComposer
         commandCatalog={commandCatalog}
-        context="server"
         error={composerError}
         inputId="server-command-input"
         draft={draft}

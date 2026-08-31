@@ -9,6 +9,9 @@ describe("commandErrorMessage", () => {
   })
 
   test("maps known reasons and provides a fallback", () => {
+    expect(commandErrorMessage({reason: "invalid_buffer"})).toBe(
+      "That IRC buffer is no longer available."
+    )
     expect(commandErrorMessage({reason: "not_connected"})).toBe(
       "Reconnect to the IRC server before running this command."
     )

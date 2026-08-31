@@ -27,7 +27,7 @@ const commandCatalog: CommandCatalogEntry[] = [
     usage: "/me action",
     description: "Send an action",
     required_permission: "user",
-    contexts: ["channel", "direct"],
+    contexts: ["server", "channel", "direct"],
     availability: "enabled",
     examples: ["/me waves"],
   },
@@ -57,7 +57,6 @@ export default {
   },
   args: {
     commandCatalog,
-    context: "channel",
     disabled: false,
     draft: "",
     error: null,
@@ -131,7 +130,6 @@ export const SmallViewportExpandedCommandSuggestions = {
 
 export const ServerCommand = {
   args: {
-    context: "server",
     draft: "/j",
     inputId: "storybook-server-composer",
     placeholder: "/msg NickServ help or /quote WHOIS nick",
@@ -140,7 +138,6 @@ export const ServerCommand = {
 
 export const DirectMessageCommands = {
   args: {
-    context: "direct",
     draft: "/",
     inputId: "storybook-direct-message-composer",
     placeholder: "Write a private message",

@@ -34,13 +34,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function ComposerHarness({commandCatalog = defaultCommandCatalog, context = "channel", disabled = false, onStatusAction, onSubmit = vi.fn(), initialDraft = "", readOnly = false}: {commandCatalog?: CommandCatalogEntry[]; context?: "server" | "channel" | "direct"; disabled?: boolean; onStatusAction?: () => void; onSubmit?: () => void; initialDraft?: string; readOnly?: boolean}) {
+function ComposerHarness({commandCatalog = defaultCommandCatalog, disabled = false, onStatusAction, onSubmit = vi.fn(), initialDraft = "", readOnly = false}: {commandCatalog?: CommandCatalogEntry[]; disabled?: boolean; onStatusAction?: () => void; onSubmit?: () => void; initialDraft?: string; readOnly?: boolean}) {
   const [draft, setDraft] = useState(initialDraft)
 
   return (
     <ChatComposer
       commandCatalog={commandCatalog}
-      context={context}
       disabled={disabled}
       draft={draft}
       inputId="composer-test"
@@ -177,14 +176,14 @@ describe("ChatComposer", () => {
     expect(screen.getByLabelText("Message composer")).toHaveValue("/join ")
   })
 
-  test("offers server commands and actions from a direct-message composer", async () => {
+  test("offers the full catalog without filtering commands by pane context", async () => {
     const user = userEvent.setup()
     const commandCatalog: CommandCatalogEntry[] = [
       ...defaultCommandCatalog,
       {name: "/msg", usage: "/msg nick message", description: "Message", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: []},
       {name: "/me", usage: "/me action", description: "Action", required_permission: "user", contexts: ["channel", "direct"], availability: "enabled", examples: []},
     ]
-    render(<ComposerHarness commandCatalog={commandCatalog} context="direct" />)
+    render(<ComposerHarness commandCatalog={commandCatalog} />)
 
     await user.type(screen.getByLabelText("Message composer"), "/")
 

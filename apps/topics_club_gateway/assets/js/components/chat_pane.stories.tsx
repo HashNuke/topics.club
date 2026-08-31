@@ -4,8 +4,8 @@ import type {ComponentProps} from "react"
 import type {CommandCatalogEntry} from "../types.ts"
 
 const commandCatalog: CommandCatalogEntry[] = [
-  {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/join #elixir"]},
-  {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel"], availability: "enabled", examples: ["/me waves"]},
+  {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/join #elixir"]},
+  {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/me waves"]},
 ]
 
 const activeChannel = {

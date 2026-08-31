@@ -22,7 +22,7 @@ export function commandErrorMessage(error: CommandError | null | undefined): str
   }
 
   const messages: Record<string, string> = {
-    invalid_buffer: "Choose a server or channel where this command can run.",
+    invalid_buffer: "That IRC buffer is no longer available.",
     invalid_command_args: "The command arguments are incomplete or invalid.",
     joining_channel: "Wait for the channel join to finish, then try again.",
     not_connected: "Reconnect to the IRC server before running this command.",

@@ -736,7 +736,7 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
       const bufferId = currentBufferId()
 
       if (!realtimeClientRef.current || !bufferId) {
-        setComposerError("Choose a connected server or channel before running a command.")
+        setComposerError("Choose an IRC network before running a command.")
         return
       }
 

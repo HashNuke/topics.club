@@ -36,9 +36,9 @@ const connectionErrorMessages = [
 ]
 
 const commandCatalog: CommandCatalogEntry[] = [
-  {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server"], availability: "enabled", examples: ["/join #elixir"]},
-  {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server"], availability: "enabled", examples: ["/list"]},
-  {name: "/quote", usage: "/quote command", description: "Send a raw IRC command", required_permission: "user", contexts: ["server"], availability: "managed_only", examples: ["/quote WHO #elixir"]},
+  {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/join #elixir"]},
+  {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/list"]},
+  {name: "/quote", usage: "/quote command", description: "Send a raw IRC command", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "managed_only", examples: ["/quote WHO #elixir"]},
 ]
 
 type ServerBufferArgs = ComponentProps<typeof ServerBufferPane>

@@ -5,7 +5,6 @@ const MAX_COMPOSER_HEIGHT = 136
 
 export interface ChatComposerProps {
   commandCatalog?: CommandCatalogEntry[]
-  context?: "server" | "channel" | "direct"
   disabled?: boolean
   draft: string
   error?: string | null
@@ -21,7 +20,6 @@ export interface ChatComposerProps {
 
 export default function ChatComposer({
   commandCatalog = [],
-  context,
   disabled = false,
   draft,
   error,
@@ -34,7 +32,7 @@ export default function ChatComposer({
   statusActionLabel,
   statusLabel,
 }: ChatComposerProps) {
-  const suggestions = readOnly ? [] : commandSuggestionsFor(draft, commandCatalog, context)
+  const suggestions = readOnly ? [] : commandSuggestionsFor(draft, commandCatalog)
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
@@ -276,16 +274,12 @@ function ComposerStatus({actionLabel, id, label, onAction}: {actionLabel?: strin
   )
 }
 
-function commandSuggestionsFor(value: string, commandCatalog: CommandCatalogEntry[], context?: "server" | "channel" | "direct"): CommandCatalogEntry[] {
+function commandSuggestionsFor(value: string, commandCatalog: CommandCatalogEntry[]): CommandCatalogEntry[] {
   const trimmedStart = value.trimStart()
   if (!trimmedStart.startsWith("/") || trimmedStart.includes(" ")) return []
 
   const prefix = trimmedStart.slice(1).toLowerCase()
-  return commandCatalog.filter(
-    (command) =>
-      (!context || command.contexts.includes(context)) &&
-      command.name.slice(1).startsWith(prefix)
-  )
+  return commandCatalog.filter((command) => command.name.slice(1).startsWith(prefix))
 }
 
 function scrollFocusedComposerIntoView(): void {

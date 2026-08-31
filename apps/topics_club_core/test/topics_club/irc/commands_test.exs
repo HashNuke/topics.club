@@ -41,12 +41,12 @@ defmodule TopicsClub.Irc.CommandsTest do
              Commands.parse("/whois mira")
   end
 
-  test "exposes server-wide commands in direct-message composers" do
+  test "exposes every command in every composer context" do
     commands = Map.new(Commands.all(), &{&1.name, &1})
 
-    assert %{contexts: ["server", "channel", "direct"]} = commands["/join"]
-    assert %{contexts: ["server", "channel", "direct"]} = commands["/msg"]
-    assert %{contexts: ["channel", "direct"]} = commands["/me"]
+    assert Enum.all?(commands, fn {_name, command} ->
+             command.contexts == ["server", "channel", "direct"]
+           end)
   end
 
   test "rejects normal messages and unknown slash commands" do

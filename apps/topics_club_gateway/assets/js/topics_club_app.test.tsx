@@ -459,7 +459,7 @@ function mockBootstrapFetch({
           command_catalog: [
             {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/join #testing"]},
             {name: "/list", usage: "/list", description: "Browse channels", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/list"]},
-            {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel", "direct"], availability: "enabled", examples: ["/me waves"]},
+            {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/me waves"]},
           ],
           connections: [
             {
@@ -820,7 +820,7 @@ function directMessageApiClient() {
       command_catalog: [
         {name: "/join", usage: "/join #channel", description: "Join a channel", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/join #elixir"]},
         {name: "/msg", usage: "/msg nick message", description: "Send a private message", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/msg akash hello"]},
-        {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["channel", "direct"], availability: "enabled", examples: ["/me waves"]},
+        {name: "/me", usage: "/me action", description: "Send an action", required_permission: "user", contexts: ["server", "channel", "direct"], availability: "enabled", examples: ["/me waves"]},
       ],
       topics: [],
     }),
@@ -2280,7 +2280,7 @@ describe("TopicsClubApp UI prototype", () => {
     )
     expect(await screen.findByRole("heading", {name: "#founders"})).toBeInTheDocument()
     await waitFor(() => expect(window.location.pathname).toBe("/chat/1/%23founders"))
-    expect(screen.queryByText("Choose a connected server or channel before running a command.")).not.toBeInTheDocument()
+    expect(screen.queryByText("Choose an IRC network before running a command.")).not.toBeInTheDocument()
   })
 
   test("accepts a msg reply after realtime already opened the direct-message thread", async () => {

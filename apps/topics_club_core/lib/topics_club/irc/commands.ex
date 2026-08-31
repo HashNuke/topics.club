@@ -63,7 +63,7 @@ defmodule TopicsClub.Irc.Commands do
       usage: "/me action",
       description: "Send an action message",
       required_permission: "user",
-      contexts: ["channel", "direct"],
+      contexts: ["server", "channel", "direct"],
       availability: "enabled",
       examples: ["/me waves"]
     },
