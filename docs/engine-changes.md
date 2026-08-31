@@ -3,9 +3,12 @@
 ## Status
 
 Proposed requirements and implementation checklist. The architecture is agreed at a high level;
-implementation has not started. Production deployment is explicitly out of scope while this is
-built and validated. Every iteration will use the resettable `testvps` and its local synthetic IRC
-server.
+the independent transport core now exists under `apps/topics_club_wirekeeper`, but engine
+integration has not started. It is not included in a production release or deployment definition.
+The current API, adapter boundary, and exclusions are documented in `docs/wirekeeper.md`.
+Production deployment remains explicitly out of scope while engine attachment and resume are built
+and validated. Every integration iteration will use the resettable `testvps` and its local
+synthetic IRC server.
 
 This plan extends the gateway/engine split in `docs/app-split.md`. A gateway deployment already
 leaves the engine and IRC connections running, but restarting the engine closes those connections.

@@ -133,7 +133,12 @@ defmodule TopicsClub.MixProject do
 
       :all ->
         Enum.each(
-          ["apps/topics_club_core", "apps/topics_club_engine", "apps/topics_club_gateway"],
+          [
+            "apps/topics_club_core",
+            "apps/topics_club_engine",
+            "apps/topics_club_gateway",
+            "apps/topics_club_wirekeeper"
+          ],
           fn path ->
             run_mix!(path, ["test" | args])
           end
@@ -147,7 +152,8 @@ defmodule TopicsClub.MixProject do
     targets = [
       {"apps/topics_club_core/", "apps/topics_club_core"},
       {"apps/topics_club_engine/", "apps/topics_club_engine"},
-      {"apps/topics_club_gateway/", "apps/topics_club_gateway"}
+      {"apps/topics_club_gateway/", "apps/topics_club_gateway"},
+      {"apps/topics_club_wirekeeper/", "apps/topics_club_wirekeeper"}
     ]
 
     Enum.find_value(Enum.with_index(args), :all, fn {arg, index} ->
