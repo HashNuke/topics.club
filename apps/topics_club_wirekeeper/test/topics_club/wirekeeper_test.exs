@@ -831,6 +831,58 @@ defmodule TopicsClub.WirekeeperTest do
     assert {:error, :unavailable} = Wirekeeper.diagnostics()
   end
 
+  test "list bounds concurrent snapshot workers independently of connection count" do
+    server = start_supervised!({TestTcpServer, self()})
+
+    connections =
+      Enum.map(1..20, fn index ->
+        key = unique_key("bounded-list-#{index}")
+        assert {:ok, opened} = open_tcp(key, server)
+        assert {:ok, connection} = Manager.lookup(key)
+        {key, opened.generation, connection}
+      end)
+
+    Enum.each(connections, fn {_key, _generation, connection} ->
+      :ok = :sys.suspend(connection)
+    end)
+
+    on_exit(fn ->
+      Enum.each(connections, fn {key, generation, connection} ->
+        try do
+          :sys.resume(connection)
+        catch
+          :exit, _reason -> :ok
+        end
+
+        Wirekeeper.close(key, generation)
+      end)
+    end)
+
+    :erlang.trace(:new_processes, true, [:procs, {:tracer, self()}])
+    on_exit(fn -> :erlang.trace(:new_processes, false, [:procs]) end)
+    test_process = self()
+
+    list_task =
+      start_supervised!(
+        {Task, fn -> send(test_process, {:bounded_list_result, Wirekeeper.list()}) end}
+      )
+
+    assert_receive {:bounded_list_result, {:error, :unavailable}}, 1_000
+    :erlang.trace(:new_processes, false, [:procs])
+    trace_delivery = :erlang.trace_delivered(:all)
+    assert_receive {:trace_delivered, :all, ^trace_delivery}
+    trace_messages = collect_trace_messages([])
+    coordinator = snapshot_coordinator(trace_messages, list_task)
+
+    worker_count =
+      Enum.count(trace_messages, fn
+        {:trace, ^coordinator, :spawn, _worker, {Task.Supervised, :reply, _arguments}} -> true
+        _message -> false
+      end)
+
+    assert worker_count <= 8
+  end
+
   test "closes a connection when a non-reading peer exceeds the configured send timeout" do
     server = start_supervised!({NonReadingTcpServer, self()})
     key = unique_key("send-timeout")
@@ -1079,5 +1131,30 @@ defmodule TopicsClub.WirekeeperTest do
 
   defp await_connection_status(key, expected, 0) do
     flunk("#{inspect(key)} did not reach #{inspect(expected)}")
+  end
+
+  defp collect_trace_messages(messages) do
+    receive do
+      {:trace, _process, _event, _detail} = message ->
+        collect_trace_messages([message | messages])
+
+      {:trace, _process, _event, _detail, _extra} = message ->
+        collect_trace_messages([message | messages])
+    after
+      0 -> Enum.reverse(messages)
+    end
+  end
+
+  defp snapshot_coordinator(trace_messages, list_task) do
+    Enum.find_value(trace_messages, fn
+      {:trace, ^list_task, :spawn, coordinator, {:erlang, :apply, [function, []]}} ->
+        case :erlang.fun_info(function, :module) do
+          {:module, Task.Supervised} -> coordinator
+          _other_module -> nil
+        end
+
+      _message ->
+        nil
+    end) || flunk("list did not start a snapshot coordinator")
   end
 end

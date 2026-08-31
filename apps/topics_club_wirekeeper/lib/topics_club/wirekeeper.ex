@@ -12,6 +12,7 @@ defmodule TopicsClub.Wirekeeper do
   alias TopicsClub.Wirekeeper.{Connection, Manager}
 
   @snapshot_timeout 250
+  @snapshot_max_concurrency 8
 
   @typedoc "An application-selected stable connection identifier."
   @type key :: integer() | binary()
@@ -123,7 +124,7 @@ defmodule TopicsClub.Wirekeeper do
     with {:ok, connections} <- safe_manager_connections() do
       connections
       |> Task.async_stream(&safe_connection_info/1,
-        max_concurrency: max(length(connections), 1),
+        max_concurrency: @snapshot_max_concurrency,
         ordered: false,
         timeout: @snapshot_timeout,
         on_timeout: :kill_task

@@ -25,7 +25,7 @@ defmodule TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepaliveTest do
   test "rejects an unterminated line that exceeds the configured bound" do
     assert {:ok, state} = IrcKeepalive.init(max_line_bytes: 8)
 
-    assert {:error, :line_too_long, _state} =
+    assert {:error, :line_too_long, [], _state} =
              IrcKeepalive.handle_inbound("123456789", state)
   end
 
