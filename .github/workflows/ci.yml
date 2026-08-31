@@ -48,7 +48,9 @@ jobs:
           npm ci --prefix apps/topics_club_gateway/assets
 
       - name: Run precommit suite
-        run: mix precommit
+        run: |
+          epmd -daemon
+          mix precommit
 
       - name: Build and inspect release artifacts
         env:
@@ -65,6 +67,17 @@ jobs:
             compgen -G "$1" >/dev/null
           }
 
+          assert_no_storybook() {
+            if find "$1" -type f \( \
+              -path '*/storybook-static/*' -o \
+              -name 'iframe.html' -o \
+              -name '*.stories-*.js' \
+            \) -print -quit | grep -q .; then
+              echo "Storybook development output found in release: $1" >&2
+              return 1
+            fi
+          }
+
           combined=_build/prod/rel/topics_club
           web=_build/prod/rel/topics_club_gateway
           engine=_build/prod/rel/topics_club_engine
@@ -75,6 +88,7 @@ jobs:
           test -x "$combined/bin/server"
           test -x "$combined/bin/migrate"
           has_path "$combined/lib/topics_club_gateway-*/priv/static/cache_manifest.json"
+          assert_no_storybook "$combined"
 
           has_path "$web/lib/topics_club_core-*"
           has_path "$web/lib/topics_club_gateway-*"
@@ -82,6 +96,7 @@ jobs:
           test -x "$web/bin/server"
           test -x "$web/bin/migrate"
           has_path "$web/lib/topics_club_gateway-*/priv/static/cache_manifest.json"
+          assert_no_storybook "$web"
 
           has_path "$engine/lib/topics_club_core-*"
           has_path "$engine/lib/topics_club_engine-*"
@@ -89,3 +104,4 @@ jobs:
           ! has_path "$engine/lib/*/ebin/Elixir.TopicsClub.Release.beam"
           test ! -e "$engine/bin/server"
           test ! -e "$engine/bin/migrate"
+          assert_no_storybook "$engine"
