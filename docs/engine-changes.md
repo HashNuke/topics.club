@@ -26,8 +26,8 @@ IRC servers
 |                                         |
 | Owns sockets and answers IRC PING       |
 | Maps connection record IDs to sockets   |
-| Relays lines while engine is attached   |
-| Counts traffic discarded during a gap   |
+| Buffers bounded sequence-numbered lines  |
+| Relays with ACK-based delivery credit   |
 +--------------------+--------------------+
                      |
                      | Distributed Erlang
@@ -48,9 +48,10 @@ IRC servers
 +-----------------------------------------+
 ```
 
-The pipe is a separate OTP application, release, BEAM node, operating-system process, and systemd
-service. Restarting or deploying the engine must not restart the pipe. The pipe should change so
-rarely that ordinary engine and gateway development never requires a pipe deployment.
+The pipe is already a separate OTP application named `topics_club_wirekeeper`. Packaging it as a
+separate release, BEAM node, operating-system process, or service is deliberately deferred until the
+engine integration proves the consumer contract. In continuity-focused hosting, restarting or
+deploying the engine must ultimately not restart Wirekeeper.
 
 The pipe is not a bouncer and not a second engine. It owns transport continuity, not IRC
 application behavior.
@@ -70,7 +71,8 @@ server_connection_id 42
   -> attached engine consumer or none
   -> transport status
   -> detached-at timestamp
-  -> discarded line and byte counts for the current gap
+  -> bounded ETS records and per-generation sequences
+  -> acknowledged watermark and overflow counts
 ```
 
 The pipe treats the record ID as an opaque key. It does not connect to PostgreSQL, load the record,
@@ -102,7 +104,7 @@ to use the same database record ID.
   raw string prefix.
 - [ ] PING/PONG bypasses engine attachment and relay backpressure so an engine outage cannot cause
   an IRC timeout.
-- [ ] PING is not written to application history and is not counted as discarded gap traffic.
+- [ ] PING is not written to application history, buffered, or counted as overflow traffic.
 
 ### Engine attachment
 
@@ -119,33 +121,37 @@ to use the same database record ID.
 
 ### Traffic during an engine restart
 
-The pipe does not promise message replay. The accepted gap is only the interval after the engine
-consumer detaches and before the replacement engine attaches.
+Wirekeeper provides bounded at-least-once delivery. The IRC adapter emits one complete IRC line per
+record; generic Wirekeeper code assigns its generation-scoped sequence and stores it in a private ETS
+ordered set before delivery.
 
-- [ ] While an engine consumer is attached, IRC traffic is never silently discarded.
-- [ ] If delivery to the attached consumer fails, the pipe first marks the generation detached;
-  traffic observed after that transition belongs to the explicit gap.
-- [ ] While detached, the pipe continues reading the upstream socket so TCP backpressure does not
+- [ ] While detached, Wirekeeper continues reading the upstream socket so TCP backpressure does not
   make the IRC server close the connection.
-- [ ] While detached, the pipe answers PING and discards other inbound IRC lines instead of
-  retaining a replay buffer.
-- [ ] The pipe counts complete discarded IRC lines and discarded bytes per generation and detach
-  episode.
-- [ ] Reattachment returns a gap summary before live relay resumes.
-- [ ] The engine treats a non-zero gap as potentially missing messages and state changes.
-- [ ] The engine resynchronizes the minimum necessary IRC state after a gap without reconnecting or
-  rejoining blindly.
-- [ ] No arbitrary per-connection message buffer or resource-based replay sizing is part of the
-  initial implementation. Measurements may justify a later, separately designed buffer.
+- [ ] While detached, Wirekeeper answers PING and retains other complete IRC records within both
+  record-count and byte-count caps.
+- [ ] Reattachment redelivers all retained unacknowledged records in sequence before later live
+  records can overtake them.
+- [ ] The engine cumulatively ACKs a sequence only after it has accepted the records through that
+  sequence for idempotent processing.
+- [ ] Consumer loss before ACK causes redelivery, never silent deletion; engine processing must
+  tolerate duplicates.
+- [ ] Delivery credit bounds the number of unacknowledged records placed in the engine mailbox.
+- [ ] Overflow deterministically evicts the oldest retained complete records, reports exact record
+  and byte counts, and sets `gap?: true`.
+- [ ] The engine treats overflow as potentially missing messages and state changes and performs the
+  minimum necessary reconciliation without reconnecting or rejoining blindly.
 
 Example reattachment result:
 
 ```text
 connection_id: 42
 generation: abc123
-gap: true
-discarded_lines: 17
-discarded_bytes: 2381
+delivery_guarantee: at_least_once
+replayed_records: 17
+replayed_bytes: 2381
+dropped_records: 0
+dropped_bytes: 0
+gap: false
 detached_for_ms: 4100
 ```
 
@@ -158,7 +164,7 @@ messages, memberships, notifications, and remedies. The engine owns mid-session 
 - [ ] Add an engine transport that sends and receives IRC lines through the pipe contract.
 - [ ] Preserve enough engine-owned protocol state to attach to an existing generation without
   replaying registration.
-- [ ] Use authoritative database state and targeted IRC queries to reconcile after a reported gap.
+- [ ] Use authoritative database state and targeted IRC queries to reconcile after reported overflow.
 - [ ] Do not issue mass JOINs merely because the engine restarted; the upstream connection is
   already joined.
 - [ ] Do not manufacture missing chat messages.
@@ -176,6 +182,7 @@ The names describe responsibilities and are not frozen wire encodings:
 OPEN connection_id, transport_options
 ATTACH connection_id, expected_generation
 SEND connection_id, generation, IRC line
+ACK connection_id, generation, sequence
 CLOSE connection_id, generation
 LIST
 DIAGNOSTICS
@@ -185,8 +192,9 @@ Pipe-to-engine results and events:
 
 ```text
 OPENED connection_id, generation
-ATTACHED connection_id, generation, gap_summary
-DATA connection_id, generation, IRC line
+ATTACHED connection_id, generation, replay_summary
+DATA connection_id, generation, sequence, IRC line
+OVERFLOW connection_id, generation, dropped_records, dropped_bytes
 UPSTREAM_CLOSED connection_id, generation, reason
 STALE_GENERATION connection_id, expected, actual
 ```
@@ -211,18 +219,18 @@ STALE_GENERATION connection_id, expected, actual
 - [ ] Report current open, attached, and detached connection counts.
 - [ ] Report upstream opens, closes, errors, and IRC timeouts.
 - [ ] Report engine attach, detach, and reattach counts and detached durations.
-- [ ] Report discarded gap lines and bytes.
-- [ ] Report how many distinct connections received discarded traffic in each detach episode and
-  the percentage of open connections affected.
+- [ ] Report buffered, in-flight, replayed, and overflowed record and byte counts.
+- [ ] Report how many distinct connections overflowed and the percentage of open connections
+  affected.
 - [ ] Report upstream connections lost while the engine was detached. The expected value is zero.
-- [ ] Reattachment reports the per-connection gap summary to the engine.
+- [ ] Reattachment reports the per-connection replay and overflow summary to the engine.
 - [ ] Aggregate metrics to avoid unbounded per-connection label cardinality; use redacted structured
   logs with record IDs for individual investigations.
 - [ ] Pipe health is independent of gateway and engine health and includes registry and PING-handler
   readiness.
 
-Discarded gap traffic is accepted, but it is not invisible. A few lines on one noisy connection and
-traffic discarded across a large percentage of connections must be distinguishable.
+Bounded overflow is accepted, but it is not invisible. A few evictions on one noisy connection and
+overflow across a large percentage of connections must be distinguishable.
 
 ## Responsibilities excluded from the pipe
 
@@ -234,7 +242,7 @@ traffic discarded across a large percentage of connections must be distinguishab
 - Connection remedies, retry decisions, nickname selection, or reconnect scheduling.
 - Phoenix, HTTP, websocket, React, PWA, or Oban behavior.
 - Hosted IRC server behavior.
-- Message replay, durable queues, or a general event bus.
+- Durable queues, cross-process buffer persistence, or a general event bus.
 - Multiple pipe replicas, automatic failover, leases, fencing, or per-user placement.
 - File-descriptor passing, `TCP_REPAIR`, CRIU, TLS-state transfer, or hot-code upgrades.
 
@@ -288,9 +296,9 @@ Complexity: **M**. No production behavior changes.
 - [ ] Iteration 0.2: document exact `Ircxd.Client` socket, PING, registration, and connection-info
   ownership points requiring seams.
 - [ ] Iteration 0.3: freeze pipe contract fields and generation rules.
-- [ ] Iteration 0.4: freeze delivery-failure semantics and the exact moment a gap starts.
+- [ ] Iteration 0.4: freeze ACK, duplicate-delivery, overflow, and delivery-credit semantics.
 - [ ] Iteration 0.5: freeze the minimum engine protocol-state snapshot needed for resume.
-- [ ] Iteration 0.6: freeze targeted state reconciliation after a gap.
+- [ ] Iteration 0.6: freeze targeted state reconciliation after overflow.
 - [ ] Iteration 0.7: choose combined-mode packaging without changing it yet.
 
 ### Stage 1 — Create an inert pipe node
@@ -319,7 +327,7 @@ Complexity: **L**. Only one synthetic connection is migrated initially.
 - [ ] Iteration 2.9: detach the consumer without closing upstream.
 - [ ] Iteration 2.10: reattach the same consumer to the same generation.
 
-### Stage 3 — Move PING and add gap accounting
+### Stage 3 — Move PING and add bounded replay
 
 Complexity: **M**. Still limited to synthetic connections.
 
@@ -328,10 +336,10 @@ Complexity: **M**. Still limited to synthetic connections.
 - [ ] Iteration 3.3: cover tagged and prefixed valid PING forms.
 - [ ] Iteration 3.4: prevent the engine transport from producing a duplicate PONG.
 - [ ] Iteration 3.5: add engine monitoring and a deterministic attached-to-detached transition.
-- [ ] Iteration 3.6: discard and count one non-PING line while detached.
-- [ ] Iteration 3.7: add bytes and detached duration to the gap summary.
-- [ ] Iteration 3.8: count affected connections and percentage per detach episode.
-- [ ] Iteration 3.9: return the gap summary before live relay resumes.
+- [ ] Iteration 3.6: buffer and replay one non-PING line while detached.
+- [ ] Iteration 3.7: add sequence and cumulative ACK handling for one line.
+- [ ] Iteration 3.8: add record, byte, and in-flight caps with deterministic overflow reporting.
+- [ ] Iteration 3.9: return the replay summary before live relay resumes.
 - [ ] Iteration 3.10: prove PING keeps upstream open longer than a normal engine restart interval.
 
 ### Stage 4 — Resume one engine connection
@@ -346,8 +354,8 @@ state concern.
 - [ ] Iteration 4.5: restore current nickname correctly.
 - [ ] Iteration 4.6: restore capability and ISUPPORT behavior correctly.
 - [ ] Iteration 4.7: restore the self-joined channel set without sending JOIN.
-- [ ] Iteration 4.8: process a zero-gap reattachment and resume messages.
-- [ ] Iteration 4.9: process a non-zero gap and run one targeted reconciliation query.
+- [ ] Iteration 4.8: process a no-overflow reattachment and ACK replayed messages.
+- [ ] Iteration 4.9: process an overflowed replay and run one targeted reconciliation query.
 - [ ] Add one reconciliation concern per iteration until nickname and self-channel state are reliable.
 - [ ] Iteration 4.10: reconnect only the unsafe generation when resume validation fails.
 
@@ -363,7 +371,8 @@ Complexity: **L**.
 - [ ] Iteration 5.6: reject a stale generation during send.
 - [ ] Iteration 5.7: reject a second simultaneous consumer attachment.
 - [ ] Iteration 5.8: reattach several connections without upstream reconnects or JOINs.
-- [ ] Increase connection count in separate iterations while measuring resource use and gap traffic.
+- [ ] Increase connection count in separate iterations while measuring resource use and replay
+  traffic.
 
 ### Stage 6 — Package and verify only in `testvps`
 
@@ -374,11 +383,11 @@ Complexity: **L**. No production deployment.
 - [ ] Iteration 6.3: require a healthy compatible pipe before the `testvps` engine starts.
 - [ ] Iteration 6.4: restart gateway and prove all pipe, engine, session, and socket identities remain.
 - [ ] Iteration 6.5: restart engine and prove pipe and upstream sockets remain.
-- [ ] Iteration 6.6: send traffic during engine downtime and verify gap accounting.
-- [ ] Iteration 6.7: prove PING keeps every synthetic connection alive during that gap.
+- [ ] Iteration 6.6: send traffic during engine downtime and verify ordered ACK-based replay.
+- [ ] Iteration 6.7: prove PING keeps every synthetic connection alive during that interval.
 - [ ] Iteration 6.8: roll back engine in `testvps` without restarting pipe.
 - [ ] Iteration 6.9: deliberately restart pipe and verify paced engine recovery without IRC flooding.
-- [ ] Iteration 6.10: run the local two-way capacity benchmark and record resource use and gaps.
+- [ ] Iteration 6.10: run the local two-way capacity benchmark and record resource use and overflow.
 
 ## Complexity guardrails
 
@@ -386,12 +395,13 @@ Complexity: **L**. No production deployment.
   resume.
 - Do not move persistence, notifications, retention, membership policy, remedies, or UI behavior as
   part of this work.
-- Do not add a replay buffer, durable event spool, message broker, or delivery cursor.
+- Keep the existing bounded ETS replay buffer and sequence/ACK contract small; do not add a durable
+  event spool, message broker, or Mnesia dependency.
 - Do not make the pipe query PostgreSQL or understand general IRC state.
 - PING/PONG and safe line framing are the pipe's only IRC protocol responsibilities.
 - Prefer cohesive transport, registry, attachment, and diagnostics modules over one module per event.
 - Do not migrate all connections until one synthetic connection survives repeated engine restarts.
-- Do not combine plain TCP, TLS, PING, gap accounting, and resume in one iteration.
+- Do not combine plain TCP, TLS, PING, replay, and engine resume in one integration iteration.
 - A green compile is insufficient: every behavior change requires local-IRC and `testvps` coverage.
 
 ## Final acceptance criteria
@@ -402,10 +412,10 @@ Complexity: **L**. No production deployment.
 - [ ] An engine restart leaves pipe PID, upstream sockets, registration, nickname, and channel
   presence intact.
 - [ ] The pipe answers PING while the engine is absent.
-- [ ] No traffic is silently discarded while an engine consumer is attached.
-- [ ] Gap traffic is counted by lines, bytes, affected connections, and duration.
-- [ ] The restarted engine receives the gap summary and resynchronizes without blindly reconnecting
-  or joining.
+- [ ] No retained traffic is silently deleted before ACK; interrupted delivery is safely redelivered.
+- [ ] Replay and overflow are counted by records, bytes, affected connections, and duration.
+- [ ] The restarted engine ACKs ordered replay and, after overflow, resynchronizes without blindly
+  reconnecting or joining.
 - [ ] A failed resume affects only that connection generation.
 - [ ] Gateway and engine iteration/rollback in `testvps` never restart the pipe accidentally.
 - [ ] A deliberate pipe restart uses paced recovery and does not flood the local IRC server.

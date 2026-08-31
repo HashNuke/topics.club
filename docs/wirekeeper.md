@@ -127,7 +127,7 @@ The public entry point is `TopicsClub.Wirekeeper`:
     protocol_adapter: {TopicsClub.Wirekeeper.ProtocolAdapter.IrcKeepalive, []}
   )
 
-{:ok, gap} =
+{:ok, replay} =
   TopicsClub.Wirekeeper.attach(connection_id, opened.generation, self())
 
 receive do
