@@ -160,8 +160,11 @@ defmodule TopicsClub.Wirekeeper.Manager do
         child_opts = Keyword.put(child_opts, :ready_recipient, self())
 
         case DynamicSupervisor.start_child(ConnectionSupervisor, {Connection, child_opts}) do
-          {:ok, connection} -> await_connection_ready(connection)
-          {:error, reason} -> {:error, reason}
+          {:ok, connection} ->
+            await_connection_ready(connection, Keyword.fetch!(child_opts, :key))
+
+          {:error, reason} ->
+            {:error, reason}
         end
       end)
 
@@ -170,7 +173,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
     :exit, _reason -> {:error, :connection_start_failed}
   end
 
-  defp await_connection_ready(connection) do
+  defp await_connection_ready(connection, key) do
     connection_ref = Process.monitor(connection)
 
     receive do
@@ -179,11 +182,35 @@ defmodule TopicsClub.Wirekeeper.Manager do
         {:ok, connection}
 
       {:topics_club_wirekeeper_connection_ready, ^connection, {:error, reason}} ->
-        Process.demonitor(connection_ref, [:flush])
+        await_connection_down(connection, connection_ref, key)
         {:error, reason}
 
       {:DOWN, ^connection_ref, :process, ^connection, reason} ->
+        await_registry_release(key, connection)
         {:error, reason}
+    end
+  end
+
+  defp await_connection_down(connection, connection_ref, key) do
+    receive do
+      {:DOWN, ^connection_ref, :process, ^connection, _reason} ->
+        await_registry_release(key, connection)
+    end
+  end
+
+  defp await_registry_release(key, connection) do
+    case Registry.lookup(@registry, key) do
+      [] ->
+        :ok
+
+      [{^connection, _value}] ->
+        receive do
+        after
+          1 -> await_registry_release(key, connection)
+        end
+
+      [{_replacement, _value}] ->
+        :ok
     end
   end
 

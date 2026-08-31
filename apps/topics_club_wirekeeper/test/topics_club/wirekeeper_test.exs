@@ -1202,6 +1202,27 @@ defmodule TopicsClub.WirekeeperTest do
     assert TestTcpServer.connection_count(server) == 1
   end
 
+  test "failed opens release their key before the caller can retry" do
+    server = start_supervised!({TestTcpServer, self()})
+    transport = {:tcp, host: "127.0.0.1", port: TestTcpServer.port(server)}
+    adapter = {TopicsClub.Wirekeeper.LowPriorityFailingAdapter, []}
+
+    results =
+      Enum.map(1..500, fn attempt ->
+        key = unique_key("failed-open-retry-#{attempt}")
+        first = Wirekeeper.open(key, transport, protocol_adapter: adapter)
+        retry = Wirekeeper.open(key, transport, protocol_adapter: adapter)
+        {first, retry}
+      end)
+
+    assert Enum.uniq(results) ==
+             [
+               {{:error, {:transport, :forced_failure}}, {:error, {:transport, :forced_failure}}}
+             ]
+
+    refute_receive {:wirekeeper_test_server, :accepted, ^server, _count}
+  end
+
   test "repeated manager crashes stay inside the manager restart boundary" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("manager-intensity")
