@@ -13,6 +13,8 @@ DEPLOY_DIR = Path(__file__).resolve().parent
 gateway_host = host.data.gateway_host
 SYSTEMD_UNITS = [
     "topics-club-gateway.service",
+    "topics-club-wirekeeper.service",
+    "topics-club-wirekeeper-health.service",
     "topics-club-engine.service",
     "topics-club-migrate.service",
     "topics-club-engine-health.service",
@@ -250,7 +252,7 @@ server.user(
     ensure_home=False,
 )
 
-for role in ("gateway", "engine"):
+for role in ("gateway", "wirekeeper", "engine"):
     server.group(
         name=f"Create the TopicsClub {role} group",
         group=f"topics-club-{role}",
@@ -274,10 +276,13 @@ for path, user, group, mode in [
     ("/srv/topics-club/sources", "topics-club-deploy", "topics-club-deploy", "0750"),
     ("/srv/topics-club/releases", "topics-club-deploy", "topics-club-deploy", "0755"),
     ("/srv/topics-club/releases/gateway", "topics-club-deploy", "topics-club-deploy", "0755"),
+    ("/srv/topics-club/releases/wirekeeper", "topics-club-deploy", "topics-club-deploy", "0755"),
     ("/srv/topics-club/releases/engine", "topics-club-deploy", "topics-club-deploy", "0755"),
     ("/var/lib/topics-club", "root", "root", "0755"),
     ("/var/lib/topics-club/gateway", "topics-club-gateway", "topics-club-gateway", "0750"),
     ("/var/lib/topics-club/gateway/tmp", "topics-club-gateway", "topics-club-gateway", "0750"),
+    ("/var/lib/topics-club/wirekeeper", "topics-club-wirekeeper", "topics-club-wirekeeper", "0750"),
+    ("/var/lib/topics-club/wirekeeper/tmp", "topics-club-wirekeeper", "topics-club-wirekeeper", "0750"),
     ("/var/lib/topics-club/engine", "topics-club-engine", "topics-club-engine", "0750"),
     ("/var/lib/topics-club/engine/tmp", "topics-club-engine", "topics-club-engine", "0750"),
 ]:
@@ -367,7 +372,7 @@ files.file(
     create_remote_dir=False,
 )
 
-for role in ("gateway", "engine"):
+for role in ("gateway", "wirekeeper", "engine"):
     environment_path = f"/etc/topics-club/{role}.env"
     if not host.get_fact(File, path=environment_path):
         raise RuntimeError(
@@ -423,6 +428,13 @@ systemd.service(
     running=None,
     enabled=True,
     daemon_reload=systemd_units_changed,
+)
+
+systemd.service(
+    name="Enable the TopicsClub Wirekeeper service without starting it",
+    service="topics-club-wirekeeper.service",
+    running=None,
+    enabled=True,
 )
 
 systemd.service(

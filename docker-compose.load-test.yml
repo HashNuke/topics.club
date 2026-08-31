@@ -66,6 +66,7 @@ services:
       DB_QUEUE_INTERVAL: ${LOAD_DB_QUEUE_INTERVAL:-5000}
       RELEASE_NODE: topics_club_engine@localhost
       RELEASE_COOKIE: loadtestcookie0123456789loadtestcookie0123456789
+      TOPICS_CLUB_IRC_TRANSPORT: direct
     depends_on:
       postgres:
         condition: service_healthy

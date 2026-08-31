@@ -40,6 +40,7 @@ COPY mix.exs mix.lock ./
 COPY apps/topics_club_core/mix.exs apps/topics_club_core/mix.exs
 COPY apps/topics_club_engine/mix.exs apps/topics_club_engine/mix.exs
 COPY apps/topics_club_gateway/mix.exs apps/topics_club_gateway/mix.exs
+COPY apps/topics_club_wirekeeper/mix.exs apps/topics_club_wirekeeper/mix.exs
 RUN mix deps.get --only $MIX_ENV
 RUN mkdir config
 
@@ -58,6 +59,7 @@ COPY priv priv
 
 COPY apps/topics_club_core apps/topics_club_core
 COPY apps/topics_club_engine apps/topics_club_engine
+COPY apps/topics_club_wirekeeper apps/topics_club_wirekeeper
 COPY apps/topics_club_gateway/lib apps/topics_club_gateway/lib
 COPY apps/topics_club_gateway/priv/gettext apps/topics_club_gateway/priv/gettext
 

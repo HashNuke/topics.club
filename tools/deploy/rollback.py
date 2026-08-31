@@ -8,8 +8,8 @@ from pyinfra.operations import server
 component = host.data.component
 health_url = host.data.health_url
 
-if component not in {"gateway", "engine"}:
-    raise ValueError("component must be gateway or engine")
+if component not in {"gateway", "wirekeeper", "engine"}:
+    raise ValueError("component must be gateway, wirekeeper, or engine")
 
 try:
     parsed_health_url = urlparse(health_url)

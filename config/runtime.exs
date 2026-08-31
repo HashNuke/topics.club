@@ -3,13 +3,21 @@ import Config
 release_name = System.get_env("RELEASE_NAME")
 
 if config_env() == :prod and
-     release_name not in [nil, "topics_club", "topics_club_gateway", "topics_club_engine"] do
+     release_name not in [
+       nil,
+       "topics_club",
+       "topics_club_gateway",
+       "topics_club_engine",
+       "topics_club_wirekeeper"
+     ] do
   raise "unsupported release name: #{inspect(release_name)}"
 end
 
-web_capable? = release_name != "topics_club_engine"
+web_capable? = release_name in [nil, "topics_club", "topics_club_gateway"]
+database_capable? = release_name != "topics_club_wirekeeper"
 
-split_release? = release_name in ["topics_club_gateway", "topics_club_engine"]
+split_release? =
+  release_name in ["topics_club_gateway", "topics_club_engine", "topics_club_wirekeeper"]
 
 parse_node_name = fn variable, default ->
   value =
@@ -39,6 +47,26 @@ if config_env() == :prod and split_release? do
            :engine_node,
            parse_node_name.("TOPICS_CLUB_ENGINE_NODE", "topics_club_engine@localhost")
   end
+
+  if release_name == "topics_club_engine" do
+    irc_transport =
+      case System.get_env("TOPICS_CLUB_IRC_TRANSPORT") || "wirekeeper" do
+        "direct" ->
+          :direct
+
+        "wirekeeper" ->
+          {:wirekeeper,
+           parse_node_name.(
+             "TOPICS_CLUB_WIREKEEPER_NODE",
+             "topics_club_wirekeeper@localhost"
+           )}
+
+        invalid ->
+          raise "TOPICS_CLUB_IRC_TRANSPORT must be direct or wirekeeper, got: #{inspect(invalid)}"
+      end
+
+    config :topics_club_engine, :irc_transport, irc_transport
+  end
 end
 
 if config_env() == :prod do
@@ -52,6 +80,9 @@ if config_env() == :prod do
       config :topics_club_core,
         engine_client_adapter: TopicsClub.Engine.LocalAdapter,
         internal_event_adapter: TopicsClub.InternalEvents.PubSubAdapter
+
+    "topics_club_wirekeeper" ->
+      :ok
 
     _combined_or_mix ->
       config :topics_club_core,
@@ -125,7 +156,7 @@ if web_capable? do
     subject: vapid_subject
 end
 
-if config_env() == :prod do
+if config_env() == :prod and database_capable? do
   if web_capable? do
     config :topics_club_gateway,
            :discovery_refresh_enabled,

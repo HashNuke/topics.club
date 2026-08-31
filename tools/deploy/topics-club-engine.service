@@ -1,6 +1,6 @@
 [Unit]
 Description=TopicsClub IRC engine
-After=network-online.target postgresql.service
+After=network-online.target postgresql.service topics-club-wirekeeper.service
 Wants=network-online.target
 Requires=postgresql.service
 StartLimitIntervalSec=60

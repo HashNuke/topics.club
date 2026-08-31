@@ -11,8 +11,8 @@ tag = host.data.tag
 commit = host.data.commit
 health_url = host.data.health_url
 
-if component not in {"gateway", "engine"}:
-    raise ValueError("component must be gateway or engine")
+if component not in {"gateway", "wirekeeper", "engine"}:
+    raise ValueError("component must be gateway, wirekeeper, or engine")
 
 if not re.fullmatch(r"[0-9]{8}\.[0-9]+", tag):
     raise ValueError("tag must use the YYYYMMDD.N release format")

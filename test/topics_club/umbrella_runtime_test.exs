@@ -149,6 +149,48 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
     )
   end
 
+  test "split engine defaults to Wirekeeper while retaining an explicit direct mode" do
+    credentials_key = Base.encode64(:binary.copy(<<0>>, 32))
+
+    base_env = %{
+      "DATABASE_URL" => "ecto://postgres:postgres@localhost/topics_club_prod",
+      "IRC_CREDENTIALS_KEY" => credentials_key,
+      "RELEASE_COOKIE" => String.duplicate("a", 32),
+      "RELEASE_NAME" => "topics_club_engine",
+      "RELEASE_NODE" => "topics_club_engine@engine.internal",
+      "TOPICS_CLUB_WIREKEEPER_NODE" => nil
+    }
+
+    with_system_env(Map.put(base_env, "TOPICS_CLUB_IRC_TRANSPORT", nil), fn ->
+      config = read_production_runtime()
+
+      assert config[:topics_club_engine][:irc_transport] ==
+               {:wirekeeper, :topics_club_wirekeeper@localhost}
+    end)
+
+    with_system_env(Map.put(base_env, "TOPICS_CLUB_IRC_TRANSPORT", "direct"), fn ->
+      config = read_production_runtime()
+      assert config[:topics_club_engine][:irc_transport] == :direct
+    end)
+  end
+
+  test "the standalone Wirekeeper runtime requires distribution but no database secrets" do
+    with_system_env(
+      %{
+        "DATABASE_URL" => nil,
+        "IRC_CREDENTIALS_KEY" => nil,
+        "RELEASE_COOKIE" => String.duplicate("a", 32),
+        "RELEASE_NAME" => "topics_club_wirekeeper",
+        "RELEASE_NODE" => "topics_club_wirekeeper@wire.internal"
+      },
+      fn ->
+        config = read_production_runtime()
+        assert config[:topics_club_core] == nil
+        assert config[:topics_club_gateway] == nil
+      end
+    )
+  end
+
   test "the combined tree uses named role-specific Oban instances" do
     runtime_engine_config = Application.fetch_env!(:topics_club_engine, TopicsClub.EngineOban)
     runtime_web_config = Application.fetch_env!(:topics_club_gateway, TopicsClubWeb.Oban)
@@ -211,7 +253,8 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
 
     for {release_name, release_node, port} <- [
           {"topics_club_gateway", "topics_club_gateway@web.internal", "4370"},
-          {"topics_club_engine", "topics_club_engine@engine.internal", "4371"}
+          {"topics_club_engine", "topics_club_engine@engine.internal", "4371"},
+          {"topics_club_wirekeeper", "topics_club_wirekeeper@wire.internal", "4372"}
         ] do
       for command <- ~w(start start_iex daemon daemon_iex) do
         output = release_env(env_script, release_name, release_node, command)
@@ -252,6 +295,11 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
       config[:topics_club_engine][TopicsClub.EngineOban],
       config[:topics_club_gateway][TopicsClubWeb.Oban]
     }
+  end
+
+  defp read_production_runtime do
+    config_path = Path.expand("../../config/runtime.exs", __DIR__)
+    Config.Reader.read!(config_path, env: :prod)
   end
 
   defp release_env(script, release_name, release_node, command) do

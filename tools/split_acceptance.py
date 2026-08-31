@@ -28,6 +28,7 @@ IRC_IMAGE = (
 )
 IRC_SCRIPT = PROJECT_ROOT / "tools" / "load_test" / "irc_server.exs"
 GATEWAY_SERVICE = "topics-club-gateway.service"
+WIREKEEPER_SERVICE = "topics-club-wirekeeper.service"
 ENGINE_SERVICE = "topics-club-engine.service"
 CHANNEL = "#acceptance"
 
@@ -102,17 +103,17 @@ def ensure_ready() -> None:
     if missing:
         raise RuntimeError(
             "pseudo-VPS is not ready; run `bin/apptools testvps create`, provision it, "
-            "and deploy both roles first"
+            "then deploy Wirekeeper once and the gateway/engine roles"
         )
 
     inactive = [
         service
-        for service in (GATEWAY_SERVICE, ENGINE_SERVICE)
+        for service in (GATEWAY_SERVICE, WIREKEEPER_SERVICE, ENGINE_SERVICE)
         if not service_active(service)
     ]
     if inactive:
         raise RuntimeError(
-            "both deployed pseudo-VPS services must be active before acceptance: "
+            "all deployed pseudo-VPS services must be active before acceptance: "
             + ", ".join(inactive)
         )
 
@@ -195,8 +196,8 @@ def irc_control(command: str) -> dict[str, int] | str:
 
 
 def release_rpc(role: str, expression: str) -> str:
-    if role not in {"gateway", "engine"}:
-        raise ValueError("release role must be gateway or engine")
+    if role not in {"gateway", "wirekeeper", "engine"}:
+        raise ValueError("release role must be gateway, wirekeeper, or engine")
 
     release = f"topics_club_{role}"
     user = f"topics-club-{role}"
@@ -365,6 +366,34 @@ IO.puts("ACCEPTANCE_JSON=" <> Jason.encode!(%{{persisted: not is_nil(message)}})
     return rpc_json(role, expression).get("persisted") is True
 
 
+def wirekeeper_connection(connection_id: int) -> dict[str, int | bool] | None:
+    expression = f"""
+case TopicsClub.Wirekeeper.info({connection_id}) do
+  {{:ok, info}} ->
+    IO.puts(
+      "WIREKEEPER_INFO=" <>
+        "attached=#{{info.attached?}} buffered=#{{info.buffered_records}} " <>
+        "dropped=#{{info.dropped_records}}"
+    )
+  {{:error, reason}} ->
+    IO.puts("WIREKEEPER_ERROR=" <> inspect(reason))
+end
+"""
+    output = release_rpc("wirekeeper", expression)
+    for line in reversed(output.splitlines()):
+        if not line.startswith("WIREKEEPER_INFO="):
+            continue
+        fields: dict[str, int | bool] = {}
+        for item in line.removeprefix("WIREKEEPER_INFO=").split():
+            key, raw = item.split("=", 1)
+            if raw in {"true", "false"}:
+                fields[key] = raw == "true"
+            else:
+                fields[key] = int(raw)
+        return fields
+    return None
+
+
 def gateway_history_contains(
     user_id: int,
     connection_id: int,
@@ -415,7 +444,8 @@ def run_acceptance() -> None:
     ensure_ready()
     token = f"{int(time.time())}-{time.monotonic_ns() % 1_000_000:06d}"
     ids: dict[str, Any] | None = None
-    gateway_stopped = False
+    engine_stopped = False
+    wirekeeper_stopped = False
     irc_started = False
     succeeded = False
 
@@ -424,6 +454,7 @@ def run_acceptance() -> None:
         start_irc_container()
         irc_started = True
         engine_pid = service_main_pid(ENGINE_SERVICE)
+        wirekeeper_pid = service_main_pid(WIREKEEPER_SERVICE)
         ids = seed_connection(token)
         user_id = int(ids["user_id"])
         connection_id = int(ids["connection_id"])
@@ -459,34 +490,75 @@ def run_acceptance() -> None:
         )
 
         before_restart = acceptance_stats()
-        print("Stopping the complete gateway service while the engine remains live.")
-        manage_service("stop", GATEWAY_SERVICE)
-        gateway_stopped = True
-        if not service_active(ENGINE_SERVICE) or service_main_pid(ENGINE_SERVICE) != engine_pid:
-            raise RuntimeError("gateway stop changed the engine service process")
+        print("Stopping the engine while Wirekeeper continues to own the IRC socket.")
+        manage_service("stop", ENGINE_SERVICE)
+        engine_stopped = True
+        if not service_active(WIREKEEPER_SERVICE) or service_main_pid(
+            WIREKEEPER_SERVICE
+        ) != wirekeeper_pid:
+            raise RuntimeError("engine stop changed the Wirekeeper service process")
+
+        wait_until(
+            "Wirekeeper consumer detachment",
+            30,
+            lambda: (
+                info
+                if (info := wirekeeper_connection(connection_id))
+                and info.get("attached") is False
+                else None
+            ),
+        )
 
         inbound = f"split-acceptance-in-{token}"
         sent = irc_control(f"PRIVMSG {CHANNEL} {inbound}")
         if not isinstance(sent, dict) or sent.get("sent") != 1 or sent.get("errors") != 0:
             raise RuntimeError(f"could not inject inbound IRC message: {sent!r}")
         wait_until(
-            "engine persistence while the gateway is stopped",
+            "Wirekeeper buffering while the engine is stopped",
+            30,
+            lambda: (
+                info
+                if (info := wirekeeper_connection(connection_id))
+                and int(info.get("buffered", 0)) >= 1
+                and int(info.get("dropped", 0)) == 0
+                else None
+            ),
+        )
+
+        print("Starting the engine and checking replay on the original IRC socket.")
+        manage_service("start", ENGINE_SERVICE)
+        wait_gateway_health()
+        engine_stopped = False
+
+        restarted_engine_pid = service_main_pid(ENGINE_SERVICE)
+        if restarted_engine_pid == engine_pid:
+            raise RuntimeError("engine restart unexpectedly reused its prior process")
+        engine_pid = restarted_engine_pid
+        if service_main_pid(WIREKEEPER_SERVICE) != wirekeeper_pid:
+            raise RuntimeError("engine restart changed the Wirekeeper service process")
+
+        wait_until(
+            "engine persistence after Wirekeeper replay",
             30,
             lambda: message_persisted("engine", connection_id, inbound),
         )
-
-        print("Starting the complete gateway service and checking the original IRC socket.")
-        manage_service("start", GATEWAY_SERVICE)
-        wait_gateway_health()
-        gateway_stopped = False
+        wait_until(
+            "Wirekeeper replay acknowledgement",
+            30,
+            lambda: (
+                info
+                if (info := wirekeeper_connection(connection_id))
+                and info.get("attached") is True
+                and int(info.get("buffered", 0)) == 0
+                else None
+            ),
+        )
 
         after_restart = acceptance_stats()
-        if service_main_pid(ENGINE_SERVICE) != engine_pid:
-            raise RuntimeError("gateway restart changed the engine service process")
         for key in ("accepted_total", "active", "registered"):
             if after_restart.get(key) != before_restart.get(key):
                 raise RuntimeError(
-                    f"gateway restart changed IRC {key}: "
+                    f"engine restart changed IRC {key}: "
                     f"{before_restart.get(key)} -> {after_restart.get(key)}"
                 )
 
@@ -500,24 +572,97 @@ def run_acceptance() -> None:
                 inbound,
             ),
         )
+
+        before_wirekeeper_restart = acceptance_stats()
+        print("Restarting Wirekeeper and checking that the live engine reconnects its session.")
+        manage_service("stop", WIREKEEPER_SERVICE)
+        wirekeeper_stopped = True
+
+        wait_until(
+            "IRC socket closure after Wirekeeper stop",
+            30,
+            lambda: (
+                stats
+                if (stats := acceptance_stats()).get("active") == 0
+                else None
+            ),
+        )
+
+        manage_service("start", WIREKEEPER_SERVICE)
+        wirekeeper_stopped = False
+        wait_gateway_health()
+
+        if service_main_pid(WIREKEEPER_SERVICE) == wirekeeper_pid:
+            raise RuntimeError("Wirekeeper restart unexpectedly reused its prior process")
+        if service_main_pid(ENGINE_SERVICE) != engine_pid:
+            raise RuntimeError("Wirekeeper restart changed the engine service process")
+
+        wait_until(
+            "engine IRC reconnect after Wirekeeper replacement",
+            45,
+            lambda: (
+                stats
+                if (stats := acceptance_stats()).get("active") == 1
+                and stats.get("registered") == 1
+                and stats.get("accepted_total", 0)
+                == before_wirekeeper_restart.get("accepted_total", 0) + 1
+                else None
+            ),
+        )
+
+        after_wirekeeper = f"wirekeeper-restart-in-{token}"
+        sent = irc_control(f"PRIVMSG {CHANNEL} {after_wirekeeper}")
+        if not isinstance(sent, dict) or sent.get("sent") != 1 or sent.get("errors") != 0:
+            raise RuntimeError(f"could not inject post-Wirekeeper IRC message: {sent!r}")
+
+        wait_until(
+            "engine persistence after Wirekeeper replacement",
+            30,
+            lambda: message_persisted("engine", connection_id, after_wirekeeper),
+        )
+        wait_until(
+            "gateway history after Wirekeeper replacement",
+            30,
+            lambda: gateway_history_contains(
+                user_id,
+                connection_id,
+                membership_id,
+                after_wirekeeper,
+            ),
+        )
+
         cleanup_test_data(user_id, connection_id)
         ids = None
         succeeded = True
 
         print(
             "Split acceptance passed: real gateway and engine releases exchanged local IRC "
-            "traffic; gateway stop/start preserved the engine PID and original IRC socket; "
-            "the gateway recovered the message persisted while it was down."
+            "traffic; engine stop/start preserved the Wirekeeper PID and original IRC socket; "
+            "the engine persisted traffic replayed after it returned; and Wirekeeper replacement "
+            "made the unchanged engine reconnect instead of retaining a stale handle."
         )
     finally:
-        if gateway_stopped:
+        if wirekeeper_stopped:
             try:
-                manage_service("start", GATEWAY_SERVICE)
+                manage_service("start", WIREKEEPER_SERVICE)
+            except Exception as error:
+                print(
+                    f"warning: could not restore the Wirekeeper service: {error}",
+                    file=sys.stderr,
+                )
+
+        if engine_stopped:
+            try:
+                manage_service("start", ENGINE_SERVICE)
                 wait_gateway_health()
             except Exception as error:
-                print(f"warning: could not restore the gateway service: {error}", file=sys.stderr)
+                print(f"warning: could not restore the engine service: {error}", file=sys.stderr)
 
-        if ids is not None and service_active(GATEWAY_SERVICE):
+        if (
+            ids is not None
+            and service_active(GATEWAY_SERVICE)
+            and service_active(ENGINE_SERVICE)
+        ):
             try:
                 cleanup_test_data(int(ids["user_id"]), int(ids["connection_id"]))
             except Exception as error:

@@ -120,6 +120,15 @@ def write_test_environment(state: dict[str, str]) -> None:
             "POOL_SIZE=5",
             "RELEASE_NODE=topics_club_engine@localhost",
             f"RELEASE_COOKIE={state['release_cookie']}",
+            "TOPICS_CLUB_IRC_TRANSPORT=wirekeeper",
+            "TOPICS_CLUB_WIREKEEPER_NODE=topics_club_wirekeeper@localhost",
+            "",
+        ]
+    )
+    wirekeeper = "\n".join(
+        [
+            "RELEASE_NODE=topics_club_wirekeeper@localhost",
+            f"RELEASE_COOKIE={state['release_cookie']}",
             "",
         ]
     )
@@ -131,6 +140,7 @@ def write_test_environment(state: dict[str, str]) -> None:
         ("db.env", database),
         ("gateway.env", gateway),
         ("engine.env", engine),
+        ("wirekeeper.env", wirekeeper),
     ):
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as temporary:
             temporary.write(contents)

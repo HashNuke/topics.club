@@ -259,12 +259,15 @@ class OnePasswordSecretsTest(unittest.TestCase):
         with tarfile.open(fileobj=archive, mode="r") as tar:
             gateway = tar.extractfile("gateway.env")
             engine = tar.extractfile("engine.env")
+            wirekeeper = tar.extractfile("wirekeeper.env")
             deploy_key_comment = tar.extractfile("deploy-key-comment")
             assert gateway is not None
             assert engine is not None
+            assert wirekeeper is not None
             assert deploy_key_comment is not None
             gateway_contents = gateway.read().decode("utf-8")
             engine_contents = engine.read().decode("utf-8")
+            wirekeeper_contents = wirekeeper.read().decode("utf-8")
             deploy_key_comment_contents = deploy_key_comment.read().decode("utf-8")
 
         self.assertIn("SECRET_KEY_BASE=value-2\n", gateway_contents)
@@ -275,6 +278,16 @@ class OnePasswordSecretsTest(unittest.TestCase):
         self.assertNotIn("SECRET_KEY_BASE", engine_contents)
         self.assertIn(
             "RELEASE_NODE=topics_club_engine@localhost\n", engine_contents
+        )
+        self.assertIn("TOPICS_CLUB_IRC_TRANSPORT=wirekeeper\n", engine_contents)
+        self.assertIn(
+            "TOPICS_CLUB_WIREKEEPER_NODE=topics_club_wirekeeper@localhost\n",
+            engine_contents,
+        )
+        self.assertNotIn("IRC_CREDENTIALS_KEY", wirekeeper_contents)
+        self.assertIn("RELEASE_COOKIE=value-1\n", wirekeeper_contents)
+        self.assertIn(
+            "RELEASE_NODE=topics_club_wirekeeper@localhost\n", wirekeeper_contents
         )
         self.assertEqual(
             deploy_key_comment_contents,
@@ -440,7 +453,7 @@ class DeploySelectionTest(unittest.TestCase):
 
     @mock.patch.object(apptools, "resolve_release_tag", return_value=("20260828.1", "d" * 40))
     @mock.patch.object(apptools, "run")
-    def test_combined_command_deploys_gateway_then_engine(
+    def test_combined_command_leaves_long_running_wirekeeper_untouched(
         self,
         run_mock: mock.Mock,
         _resolve_mock: mock.Mock,
@@ -451,7 +464,13 @@ class DeploySelectionTest(unittest.TestCase):
             next(argument for argument in call.args[0] if argument.startswith("component="))
             for call in run_mock.call_args_list
         ]
-        self.assertEqual(components, ['component="gateway"', 'component="engine"'])
+        self.assertEqual(
+            components,
+            [
+                'component="gateway"',
+                'component="engine"',
+            ],
+        )
 
     @mock.patch.object(apptools, "resolve_release_tag", return_value=("20260828.1", "d" * 40))
     @mock.patch.object(apptools, "run")

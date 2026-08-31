@@ -1,14 +1,14 @@
-# Deploy separate gateway and engine nodes to one VPS
+# Deploy separate gateway, Wirekeeper, and engine nodes to one VPS
 
 This is the supported pyinfra topology: one Ubuntu 26.04 x86-64 VPS, one PostgreSQL
-instance, and separate gateway and engine systemd services. Do not use two VPSs or run
-more than one engine.
+instance, and separate gateway, Wirekeeper, and engine systemd services. Do not use multiple VPSs
+or run more than one engine or Wirekeeper.
 
 ## 1. Prepare DNS and the host
 
 - Point the public hostname to the VPS.
 - Permit inbound SSH, HTTP, and HTTPS only. Do not expose ports `4000`, `4369`, `4370`,
-  `4371`, or `5432`.
+  `4371`, `4372`, or `5432`.
 - Ensure `root@IP` is reachable with an SSH key.
 - On your workstation, install `git` and `uv`, then use a clean clone of this repository.
 
@@ -105,6 +105,7 @@ the deployment user and pins GitHub's published Ed25519 host key.
 ```bash
 bin/release
 git push origin THE_TAG_PRINTED_ABOVE
+bin/apptools deploy wirekeeper --host root@YOUR_SERVER_IP --tag THE_TAG_PRINTED_ABOVE
 bin/apptools deploy --host root@YOUR_SERVER_IP --tag THE_TAG_PRINTED_ABOVE
 ```
 
@@ -121,7 +122,7 @@ ssh root@YOUR_SERVER_IP 'systemctl --no-pager status caddy'
 
 ```bash
 ssh root@YOUR_SERVER_IP \
-  'systemctl --no-pager status topics-club-gateway topics-club-engine'
+  'systemctl --no-pager status topics-club-gateway topics-club-wirekeeper topics-club-engine'
 curl --fail https://YOUR_HOST/health
 ```
 
@@ -133,10 +134,14 @@ git push origin THE_TAG_PRINTED_ABOVE
 bin/apptools deploy --host root@YOUR_SERVER_IP --tag THE_TAG_PRINTED_ABOVE
 ```
 
-Gateway-only deploys preserve IRC sessions:
+The default command deploys gateway and engine only. Wirekeeper remains on its existing release so
+its sockets survive routine application deployments. Run `deploy wirekeeper` separately only when
+you intend to update Wirekeeper and accept that its in-memory sockets will be replaced.
+
+Engine-only deploys preserve IRC sockets through Wirekeeper:
 
 ```bash
-bin/apptools deploy gateway --host root@YOUR_SERVER_IP --tag THE_TAG
+bin/apptools deploy engine --host root@YOUR_SERVER_IP --tag THE_TAG
 ```
 
 See `docs/deployment.md` for rollback, health semantics, and operational details.

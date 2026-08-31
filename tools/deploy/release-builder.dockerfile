@@ -34,6 +34,7 @@ COPY mix.exs mix.lock ./
 COPY apps/topics_club_core/mix.exs apps/topics_club_core/mix.exs
 COPY apps/topics_club_engine/mix.exs apps/topics_club_engine/mix.exs
 COPY apps/topics_club_gateway/mix.exs apps/topics_club_gateway/mix.exs
+COPY apps/topics_club_wirekeeper/mix.exs apps/topics_club_wirekeeper/mix.exs
 RUN mix deps.get --only prod --check-locked
 
 COPY config/config.exs config/prod.exs config/

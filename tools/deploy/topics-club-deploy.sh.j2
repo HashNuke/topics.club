@@ -14,8 +14,8 @@ fail() {
 
 validate_component() {
   case "$1" in
-    gateway|engine) ;;
-    *) fail "component must be gateway or engine" ;;
+    gateway|wirekeeper|engine) ;;
+    *) fail "component must be gateway, wirekeeper, or engine" ;;
   esac
 }
 
@@ -209,18 +209,57 @@ engine_healthy() {
   return 1
 }
 
+wirekeeper_healthy() {
+  local attempt
+  local successes=0
+
+  for attempt in $(seq 1 30); do
+    if systemctl is-active --quiet topics-club-wirekeeper.service; then
+      systemctl reset-failed topics-club-wirekeeper-health.service >/dev/null 2>&1 || true
+      if systemctl start topics-club-wirekeeper-health.service; then
+        successes=$((successes + 1))
+        if [ "$successes" -ge 3 ]; then
+          return 0
+        fi
+      else
+        successes=0
+      fi
+    else
+      successes=0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 check_component() {
   local component=$1
   local health_url=$2
 
-  if [ "$component" = gateway ]; then
-    gateway_healthy "$health_url"
-  else
-    engine_healthy || return 1
-    if systemctl is-active --quiet topics-club-gateway.service; then
-      gateway_healthy "$health_url" || return 1
-    fi
-  fi
+  case "$component" in
+    gateway)
+      gateway_healthy "$health_url"
+      ;;
+    wirekeeper)
+      wirekeeper_healthy || return 1
+      if systemctl is-active --quiet topics-club-engine.service; then
+        engine_healthy || return 1
+      fi
+      if systemctl is-active --quiet topics-club-gateway.service; then
+        if systemctl is-active --quiet topics-club-engine.service; then
+          gateway_healthy "$health_url" || return 1
+        else
+          gateway_database_healthy "$health_url" || return 1
+        fi
+      fi
+      ;;
+    engine)
+      engine_healthy || return 1
+      if systemctl is-active --quiet topics-club-gateway.service; then
+        gateway_healthy "$health_url" || return 1
+      fi
+      ;;
+  esac
 }
 
 restart_component() {
@@ -243,23 +282,17 @@ restore_release() {
   fi
 }
 
-require_matching_gateway() {
-  local tag=$1
-  local commit=$2
-  local health_url=$3
+require_compatible_gateway() {
+  local health_url=$1
   local gateway_target
 
   gateway_target=$(resolved_link "$base/current-gateway")
-  [ -f "$gateway_target/deploy-manifest" ] ||
-    fail "deploy gateway $tag before deploying its engine"
-  grep -Fxq "tag=$tag" "$gateway_target/deploy-manifest" ||
-    fail "active gateway does not match engine tag $tag"
-  grep -Fxq "commit=$commit" "$gateway_target/deploy-manifest" ||
-    fail "active gateway does not match engine commit $commit"
+  [ -n "$gateway_target" ] && [ -f "$gateway_target/deploy-manifest" ] ||
+    fail "deploy a gateway before deploying its engine"
   systemctl is-active --quiet topics-club-gateway.service ||
-    fail "matching gateway must be running before engine deployment"
+    fail "gateway must be running before engine deployment"
   gateway_database_healthy "$health_url" ||
-    fail "matching gateway cannot confirm the migrated schema"
+    fail "gateway cannot confirm the migrated schema"
 }
 
 prune_old_directories() {
@@ -316,7 +349,7 @@ deploy_component() {
   fi
 
   if [ "$component" = engine ]; then
-    require_matching_gateway "$tag" "$commit" "$health_url"
+    require_compatible_gateway "$health_url"
   fi
 
   source_dir=$(prepare_source "$commit")

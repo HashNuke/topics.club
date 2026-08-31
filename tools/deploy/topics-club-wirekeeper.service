@@ -1,0 +1,33 @@
+[Unit]
+Description=TopicsClub Wirekeeper IRC transport owner
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+ConditionPathExists=/srv/topics-club/current-wirekeeper/bin/topics_club_wirekeeper
+
+[Service]
+Type=simple
+User=topics-club-wirekeeper
+Group=topics-club-wirekeeper
+WorkingDirectory=/var/lib/topics-club/wirekeeper
+EnvironmentFile=/etc/topics-club/wirekeeper.env
+Environment=HOME=/var/lib/topics-club/wirekeeper
+Environment=RELEASE_TMP=/var/lib/topics-club/wirekeeper/tmp
+Environment=ERL_CRASH_DUMP=/var/lib/topics-club/wirekeeper/erl_crash.dump
+Environment=ERL_EPMD_ADDRESS=127.0.0.1
+ExecStart=/srv/topics-club/current-wirekeeper/bin/topics_club_wirekeeper start
+KillSignal=SIGTERM
+TimeoutStartSec=90
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=5
+UMask=0027
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/topics-club/wirekeeper
+
+[Install]
+WantedBy=multi-user.target

@@ -40,7 +40,8 @@ defmodule TopicsClub.MixProject do
         ]),
       topics_club_gateway:
         release(version, [:topics_club_core, :topics_club_gateway], ["rel/web"]),
-      topics_club_engine: release(version, [:topics_club_core, :topics_club_engine])
+      topics_club_engine: release(version, [:topics_club_core, :topics_club_engine]),
+      topics_club_wirekeeper: release(version, [:topics_club_wirekeeper])
     ]
   end
 

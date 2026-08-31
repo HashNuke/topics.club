@@ -4,8 +4,9 @@ Start with the production variables below. The later sections contain only
 deployment-specific wiring and advanced tuning.
 
 Minimal placeholder files are available at `samples/app.env.dev.sample`,
-`samples/gateway.env.prod.sample`, and `samples/engine.env.prod.sample`. The two
-production samples match the pyinfra split roles. They contain no tuning knobs.
+`samples/gateway.env.prod.sample`, `samples/wirekeeper.env.prod.sample`, and
+`samples/engine.env.prod.sample`. The three production samples match the pyinfra split roles. They
+contain no tuning knobs.
 Elixir does not load these files automatically; export their values through the
 shell or deployment platform.
 
@@ -31,15 +32,16 @@ Generate the VAPID values with `mix topics_club.gen_vapid_keys`.
 
 | Variable group | Docker Compose | Pyinfra direct host | Railway |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | Compose configures its bundled database internally | Generated in `/etc/topics-club/db.env` and loaded by both services | Supplied by the PostgreSQL service |
+| `DATABASE_URL` | Compose configures its bundled database internally | Generated in `/etc/topics-club/db.env` and loaded by gateway and engine; Wirekeeper has no database | Supplied by the PostgreSQL service |
 | `SECRET_KEY_BASE`, `GATEWAY_HOST` | App container | Gateway | App service |
 | `IRC_CREDENTIALS_KEY` | App container | Gateway and engine | App service |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | App container | Gateway | App service |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | App container | Gateway | App service |
 
-Docker Compose and Railway run the combined gateway and engine in one
-application instance. Pyinfra runs separate gateway and engine services on one
-host. Every production topology must run exactly one IRC engine.
+Docker Compose and Railway run the combined gateway and engine in one application instance with
+direct socket ownership. Pyinfra runs separate gateway, Wirekeeper, and engine services on one
+host. Every production topology must run exactly one IRC engine; the split topology also runs
+exactly one Wirekeeper.
 
 ## Development
 
@@ -77,15 +79,19 @@ different host interface or port is required.
 ### Pyinfra split deployment
 
 Use `tools/deploy/gateway.env.example` and
-`tools/deploy/engine.env.example` for the destination-only files. The split
+`tools/deploy/wirekeeper.env.example` and `tools/deploy/engine.env.example` for the
+destination-only files. The split
 runtime additionally needs the following application settings:
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
-| `RELEASE_NODE` | Gateway and engine | Stable internal name of each BEAM node. |
-| `RELEASE_COOKIE` | Gateway and engine | Shared secret for Erlang distribution. Use the same value in both files. |
+| `RELEASE_NODE` | Gateway, Wirekeeper, and engine | Stable internal name of each BEAM node. |
+| `RELEASE_COOKIE` | Gateway, Wirekeeper, and engine | Shared secret for Erlang distribution. Use the same value in all three files. |
+| `TOPICS_CLUB_IRC_TRANSPORT` | Engine | `wirekeeper` in the split deployment; set `direct` to explicitly select Ircxd's built-in socket adapter. |
+| `TOPICS_CLUB_WIREKEEPER_NODE` | Engine | Wirekeeper node, defaulting to `topics_club_wirekeeper@localhost`. |
 
-The gateway automatically connects to `topics_club_engine@localhost`.
+The gateway automatically connects to `topics_club_engine@localhost`; the split engine defaults to
+`topics_club_wirekeeper@localhost`.
 Run `bin/apptools provision-db --host root@IP` before application provisioning.
 It installs PostgreSQL 18, creates the database and role, and generates the
 shared `DATABASE_URL` in root-owned `/etc/topics-club/db.env`. Operators do not

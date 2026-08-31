@@ -272,10 +272,19 @@ def role_dotenv_documents(vault: str, item: str) -> dict[str, str]:
         ]
     )
     engine = lines_for(shared)
-    engine.append("RELEASE_NODE=topics_club_engine@localhost")
+    engine.extend(
+        [
+            "RELEASE_NODE=topics_club_engine@localhost",
+            "TOPICS_CLUB_IRC_TRANSPORT=wirekeeper",
+            "TOPICS_CLUB_WIREKEEPER_NODE=topics_club_wirekeeper@localhost",
+        ]
+    )
+    wirekeeper = lines_for([("shared", "RELEASE_COOKIE")])
+    wirekeeper.append("RELEASE_NODE=topics_club_wirekeeper@localhost")
     return {
         "gateway.env": "\n".join(gateway) + "\n",
         "engine.env": "\n".join(engine) + "\n",
+        "wirekeeper.env": "\n".join(wirekeeper) + "\n",
     }
 
 
@@ -298,7 +307,7 @@ install -d -m 0755 /etc/topics-club
 stage=$(mktemp -d /etc/topics-club/.env-install.XXXXXX)
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 tar -xf - -C "$stage"
-for role in gateway engine; do
+for role in gateway engine wirekeeper; do
   install -m 0600 "$stage/$role.env" "/etc/topics-club/$role.env.new"
   if id "topics-club-$role" >/dev/null 2>&1; then
     chown "topics-club-$role:topics-club-$role" "/etc/topics-club/$role.env.new"
@@ -340,6 +349,7 @@ else
 fi
 mv /etc/topics-club/gateway.env.new /etc/topics-club/gateway.env
 mv /etc/topics-club/engine.env.new /etc/topics-club/engine.env
+mv /etc/topics-club/wirekeeper.env.new /etc/topics-club/wirekeeper.env
 printf 'DEPLOY_PUBLIC_KEY=%s\n' "$(cat "$deploy_public_key")"
 """.strip()
 
@@ -692,13 +702,15 @@ class AppTools:
             print("Add this read-only deploy key to the GitHub repository:")
             print(public_key)
             return
-        if component not in {"all", "gateway", "engine"}:
+        if component not in {"all", "gateway", "wirekeeper", "engine"}:
             raise ValueError(
-                "component must be all, gateway, engine, or install-secrets"
+                "component must be all, gateway, wirekeeper, engine, or install-secrets"
             )
         validate_health_url(health_url)
         resolved_tag, commit = resolve_release_tag(tag)
-        # Gateway migrations must land while the old engine is still running.
+        # Routine application releases migrate through the gateway before the
+        # engine changes. Wirekeeper has an independent lifecycle and is
+        # deployed explicitly so `deploy all` cannot discard retained sockets.
         components = ["gateway", "engine"] if component == "all" else [component]
         for selected in components:
             run(
@@ -725,8 +737,8 @@ class AppTools:
         health_url: str = "http://127.0.0.1:4000/health",
     ) -> None:
         """Atomically restore and health-check the prior role release."""
-        if component not in {"gateway", "engine"}:
-            raise ValueError("component must be gateway or engine")
+        if component not in {"gateway", "wirekeeper", "engine"}:
+            raise ValueError("component must be gateway, wirekeeper, or engine")
         validate_health_url(health_url)
         run(
             pyinfra_command(

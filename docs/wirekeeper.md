@@ -6,13 +6,15 @@ the processes that consume their traffic. This lets an engine consumer disappear
 without making consumer loss mean socket loss.
 
 Wirekeeper currently lives inside the TopicsClub umbrella. It has its own application callback,
-supervision tree, public API, tests, and no dependencies on the other umbrella applications. It has
-not yet been extracted into the separate `wirekeeper` repository.
+supervision tree, public API, tests, and no runtime dependencies on the other umbrella applications.
+It has not yet been extracted into the separate `wirekeeper` repository. The engine compiles
+against it only in tests; production uses a distributed call boundary, so the standalone engine
+release does not contain or start Wirekeeper.
 
-No other TopicsClub application currently declares Wirekeeper as an umbrella dependency, the IRC
-engine does not call it, and none of the `topics_club`, `topics_club_gateway`, or
-`topics_club_engine` releases includes it. The root test and documentation tasks do include the
-application. Engine integration and production packaging remain later work.
+TopicsClub now has a fourth release, `topics_club_wirekeeper`, containing only this OTP application
+and its OTP/runtime dependencies. In the supported split deployment it runs as a third systemd
+service in front of the engine. The combined release and ordinary Mix runtime continue to use
+Ircxd's direct socket transport by default.
 
 ## Relationship to the original concept
 
@@ -29,6 +31,8 @@ The OTP application in this umbrella makes these concrete choices today:
 | Detached traffic | Bounded, sequence-numbered records are retained for replay instead of being drained and discarded. |
 | Delivery | Bounded at-least-once delivery with cumulative ACKs, not exactly-once delivery. |
 | Protocol awareness | The core executes a per-connection protocol adapter. The included IRC adapter frames lines and owns PING/PONG; the core itself remains protocol-neutral. |
+| Engine boundary | An opt-in Ircxd client transport adapter attaches the engine Session PID, replays retained IRC lines, and checkpoints Ircxd parser state. |
+| Deployment | A standalone Wirekeeper BEAM node can outlive an engine release restart; combined mode remains direct. |
 
 The protocol-adapter boundary is a notable extension to the original transport-only premise. It
 allows maintenance traffic that must survive the consumer to execute beside the socket without
@@ -243,7 +247,7 @@ The public entry point is `TopicsClub.Wirekeeper`:
 | `close/2` | Explicitly closes and removes the generation-matched connection. |
 | `info/1` | Returns one connection's status and bounded counters, but no payloads or credentials. |
 | `list/0` | Returns sorted info for current open connections and retained tombstones; openings are omitted. |
-| `diagnostics/0` | Aggregates open/closed, attached/detached, buffer, and overflow counts. |
+| `diagnostics/0` | Reports transport API version 1 and aggregates open/closed, attached/detached, buffer, and overflow counts. |
 
 Typical IRC-oriented use is:
 
@@ -297,11 +301,127 @@ Public calls convert manager or connection call exits to `{:error, :unavailable}
 temporarily unavailable supervision component distinct from `{:error, :not_found}` and
 `{:error, :opening}`.
 
+## Engine and Ircxd integration
+
+`TopicsClub.Irc.WirekeeperTransport` implements the optional `Ircxd.Client.Transport` contract.
+The Ircxd change is described in `docs/ircxd-wirekeeper-transport.md`; callers that do not select a
+custom adapter still use Ircxd's built-in `Ircxd.Client.Transport.Socket` adapter and retain the
+existing `:gen_tcp`/`:ssl` behavior.
+
+The stable Wirekeeper key is `server_connections.id`. The attached consumer is the engine
+`TopicsClub.Irc.Session` PID, not the short-lived Ircxd client PID. That distinction lets an abrupt
+Ircxd client exit detach and replay through the same Session during retry, while loss of the engine
+node also detaches its remote Session PID without closing upstream.
+
+For a fresh connection the adapter:
+
+1. Opens TCP or TLS in Wirekeeper with `IrcKeepalive` and the configured replay-buffer limits.
+2. Attaches the Session PID.
+3. Returns `:fresh` to Ircxd, which sends its normal PASS/CAP/SASL/NICK/USER registration writes
+   through `Wirekeeper.send_data/3`.
+
+For an existing generation it first clears any stale attachment for the same Session PID, attaches,
+and inspects the replay summary. A generation is
+resumed only when no records were dropped and a valid Ircxd checkpoint exists. A gap or missing
+checkpoint makes the adapter detach, explicitly close that generation, wait for its key to be
+released, and open one fresh IRC connection. If a fresh open succeeds but attachment fails, the
+adapter best-effort closes that exact generation instead of leaking a detached socket.
+
+On resume Ircxd restores its bounded, versioned parser checkpoint, emits connected/resumed/
+registered events, and does not repeat PASS, CAP, SASL, NICK, or USER. The checkpoint includes the
+state Ircxd mutates while accepting inbound records: nickname, capability and ISUPPORT state,
+message-ID deduplication, and bounded parser/batch accumulators. Its binding fingerprints connection
+and authentication policy without retaining credential values. Fresh credential-bearing IRC writes
+do pass through `send_data/2`; credentials are excluded from retained records, checkpoints,
+diagnostics, and logs.
+
+Every complete Wirekeeper IRC record is delivered to Ircxd with its sequence as an opaque receipt.
+Ircxd parses the record and sends all resulting events to the Session before it calls the adapter's
+`accepted/3` callback. Because those messages come from the same Ircxd process, the Session handles
+the events before the acceptance marker. It then calls `ack_with_checkpoint/5`, atomically storing
+the post-record checkpoint and cumulatively ACKing the sequence. Before registration produces a
+checkpoint, it uses the plain ACK path. If Ircxd reports that no safe checkpoint can be made, or the
+atomic ACK fails, the adapter closes the generation rather than advancing replay without resumable
+state.
+
+Wirekeeper overflow is not reconciled on the retained socket. The engine closes the gapped
+generation, tells Ircxd that the transport failed, and establishes one fresh IRC connection. An
+upstream close is likewise surfaced through Ircxd's normal disconnect/retry path. Late records from
+a detached client are left unacknowledged and replayed after attachment; stale Ircxd transport
+handles cannot inject them into a replacement client.
+
+The Session persists inbound events before the acceptance marker is handled. On a valid resume it
+restores `joined` auto-join memberships into its in-memory joined set and restores only `pending`
+memberships into its pending set, so the registered event cannot emit a duplicate JOIN burst.
+Presence is rebuilt from subsequent IRC traffic; the current implementation does not proactively
+send NAMES during resume.
+
+Shutdown intent is explicit:
+
+- an engine/Session or Ircxd crash detaches the consumer and retains the socket;
+- loss or replacement of the Wirekeeper node is observed by each Ircxd client and enters its normal
+  disconnect/reconnect path instead of leaving a stale generation handle connected;
+- an ordinary user QUIT and the authoritative connection-deletion path close the generation; and
+- a replay gap, unavailable checkpoint, rejected connection, or failed acceptance also closes the
+  affected generation so retry is fresh.
+
+The integration suite runs one real Session connect/join/send/persist scenario in both direct and
+Wirekeeper modes. Wirekeeper-specific cases cover engine Session replacement, an abrupt Ircxd
+client crash, replay persistence, absence of duplicate connection setup/JOIN writes, and permanent
+deletion cleanup. The production-like split acceptance check also replaces Wirekeeper while the
+engine stays up and proves that the engine establishes and persists traffic from a fresh IRC
+connection rather than retaining the stale generation handle.
+
+## Release and deployment
+
+The production split consists of three co-located BEAM services plus PostgreSQL:
+
+```text
+browser -> topics_club_gateway -> topics_club_engine -> topics_club_wirekeeper -> IRC server
+                    |                    |
+                    +------ PostgreSQL --+
+```
+
+The nodes use the same distribution cookie and loopback-only distribution:
+
+| Release | Default node | Fixed distribution port | Database access |
+| --- | --- | ---: | --- |
+| `topics_club_gateway` | `topics_club_gateway@localhost` | 4370 | yes |
+| `topics_club_engine` | `topics_club_engine@localhost` | 4371 | yes |
+| `topics_club_wirekeeper` | `topics_club_wirekeeper@localhost` | 4372 | no |
+
+The split engine defaults `TOPICS_CLUB_IRC_TRANSPORT` to `wirekeeper` and defaults
+`TOPICS_CLUB_WIREKEEPER_NODE` to `topics_club_wirekeeper@localhost`. Setting the transport to
+`direct` explicitly keeps Ircxd on its built-in socket adapter. Mix and the combined release remain
+direct without configuration.
+
+On an empty host, deploy Wirekeeper once before the first gateway-and-engine deployment. Thereafter,
+`bin/apptools deploy` activates gateway and then engine while deliberately leaving Wirekeeper alone.
+Each component can still be selected explicitly. Deploying only the engine, or using the default
+two-role deployment, leaves the Wirekeeper OS process, sockets, buffers, and checkpoints intact.
+Deploying or rolling back Wirekeeper necessarily replaces its node and therefore its sockets.
+
+Compatibility is contractual rather than tied to one repository tag. `diagnostics/0` publishes
+transport API version 1. The Wirekeeper health unit requires that version locally, and the engine
+health unit makes a bounded call from the engine node to its configured Wirekeeper node and requires
+the same version. Direct engine mode skips that check. Gateway/engine compatibility uses the
+existing versioned engine RPC contract. A failed post-activation contract check restores the prior
+selected release, including during a component rollback.
+
+The standalone Wirekeeper service loads only `/etc/topics-club/wirekeeper.env`, containing
+`RELEASE_NODE` and `RELEASE_COOKIE`. It does not load `db.env`, `IRC_CREDENTIALS_KEY`, Phoenix,
+OAuth, or Web Push secrets. Its systemd health unit performs a release RPC to
+`TopicsClub.Wirekeeper.diagnostics/0` and requires transport API version 1.
+
+Erlang distribution is a trusted local boundary in this implementation. Wirekeeper does not add
+per-call authentication or authorization beyond the shared node cookie. The first-party topology
+therefore binds EPMD and all three distribution ports to loopback and does not support placing the
+nodes on separate hosts.
+
 ## Not implemented yet
 
 The current umbrella application does not:
 
-- integrate with `TopicsClub.Engine`, `Ircxd.Client`, or `server_connections`;
 - connect to PostgreSQL or assign application meaning to keys;
 - implement UDP, a consumer-side TCP/WebSocket listener, or an adapter for the consumer leg;
 - register, authenticate, negotiate capabilities, join, part, interpret chat traffic, persist
@@ -309,13 +429,12 @@ The current umbrella application does not:
 - persist sockets or replay buffers across loss of the connection process, BEAM node, container, or
   host;
 - provide exactly-once delivery;
-- authorize remote engine nodes or expose a versioned engine-to-Wirekeeper RPC envelope;
-- reconcile application state after `gap?: true`; or
-- participate in the combined, gateway-only, or engine-only production releases and their Railway,
-  Docker Compose, or systemd deployment definitions.
+- authorize remote engine nodes or expose a versioned command envelope beyond the diagnostics
+  compatibility marker;
+- preserve a socket across a Wirekeeper node, VM, container, host, or Wirekeeper release restart;
+- resume a generation after a replay gap or unavailable checkpoint; or
+- participate in the combined Docker/Railway release. Those deployments intentionally retain
+  direct Ircxd socket ownership.
 
-Extraction to the standalone repository can happen later. Before production packaging, a real
-engine session still needs to attach to a kept IRC connection, exchange and ACK traffic, detach, and
-resume safely without a second registration or JOIN burst. A continuity-focused deployment must
-then place Wirekeeper in a process or service whose lifecycle is not coupled to engine deployments;
-co-locating it in the same release cannot preserve sockets across replacement of that release.
+Extraction to the standalone repository can happen later. The current boundary deliberately keeps
+the app in the umbrella while still packaging it as a separate runtime service.

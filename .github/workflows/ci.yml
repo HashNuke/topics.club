@@ -62,6 +62,7 @@ jobs:
           MIX_ENV=prod mix release topics_club
           MIX_ENV=prod mix release topics_club_gateway
           MIX_ENV=prod mix release topics_club_engine
+          MIX_ENV=prod mix release topics_club_wirekeeper
 
           has_path() {
             compgen -G "$1" >/dev/null
@@ -81,10 +82,12 @@ jobs:
           combined=_build/prod/rel/topics_club
           web=_build/prod/rel/topics_club_gateway
           engine=_build/prod/rel/topics_club_engine
+          wirekeeper=_build/prod/rel/topics_club_wirekeeper
 
           has_path "$combined/lib/topics_club_core-*"
           has_path "$combined/lib/topics_club_engine-*"
           has_path "$combined/lib/topics_club_gateway-*"
+          ! has_path "$combined/lib/topics_club_wirekeeper-*"
           test -x "$combined/bin/server"
           test -x "$combined/bin/migrate"
           has_path "$combined/lib/topics_club_gateway-*/priv/static/cache_manifest.json"
@@ -101,7 +104,16 @@ jobs:
           has_path "$engine/lib/topics_club_core-*"
           has_path "$engine/lib/topics_club_engine-*"
           ! has_path "$engine/lib/topics_club_gateway-*"
+          ! has_path "$engine/lib/topics_club_wirekeeper-*"
           ! has_path "$engine/lib/*/ebin/Elixir.TopicsClub.Release.beam"
           test ! -e "$engine/bin/server"
           test ! -e "$engine/bin/migrate"
           assert_no_storybook "$engine"
+
+          has_path "$wirekeeper/lib/topics_club_wirekeeper-*"
+          ! has_path "$wirekeeper/lib/topics_club_core-*"
+          ! has_path "$wirekeeper/lib/topics_club_engine-*"
+          ! has_path "$wirekeeper/lib/topics_club_gateway-*"
+          test ! -e "$wirekeeper/bin/server"
+          test ! -e "$wirekeeper/bin/migrate"
+          assert_no_storybook "$wirekeeper"

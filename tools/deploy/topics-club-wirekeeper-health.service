@@ -1,0 +1,23 @@
+[Unit]
+Description=Check the TopicsClub Wirekeeper process
+After=topics-club-wirekeeper.service
+Requires=topics-club-wirekeeper.service
+ConditionPathExists=/srv/topics-club/current-wirekeeper/bin/topics_club_wirekeeper
+
+[Service]
+Type=oneshot
+User=topics-club-wirekeeper
+Group=topics-club-wirekeeper
+WorkingDirectory=/var/lib/topics-club/wirekeeper
+EnvironmentFile=/etc/topics-club/wirekeeper.env
+Environment=HOME=/var/lib/topics-club/wirekeeper
+Environment=RELEASE_TMP=/var/lib/topics-club/wirekeeper/tmp
+Environment=ERL_EPMD_ADDRESS=127.0.0.1
+ExecStart=/srv/topics-club/current-wirekeeper/bin/topics_club_wirekeeper rpc "case TopicsClub.Wirekeeper.diagnostics() do {:ok, %%{transport_api_version: 1, total_connections: total}} when is_integer(total) -> :ok; state -> raise \"Wirekeeper is not ready or compatible: #{inspect(state)}\" end"
+TimeoutStartSec=30
+UMask=0027
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/topics-club/wirekeeper

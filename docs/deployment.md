@@ -66,10 +66,11 @@ The application waits for PostgreSQL health, runs migrations, and then starts th
 For the concise start-to-finish procedure, see `docs/deployment-separate-nodes.md`.
 
 The first-party split deployment is for the TopicsClub-operated environment where web-only
-deployments must leave IRC connections alone. It runs `topics_club_gateway` and
-`topics_club_engine` as separate systemd services on one Ubuntu 26.04 x86-64 host. It does not
-support a second engine host or horizontal replicas. The two BEAM nodes use short names and bind
-EPMD plus distribution ports `4369`, `4370`, and `4371` to loopback.
+deployments must leave IRC connections alone. It runs `topics_club_gateway`,
+`topics_club_wirekeeper`, and `topics_club_engine` as separate systemd services on one Ubuntu 26.04
+x86-64 host. Wirekeeper owns IRC sockets so engine-only restarts can resume them. The topology does
+not support a second engine host or horizontal replicas. The three BEAM nodes use short names and
+bind EPMD plus distribution ports `4369`, `4370`, `4371`, and `4372` to loopback.
 
 The destination must be reachable as `root@IP` with an existing SSH key. A separate command
 installs PostgreSQL 18 from the official PostgreSQL Ubuntu repository, starts it on loopback, creates
@@ -89,7 +90,7 @@ the password, and a repeat run does not rotate it:
 bin/apptools provision-db --host root@203.0.113.10
 ```
 
-Install the two application environment files from the local 1Password CLI session:
+Install the three application environment files from the local 1Password CLI session:
 
 ```bash
 bin/apptools deploy install-secrets --env prod --host root@203.0.113.10
@@ -99,9 +100,10 @@ The command resolves `app-secrets/topics-club-prod` in memory and streams the ro
 over encrypted SSH. It creates no local plaintext file and prints no secret values. It generates
 an Ed25519 deploy key on the destination only when one does not already exist, and prints the
 public key for you to add to the GitHub repository as a read-only deploy key. Both environment
-files receive the shared `IRC_CREDENTIALS_KEY` and `RELEASE_COOKIE`; neither contains
-`DATABASE_URL`, because both services load it from the generated `db.env`. The command assigns
-stable role-specific `RELEASE_NODE` names and installs the files with mode `0600`.
+Gateway and engine receive the shared `IRC_CREDENTIALS_KEY`; all three files receive the shared
+`RELEASE_COOKIE`. None contains `DATABASE_URL`: gateway and engine load it from `db.env`, while
+Wirekeeper does not access the database. The command selects Wirekeeper in `engine.env`, assigns
+stable role-specific `RELEASE_NODE` names, and installs all files with mode `0600`.
 Only the gateway starts Phoenix. Add engine-only hosted-IRC listener secrets to `engine.env` when
 that feature exists. Application provisioning checks the role files' existence, ownership, and
 mode without reading, printing, templating, replacing, or transferring their contents. It also
@@ -118,39 +120,49 @@ The repository defaults to `https://github.com/HashNuke/topics.club.git`. Create
 `bin/release`, push it to `origin`, and deploy either the newest numeric release tag or an exact tag:
 
 ```bash
+bin/apptools deploy wirekeeper --host root@203.0.113.10 --tag latest
 bin/apptools deploy --host root@203.0.113.10 --tag latest
 bin/apptools deploy --host root@203.0.113.10 --tag 20260828.1
 ```
 
-The combined command deploys gateway first, while the old engine remains online, then deploys the
-matching engine. The gateway build runs locked migrations before its symlink changes. An explicit
-engine deployment is accepted only after the same tag and commit are active in a healthy gateway,
-which confirms that its schema migration step completed:
+The first command is required once on an empty host. Wirekeeper then has its own deliberately slow
+release lifecycle. The default `deploy` command updates gateway first and engine second without
+selecting or restarting Wirekeeper, so routine application releases preserve its process, sockets,
+buffers, and checkpoints. The gateway build runs locked migrations before its symlink changes.
+Each role can also be selected explicitly:
 
 ```bash
 bin/apptools deploy gateway --host root@203.0.113.10 --tag latest
+bin/apptools deploy wirekeeper --host root@203.0.113.10 --tag latest
 bin/apptools deploy engine --host root@203.0.113.10 --tag latest
 ```
 
-A gateway-only deployment never selects or restarts the engine service. The deploy program checks
-out an exact clean commit away from the running release, builds into a new versioned directory,
+A default, gateway-only, or engine-only deployment never selects or restarts Wirekeeper. Update
+Wirekeeper only with an explicit `deploy wirekeeper` after reviewing the socket interruption. The
+deploy program checks out an exact clean commit away from the running release, builds into a versioned directory,
 checks the artifact manifest, atomically changes the role's `current` symlink, restarts only that
 role, and checks readiness. It keeps five release directories per role and two recent source
 checkouts, protecting current and previous targets. A deployment lock rejects concurrent builds.
 Re-running the active tag is a no-op.
 
-Gateway readiness requires PostgreSQL plus connectivity to the engine. During the first empty-host
-bootstrap only, gateway database readiness is sufficient until the engine starts. Engine readiness
-requires three consecutive marker RPC checks; when gateway is running, its end-to-end health must
-also become healthy. A failed migration leaves the previous gateway selected and running. A failed
-post-activation health check automatically restores and restarts the previous compatible role.
+Gateway readiness requires PostgreSQL plus a successful call through the versioned engine RPC
+contract. During the first empty-host bootstrap only, gateway database readiness is sufficient
+until the engine starts. Wirekeeper readiness requires three consecutive local RPC checks and
+transport API version 1. Engine readiness requires three consecutive RPC checks of its marker,
+engine protocol version, and its configured IRC transport: direct mode succeeds locally, while
+Wirekeeper mode makes a bounded call from the engine node to the configured Wirekeeper node and
+requires transport API version 1. This detects wrong node names, cookie mismatches, distribution
+failures, and incompatible Wirekeeper releases. A failed migration leaves the previous gateway selected
+and running. A failed post-activation health check automatically restores and restarts the previous
+compatible role.
 
 Inspect the services and immutable build metadata with:
 
 ```bash
-systemctl status topics-club-gateway topics-club-engine
-journalctl -u topics-club-gateway -u topics-club-engine
+systemctl status topics-club-gateway topics-club-wirekeeper topics-club-engine
+journalctl -u topics-club-gateway -u topics-club-wirekeeper -u topics-club-engine
 cat /srv/topics-club/current-gateway/deploy-manifest
+cat /srv/topics-club/current-wirekeeper/deploy-manifest
 cat /srv/topics-club/current-engine/deploy-manifest
 curl --fail http://127.0.0.1:4000/health
 ```
@@ -192,14 +204,18 @@ Roll back one application role to its recorded previous release with:
 
 ```bash
 bin/apptools rollback gateway --host root@203.0.113.10
+bin/apptools rollback wirekeeper --host root@203.0.113.10
 bin/apptools rollback engine --host root@203.0.113.10
 ```
 
-Gateway rollback leaves the engine running; engine rollback leaves the gateway running. The
-rollback swaps stable symlinks, restarts only the selected service, health-checks it, and restores
-the original selection if that check fails. It never reverses database migrations. Deploy and roll
-back only across additive, application-compatible migrations; a destructive migration needs its
-own coordinated database recovery plan.
+Gateway and engine rollback leave Wirekeeper running. A Wirekeeper rollback necessarily replaces
+its in-memory IRC sockets. The rollback swaps stable symlinks, restarts only the selected service,
+health-checks its live contracts, and restores the original selection if that check fails.
+Gateway/engine compatibility is checked through the versioned engine RPC contract;
+engine/Wirekeeper compatibility is checked through the Wirekeeper transport API version. Rollback
+never reverses database migrations. Deploy and roll back only across additive,
+application-compatible migrations; a destructive migration needs its own coordinated database
+recovery plan.
 
 For local production-like rehearsal, the resettable pseudo-VPS has the same Ubuntu version,
 systemd services, SSH-as-root entry point, target-side Docker builder, 1.5 GiB RAM limit, build swap,
@@ -208,6 +224,7 @@ and PostgreSQL sidecar:
 ```bash
 bin/apptools testvps create
 bin/apptools provision --repository file:///mnt/topics-club.git
+bin/apptools deploy wirekeeper --tag latest
 bin/apptools deploy --tag latest
 bin/apptools testvps acceptance
 bin/apptools testvps status
@@ -219,12 +236,14 @@ uses the public HTTPS remote. Reset and destroy affect only the exact named pseu
 network, PostgreSQL data volume, Docker build-data volume, and ignored `.apptools/vps` test state.
 
 `testvps acceptance` is an explicit, production-like split-release check and is not part of
-`mix precommit` or routine CI. It briefly stops and restarts the pseudo-VPS gateway while leaving
-the engine running. A temporary local IRC sidecar exchanges outbound and inbound messages without
-publishing an IRC port or contacting a public network. The check verifies persistence and gateway
-history recovery while also proving that the engine PID and original IRC socket survive. It then
-removes the temporary database records and IRC container and restores the gateway if the check
-fails partway through.
+`mix precommit` or routine CI. It first stops and restarts the pseudo-VPS engine while leaving
+Wirekeeper running. A temporary local IRC sidecar exchanges outbound and inbound messages without
+publishing an IRC port or contacting a public network. The check injects traffic while the engine is
+down, verifies Wirekeeper buffering and replay persistence, and proves that the Wirekeeper PID and
+original IRC socket survive. It then restarts Wirekeeper while leaving the engine PID unchanged and
+proves that node-loss monitoring makes the live engine establish a fresh IRC connection and persist
+new traffic. Finally it removes the temporary database records and IRC container and restores either
+service if the check fails partway through.
 
 ## Optional PostgreSQL backup and restore
 

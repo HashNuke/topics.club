@@ -571,9 +571,10 @@ The checked-in version 1 contract currently defines these operations and expecta
 The engine API reloads the user, connection, membership, or direct-message thread needed by each operation and rechecks ownership before touching a local session. Per-connection API requests take an engine-owned orchestration lock around authorization, durable intent mutation, and the complete process effect. That lock is deliberately distinct from the session subsystem's connection lock, so opposing lifecycle requests are linearized without deadlocking session startup or shutdown. Ecto schemas, `Ircxd.Client.Info`, `MapSet` values, and timestamps are converted to plain maps, lists, and ISO 8601 strings before a reply crosses the adapter boundary. Local requests execute under an engine-owned task supervisor so the same per-operation timeout applies in combined mode without routing all work through the marker process.
 
 Version 1 is the first protocol, so there is no real N-1 implementation to support or test yet.
-Until a version 2 contract exists, gateway and engine releases must come from the same compatible
-source revision. Introducing version 2 requires retaining version 1 handling long enough to add a
-real web-N/engine-N-1 compatibility test before independent rolling upgrades are allowed.
+Gateway and engine releases may move independently while both advertise and pass version 1 and the
+shared database migrations remain additive. Introducing version 2 requires retaining version 1
+handling long enough to add a real web-N/engine-N-1 compatibility test before deploying an
+otherwise incompatible pair.
 
 ### Initial operations
 
@@ -813,12 +814,13 @@ provides authentication. A future multi-host design would need a private tunnel/
 TLS distribution; exposing raw Erlang distribution to the public Internet is never supported.
 
 Generate one deployment-specific cookie with `openssl rand -hex 32`. Store the resulting value as
-`RELEASE_COOKIE` in both role-specific environment files outside the checkout, restrict those
-files to the runtime account, and never commit the value. Rotation is a coordinated maintenance
-operation because a node has one active cookie: stop the gateway, stop the engine, replace the
-cookie in both environment files, start the engine and verify marker status, then start the
-gateway and verify `/health` reports the engine ready through a protocol request. This restarts IRC sessions once; do not
-attempt a rolling cookie change with mismatched nodes.
+`RELEASE_COOKIE` in the gateway, Wirekeeper, and engine environment files outside the checkout,
+restrict those files to their runtime accounts, and never commit the value. Rotation is a
+coordinated maintenance operation because a node has one active cookie: stop the gateway, stop the
+engine, stop Wirekeeper, replace the cookie in all three environment files, start Wirekeeper and
+verify its health unit, start the engine and verify marker and transport health, then start the
+gateway and verify `/health` reports the engine ready through a protocol request. This replaces the
+in-memory IRC sockets once; do not attempt a rolling cookie change with mismatched nodes.
 
 The runtime emits redacted telemetry and stable log event names for marker
 acquisition/duplication, gateway-engine connection changes, RPC timeouts, and ingestion failures;
@@ -1417,11 +1419,12 @@ role-specific values remain readable only by that role. The database provisionin
 filled plaintext or encrypted secret file belongs in the public repository. The committed examples
 contain variable names and placeholders only.
 
-`bin/apptools` is the operator interface. `deploy` defaults to both roles in schema-safe order
-(gateway migrations while the old engine stays online, followed by the matching engine), while
-`deploy gateway` and `deploy engine` remain independently selectable. The engine command requires
-the same tag and commit to be active in the gateway before it can stop the old engine. The complete
-operator runbook is in `docs/deployment.md`.
+`bin/apptools` is the operator interface. `deploy` defaults to the gateway and engine in schema-safe
+order (gateway migrations while the old engine stays online, followed by the engine), while each
+role remains independently selectable. Wirekeeper is deployed explicitly and is not part of the
+default path. The engine command requires a running gateway that confirms database readiness;
+post-activation health enforces the versioned gateway/engine and engine/Wirekeeper contracts. The
+complete operator runbook is in `docs/deployment.md`.
 
 #### Host and directory preparation
 
