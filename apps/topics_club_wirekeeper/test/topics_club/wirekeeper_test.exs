@@ -626,6 +626,38 @@ defmodule TopicsClub.WirekeeperTest do
     assert TestTcpServer.connection_count(server) == 1
   end
 
+  test "lists and diagnoses both open connections and retained closed tombstones" do
+    open_server = start_supervised!({TestTcpServer, self()})
+
+    closed_server =
+      start_supervised!(
+        Supervisor.child_spec({TestTcpServer, self()}, id: {:closed_list_server, self()})
+      )
+
+    open_key = unique_key("listed-open")
+    closed_key = unique_key("listed-closed")
+    assert {:ok, opened} = open_tcp(open_key, open_server)
+    assert {:ok, closed} = open_tcp(closed_key, closed_server, closed_retention_ms: 5_000)
+    on_exit(fn -> Wirekeeper.close(open_key, opened.generation) end)
+    on_exit(fn -> Wirekeeper.close(closed_key, closed.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^open_server, 1}
+    assert_receive {:wirekeeper_test_server, :accepted, ^closed_server, 1}
+    assert :ok = TestTcpServer.close_clients(closed_server)
+    assert {:ok, %{status: :closed}} = await_connection_status(closed_key, :closed)
+
+    assert {:ok, infos} = Wirekeeper.list()
+    assert Enum.map(infos, &{&1.key, &1.status}) == [{closed_key, :closed}, {open_key, :open}]
+
+    assert {:ok,
+            %{
+              total_connections: 2,
+              open_connections: 1,
+              closed_connections: 1,
+              attached_connections: 0,
+              detached_connections: 2
+            }} = Wirekeeper.diagnostics()
+  end
+
   test "closes a connection when a non-reading peer exceeds the configured send timeout" do
     server = start_supervised!({NonReadingTcpServer, self()})
     key = unique_key("send-timeout")

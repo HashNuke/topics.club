@@ -124,7 +124,9 @@ defmodule TopicsClub.Wirekeeper do
   @spec diagnostics() ::
           {:ok,
            %{
+             total_connections: non_neg_integer(),
              open_connections: non_neg_integer(),
+             closed_connections: non_neg_integer(),
              attached_connections: non_neg_integer(),
              detached_connections: non_neg_integer(),
              buffered_records: non_neg_integer(),
@@ -139,7 +141,9 @@ defmodule TopicsClub.Wirekeeper do
         Enum.reduce(
           infos,
           %{
-            open_connections: length(infos),
+            total_connections: length(infos),
+            open_connections: 0,
+            closed_connections: 0,
             attached_connections: 0,
             detached_connections: 0,
             buffered_records: 0,
@@ -149,6 +153,10 @@ defmodule TopicsClub.Wirekeeper do
           },
           fn info, totals ->
             totals
+            |> Map.update!(
+              if(info.status == :open, do: :open_connections, else: :closed_connections),
+              &(&1 + 1)
+            )
             |> Map.update!(
               if(info.attached?, do: :attached_connections, else: :detached_connections),
               &(&1 + 1)

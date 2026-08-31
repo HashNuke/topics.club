@@ -73,7 +73,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
   def handle_call(:connections, _from, state) do
     connections =
       Registry.select(@registry, [
-        {{{:"$1", :"$2", :"$3"}}, [], [{{:"$2", :"$3"}}]}
+        {{:"$1", :"$2", :"$3"}, [], [{{:"$2", :"$3"}}]}
       ])
       |> Enum.flat_map(fn
         {connection, {status, _generation}} when status in [:open, :closed] -> [connection]
