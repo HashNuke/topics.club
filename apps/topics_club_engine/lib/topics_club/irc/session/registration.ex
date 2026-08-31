@@ -28,6 +28,7 @@ defmodule TopicsClub.Irc.Session.Registration do
   def refresh(state, event_name)
       when event_name in [
              :registered,
+             :resumed,
              :welcome,
              :cap_ack,
              :cap_del,

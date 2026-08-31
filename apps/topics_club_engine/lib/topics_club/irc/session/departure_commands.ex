@@ -3,7 +3,13 @@ defmodule TopicsClub.Irc.Session.DepartureCommands do
 
   alias TopicsClub.Chat.ChannelPartLifecycle
   alias TopicsClub.Chat.ServerConnectionLock
-  alias TopicsClub.Irc.{ConnectionLock, Session.EventRecorder, Session.Targets}
+
+  alias TopicsClub.Irc.{
+    ConnectionLock,
+    Session.EventRecorder,
+    Session.Targets,
+    WirekeeperTransport
+  }
 
   def part(state, channel, reason) do
     serialize(state, fn -> part_active(state, channel, reason) end)
@@ -39,7 +45,12 @@ defmodule TopicsClub.Irc.Session.DepartureCommands do
   end
 
   defp do_quit(state, reason) do
-    result = maybe_quit(state.client, reason)
+    result =
+      with :ok <- maybe_quit(state.client, reason),
+           :ok <- WirekeeperTransport.close_connection(state.connection.id) do
+        :ok
+      end
+
     EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
     {normalize_result(result), state}
   end

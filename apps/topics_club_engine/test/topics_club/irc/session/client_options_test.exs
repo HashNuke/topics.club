@@ -1,8 +1,21 @@
 defmodule TopicsClub.Irc.Session.ClientOptionsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias TopicsClub.Chat.ServerConnection
   alias TopicsClub.Irc.Session.ClientOptions
+
+  setup do
+    previous = Application.get_env(:topics_club_engine, :irc_transport)
+    Application.put_env(:topics_club_engine, :irc_transport, :direct)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:topics_club_engine, :irc_transport)
+      else
+        Application.put_env(:topics_club_engine, :irc_transport, previous)
+      end
+    end)
+  end
 
   test "builds envelope client options with identity fallbacks and required capabilities" do
     connection = %ServerConnection{
@@ -36,6 +49,27 @@ defmodule TopicsClub.Irc.Session.ClientOptionsTest do
 
     refute Keyword.has_key?(opts, :password)
     refute Keyword.has_key?(opts, :sasl)
+    refute Keyword.has_key?(opts, :transport_adapter)
+  end
+
+  test "opts into the Wirekeeper transport with a stable connection key" do
+    Application.put_env(:topics_club_engine, :irc_transport, {:wirekeeper, :wirekeeper@test})
+
+    connection = %ServerConnection{
+      id: 42,
+      host: "irc.example.test",
+      port: 6697,
+      use_tls: true,
+      nickname: "mira"
+    }
+
+    opts = ClientOptions.build(connection, self())
+
+    assert {TopicsClub.Irc.WirekeeperTransport, adapter_opts} = opts[:transport_adapter]
+    assert adapter_opts[:key] == 42
+    assert adapter_opts[:node] == :wirekeeper@test
+    assert adapter_opts[:consumer] == self()
+    assert adapter_opts[:transport] == {:tls, host: "irc.example.test", port: 6697}
   end
 
   test "adds server password and only complete SASL credentials" do

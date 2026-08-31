@@ -1322,6 +1322,7 @@ defmodule TopicsClub.WirekeeperTest do
     assert {:ok,
             %{
               total_connections: 2,
+              transport_api_version: 1,
               open_connections: 1,
               closed_connections: 1,
               attached_connections: 0,

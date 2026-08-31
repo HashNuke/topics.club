@@ -2,7 +2,16 @@ defmodule TopicsClub.Irc.Session.ConnectionEventsTest do
   use TopicsClub.DataCase, async: true
 
   alias TopicsClub.AccountsFixtures
-  alias TopicsClub.Chat.{CommandMessages, Connections, Message, MessageHistory, ServerConnection}
+
+  alias TopicsClub.Chat.{
+    ChannelMembership,
+    CommandMessages,
+    Connections,
+    Message,
+    MessageHistory,
+    ServerConnection
+  }
+
   alias TopicsClub.Irc.Session.ConnectionEvents
   alias TopicsClub.Repo
 
@@ -25,6 +34,9 @@ defmodule TopicsClub.Irc.Session.ConnectionEventsTest do
       client: nil,
       client_info: nil,
       registered?: false,
+      resumed?: false,
+      wirekeeper_resume: nil,
+      pending_joins: MapSet.new(),
       pending_commands: %{},
       isupport_received?: false,
       isupport_seen?: false,
@@ -56,6 +68,31 @@ defmodule TopicsClub.Irc.Session.ConnectionEventsTest do
     assert connection_id == context.connection.id
 
     assert [%{kind: "system", body: "Connected to irc.example.test."}] = messages(context)
+  end
+
+  test "restores joined memberships before a retained connection registers", context do
+    Repo.insert!(%ChannelMembership{
+      user_id: context.user.id,
+      server_connection_id: context.connection.id,
+      channel: "#joined",
+      status: "joined",
+      auto_join: true
+    })
+
+    Repo.insert!(%ChannelMembership{
+      user_id: context.user.id,
+      server_connection_id: context.connection.id,
+      channel: "#pending",
+      status: "pending",
+      auto_join: true
+    })
+
+    resumed = ConnectionEvents.resumed(context.state, %{generation: "generation-1"})
+
+    assert resumed.resumed?
+    assert resumed.wirekeeper_resume == %{generation: "generation-1"}
+    assert resumed.joined_channels == MapSet.new(["#joined"])
+    assert resumed.pending_joins == MapSet.new(["#pending"])
   end
 
   test "records connection errors and publishes the errored status", context do
@@ -105,6 +142,7 @@ defmodule TopicsClub.Irc.Session.ConnectionEventsTest do
     returned = ConnectionEvents.reconnecting(state)
 
     refute returned.registered?
+    refute returned.resumed?
     refute returned.isupport_received?
     refute returned.isupport_seen?
     refute returned.registration_boundary_reached?

@@ -11,6 +11,7 @@ defmodule TopicsClub.Irc.Session do
   alias TopicsClub.Irc.Session.Initialization
   alias TopicsClub.Irc.Session.JoinFlush
   alias TopicsClub.Irc.SessionLocator
+  alias TopicsClub.Irc.WirekeeperTransport
   alias TopicsClub.Chat.ServerConnection
   alias TopicsClub.Accounts.User
 
@@ -84,11 +85,78 @@ defmodule TopicsClub.Irc.Session do
 
   def handle_info({:ircxd, event}, state), do: {:noreply, EventDispatcher.dispatch(state, event)}
 
+  def handle_info({:topics_club_wirekeeper, {:data, payload}}, %{client: client} = state)
+      when is_pid(client) do
+    :ok = WirekeeperTransport.deliver(client, payload)
+    {:noreply, state}
+  end
+
+  def handle_info({:topics_club_wirekeeper, {:data, _payload}}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:topics_club_wirekeeper_transport, {:accepted, accepted}},
+        state
+      ) do
+    case WirekeeperTransport.acknowledge(accepted) do
+      :ok -> :ok
+      {:error, reason} -> WirekeeperTransport.acceptance_failed(accepted, reason)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info(
+        {:topics_club_wirekeeper, {:upstream_closed, payload}},
+        %{client: client} = state
+      )
+      when is_pid(client) do
+    :ok = WirekeeperTransport.upstream_closed(client, payload)
+    {:noreply, state}
+  end
+
+  def handle_info({:topics_club_wirekeeper, {:upstream_closed, _payload}}, state),
+    do: {:noreply, state}
+
+  def handle_info(
+        {:topics_club_wirekeeper, {:overflow, payload}},
+        %{client: client} = state
+      )
+      when is_pid(client) do
+    :ok = WirekeeperTransport.overflowed(client, payload)
+    {:noreply, state}
+  end
+
+  def handle_info({:topics_club_wirekeeper, {:overflow, _payload}}, state),
+    do: {:noreply, state}
+
   def handle_info(:halt_for_connection_issue, state),
     do: {:stop, :normal, %{state | preserve_error_status?: true}}
 
   def handle_info({:retry_connect, attempt}, state),
     do: ConnectionEvents.retry_connect(state, attempt)
+
+  def handle_info(
+        {:DOWN, monitor_ref, :process, client, reason},
+        %{client: client, client_monitor: monitor_ref} = state
+      )
+      when is_pid(client) and is_reference(monitor_ref) do
+    case WirekeeperTransport.detach_connection(state.connection.id) do
+      :ok ->
+        ConnectionEvents.client_exited(state, monitor_ref, client, reason)
+
+      {:error, :unavailable} ->
+        if Map.get(state, :wirekeeper_node_down?, false) do
+          ConnectionEvents.client_exited(state, monitor_ref, client, reason)
+        else
+          {:stop, {:wirekeeper_detach_failed, :unavailable},
+           %{state | client: nil, client_monitor: nil}}
+        end
+
+      {:error, detach_reason} ->
+        {:stop, {:wirekeeper_detach_failed, detach_reason},
+         %{state | client: nil, client_monitor: nil}}
+    end
+  end
 
   def handle_info({:DOWN, monitor_ref, :process, pid, reason}, state),
     do: ConnectionEvents.client_exited(state, monitor_ref, pid, reason)

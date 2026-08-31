@@ -22,12 +22,20 @@ defmodule TopicsClub.Irc.Session.EventDispatcher do
 
   def dispatch(state, :registered), do: ConnectionEvents.registered(state)
 
+  def dispatch(state, {:resumed, metadata}), do: ConnectionEvents.resumed(state, metadata)
+
   def dispatch(state, {:connect_error, reason}),
     do: ConnectionEvents.connect_error(state, reason)
 
   def dispatch(state, :disconnected), do: ConnectionEvents.disconnected(state)
 
   def dispatch(state, {:reconnecting, payload}), do: ConnectionEvents.reconnecting(state, payload)
+
+  def dispatch(state, {:connected, _metadata}),
+    do: Map.put(state, :wirekeeper_node_down?, false)
+
+  def dispatch(state, {:disconnect, %{reason: {:wirekeeper_node_down, _node}}}),
+    do: Map.put(state, :wirekeeper_node_down?, true)
 
   def dispatch(state, {:privmsg, %{target: _target, nick: _nick, body: _body} = payload}),
     do: InboundMessageRouting.privmsg(state, payload)

@@ -98,10 +98,19 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
     |> Map.put(:registered?, true)
     |> Map.put(:connection_issue, nil)
     |> Map.put(:preserve_error_status?, false)
+    |> Map.put(:wirekeeper_node_down?, false)
     |> Map.put(:retry_attempt, 0)
     |> Map.put(:retry_timer, nil)
     |> Registration.refresh_client_info()
     |> JoinLifecycle.schedule_flush()
+  end
+
+  def resumed(state, metadata) when is_map(metadata) do
+    state
+    |> Map.put(:resumed?, true)
+    |> Map.put(:wirekeeper_resume, metadata)
+    |> Map.put(:wirekeeper_node_down?, false)
+    |> JoinLifecycle.restore_resumed()
   end
 
   def connect_error(state, reason) do
@@ -129,6 +138,8 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
     state
     |> CommandLifecycle.fail_all("Connection closed before completion.")
     |> Map.put(:registered?, false)
+    |> Map.put(:resumed?, false)
+    |> Map.put(:wirekeeper_resume, nil)
   end
 
   def reconnecting(state, payload \\ %{}) do
@@ -149,18 +160,23 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
       )
     end
 
-    %{
-      state
-      | registered?: false,
-        isupport_received?: false,
-        isupport_seen?: false,
-        registration_boundary_reached?: false,
-        join_validation_ready?: false,
-        joins_flushed?: false,
-        join_flush_timer: JoinLifecycle.cancel_flush(state),
-        sent_joins: MapSet.new(),
-        joined_channels: MapSet.new()
-    }
+    state =
+      %{
+        state
+        | registered?: false,
+          resumed?: false,
+          wirekeeper_resume: nil,
+          isupport_received?: false,
+          isupport_seen?: false,
+          registration_boundary_reached?: false,
+          join_validation_ready?: false,
+          joins_flushed?: false,
+          join_flush_timer: JoinLifecycle.cancel_flush(state),
+          sent_joins: MapSet.new(),
+          joined_channels: MapSet.new()
+      }
+
+    state
   end
 
   def require_human(state, issue) when is_map(issue) do

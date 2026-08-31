@@ -36,7 +36,9 @@ defmodule TopicsClubCore.MixProject do
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.2"},
       {:telemetry, "~> 1.0"},
-      {:ircxd, "~> 1.1.0"}
+      {:ircxd,
+       git: "https://github.com/HashNuke/ircxd.git",
+       ref: "0c9bfb1a50a33c57e858eef98e7f8bd1d9e2c14a"}
     ]
   end
 end

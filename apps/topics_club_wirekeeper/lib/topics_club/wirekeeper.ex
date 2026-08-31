@@ -13,6 +13,7 @@ defmodule TopicsClub.Wirekeeper do
 
   @snapshot_timeout 250
   @snapshot_max_concurrency 8
+  @transport_api_version 1
 
   @typedoc "An application-selected stable connection identifier."
   @type key :: integer() | binary()
@@ -195,6 +196,7 @@ defmodule TopicsClub.Wirekeeper do
           {:ok,
            %{
              total_connections: non_neg_integer(),
+             transport_api_version: pos_integer(),
              open_connections: non_neg_integer(),
              closed_connections: non_neg_integer(),
              attached_connections: non_neg_integer(),
@@ -212,6 +214,7 @@ defmodule TopicsClub.Wirekeeper do
           infos,
           %{
             total_connections: length(infos),
+            transport_api_version: @transport_api_version,
             open_connections: 0,
             closed_connections: 0,
             attached_connections: 0,

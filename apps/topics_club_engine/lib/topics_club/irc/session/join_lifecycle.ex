@@ -135,6 +135,15 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
     |> Map.put(:joined_channels, joined_channels)
   end
 
+  def restore_resumed(state) do
+    mapping = Targets.casemapping(state)
+
+    state
+    |> Map.put(:pending_joins, persisted_channels(state.connection, mapping, ["pending"]))
+    |> Map.put(:joined_channels, persisted_channels(state.connection, mapping, ["joined"]))
+    |> Map.put(:sent_joins, MapSet.new())
+  end
+
   def flush(state) do
     case ConnectionLock.run_serialized(state.connection, fn ->
            case ServerConnectionLock.ensure_active(state.connection.id) do
@@ -195,11 +204,15 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
   def persisted_channels(connection, casemapping \\ :rfc1459)
 
   def persisted_channels(%ServerConnection{} = connection, casemapping) do
+    persisted_channels(connection, casemapping, ["pending", "joined"])
+  end
+
+  defp persisted_channels(%ServerConnection{} = connection, casemapping, statuses) do
     ChannelMembership
     |> where(
       [membership],
       membership.server_connection_id == ^connection.id and membership.auto_join and
-        membership.status in ["pending", "joined"]
+        membership.status in ^statuses
     )
     |> Repo.all()
     |> Enum.map(&Identifier.key(&1.channel, casemapping))

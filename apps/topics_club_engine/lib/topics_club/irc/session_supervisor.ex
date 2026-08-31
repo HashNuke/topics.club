@@ -5,6 +5,7 @@ defmodule TopicsClub.Irc.SessionSupervisor do
   alias TopicsClub.Irc.Session
   alias TopicsClub.Irc.Session.ClientLifecycle
   alias TopicsClub.Irc.SessionLocator
+  alias TopicsClub.Irc.WirekeeperTransport
 
   @stop_attempts 3
   @stop_timeout 5_000
@@ -36,9 +37,20 @@ defmodule TopicsClub.Irc.SessionSupervisor do
   end
 
   def stop_for_deletion(%ServerConnection{} = connection) do
+    with :ok <- stop_for_restart(connection),
+         :ok <- WirekeeperTransport.close_connection(connection.id) do
+      :ok
+    end
+  end
+
+  @doc false
+  def stop_for_restart(%ServerConnection{} = connection) do
     registry_key = {connection.user_id, connection.id}
     client = registered_client(registry_key)
+    stop_session_for_deletion(registry_key, client)
+  end
 
+  defp stop_session_for_deletion(registry_key, client) do
     case Registry.lookup(TopicsClub.Irc.SessionRegistry, registry_key) do
       [{pid, _value}] when is_pid(pid) ->
         session_ref = Process.monitor(pid)

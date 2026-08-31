@@ -23,7 +23,16 @@ defmodule TopicsClub.Irc.SessionTest do
   alias TopicsClub.Irc.Session.PendingEchoes
   alias TopicsClub.IrcTestServer
 
-  test "connects, joins, sends messages, and persists inbound messages" do
+  for transport_mode <- [:direct, :wirekeeper] do
+    @transport_mode transport_mode
+
+    test "connects, joins, sends messages, and persists inbound messages in #{@transport_mode} mode" do
+      configure_transport(@transport_mode)
+      run_session_scenario()
+    end
+  end
+
+  defp run_session_scenario do
     server = start_supervised!({IrcTestServer, self()})
     port = IrcTestServer.port(server)
     user = AccountsFixtures.user_fixture()
@@ -36,6 +45,10 @@ defmodule TopicsClub.Irc.SessionTest do
         "use_tls" => false,
         "nickname" => "topics_club"
       })
+
+    on_exit(fn ->
+      _result = SessionSupervisor.stop_for_deletion(connection)
+    end)
 
     {:ok, membership} = Chat.join_channel(user, connection, "#pipe")
     Phoenix.PubSub.subscribe(TopicsClub.PubSub, "user:#{user.id}")
@@ -2355,5 +2368,23 @@ defmodule TopicsClub.Irc.SessionTest do
     assert state.isupport_received? == (lines != [])
 
     assert :ok = Session.quit(connection)
+  end
+
+  defp configure_transport(:direct), do: put_transport_configuration(:direct)
+
+  defp configure_transport(:wirekeeper),
+    do: put_transport_configuration({:wirekeeper, node()})
+
+  defp put_transport_configuration(configuration) do
+    previous = Application.get_env(:topics_club_engine, :irc_transport)
+    Application.put_env(:topics_club_engine, :irc_transport, configuration)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:topics_club_engine, :irc_transport)
+      else
+        Application.put_env(:topics_club_engine, :irc_transport, previous)
+      end
+    end)
   end
 end
