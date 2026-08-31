@@ -48,6 +48,8 @@ defmodule TopicsClub.Wirekeeper.Socket do
         |> Keyword.put(:active, false)
         |> Keyword.put(:mode, :binary)
         |> Keyword.put(:packet, :raw)
+        |> Keyword.put(:send_timeout, send_timeout)
+        |> Keyword.put(:send_timeout_close, true)
 
       case :ssl.connect(connect_host, port, tls_options, connect_timeout) do
         {:ok, socket} -> {:ok, {:tls, socket}}

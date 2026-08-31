@@ -2,6 +2,7 @@ defmodule TopicsClub.Wirekeeper.TlsTest do
   use ExUnit.Case, async: false
 
   alias TopicsClub.Wirekeeper
+  alias TopicsClub.Wirekeeper.NonReadingTlsServer
   alias TopicsClub.Wirekeeper.TestCertificate
   alias TopicsClub.Wirekeeper.TestTlsServer
 
@@ -99,6 +100,44 @@ defmodule TopicsClub.Wirekeeper.TlsTest do
 
     on_exit(fn -> close_if_opened(key, result) end)
     assert {:error, {:transport, _reason}} = result
+  end
+
+  test "top-level finite send timeout overrides conflicting TLS socket options" do
+    server = start_supervised!({NonReadingTlsServer, self()})
+    key = "tls-send-timeout-#{System.unique_integer([:positive, :monotonic])}"
+
+    assert {:ok, opened} =
+             Wirekeeper.open(
+               key,
+               {:tls,
+                host: "127.0.0.1",
+                port: NonReadingTlsServer.port(server),
+                send_timeout: 50,
+                tls_options: [verify: :verify_none, send_timeout: :infinity]}
+             )
+
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_non_reading_tls_server, :accepted, ^server}
+    test_process = self()
+    payload = :binary.copy(<<0>>, 1_048_576)
+
+    _sender =
+      start_supervised!(
+        {Task,
+         fn ->
+           result =
+             Enum.reduce_while(1..128, :ok, fn _attempt, :ok ->
+               case Wirekeeper.send_data(key, opened.generation, payload) do
+                 :ok -> {:cont, :ok}
+                 error -> {:halt, error}
+               end
+             end)
+
+           send(test_process, {:tls_send_timeout_result, result})
+         end}
+      )
+
+    assert_receive {:tls_send_timeout_result, {:error, {:transport, :timeout}}}, 2_000
   end
 
   defp ca_certificate do
