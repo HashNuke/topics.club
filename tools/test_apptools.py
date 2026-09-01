@@ -134,6 +134,18 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(testvps.VPS_CONTAINER, "topics-club-vps")
         self.assertIsInstance(apptools.AppTools.testvps, testvps.VpsCommands)
 
+    def test_database_clients_do_not_require_a_host_local_postgres_unit(self) -> None:
+        deploy_dir = Path(__file__).resolve().parent / "deploy"
+
+        for service_name in [
+            "topics-club-gateway.service",
+            "topics-club-engine.service",
+            "topics-club-migrate.service",
+        ]:
+            with self.subTest(service=service_name):
+                service = (deploy_dir / service_name).read_text(encoding="utf-8")
+                self.assertNotIn("Requires=postgresql.service", service)
+
     def test_repository_accepts_https_and_constrained_github_ssh_remotes(self) -> None:
         apptools.validate_repository("https://github.com/HashNuke/topics.club.git")
         apptools.validate_repository("git@github.com:HashNuke/topics.club.git")

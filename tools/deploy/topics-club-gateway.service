@@ -2,7 +2,6 @@
 Description=TopicsClub gateway
 After=network-online.target postgresql.service
 Wants=network-online.target
-Requires=postgresql.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 ConditionPathExists=/srv/topics-club/current-gateway/bin/server

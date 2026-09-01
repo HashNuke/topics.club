@@ -1,7 +1,6 @@
 [Unit]
 Description=Run TopicsClub database migrations
 After=postgresql.service
-Requires=postgresql.service
 ConditionPathExists=/srv/topics-club/candidate-gateway/bin/migrate
 
 [Service]
