@@ -34,13 +34,23 @@ defmodule TopicsClub.Chat.Connections do
   end
 
   def update(%User{} = user, id, attrs) do
-    connection = get!(user, id)
+    loaded_connection = get!(user, id)
+    maybe_pause_after_update_load(loaded_connection)
 
-    connection
-    |> ServerConnection.changeset(Map.take(attrs, @editable_fields ++ @editable_field_names))
-    |> maybe_default_sasl_username(connection)
-    |> maybe_increment_transport_revision(connection)
-    |> Repo.update()
+    Repo.transaction(fn ->
+      connection = get_for_update!(user, id)
+
+      changeset =
+        connection
+        |> ServerConnection.changeset(Map.take(attrs, @editable_fields ++ @editable_field_names))
+        |> maybe_default_sasl_username(connection)
+        |> maybe_increment_transport_revision(connection)
+
+      case Repo.update(changeset) do
+        {:ok, updated} -> updated
+        {:error, %Ecto.Changeset{} = changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
   def delete(%User{} = user, id) do
@@ -84,4 +94,33 @@ defmodule TopicsClub.Chat.Connections do
   end
 
   defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
+
+  defp get_for_update!(%User{id: user_id}, id) do
+    ServerConnection
+    |> where(
+      [connection],
+      connection.user_id == ^user_id and connection.id == ^id and not connection.deleting
+    )
+    |> lock("FOR UPDATE")
+    |> preload(:channel_memberships)
+    |> Repo.one!()
+  end
+
+  defp maybe_pause_after_update_load(connection) do
+    case Application.get_env(:topics_club_gateway, :connection_update_after_load_barrier) do
+      {test_pid, barrier_ref} when is_pid(test_pid) and is_reference(barrier_ref) ->
+        send(
+          test_pid,
+          {:connection_update_loaded, self(), barrier_ref, connection.id,
+           connection.transport_revision}
+        )
+
+        receive do
+          {:continue_connection_update, ^barrier_ref} -> :ok
+        end
+
+      _other ->
+        :ok
+    end
+  end
 end

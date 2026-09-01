@@ -160,6 +160,74 @@ defmodule TopicsClub.Chat.ConnectionsConcurrencyTest do
     assert nil == unboxed(fn -> Repo.get(ServerConnection, connection.id) end)
   end
 
+  test "concurrent transport edits receive distinct monotonic revisions" do
+    user = unboxed(fn -> AccountsFixtures.user_fixture() end)
+
+    connection =
+      unboxed(fn ->
+        {:ok, connection} =
+          Connections.create(user, %{
+            "name" => "revision race",
+            "host" => "irc.revision-race.test",
+            "nickname" => "mira"
+          })
+
+        connection
+      end)
+
+    barrier_ref = make_ref()
+
+    previous_barrier =
+      Application.get_env(:topics_club_gateway, :connection_update_after_load_barrier)
+
+    Application.put_env(
+      :topics_club_gateway,
+      :connection_update_after_load_barrier,
+      {self(), barrier_ref}
+    )
+
+    on_exit(fn ->
+      restore_gateway_env(:connection_update_after_load_barrier, previous_barrier)
+
+      unboxed(fn ->
+        User
+        |> where([user], user.id == ^user.id)
+        |> Repo.delete_all()
+      end)
+    end)
+
+    supervisor = start_supervised!(Task.Supervisor)
+
+    updates =
+      for password <- ["first-secret", "second-secret"] do
+        unboxed_task(supervisor, fn ->
+          Connections.update(user, connection.id, %{"sasl_password" => password})
+        end)
+      end
+
+    contenders =
+      for _index <- 1..2 do
+        assert_receive {:connection_update_loaded, contender, ^barrier_ref, connection_id, 1},
+                       5_000
+
+        assert connection_id == connection.id
+        contender
+      end
+
+    Enum.each(contenders, &send(&1, {:continue_connection_update, barrier_ref}))
+
+    revisions =
+      updates
+      |> Enum.map(fn task ->
+        assert {:ok, updated} = Task.await(task, 5_000)
+        updated.transport_revision
+      end)
+      |> Enum.sort()
+
+    assert revisions == [2, 3]
+    assert unboxed(fn -> Repo.get!(ServerConnection, connection.id).transport_revision end) == 3
+  end
+
   defp await_contenders(0, _barrier_ref, _user_id, contenders), do: contenders
 
   defp await_contenders(remaining, barrier_ref, user_id, contenders) do
@@ -206,4 +274,7 @@ defmodule TopicsClub.Chat.ConnectionsConcurrencyTest do
 
   defp restore_engine_env(key, nil), do: Application.delete_env(:topics_club_engine, key)
   defp restore_engine_env(key, value), do: Application.put_env(:topics_club_engine, key, value)
+
+  defp restore_gateway_env(key, nil), do: Application.delete_env(:topics_club_gateway, key)
+  defp restore_gateway_env(key, value), do: Application.put_env(:topics_club_gateway, key, value)
 end
