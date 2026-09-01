@@ -68,19 +68,19 @@ kernel, or IRC behavior can produce a different capacity.
 
 ## Running it
 
-Prerequisites are Docker with Compose and Python 3. The scripts use only Python's standard
-library.
+Prerequisites are Docker with Compose and `uv`. Project Python and its pinned version are always
+invoked through `uv`; the load scripts themselves use only Python's standard library.
 
 Build the production releases and run the default standalone capacity sweep:
 
 ```sh
-python3 tools/load_test/run.py capacity
+uv run python tools/load_test/run.py capacity
 ```
 
 Reuse those images for a targeted sweep:
 
 ```sh
-python3 tools/load_test/run.py --skip-build \
+uv run python tools/load_test/run.py --skip-build \
   --steady-seconds 20 \
   capacity --counts 1000,4000,8000
 ```
@@ -88,7 +88,7 @@ python3 tools/load_test/run.py --skip-build \
 Run the bidirectional workload and recovery checks:
 
 ```sh
-python3 tools/load_test/run.py --skip-build \
+uv run python tools/load_test/run.py --skip-build \
   workload --connections 4000 \
   --messages-per-connection 1 \
   --inbound-batch-size 4000 \
@@ -98,7 +98,7 @@ python3 tools/load_test/run.py --skip-build \
 Run the combined release with authenticated HTTP traffic:
 
 ```sh
-python3 tools/load_test/run_full_app.py \
+uv run python tools/load_test/run_full_app.py \
   --counts 1000,4000,8000 \
   --http-requests 200 \
   --http-concurrency 20
