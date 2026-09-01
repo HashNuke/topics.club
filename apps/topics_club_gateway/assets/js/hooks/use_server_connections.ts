@@ -292,6 +292,10 @@ export default function useServerConnections({
     setUsersByChannel((current) => omitKeys(current, [channelId]))
 
     if (activeChannelIdRef.current === channelId) {
+      activeChannelIdRef.current = null
+      activeServerIdRef.current = `server:${payload.server_connection_id}`
+      viewRef.current = "server"
+      setActiveChannelId(null)
       setActiveServerId(`server:${payload.server_connection_id}`)
       setView("server")
     }

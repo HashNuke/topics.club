@@ -1,3 +1,18 @@
 {
-  "buildPath": "code"
+  "buildPath": "code",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "gray-on-color",
+        "value": "*",
+        "files": [
+          "apps/topics_club_gateway/assets/js/components/sidebar_connection.tsx"
+        ],
+        "createdAt": "2026-09-01T03:50:59.006Z",
+        "reason": "Codex: false positive; active colored rows use cyan text, while slate text is confined to inactive transparent rows and controls."
+      }
+    ]
+  }
 }

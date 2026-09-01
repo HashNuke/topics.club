@@ -4185,6 +4185,8 @@ describe("TopicsClubApp UI prototype", () => {
     await user.click(await screen.findByRole("button", {name: "local"}))
 
     expect(screen.getByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "local"})).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("button", {name: "#testing"})).not.toHaveAttribute("aria-current")
     expect(screen.getByText("Server buffer")).toBeInTheDocument()
     expect(screen.queryByRole("complementary", {name: "People here"})).not.toBeInTheDocument()
     expect(screen.queryByRole("button", {name: "Show users"})).not.toBeInTheDocument()
@@ -4269,10 +4271,11 @@ describe("TopicsClubApp UI prototype", () => {
       expect(push).toHaveBeenCalledWith("channel:leave", {buffer_id: "channel:7"})
       expect(screen.getByRole("heading", {name: "#testing", level: 1})).toBeInTheDocument()
 
-      realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:7"))
+    realtimeHandlers.onBufferLeft(canonicalBufferLeft("channel:7"))
 
-      expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
-      expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
+    expect(await screen.findByRole("heading", {name: "127.0.0.1", level: 2})).toBeInTheDocument()
+    expect(screen.getByRole("button", {name: "local"})).toHaveAttribute("aria-current", "page")
+    expect(screen.queryByRole("button", {name: /#testing/})).not.toBeInTheDocument()
     } finally {
       Object.defineProperty(navigator, "clipboard", {value: originalClipboard, configurable: true})
     }

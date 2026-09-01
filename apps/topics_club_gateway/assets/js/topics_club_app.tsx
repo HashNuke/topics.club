@@ -1434,8 +1434,10 @@ function TopicsClubAppContent({apiClient: providedApiClient, appMode, currentUse
 
     cancelChannelDirectory()
     routeSelectionPendingRef.current = server.id
+    activeChannelIdRef.current = null
     activeServerIdRef.current = server.id
     viewRef.current = "server"
+    setActiveChannelId(null)
     setActiveServerId(server.id)
     setView("server")
     navigate(bufferPath(server.server_connection_id))

@@ -17,15 +17,26 @@ const META_MESSAGE_KINDS = [
 
 export default function MessageRow({message, onMentionNick, onRetryMessage}: {message: TimelineMessage; onMentionNick?: (nick: string) => void; onRetryMessage?: (message: TimelineMessage) => void}) {
   if (META_MESSAGE_KINDS.includes(message.kind || "")) {
+    const commandFailed = message.kind === "command" && message.metadata?.command_status === "failed"
+    const commandError = commandFailed && typeof message.metadata?.error === "string"
+      ? message.metadata.error
+      : null
+
     return (
       <div
         className={[
           "px-2 py-1 text-xs italic",
-          message.kind === "error" ? "text-rose-300" : "text-emerald-300",
+          message.kind === "error" || commandFailed ? "text-rose-300" : "text-emerald-300",
         ].join(" ")}
         data-command-status={message.kind === "command" ? message.metadata?.command_status : undefined}
       >
-        {message.body}
+        <div>{message.body}</div>
+        {commandError && (
+          <div className="mt-0.5 flex items-start gap-1 not-italic text-rose-200" role="alert">
+            <span className="hero-exclamation-triangle mt-0.5 size-3 shrink-0" aria-hidden="true" />
+            <span>{commandError}</span>
+          </div>
+        )}
       </div>
     )
   }

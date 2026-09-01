@@ -38,7 +38,7 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
         "mb-1 flex w-full items-center gap-0.5 rounded-lg pr-0.5 text-[11px] font-semibold uppercase tracking-[0.13em] transition duration-200",
         activeServer?.id === connection.id && view === "server" ? "bg-cyan-300/10 text-cyan-200" : "text-slate-500 hover:bg-white/5 hover:text-slate-300",
       ].join(" ")}>
-        <button className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1.5 text-left" onClick={() => onSelectServer(connection)} type="button">
+        <button aria-current={activeServer?.id === connection.id && view === "server" ? "page" : undefined} className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1.5 text-left" onClick={() => onSelectServer(connection)} type="button">
           <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
           <span className="truncate">{connection.name}</span>
         </button>
@@ -65,9 +65,9 @@ export default function SidebarConnection(props: SidebarConnectionProps) {
         {connection.channels.map((channel) => (
           <div key={channel.id} className={[
             "group flex w-full items-center gap-0.5 rounded-lg border pr-0.5 text-[13px] outline-none transition duration-200 focus-within:border-cyan-300/50",
-            activeChannel?.id === channel.id ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100 shadow-[inset_2px_0_0_var(--color-cyan-300)]" : "border-transparent text-slate-300 hover:bg-white/5 hover:text-white",
+            view === "chat" && activeChannel?.id === channel.id ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100 shadow-[inset_2px_0_0_var(--color-cyan-300)]" : "border-transparent text-slate-300 hover:bg-white/5 hover:text-white",
           ].join(" ")}>
-            <button className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left" onClick={() => onSelectChannel(channel)} type="button">
+            <button aria-current={view === "chat" && activeChannel?.id === channel.id ? "page" : undefined} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left" onClick={() => onSelectChannel(channel)} type="button">
               {channel.buffer_type === "direct_message" && (
                 <span className="hero-user size-3.5 shrink-0 text-slate-500" aria-hidden="true" />
               )}

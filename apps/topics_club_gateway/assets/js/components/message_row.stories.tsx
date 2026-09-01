@@ -103,10 +103,13 @@ export const CommandFailed = {
   args: {
     message: {
       id: "message-command-failed",
-      body: "WHOIS mira",
+      body: "JOIN #startups",
       kind: "command",
       occurredAt,
-      metadata: {command_status: "failed"},
+      metadata: {
+        command_status: "failed",
+        error: "Cannot join channel (+r) - you need to be identified with services",
+      },
     },
   },
 }
