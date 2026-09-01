@@ -6,6 +6,7 @@ defmodule TopicsClub.Chat.DirectMessageIngestion do
   alias TopicsClub.Chat.{
     BufferEvents,
     DirectMessageStore,
+    IrcIngestionEffect,
     Message,
     Notification,
     NotificationEventsWorker,
@@ -24,7 +25,8 @@ defmodule TopicsClub.Chat.DirectMessageIngestion do
         body,
         kind \\ "message",
         metadata \\ %{},
-        casemapping \\ nil
+        casemapping \\ nil,
+        ingestion \\ nil
       ) do
     if Repo.in_transaction?() do
       raise ArgumentError, "cannot ingest inside an existing transaction"
@@ -37,6 +39,11 @@ defmodule TopicsClub.Chat.DirectMessageIngestion do
     result =
       Repo.transaction(fn ->
         active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+        if IrcIngestionEffect.claim(active_connection, ingestion) == :duplicate do
+          Repo.rollback(:duplicate_irc_ingestion)
+        end
+
         identity_keys = PeerIdentity.keys(metadata)
 
         blocked_thread =
@@ -142,6 +149,9 @@ defmodule TopicsClub.Chat.DirectMessageIngestion do
       end)
 
     case result do
+      {:error, :duplicate_irc_ingestion} ->
+        {:ok, nil}
+
       {:ok, %{dropped?: true, archived_threads: archived_threads} = recorded} ->
         _effects =
           ServerConnectionLock.serialize_effects(connection.id, fn _active_connection ->

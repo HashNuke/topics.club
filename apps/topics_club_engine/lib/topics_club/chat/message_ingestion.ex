@@ -8,6 +8,7 @@ defmodule TopicsClub.Chat.MessageIngestion do
   alias TopicsClub.Chat.{
     BufferEvents,
     ChannelMembership,
+    IrcIngestionEffect,
     MentionDetection,
     Message,
     Notification,
@@ -27,13 +28,18 @@ defmodule TopicsClub.Chat.MessageIngestion do
         body,
         kind \\ "message",
         metadata \\ %{},
-        casemapping \\ :rfc1459
+        casemapping \\ :rfc1459,
+        ingestion \\ nil
       ) do
     assert_transaction_owner!()
     attention? = metadata_value(metadata, :direction) != "outgoing"
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      if IrcIngestionEffect.claim(active_connection, ingestion) == :duplicate do
+        Repo.rollback(:duplicate_irc_ingestion)
+      end
 
       membership =
         PresenceMembershipLookup.find(active_connection, channel, casemapping, "joined") ||
@@ -123,6 +129,9 @@ defmodule TopicsClub.Chat.MessageIngestion do
 
         {:ok, %{message | channel_membership: membership, server_connection: active_connection}}
 
+      {:error, :duplicate_irc_ingestion} ->
+        {:ok, nil}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -133,13 +142,18 @@ defmodule TopicsClub.Chat.MessageIngestion do
         body,
         kind \\ "system",
         nick \\ nil,
-        metadata \\ %{}
+        metadata \\ %{},
+        ingestion \\ nil
       ) do
     assert_transaction_owner!()
     user = Repo.get!(User, connection.user_id)
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      if IrcIngestionEffect.claim(active_connection, ingestion) == :duplicate do
+        Repo.rollback(:duplicate_irc_ingestion)
+      end
 
       {:ok, message} =
         %Message{
@@ -174,6 +188,9 @@ defmodule TopicsClub.Chat.MessageIngestion do
           end)
 
         {:ok, message}
+
+      {:error, :duplicate_irc_ingestion} ->
+        {:ok, nil}
 
       error ->
         error

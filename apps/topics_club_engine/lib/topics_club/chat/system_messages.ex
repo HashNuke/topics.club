@@ -6,6 +6,7 @@ defmodule TopicsClub.Chat.SystemMessages do
   alias TopicsClub.Chat.{
     BufferEvents,
     ChannelMembership,
+    IrcIngestionEffect,
     Message,
     PresenceMembershipLookup,
     Retention,
@@ -22,18 +23,23 @@ defmodule TopicsClub.Chat.SystemMessages do
         nick,
         body,
         metadata \\ %{},
-        casemapping \\ :rfc1459
+        casemapping \\ :rfc1459,
+        ingestion \\ nil
       ) do
     assert_no_outer_transaction!()
-
-    membership =
-      PresenceMembershipLookup.find(connection, channel, casemapping) ||
-        raise(Ecto.NoResultsError, queryable: ChannelMembership)
 
     user = Repo.get!(User, connection.user_id)
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      if IrcIngestionEffect.claim(active_connection, ingestion) == :duplicate do
+        Repo.rollback(:duplicate_irc_ingestion)
+      end
+
+      membership =
+        PresenceMembershipLookup.find(active_connection, channel, casemapping) ||
+          raise(Ecto.NoResultsError, queryable: ChannelMembership)
 
       {:ok, message} =
         %Message{
@@ -52,16 +58,19 @@ defmodule TopicsClub.Chat.SystemMessages do
         |> Repo.insert()
 
       Retention.prune(user)
-      {message, active_connection}
+      {message, active_connection, membership}
     end)
     |> case do
-      {:ok, {message, active_connection}} ->
+      {:ok, {message, active_connection, membership}} ->
         _effects =
           ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
             BufferEvents.message(message, membership, effect_connection)
           end)
 
         {:ok, message}
+
+      {:error, :duplicate_irc_ingestion} ->
+        {:ok, nil}
 
       error ->
         error
@@ -82,20 +91,46 @@ defmodule TopicsClub.Chat.SystemMessages do
         casemapping
       )
       when is_binary(present_nick) and is_function(body_fun, 1) do
+    record_for_present_nick(
+      connection,
+      kind,
+      present_nick,
+      message_nick,
+      body_fun,
+      casemapping,
+      fn -> nil end
+    )
+  end
+
+  def record_for_present_nick(
+        %ServerConnection{} = connection,
+        kind,
+        present_nick,
+        message_nick,
+        body_fun,
+        casemapping,
+        ingestion_provider
+      )
+      when is_binary(present_nick) and is_function(body_fun, 1) and
+             is_function(ingestion_provider, 0) do
     assert_no_outer_transaction!()
 
     connection
     |> PresenceMembershipLookup.with_nick(present_nick, casemapping)
-    |> Enum.each(fn membership ->
-      record(
-        connection,
-        membership.channel,
-        kind,
-        message_nick,
-        body_fun.(membership),
-        %{},
-        casemapping
-      )
+    |> Enum.reduce_while(:ok, fn membership, :ok ->
+      case record(
+             connection,
+             membership.channel,
+             kind,
+             message_nick,
+             body_fun.(membership),
+             %{},
+             casemapping,
+             ingestion_provider.()
+           ) do
+        {:ok, _message} -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
     end)
   end
 

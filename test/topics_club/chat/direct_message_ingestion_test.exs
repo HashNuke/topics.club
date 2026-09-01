@@ -6,6 +6,7 @@ defmodule TopicsClub.Chat.DirectMessageIngestionTest do
   alias TopicsClub.Chat.{
     Connections,
     DirectMessageIngestion,
+    DirectMessageThread,
     Message,
     Notification
   }
@@ -32,6 +33,57 @@ defmodule TopicsClub.Chat.DirectMessageIngestionTest do
     assert message.body == "hello privately"
     assert notification.direct_message_thread_id == thread.id
     assert Repo.get!(Notification, notification.id).read_at == nil
+  end
+
+  test "applies a replayed Wirekeeper direct-message effect exactly once" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    Phoenix.PubSub.subscribe(TopicsClub.PubSub, "user:#{user.id}")
+
+    ingestion = %{
+      generation: "generation-1",
+      sequence: 44,
+      effect_key: "message:0"
+    }
+
+    assert {:ok, %{thread: thread, message: message, notification: notification}} =
+             DirectMessageIngestion.record(
+               connection,
+               "akash",
+               "akash",
+               "private line exactly once",
+               "message",
+               %{direction: "incoming", account: "account-a"},
+               :rfc1459,
+               ingestion
+             )
+
+    assert_receive {:direct_message_thread, _payload}
+    assert_receive {:buffer_message, %{id: message_id}}
+    assert message_id == message.id
+
+    assert {:ok, nil} =
+             DirectMessageIngestion.record(
+               connection,
+               "akash",
+               "akash",
+               "private line exactly once",
+               "message",
+               %{direction: "incoming", account: "account-a"},
+               :rfc1459,
+               ingestion
+             )
+
+    refute_receive {:direct_message_thread, _payload}, 50
+    refute_receive {:buffer_message, _payload}, 50
+
+    assert Repo.aggregate(
+             from(m in Message, where: m.body == "private line exactly once"),
+             :count
+           ) == 1
+
+    assert Repo.aggregate(from(n in Notification, where: n.id == ^notification.id), :count) == 1
+    assert Repo.get!(DirectMessageThread, thread.id).unread_count == 1
   end
 
   test "rejects an outer transaction before persistence, delivery, or publication" do

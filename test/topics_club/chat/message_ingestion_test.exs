@@ -3,7 +3,16 @@ defmodule TopicsClub.Chat.MessageIngestionTest do
 
   alias TopicsClub.AccountsFixtures
   alias TopicsClub.Chat
-  alias TopicsClub.Chat.{Connections, Message, MessageIngestion, Notification}
+
+  alias TopicsClub.Chat.{
+    ChannelMembership,
+    Connections,
+    IrcIngestionEffect,
+    Message,
+    MessageIngestion,
+    Notification
+  }
+
   alias TopicsClub.Repo
 
   test "records channel mentions and server lines in their owned buffers" do
@@ -52,6 +61,115 @@ defmodule TopicsClub.Chat.MessageIngestionTest do
     assert message_id == message.id
     assert Repo.get!(Message, message_id).body == "ordinary message"
     assert Repo.aggregate(Oban.Job, :count) == initial_jobs
+  end
+
+  test "applies a replayed Wirekeeper channel effect exactly once" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    {:ok, membership} = Chat.join_channel(user, connection, "#elixir")
+    Phoenix.PubSub.subscribe(TopicsClub.PubSub, "user:#{user.id}")
+
+    ingestion = %{
+      generation: "generation-1",
+      sequence: 42,
+      effect_key: "message:0"
+    }
+
+    assert {:ok, message} =
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "mira: exactly once",
+               "message",
+               %{},
+               :rfc1459,
+               ingestion
+             )
+
+    assert_receive {:buffer_message, %{id: message_id}}
+    assert message_id == message.id
+
+    membership
+    |> Ecto.Changeset.change(status: "pending")
+    |> Repo.update!()
+
+    assert {:ok, nil} =
+             MessageIngestion.record_channel(
+               connection,
+               membership.channel,
+               "akash",
+               "mira: exactly once",
+               "message",
+               %{},
+               :rfc1459,
+               ingestion
+             )
+
+    refute_receive {:buffer_message, _payload}, 50
+    assert Repo.aggregate(from(m in Message, where: m.body == "mira: exactly once"), :count) == 1
+
+    assert Repo.aggregate(from(n in Notification, where: n.message_id == ^message.id), :count) ==
+             1
+
+    current_membership = Repo.get!(ChannelMembership, membership.id)
+    assert current_membership.unread_count == 1
+    assert current_membership.mention_count == 1
+
+    assert :ok =
+             IrcIngestionEffect.release_many([
+               {connection.id, ingestion.generation, ingestion.sequence}
+             ])
+
+    refute Repo.get_by(IrcIngestionEffect,
+             server_connection_id: connection.id,
+             wirekeeper_generation: ingestion.generation,
+             wirekeeper_sequence: ingestion.sequence
+           )
+  end
+
+  test "applies a replayed Wirekeeper server effect exactly once" do
+    user = AccountsFixtures.user_fixture()
+    connection = connection_fixture(user)
+    Phoenix.PubSub.subscribe(TopicsClub.PubSub, "user:#{user.id}")
+
+    ingestion = %{
+      generation: "generation-1",
+      sequence: 43,
+      effect_key: "message:0"
+    }
+
+    assert {:ok, message} =
+             MessageIngestion.record_server(
+               connection,
+               "server line exactly once",
+               "notice",
+               "irc.example.com",
+               %{},
+               ingestion
+             )
+
+    assert_receive {:buffer_message, %{id: message_id}}
+    assert message_id == message.id
+
+    assert {:ok, nil} =
+             MessageIngestion.record_server(
+               connection,
+               "server line exactly once",
+               "notice",
+               "irc.example.com",
+               %{},
+               ingestion
+             )
+
+    refute_receive {:buffer_message, _payload}, 50
+
+    assert Repo.aggregate(
+             from(m in Message, where: m.body == "server line exactly once"),
+             :count
+           ) == 1
+
+    assert Repo.get!(TopicsClub.Chat.ServerConnection, connection.id).unread_count == 1
   end
 
   test "rejects outer transactions before persistence, delivery, or publication" do

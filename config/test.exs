@@ -32,7 +32,9 @@ config :topics_club_gateway, TopicsClubWeb.Endpoint,
   secret_key_base: "0b9bBqpbhnwgHDcBUh2E0VAxbRR6WmpBIV6oXXkFqEb4vx/LzOUfAmWBwaJRs0VQ",
   server: false
 
-config :topics_club_engine, irc_bouncer_enabled: false
+config :topics_club_engine,
+  irc_bouncer_enabled: false,
+  ingestion_claim_release_interval: :disabled
 
 config :topics_club_engine, TopicsClub.EngineOban, testing: :manual, queues: false, plugins: false
 config :topics_club_gateway, TopicsClubWeb.Oban, testing: :manual, queues: false, plugins: false
