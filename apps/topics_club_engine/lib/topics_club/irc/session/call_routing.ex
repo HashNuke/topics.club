@@ -22,7 +22,7 @@ defmodule TopicsClub.Irc.Session.CallRouting do
   end
 
   def handle(:applied_transport_revision, _from, state) do
-    {:reply, state.connection.transport_revision, state}
+    {:reply, state.applied_transport_revision, state}
   end
 
   def handle({:execute, intent, command_id, buffer_id}, _from, state) do

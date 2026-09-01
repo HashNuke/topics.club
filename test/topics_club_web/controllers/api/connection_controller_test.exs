@@ -321,6 +321,8 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
       TopicsClub.Engine.LocalAdapter
     )
 
+    session_ref = Process.monitor(session)
+
     retry_response =
       build_conn()
       |> log_in_user(user)
@@ -331,7 +333,8 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
     assert %{"connection" => %{"nickname" => "after_retry"}} =
              json_response(retry_response, 200)
 
-    assert_receive {:irc_server_line, "NICK after_retry"}, 1_000
+    assert_receive {:DOWN, ^session_ref, :process, ^session, _reason}, 5_000
+    assert_receive {:irc_server_line, "NICK after_retry"}, 5_000
     refute_receive {:irc_server_line, "NICK before_retry"}, 200
     assert :ok = Session.quit(Connections.get!(user, connection.id))
   end

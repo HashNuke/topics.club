@@ -21,6 +21,7 @@ defmodule TopicsClub.Irc.Session.InitializationTest do
     assert_receive :connect
 
     assert state.connection.id == connection.id
+    assert state.applied_transport_revision == connection.transport_revision
     assert state.pending_joins == MapSet.new(["#elixir"])
     assert PendingEchoes.empty?(state.pending_echoes)
 

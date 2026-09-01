@@ -12,6 +12,7 @@ defmodule TopicsClub.Irc.Session.Initialization do
         state =
           %{
             connection: connection,
+            applied_transport_revision: connection.transport_revision,
             client: nil,
             client_monitor: nil,
             registered?: false,
