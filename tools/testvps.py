@@ -25,8 +25,8 @@ DOCKER_VOLUME = "topics-club-vps-docker-data"
 VPS_NETWORK = "topics-club-vps"
 VPS_SSH_PORT = 45_122
 VPS_HTTP_PORT = 45_100
-VPS_MEMORY_BYTES = 1_610_612_736
-VPS_MEMORY_SWAP_BYTES = 5_905_580_032
+VPS_MEMORY_BYTES = 2_147_483_648
+VPS_BUILD_MEMORY_SWAP_BYTES = 6_442_450_944
 
 
 def base64_secret() -> str:
@@ -169,7 +169,7 @@ class VpsCommands:
     """Manage the resettable Ubuntu 26.04 pseudo-VPS."""
 
     def create(self) -> None:
-        """Create the 1.5 GB systemd/SSH app VPS and PostgreSQL sidecar."""
+        """Create the 2 GiB systemd/SSH app VPS and external PostgreSQL sidecar."""
         if docker_object_exists("container", VPS_CONTAINER) or docker_object_exists(
             "container", POSTGRES_CONTAINER
         ):
@@ -254,9 +254,9 @@ class VpsCommands:
                 "--network",
                 VPS_NETWORK,
                 "--memory",
-                "1536m",
+                "2048m",
                 "--memory-swap",
-                "5632m",
+                "6144m",
                 "--privileged",
                 "--cgroupns=host",
                 "--volume",
@@ -307,7 +307,8 @@ class VpsCommands:
 
         write_test_environment(state)
         print(
-            "Pseudo-VPS is ready: Ubuntu 26.04, 1.5 GB app limit, "
+            "Pseudo-VPS is ready: Ubuntu 26.04, 2 GiB aggregate app-host limit, "
+            "4 GiB build swap, external 384 MiB PostgreSQL sidecar, "
             f"SSH 127.0.0.1:{VPS_SSH_PORT}, HTTP 127.0.0.1:{VPS_HTTP_PORT}."
         )
 
@@ -334,7 +335,7 @@ class VpsCommands:
         self.create()
 
     def status(self) -> None:
-        """Show container state and verify the app container memory limit."""
+        """Show container state and verify the aggregate app-host memory limit."""
         if not docker_object_exists("container", VPS_CONTAINER):
             print("Pseudo-VPS is absent.")
             return
@@ -349,17 +350,97 @@ class VpsCommands:
         )
         status, memory, memory_swap, image = state.split(maxsplit=3)
         memory_note = (
-            "1.5 GB" if int(memory) == VPS_MEMORY_BYTES else f"unexpected: {memory} bytes"
+            "2 GiB" if int(memory) == VPS_MEMORY_BYTES else f"unexpected: {memory} bytes"
         )
-        swap_note = (
-            "4 GB build swap"
-            if int(memory_swap) == VPS_MEMORY_SWAP_BYTES
-            else f"unexpected memory+swap limit: {memory_swap} bytes"
-        )
+        if int(memory_swap) == VPS_BUILD_MEMORY_SWAP_BYTES:
+            swap_note = "4 GiB build swap enabled"
+        elif int(memory_swap) == VPS_MEMORY_BYTES:
+            swap_note = "runtime swap disabled"
+        else:
+            swap_note = f"unexpected memory+swap limit: {memory_swap} bytes"
         print(f"Pseudo-VPS: {status}; memory={memory_note}; swap={swap_note}; image={image}")
+
+    def build_limits(self) -> None:
+        """Enable the extra 4 GiB swap allowance used only while building releases."""
+        self._set_memory_swap(VPS_BUILD_MEMORY_SWAP_BYTES)
+        print("Pseudo-VPS build limits enabled: 2 GiB memory plus 4 GiB build swap.")
+
+    def runtime_limits(self) -> None:
+        """Enforce the 2 GiB no-swap limit used for runtime capacity measurements."""
+        self._set_memory_swap(VPS_MEMORY_BYTES)
+        print("Pseudo-VPS runtime limits enabled: 2 GiB aggregate memory, swap disabled.")
+
+    def load(
+        self,
+        counts: str = "100,500,1000,2000,3000,4000",
+        batch_size: int = 100,
+        provision_concurrency: int = 10,
+        steady_seconds: int = 300,
+        sample_interval: int = 5,
+        startup_timeout: int = 600,
+        restart_engine: bool = True,
+        drop_recovery: bool = True,
+        cleanup: bool = True,
+    ) -> None:
+        """Run the split-release/Wirekeeper connection load test on the pseudo-VPS."""
+        from testvps_load import run_load
+
+        run_load(
+            counts=counts,
+            batch_size=batch_size,
+            provision_concurrency=provision_concurrency,
+            steady_seconds=steady_seconds,
+            sample_interval=sample_interval,
+            startup_timeout=startup_timeout,
+            restart_engine=restart_engine,
+            drop_recovery=drop_recovery,
+            cleanup=cleanup,
+        )
+
+    def load_cleanup(
+        self,
+        run_id: str,
+        batch_size: int = 100,
+        concurrency: int = 10,
+    ) -> None:
+        """Lifecycle-clean one interrupted split-release load run by its run ID."""
+        from testvps_load import cleanup_existing_run
+
+        cleanup_existing_run(run_id, batch_size, concurrency)
 
     def acceptance(self) -> None:
         """Run the explicit split-release/local-IRC acceptance scenario."""
         from split_acceptance import run_acceptance
 
         run_acceptance()
+
+    def _set_memory_swap(self, memory_swap_bytes: int) -> None:
+        if not docker_object_exists("container", VPS_CONTAINER):
+            raise RuntimeError("pseudo-VPS is absent; run `bin/apptools testvps create`")
+
+        run(
+            [
+                "docker",
+                "update",
+                "--memory",
+                str(VPS_MEMORY_BYTES),
+                "--memory-swap",
+                str(memory_swap_bytes),
+                VPS_CONTAINER,
+            ]
+        )
+
+        actual = output(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}",
+                VPS_CONTAINER,
+            ]
+        )
+        memory, memory_swap = (int(value) for value in actual.split())
+        if memory != VPS_MEMORY_BYTES or memory_swap != memory_swap_bytes:
+            raise RuntimeError(
+                "Docker did not apply the requested pseudo-VPS memory and swap limits"
+            )

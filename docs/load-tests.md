@@ -3,6 +3,10 @@
 This document records the reproducible Docker load lab, observations, and results for the
 standalone IRC engine and the combined TopicsClub application.
 
+The results recorded below predate the split Wirekeeper transport. Their engine container selects
+the direct transport, so they remain a historical baseline rather than a capacity statement for the
+current gateway, Wirekeeper, and engine releases.
+
 ## Safety boundary
 
 The harness must never connect to a public IRC server or network.
@@ -101,6 +105,77 @@ python3 tools/load_test/run_full_app.py \
 
 The scripts reset only the Compose project named `topics-club-loadtest`, including its disposable
 Postgres volume, before every scenario and on exit.
+
+## Split-release testvps capacity runner
+
+The current architecture has a separate explicit runner which exercises the production gateway,
+Wirekeeper, and engine releases under systemd:
+
+```sh
+bin/apptools testvps load \
+  --counts=100,500,1000,2000,3000,4000 \
+  --batch_size=100 \
+  --provision_concurrency=10 \
+  --steady_seconds=300 \
+  --sample_interval=5
+```
+
+Do not run it against a pseudo-VPS containing real or unrelated test connections. It refuses to
+start unless the database, engine, Wirekeeper, and synthetic IRC server all have zero connections.
+The default cleanup path deletes each connection through `EngineClient.delete_connection` before
+deleting its synthetic user, ensuring Wirekeeper closes the corresponding upstream socket. An
+interrupted run can be rerun only after its lifecycle cleanup succeeds or the disposable pseudo-VPS
+is reset.
+
+If the process is killed before its default cleanup completes, take the run ID from the partial JSON
+filename and clean it explicitly before another run:
+
+```sh
+bin/apptools testvps load-cleanup --run_id=20260901t120000z
+```
+
+Cleanup failure deliberately leaves both the synthetic IRC sidecar and the no-swap runtime limit in
+place so retained sockets are not silently cut off. Fix the reported lifecycle failure and rerun
+`load-cleanup`; only successful cleanup removes the sidecar and restores the build-swap allowance.
+
+The runner does not add a network-accessible load-test endpoint to the production gateway. It uses
+the gateway release's local RPC command as a tightly scoped bootstrap channel, creates at most 100
+users/connections per batch, limits concurrent engine requests, pins every connection server-side
+in the harness to `topics-club-vps-irc:6667` without TLS, and uses the normal `EngineClient`
+connection and deletion lifecycle. The RPC command requires local destination access and the
+release cookie, while an HTTP endpoint would unnecessarily expose synthetic account creation in the
+production artifact.
+
+Each run writes an incrementally updated
+`.load-tests/<run-id>-testvps-load.json` file. Samples contain:
+
+- the outer app-host cgroup's memory, no-swap limit, OOM events, and current use;
+- Docker usage for the app host plus the external PostgreSQL and IRC sidecars;
+- per-service systemd memory, CPU, task, PID, and restart counters;
+- gateway, engine, and Wirekeeper BEAM memory/process/port/run-queue diagnostics;
+- exact database, engine Session, Wirekeeper open/attached/detached/buffer/drop, and IRC socket
+  counts; and
+- local `/health` response status and latency.
+
+At every requested checkpoint the runner provisions only the delta, waits for all count invariants,
+holds them steady, stops and restarts the engine while Wirekeeper retains the sockets, injects one
+record per detached socket, and requires reattachment without increasing the IRC server's accepted
+socket count. At the final checkpoint it drops all upstream sockets and requires exactly one fresh
+accept per configured connection. The external IRC sidecar gets 768 MiB, one CPU, and 65,536 file
+descriptors; its metrics are recorded so its saturation cannot be mistaken for TopicsClub capacity.
+
+The pseudo-VPS starts with 2 GiB RAM plus a 4 GiB build-only swap allowance. The runner changes the
+outer container to a 2 GiB no-swap runtime limit before measuring and restores the build allowance
+after cleanup. That 2 GiB aggregate includes Ubuntu/systemd, the destination-side Docker daemon and
+cache, and all three BEAM releases. The separately capped 384 MiB PostgreSQL and 768 MiB synthetic
+IRC containers are excluded. This is therefore an application-host capacity result with an external
+database, not an all-in-one 2 GiB host result.
+
+For planning, use the highest fresh-run checkpoint that passes traffic and both recovery phases,
+uses no swap, reports no OOM/restart/drop/checkout errors, and remains at or below 80% of the app-host
+cgroup. A higher functional checkpoint is a stress result, not the operating ceiling. After finding
+the boundary, repeat the proposed ceiling from a reset pseudo-VPS with a one-hour
+`--steady_seconds=3600` hold.
 
 ## Results
 

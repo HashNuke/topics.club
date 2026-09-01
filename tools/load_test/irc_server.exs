@@ -336,8 +336,7 @@ defmodule TopicsClub.LoadTest.IrcServer do
   end
 
   defp env_integer!(name, default) do
-    name
-    |> System.get_env(Integer.to_string(default))
+    System.get_env(name, Integer.to_string(default))
     |> Integer.parse()
     |> case do
       {value, ""} when value in 1..65_535 -> value

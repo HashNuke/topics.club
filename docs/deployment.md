@@ -218,8 +218,8 @@ application-compatible migrations; a destructive migration needs its own coordin
 recovery plan.
 
 For local production-like rehearsal, the resettable pseudo-VPS has the same Ubuntu version,
-systemd services, SSH-as-root entry point, target-side Docker builder, 1.5 GiB RAM limit, build swap,
-and PostgreSQL sidecar:
+systemd services, SSH-as-root entry point, target-side Docker builder, a 2 GiB aggregate app-host
+RAM limit, build swap, and a PostgreSQL sidecar:
 
 ```bash
 bin/apptools testvps create
@@ -230,6 +230,24 @@ bin/apptools testvps acceptance
 bin/apptools testvps status
 bin/apptools testvps destroy
 ```
+
+The 2 GiB app-host cgroup includes the base Ubuntu/systemd processes, target-side Docker daemon and
+cache, and the gateway, Wirekeeper, and engine BEAM nodes together. The separately limited 384 MiB
+PostgreSQL sidecar is outside that cgroup, as is the temporary synthetic IRC sidecar used by
+acceptance and load tests. Consequently, this measures a 2 GiB application host with an external
+database; it is not evidence for fitting PostgreSQL and TopicsClub into one 2 GiB machine.
+
+New pseudo-VPS containers start with an additional 4 GiB swap allowance so destination-side release
+builds work. Capacity measurements must not use that allowance. These commands switch the exact
+named container between the two repeatable modes:
+
+```bash
+bin/apptools testvps runtime-limits # 2 GiB aggregate RAM; swap disabled
+bin/apptools testvps build-limits   # 2 GiB RAM plus 4 GiB build swap
+```
+
+`bin/apptools testvps load` switches to runtime limits before sampling and restores build limits
+after successful lifecycle cleanup. See `docs/load-tests.md` for the ramp and result format.
 
 The `file:///mnt/topics-club.git` repository is a test-only read-only mount. Production provision
 uses the public HTTPS remote. Reset and destroy affect only the exact named pseudo-VPS containers,
