@@ -22,6 +22,7 @@ defmodule TopicsClub.Chat.ConnectionsTest do
     assert connection.nickname == "u_3dev"
     assert connection.sasl_username == "u_3dev"
     assert connection.desired_state == "connected"
+    assert connection.transport_revision == 1
 
     Repo.insert!(%ChannelMembership{
       channel: "#elixir",
@@ -52,6 +53,15 @@ defmodule TopicsClub.Chat.ConnectionsTest do
     assert updated.sasl_username == "u_3dev"
     assert updated.port == 6697
     assert updated.nickname == "mira2"
+    assert updated.transport_revision == 2
+
+    assert {:ok, unchanged} =
+             Connections.update(user, connection.id, %{
+               "port" => 6697,
+               "nickname" => "mira2"
+             })
+
+    assert unchanged.transport_revision == 2
   end
 
   test "deletes an owned connection before broadcasting its buffers as left" do

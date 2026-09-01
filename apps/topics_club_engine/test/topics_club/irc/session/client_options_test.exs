@@ -6,13 +6,25 @@ defmodule TopicsClub.Irc.Session.ClientOptionsTest do
 
   setup do
     previous = Application.get_env(:topics_club_engine, :irc_transport)
+    previous_binding = Application.get_env(:topics_club_engine, :wirekeeper_resume_binding)
     Application.put_env(:topics_club_engine, :irc_transport, :direct)
+    Application.delete_env(:topics_club_engine, :wirekeeper_resume_binding)
 
     on_exit(fn ->
       if is_nil(previous) do
         Application.delete_env(:topics_club_engine, :irc_transport)
       else
         Application.put_env(:topics_club_engine, :irc_transport, previous)
+      end
+
+      if is_nil(previous_binding) do
+        Application.delete_env(:topics_club_engine, :wirekeeper_resume_binding)
+      else
+        Application.put_env(
+          :topics_club_engine,
+          :wirekeeper_resume_binding,
+          previous_binding
+        )
       end
     end)
   end
@@ -70,6 +82,18 @@ defmodule TopicsClub.Irc.Session.ClientOptionsTest do
     assert adapter_opts[:node] == :wirekeeper@test
     assert adapter_opts[:consumer] == self()
     assert adapter_opts[:transport] == {:tls, host: "irc.example.test", port: 6697}
+    assert opts[:resume_binding] == "server-connection/42/transport-revision/1"
+
+    Application.put_env(
+      :topics_club_engine,
+      :wirekeeper_resume_binding,
+      "deployment-generation-7"
+    )
+
+    revised_opts = ClientOptions.build(%{connection | transport_revision: 3}, self())
+
+    assert revised_opts[:resume_binding] ==
+             "server-connection/42/transport-revision/3/deployment/deployment-generation-7"
   end
 
   test "adds server password and only complete SASL credentials" do

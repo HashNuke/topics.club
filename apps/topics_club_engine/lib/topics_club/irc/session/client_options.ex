@@ -61,7 +61,7 @@ defmodule TopicsClub.Irc.Session.ClientOptions do
 
         opts
         |> Keyword.put(:transport_adapter, {TopicsClub.Irc.WirekeeperTransport, adapter_opts})
-        |> maybe_put_resume_binding()
+        |> put_resume_binding(connection)
 
       invalid ->
         raise ArgumentError, "invalid :irc_transport configuration: #{inspect(invalid)}"
@@ -73,12 +73,23 @@ defmodule TopicsClub.Irc.Session.ClientOptions do
     {transport, host: connection.host, port: connection.port}
   end
 
-  defp maybe_put_resume_binding(opts) do
-    case Application.get_env(:topics_club_engine, :wirekeeper_resume_binding) do
-      binding when is_binary(binding) -> Keyword.put(opts, :resume_binding, binding)
-      nil -> opts
-      invalid -> raise ArgumentError, "invalid :wirekeeper_resume_binding: #{inspect(invalid)}"
-    end
+  defp put_resume_binding(opts, connection) do
+    connection_binding =
+      "server-connection/#{connection.id}/transport-revision/#{connection.transport_revision}"
+
+    binding =
+      case Application.get_env(:topics_club_engine, :wirekeeper_resume_binding) do
+        deployment_binding when is_binary(deployment_binding) ->
+          "#{connection_binding}/deployment/#{deployment_binding}"
+
+        nil ->
+          connection_binding
+
+        invalid ->
+          raise ArgumentError, "invalid :wirekeeper_resume_binding: #{inspect(invalid)}"
+      end
+
+    Keyword.put(opts, :resume_binding, binding)
   end
 
   defp present?(value), do: is_binary(value) and value != ""

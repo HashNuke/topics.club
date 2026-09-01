@@ -274,23 +274,40 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
   defp retry_or_stop(state, reason) do
     retry_attempt = Map.get(state, :retry_attempt, 0)
 
-    if retry_attempt < @max_retries do
-      schedule_retry(state, retry_attempt + 1)
-    else
-      stop_for_exhausted_retries(state, reason)
+    cond do
+      Map.get(state, :wirekeeper_node_down?, false) ->
+        schedule_retry(state, retry_attempt + 1, :infrastructure)
+
+      resume_rejected?(reason) ->
+        schedule_retry(state, retry_attempt + 1, :resume_rejected)
+
+      retry_attempt < @max_retries ->
+        schedule_retry(state, retry_attempt + 1, :upstream)
+
+      true ->
+        stop_for_exhausted_retries(state, reason)
     end
   end
 
-  defp schedule_retry(state, attempt) do
+  defp schedule_retry(state, attempt, retry_kind) do
     if attempt == 1 do
-      EventRecorder.server_line(
-        state.connection,
-        "Connection lost. Trying up to #{@max_retries} times before asking for help.",
-        "notice"
-      )
+      message =
+        case retry_kind do
+          :infrastructure ->
+            "Wirekeeper is temporarily unavailable. Retrying without replacing the retained IRC connection."
+
+          :upstream ->
+            "Connection lost. Trying up to #{@max_retries} times before asking for help."
+
+          :resume_rejected ->
+            "Retained IRC parser state no longer matches this connection. Opening a fresh connection."
+        end
+
+      EventRecorder.server_line(state.connection, message, "notice")
     end
 
-    timer = Process.send_after(self(), {:retry_connect, attempt}, retry_delay_ms())
+    retry_delay = if retry_kind == :resume_rejected, do: 0, else: retry_delay_ms()
+    timer = Process.send_after(self(), {:retry_connect, attempt}, retry_delay)
 
     state =
       state
@@ -321,6 +338,10 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
 
   defp retry_delay_ms do
     Application.get_env(:topics_club_engine, :session_retry_delay_ms, @retry_delay_ms)
+  end
+
+  defp resume_rejected?(reason) do
+    reason in [:invalid_resume_checkpoint, :resume_binding_mismatch, :unsupported_resume_version]
   end
 
   defp maybe_pause_before_connect_lock(connection_id) do

@@ -57,7 +57,9 @@ defmodule TopicsClub.Irc.WirekeeperTransport do
   @impl true
   def close(handle, {:connect_rejected, _reason}) do
     with_handle(handle, fn node, key, generation, _client, _consumer ->
-      normalize_close(call(node, :close, [key, generation]))
+      with :ok <- normalize_close(call(node, :close, [key, generation])) do
+        await_missing(node, key, @replacement_attempts)
+      end
     end)
   end
 

@@ -34,9 +34,11 @@ defmodule TopicsClub.Chat.Connections do
   end
 
   def update(%User{} = user, id, attrs) do
-    user
-    |> get!(id)
+    connection = get!(user, id)
+
+    connection
     |> ServerConnection.changeset(Map.take(attrs, @editable_fields ++ @editable_field_names))
+    |> maybe_increment_transport_revision(connection)
     |> Repo.update()
   end
 
@@ -51,6 +53,18 @@ defmodule TopicsClub.Chat.Connections do
     case EngineClient.delete_connection(user.id, connection.id) do
       {:ok, %{deleted: true}} -> {:ok, connection}
       {:error, error} -> {:error, error}
+    end
+  end
+
+  defp maybe_increment_transport_revision(changeset, connection) do
+    if map_size(changeset.changes) > 0 do
+      Ecto.Changeset.put_change(
+        changeset,
+        :transport_revision,
+        connection.transport_revision + 1
+      )
+    else
+      changeset
     end
   end
 end
