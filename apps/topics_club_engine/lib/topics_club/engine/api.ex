@@ -102,7 +102,7 @@ defmodule TopicsClub.Engine.API do
     intent = Map.get(request.payload, :intent, "active")
 
     with {:ok, connection} <- prepare_connection_intent(connection, intent),
-         {:ok, _pid} <- SessionSupervisor.start_session(connection) do
+         {:ok, _pid} <- SessionSupervisor.ensure_session(connection) do
       {:ok,
        %{
          connection: Serialization.connection(connection),
@@ -148,7 +148,7 @@ defmodule TopicsClub.Engine.API do
 
   defp execute(:join_channel, request, user, connection) do
     with {:ok, connection} <- prepare_connection_intent(connection, "active"),
-         {:ok, _pid} <- SessionSupervisor.start_session(connection),
+         {:ok, _pid} <- SessionSupervisor.ensure_session(connection),
          {:ok, membership, status} <-
            safe_session_call(fn ->
              Session.request_join(connection, user, request.payload.channel)

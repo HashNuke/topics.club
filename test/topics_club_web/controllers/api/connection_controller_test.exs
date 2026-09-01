@@ -283,6 +283,59 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
     assert :ok = Session.quit(Connections.get!(user, connection.id))
   end
 
+  test "an identical retry reconciles settings after the first engine request fails", %{
+    conn: conn,
+    user: user
+  } do
+    server = start_supervised!({IrcTestServer, {self(), accept_reconnects?: true}})
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "retry settings",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "before_retry"
+      })
+
+    assert {:ok, session} = TopicsClub.Irc.SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK before_retry"}, 1_000
+    assert_eventually(fn -> :sys.get_state(session).registered? end)
+    flush_server_lines()
+
+    configure_engine_test_adapter()
+    Application.put_env(:topics_club_core, :engine_client_test_reply, {:error, :timeout})
+
+    failed_response =
+      put(conn, ~p"/api/connections/#{connection.id}", %{
+        "connection" => %{"nickname" => "after_retry"}
+      })
+
+    assert %{"error" => "timeout"} = json_response(failed_response, 503)
+    assert Connections.get!(user, connection.id).nickname == "after_retry"
+    refute_receive {:irc_server_line, "NICK after_retry"}, 200
+
+    Application.put_env(
+      :topics_club_core,
+      :engine_client_adapter,
+      TopicsClub.Engine.LocalAdapter
+    )
+
+    retry_response =
+      build_conn()
+      |> log_in_user(user)
+      |> put(~p"/api/connections/#{connection.id}", %{
+        "connection" => %{"nickname" => "after_retry"}
+      })
+
+    assert %{"connection" => %{"nickname" => "after_retry"}} =
+             json_response(retry_response, 200)
+
+    assert_receive {:irc_server_line, "NICK after_retry"}, 1_000
+    refute_receive {:irc_server_line, "NICK before_retry"}, 200
+    assert :ok = Session.quit(Connections.get!(user, connection.id))
+  end
+
   test "deletes an owned server connection", %{conn: conn, user: user} do
     {:ok, connection} =
       Connections.create(user, %{

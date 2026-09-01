@@ -38,10 +38,9 @@ defmodule TopicsClubWeb.Api.ConnectionController do
 
   def update(conn, %{"id" => id, "connection" => attrs}) do
     user = conn.assigns.current_scope.user
-    previous = Connections.get!(user, id)
 
     with {:ok, connection} <- Connections.update(user, id, attrs),
-         {:ok, status} <- apply_transport_update(user, previous, connection) do
+         {:ok, status} <- apply_transport_update(user, connection) do
       json(conn, %{connection: connection_json(connection, status)})
     else
       {:error, %Ecto.Changeset{} = changeset} -> validation_error(conn, changeset)
@@ -103,10 +102,9 @@ defmodule TopicsClubWeb.Api.ConnectionController do
     }
   end
 
-  defp apply_transport_update(user, previous, connection) do
-    if connection.transport_revision != previous.transport_revision and
-         connection.desired_state == "connected" do
-      case EngineClient.reconnect_connection(user.id, connection.id, reason: "settings changed") do
+  defp apply_transport_update(user, connection) do
+    if connection.desired_state == "connected" do
+      case EngineClient.ensure_connection(user.id, connection.id) do
         {:ok, %{status: status}} -> {:ok, status}
         {:error, error} -> {:error, error}
       end

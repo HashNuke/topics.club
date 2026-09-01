@@ -32,6 +32,26 @@ defmodule TopicsClub.Irc.SessionSupervisor do
     end
   end
 
+  def ensure_session(%ServerConnection{} = connection) do
+    with {:ok, pid} <- start_session(connection) do
+      case applied_transport_revision(connection) do
+        {:ok, revision} when revision == connection.transport_revision ->
+          {:ok, pid}
+
+        {:ok, _stale_revision} ->
+          with :ok <- stop_session(connection, "settings changed") do
+            start_session(connection)
+          end
+
+        {:error, :not_running} ->
+          start_session(connection)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
   def stop_session(%ServerConnection{} = connection, reason \\ "leaving") do
     session_result = do_stop_session(connection, reason, @stop_attempts)
     wirekeeper_result = WirekeeperTransport.close_connection(connection.id)
@@ -79,6 +99,14 @@ defmodule TopicsClub.Irc.SessionSupervisor do
       [] ->
         ClientLifecycle.stop(client)
     end
+  end
+
+  defp applied_transport_revision(connection) do
+    {:ok, Session.applied_transport_revision(connection)}
+  catch
+    :exit, {:noproc, _call} -> {:error, :not_running}
+    :exit, :noproc -> {:error, :not_running}
+    :exit, reason -> {:error, {:session_exit, reason}}
   end
 
   defp do_stop_session(_connection, _reason, 0), do: {:error, :session_stop_race}

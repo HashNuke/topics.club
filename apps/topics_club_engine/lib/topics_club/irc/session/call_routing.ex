@@ -21,6 +21,10 @@ defmodule TopicsClub.Irc.Session.CallRouting do
     {:reply, {:ok, info}, %{state | client_info: info}}
   end
 
+  def handle(:applied_transport_revision, _from, state) do
+    {:reply, state.connection.transport_revision, state}
+  end
+
   def handle({:execute, intent, command_id, buffer_id}, _from, state) do
     {reply, state} = CommandExecution.execute(state, intent, command_id, buffer_id)
     {:reply, reply, state}

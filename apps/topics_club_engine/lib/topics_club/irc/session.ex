@@ -64,6 +64,11 @@ defmodule TopicsClub.Irc.Session do
     GenServer.call(SessionLocator.via(connection), :connection_info)
   end
 
+  @doc false
+  def applied_transport_revision(%ServerConnection{} = connection) do
+    GenServer.call(SessionLocator.via(connection), :applied_transport_revision)
+  end
+
   def execute(%ServerConnection{} = connection, intent, command_id, buffer_id) do
     GenServer.call(
       SessionLocator.via(connection),
