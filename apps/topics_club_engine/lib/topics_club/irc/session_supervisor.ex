@@ -33,7 +33,14 @@ defmodule TopicsClub.Irc.SessionSupervisor do
   end
 
   def stop_session(%ServerConnection{} = connection, reason \\ "leaving") do
-    do_stop_session(connection, reason, @stop_attempts)
+    session_result = do_stop_session(connection, reason, @stop_attempts)
+    wirekeeper_result = WirekeeperTransport.close_connection(connection.id)
+
+    case {session_result, wirekeeper_result} do
+      {:ok, :ok} -> :ok
+      {{:error, _reason} = error, _wirekeeper_result} -> error
+      {:ok, {:error, _reason} = error} -> error
+    end
   end
 
   def stop_for_deletion(%ServerConnection{} = connection) do

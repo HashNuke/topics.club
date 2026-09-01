@@ -111,6 +111,20 @@ defmodule TopicsClub.Engine.API do
     end
   end
 
+  defp execute(:reconnect_connection, request, _user, connection) do
+    reason = Map.get(request.payload, :reason, "reconnecting")
+
+    with {:ok, connection} <- prepare_connection_intent(connection, "active"),
+         :ok <- safe_session_call(fn -> SessionSupervisor.stop_session(connection, reason) end),
+         {:ok, _pid} <- SessionSupervisor.start_session(connection) do
+      {:ok,
+       %{
+         connection: Serialization.connection(connection),
+         status: SessionLocator.status(connection)
+       }}
+    end
+  end
+
   defp execute(:disconnect_connection, request, _user, connection) do
     reason = Map.get(request.payload, :reason, "leaving")
     session_running? = is_pid(SessionLocator.whereis(connection))

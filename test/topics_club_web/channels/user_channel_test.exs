@@ -21,6 +21,7 @@ defmodule TopicsClubWeb.UserChannelTest do
   alias TopicsClub.Irc.SessionLocator
   alias TopicsClub.Irc.SessionSupervisor
   alias TopicsClub.IrcTestServer
+  alias TopicsClub.Wirekeeper
   alias TopicsClubWeb.UserChannel
   alias TopicsClubWeb.UserSocket
 
@@ -1828,6 +1829,67 @@ defmodule TopicsClubWeb.UserChannelTest do
     assert Connections.get!(user, connection.id).desired_state == "paused"
   end
 
+  test "a user-requested reconnect replaces a detached Wirekeeper generation" do
+    previous_transport = Application.get_env(:topics_club_engine, :irc_transport)
+    Application.put_env(:topics_club_engine, :irc_transport, {:wirekeeper, node()})
+
+    server = start_supervised!({IrcTestServer, {self(), accept_reconnects?: true}})
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "retained reconnect",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "mira"
+      })
+
+    on_exit(fn ->
+      _result = SessionSupervisor.stop_for_deletion(connection)
+      restore_engine_transport(previous_transport)
+    end)
+
+    assert {:ok, session} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    assert_eventually(fn ->
+      :sys.get_state(session).registered? and
+        match?(
+          {:ok, %{attached?: true, buffered_records: 0}},
+          Wirekeeper.info(connection.id)
+        )
+    end)
+
+    assert {:ok, %{generation: first_generation, attached?: true}} =
+             Wirekeeper.info(connection.id)
+
+    assert :ok = SessionSupervisor.stop_for_restart(connection)
+
+    assert {:ok, %{generation: ^first_generation, attached?: false}} =
+             Wirekeeper.info(connection.id)
+
+    socket = join_user_channel(user)
+    reconnect_ref = push(socket, "server:reconnect", %{"server_connection_id" => connection.id})
+
+    assert_reply reconnect_ref, :ok, %{
+      type: "server:status",
+      server_connection_id: server_connection_id,
+      status: reconnect_status
+    }
+
+    assert server_connection_id == connection.id
+    assert reconnect_status in ["connecting", "connected"]
+    assert_receive {:irc_server_line, "NICK mira"}, 1_000
+    assert_receive {:irc_server_line, "USER mira 0 * mira"}, 1_000
+
+    assert {:ok, %{generation: second_generation, attached?: true}} =
+             Wirekeeper.info(connection.id)
+
+    refute second_generation == first_generation
+  end
+
   defp join_user_channel(user) do
     assert {:ok, _reply, socket} =
              authenticated_socket(user)
@@ -1871,4 +1933,25 @@ defmodule TopicsClubWeb.UserChannelTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:topics_club_core, key)
   defp restore_env(key, value), do: Application.put_env(:topics_club_core, key, value)
+
+  defp restore_engine_transport(nil),
+    do: Application.delete_env(:topics_club_engine, :irc_transport)
+
+  defp restore_engine_transport(transport),
+    do: Application.put_env(:topics_club_engine, :irc_transport, transport)
+
+  defp assert_eventually(callback, attempts \\ 1_000)
+
+  defp assert_eventually(callback, attempts) when attempts > 0 do
+    if callback.() do
+      :ok
+    else
+      receive do
+      after
+        2 -> assert_eventually(callback, attempts - 1)
+      end
+    end
+  end
+
+  defp assert_eventually(_callback, 0), do: flunk("condition did not become true")
 end

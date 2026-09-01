@@ -23,6 +23,11 @@ defmodule TopicsClub.EngineClient do
     request(:ensure_connection, user_id, connection_id, %{intent: intent}, opts)
   end
 
+  def reconnect_connection(user_id, connection_id, opts \\ []) do
+    {reason, opts} = Keyword.pop(opts, :reason, "reconnecting")
+    request(:reconnect_connection, user_id, connection_id, %{reason: reason}, opts)
+  end
+
   def disconnect_connection(user_id, connection_id, opts \\ []) do
     {reason, opts} = Keyword.pop(opts, :reason, nil)
     payload = if is_nil(reason), do: %{}, else: %{reason: reason}

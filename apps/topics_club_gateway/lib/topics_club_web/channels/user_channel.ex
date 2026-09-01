@@ -317,7 +317,7 @@ defmodule TopicsClubWeb.UserChannel do
     user = socket.assigns.current_user
     connection = Connections.get!(user, connection_id)
 
-    with {:ok, %{status: status}} <- EngineClient.ensure_connection(user.id, connection.id) do
+    with {:ok, %{status: status}} <- EngineClient.reconnect_connection(user.id, connection.id) do
       Reply.ok(socket, Event.server_status(connection, status))
     else
       _error -> Reply.error(socket, %{reason: "reconnect_failed"})

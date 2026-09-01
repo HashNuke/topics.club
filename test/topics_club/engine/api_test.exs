@@ -110,6 +110,7 @@ defmodule TopicsClub.Engine.APITest do
       {:connection_statuses, nil, %{connection_ids: [connection.id]}},
       {:connection_info, connection.id, %{}},
       {:ensure_connection, connection.id, %{intent: "restore"}},
+      {:reconnect_connection, connection.id, %{}},
       {:disconnect_connection, connection.id, %{}},
       {:delete_connection, connection.id, %{}},
       {:join_channel, connection.id, %{channel: "#elixir"}},

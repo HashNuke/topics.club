@@ -8,6 +8,7 @@ defmodule TopicsClub.EngineClient.ContractTest do
     {:connection_statuses, nil, %{connection_ids: [10, 11]}},
     {:connection_info, 10, %{}},
     {:ensure_connection, 10, %{intent: "active"}},
+    {:reconnect_connection, 10, %{reason: "reconnecting"}},
     {:disconnect_connection, 10, %{reason: "leaving"}},
     {:delete_connection, 10, %{}},
     {:join_channel, 10, %{channel: "#elixir"}},
@@ -32,6 +33,7 @@ defmodule TopicsClub.EngineClient.ContractTest do
 
     assert Contract.retry_policy(:send_channel_message) == :unsafe
     assert Contract.retry_policy(:delete_connection) == :unsafe
+    assert Contract.retry_policy(:reconnect_connection) == :unsafe
     assert Contract.retry_policy(:connection_statuses) == :safe
   end
 

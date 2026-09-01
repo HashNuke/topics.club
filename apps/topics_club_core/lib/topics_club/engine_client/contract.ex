@@ -42,6 +42,13 @@ defmodule TopicsClub.EngineClient.Contract do
       timeout: 15_000,
       retry: :safe
     },
+    reconnect_connection: %{
+      connection?: true,
+      required: %{},
+      optional: %{reason: :string},
+      timeout: 15_000,
+      retry: :unsafe
+    },
     disconnect_connection: %{
       connection?: true,
       required: %{},
