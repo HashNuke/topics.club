@@ -740,6 +740,7 @@ def run_load(
     current_count = 0
     irc_started = False
     runtime_limits_enabled = False
+    prepared = False
 
     try:
         start_irc_container()
@@ -747,6 +748,7 @@ def run_load(
         limits.runtime_limits()
         runtime_limits_enabled = True
         payload["baseline"] = ensure_clean(run_id)
+        prepared = True
         write_results(payload, run_id)
 
         for target in targets:
@@ -825,7 +827,7 @@ def run_load(
             final_scenario["drop_recovery"] = drop_details
             write_results(payload, run_id)
     finally:
-        if cleanup:
+        if cleanup and prepared:
             if not split_acceptance.service_active(ENGINE_SERVICE):
                 split_acceptance.manage_service("start", ENGINE_SERVICE)
                 split_acceptance.wait_gateway_health()
@@ -853,6 +855,15 @@ def run_load(
                 payload["finished_at_utc"] = dt.datetime.now(dt.UTC).isoformat()
                 path = write_results(payload, run_id)
                 print(f"Testvps load results: {path.relative_to(PROJECT_ROOT)}")
+        elif cleanup:
+            if irc_started:
+                split_acceptance.remove_irc_container()
+            if runtime_limits_enabled:
+                limits.build_limits()
+            payload["cleanup"] = {"skipped": True, "reason": "load preparation did not complete"}
+            payload["finished_at_utc"] = dt.datetime.now(dt.UTC).isoformat()
+            path = write_results(payload, run_id)
+            print(f"Testvps load did not start; diagnostics are at {path.relative_to(PROJECT_ROOT)}")
         else:
             payload["cleanup"] = {
                 "skipped": True,
