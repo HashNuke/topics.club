@@ -101,6 +101,23 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     testvps_load.stats_expression(invalid)
 
+    @mock.patch.object(testvps_load, "output")
+    def test_deployed_release_manifest_is_recorded_and_validated(
+        self, output_mock: mock.Mock
+    ) -> None:
+        output_mock.return_value = (
+            "tag=20260901.1\n"
+            f"commit={'a' * 40}\n"
+            "release=topics_club_gateway"
+        )
+
+        manifest = testvps_load.release_manifest("gateway")
+
+        self.assertEqual(manifest["tag"], "20260901.1")
+        self.assertEqual(manifest["commit"], "a" * 40)
+        with self.assertRaises(ValueError):
+            testvps_load.release_manifest("unknown")
+
     def test_capacity_summary_uses_cgroup_peak_and_rejects_service_restarts(self) -> None:
         baseline = {"gateway": 0, "wirekeeper": 0, "engine": 0}
         sample = {

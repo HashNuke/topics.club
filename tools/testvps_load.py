@@ -56,6 +56,29 @@ def validate_run_id(run_id: str) -> str:
     return run_id
 
 
+def release_manifest(role: str) -> dict[str, str]:
+    if role not in {"gateway", "wirekeeper", "engine"}:
+        raise ValueError("release role must be gateway, wirekeeper, or engine")
+    contents = output(
+        [
+            "docker",
+            "exec",
+            VPS_CONTAINER,
+            "cat",
+            f"/srv/topics-club/current-{role}/deploy-manifest",
+        ]
+    )
+    manifest = dict(line.split("=", 1) for line in contents.splitlines() if "=" in line)
+    expected_release = f"topics_club_{role}"
+    if (
+        manifest.get("release") != expected_release
+        or not re.fullmatch(r"[0-9a-f]{40}", manifest.get("commit", ""))
+        or not manifest.get("tag")
+    ):
+        raise RuntimeError(f"invalid deployed {role} release manifest: {manifest!r}")
+    return manifest
+
+
 def elixir_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=True)
 
@@ -806,6 +829,9 @@ def run_load(
         runtime_limits_enabled = True
         reset_cgroup_memory_peak()
         payload["baseline"] = ensure_clean(run_id)
+        payload["deployed_releases"] = {
+            role: release_manifest(role) for role in ("gateway", "wirekeeper", "engine")
+        }
         restart_baseline = service_restart_counts(payload["baseline"])
         prepared = True
         write_results(payload, run_id)

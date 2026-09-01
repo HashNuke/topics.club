@@ -147,7 +147,9 @@ release cookie, while an HTTP endpoint would unnecessarily expose synthetic acco
 production artifact.
 
 Each run writes an incrementally updated
-`.load-tests/<run-id>-testvps-load.json` file. Samples contain:
+`.load-tests/<run-id>-testvps-load.json` file. The result records the local harness revision and each
+deployed gateway, Wirekeeper, and engine release's tag and commit from its deployment manifest.
+Samples contain:
 
 - the outer app-host cgroup's reset-at-baseline memory peak, no-swap limit, OOM events, and current
   use;
