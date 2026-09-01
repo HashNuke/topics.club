@@ -76,6 +76,17 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "strictly increasing"):
             testvps_load.parse_counts("500,100")
 
+    @mock.patch.object(testvps_load, "run_stats")
+    def test_database_metrics_records_a_transient_gateway_rpc_failure(
+        self, run_stats: mock.Mock
+    ) -> None:
+        run_stats.side_effect = RuntimeError("gateway release RPC failed: :noconnection")
+
+        self.assertEqual(
+            testvps_load.database_metrics("safe-run"),
+            {"error": "gateway release RPC failed: :noconnection"},
+        )
+
     def test_provisioning_is_bounded_and_pins_the_local_irc_sidecar(self) -> None:
         expression = testvps_load.provision_expression("safe-run", 1, 100, 10)
 

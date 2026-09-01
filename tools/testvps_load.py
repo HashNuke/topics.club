@@ -211,6 +211,13 @@ def run_stats(run_id: str) -> dict[str, Any]:
     return rpc_marker_json("gateway", "LOAD_STATS_JSON", stats_expression(run_id))
 
 
+def database_metrics(run_id: str) -> dict[str, Any]:
+    try:
+        return run_stats(run_id)
+    except RuntimeError as error:
+        return {"error": str(error)}
+
+
 def cleanup_expression(run_id: str, batch_size: int, concurrency: int) -> str:
     validate_run_id(run_id)
     if batch_size <= 0 or concurrency <= 0:
@@ -643,7 +650,7 @@ def sample(run_id: str) -> dict[str, Any]:
         "gateway": gateway_metrics(),
         "wirekeeper": wirekeeper_metrics(),
         "engine": engine_metrics(),
-        "database": run_stats(run_id),
+        "database": database_metrics(run_id),
         "irc": split_acceptance.acceptance_stats(),
         "health": health_metrics(),
     }
