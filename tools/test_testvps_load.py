@@ -68,6 +68,7 @@ class TestVpsLimitsTest(unittest.TestCase):
 
 class TestVpsLoadExpressionTest(unittest.TestCase):
     def test_counts_are_strictly_increasing(self) -> None:
+        self.assertEqual(testvps_load.parse_counts(100), [100])
         self.assertEqual(testvps_load.parse_counts("100,500,1_000"), [100, 500, 1_000])
         self.assertEqual(testvps_load.parse_counts((100, 500, 1_000)), [100, 500, 1_000])
         with self.assertRaisesRegex(ValueError, "strictly increasing"):
@@ -96,6 +97,32 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
         user_delete = expression.index("TopicsClub.Repo.delete_all()")
         self.assertLess(lifecycle, user_delete)
         self.assertIn("remaining == 0", expression)
+
+    def test_ceiling_traffic_uses_gateway_engine_commands_and_marker_persistence(self) -> None:
+        expression = testvps_load.ceiling_traffic_expression(
+            "safe-run", "testvps-outbound-safe-run", 4_000, 10
+        )
+
+        self.assertIn("TopicsClub.EngineClient.execute_command", expression)
+        self.assertIn(
+            'command_id = "load-outbound-safe-run-#{connection_id}"', expression
+        )
+        self.assertNotIn("#{run_id}", expression)
+        self.assertIn("PRIVMSG load-sink", expression)
+        self.assertIn('body == ^marker', expression)
+        self.assertIn("max_concurrency: 10", expression)
+        self.assertIn("expected_count = 4000", expression)
+
+        with self.assertRaisesRegex(ValueError, "concurrency"):
+            testvps_load.ceiling_traffic_expression(
+                "safe-run", "testvps-outbound-safe-run", 4_000, 26
+            )
+
+    def test_synthetic_irc_sidecar_supports_marker_specific_inbound_notices(self) -> None:
+        script = (TOOLS_DIR / "load_test" / "irc_server.exs").read_text()
+
+        self.assertIn('run_control("NOTICE_ALL "', script)
+        self.assertIn("broadcast_notice", script)
 
     def test_run_ids_cannot_change_the_email_query_or_elixir_expression(self) -> None:
         for invalid in ("UPPER", "has space", "percent%", 'quote"'):

@@ -216,6 +216,8 @@ defmodule TopicsClub.LoadTest.IrcServer do
     end
   end
 
+  defp run_control("NOTICE_ALL " <> body) when body != "", do: broadcast_notice(body)
+
   defp run_control(_command), do: "error=unknown_command"
 
   defp broadcast_message(target, body) do
@@ -226,6 +228,38 @@ defmodule TopicsClub.LoadTest.IrcServer do
       |> Task.async_stream(
         fn {socket, _nick} ->
           line = ":acceptance!user@load.test PRIVMSG #{target} :#{body}\r\n"
+
+          case :gen_tcp.send(socket, line) do
+            :ok ->
+              increment(:bytes_out, byte_size(line))
+              :sent
+
+            {:error, _reason} ->
+              :error
+          end
+        end,
+        max_concurrency: min(max(length(clients), 1), 100),
+        ordered: false,
+        timeout: :infinity
+      )
+      |> Enum.reduce({0, 0}, fn
+        {:ok, :sent}, {sent, errors} -> {sent + 1, errors}
+        _error, {sent, errors} -> {sent, errors + 1}
+      end)
+
+    increment(:messages_sent, sent)
+    increment(:send_errors, errors)
+    "sent=#{sent} errors=#{errors}"
+  end
+
+  defp broadcast_notice(body) do
+    clients = clients()
+
+    {sent, errors} =
+      clients
+      |> Task.async_stream(
+        fn {socket, nick} ->
+          line = ":load.test NOTICE #{nick} :#{body}\r\n"
 
           case :gen_tcp.send(socket, line) do
             :ok ->

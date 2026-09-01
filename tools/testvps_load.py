@@ -36,14 +36,20 @@ ENGINE_SERVICE = split_acceptance.ENGINE_SERVICE
 GATEWAY_SERVICE = split_acceptance.GATEWAY_SERVICE
 WIREKEEPER_SERVICE = split_acceptance.WIREKEEPER_SERVICE
 RUN_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,39}\Z")
+MARKER_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,127}\Z")
 SERVICE_PROPERTIES = (
     "ActiveState,MainPID,MemoryCurrent,MemoryPeak,CPUUsageNSec,TasksCurrent,NRestarts,"
     "LimitNOFILE,LimitNOFILESoft"
 )
 
 
-def parse_counts(value: str | tuple[object, ...] | list[object]) -> list[int]:
-    items = value if isinstance(value, (tuple, list)) else value.split(",")
+def parse_counts(value: int | str | tuple[object, ...] | list[object]) -> list[int]:
+    if isinstance(value, int):
+        items: tuple[object, ...] | list[object] = [value]
+    elif isinstance(value, (tuple, list)):
+        items = value
+    else:
+        items = value.split(",")
     counts = [int(str(item).strip().replace("_", "")) for item in items]
     if not counts or any(count <= 0 for count in counts):
         raise ValueError("counts must be positive comma-separated integers")
@@ -283,6 +289,123 @@ def cleanup_batch(run_id: str, batch_size: int, concurrency: int) -> dict[str, A
         "gateway",
         "LOAD_CLEANUP_JSON",
         cleanup_expression(run_id, batch_size, concurrency),
+    )
+
+
+def ceiling_traffic_expression(
+    run_id: str,
+    marker: str,
+    expected_count: int,
+    concurrency: int,
+) -> str:
+    validate_run_id(run_id)
+    if not MARKER_PATTERN.fullmatch(marker):
+        raise ValueError("marker must be 1-128 lowercase letters, digits, or hyphens")
+    if expected_count <= 0:
+        raise ValueError("expected_count must be positive")
+    if not 1 <= concurrency <= 25:
+        raise ValueError("concurrency must be between 1 and 25")
+
+    return f"""
+import Ecto.Query
+pattern = {elixir_string(f"testvps-load-{run_id}-%@example.test")}
+marker = {elixir_string(marker)}
+expected_count = {expected_count}
+
+connections =
+  from(connection in TopicsClub.Chat.ServerConnection,
+    join: user in TopicsClub.Accounts.User,
+    on: user.id == connection.user_id,
+    where: like(user.email, ^pattern),
+    order_by: [asc: connection.id],
+    select: {{connection.user_id, connection.id}}
+  )
+  |> TopicsClub.Repo.all()
+
+results =
+  connections
+  |> Task.async_stream(
+    fn {{user_id, connection_id}} ->
+      command_id = "load-outbound-{run_id}-#{{connection_id}}"
+
+      case TopicsClub.EngineClient.execute_command(
+             user_id,
+             connection_id,
+             "PRIVMSG load-sink :#{{marker}}",
+             command_id,
+             "server:#{{connection_id}}",
+             timeout: 40_000
+           ) do
+        {{:ok, %{{result: %{{status: "sent"}}}}}} -> :sent
+        other -> {{:error, connection_id, inspect(other, limit: 10)}}
+      end
+    end,
+    max_concurrency: {concurrency},
+    ordered: false,
+    timeout: :infinity
+  )
+  |> Enum.to_list()
+
+{{sent, errors}} =
+  Enum.reduce(results, {{0, []}}, fn
+    {{:ok, :sent}}, {{sent, errors}} -> {{sent + 1, errors}}
+    {{:ok, {{:error, id, reason}}}}, {{sent, errors}} ->
+      {{sent, [%%{{connection_id: id, reason: reason}} | errors]}}
+    {{:exit, reason}}, {{sent, errors}} ->
+      {{sent, [%%{{connection_id: nil, reason: inspect(reason)}} | errors]}}
+  end)
+
+persisted =
+  from(message in TopicsClub.Chat.Message,
+    join: user in TopicsClub.Accounts.User,
+    on: user.id == message.user_id,
+    where: like(user.email, ^pattern) and message.body == ^marker
+  )
+  |> TopicsClub.Repo.aggregate(:count)
+
+IO.puts("LOAD_CEILING_TRAFFIC_JSON=" <> Jason.encode!(%{{
+  expected: expected_count,
+  sent: sent,
+  persisted: persisted,
+  errors: errors,
+  success: sent == expected_count and persisted == expected_count and errors == []
+}}))
+""".replace("%%", "%")
+
+
+def run_ceiling_traffic(
+    run_id: str, marker: str, expected_count: int, concurrency: int
+) -> dict[str, Any]:
+    return rpc_marker_json(
+        "gateway",
+        "LOAD_CEILING_TRAFFIC_JSON",
+        ceiling_traffic_expression(run_id, marker, expected_count, concurrency),
+    )
+
+
+def marker_count_expression(run_id: str, marker: str) -> str:
+    validate_run_id(run_id)
+    if not MARKER_PATTERN.fullmatch(marker):
+        raise ValueError("marker must be 1-128 lowercase letters, digits, or hyphens")
+
+    return f"""
+import Ecto.Query
+pattern = {elixir_string(f"testvps-load-{run_id}-%@example.test")}
+marker = {elixir_string(marker)}
+count =
+  from(message in TopicsClub.Chat.Message,
+    join: user in TopicsClub.Accounts.User,
+    on: user.id == message.user_id,
+    where: like(user.email, ^pattern) and message.body == ^marker
+  )
+  |> TopicsClub.Repo.aggregate(:count)
+IO.puts("LOAD_MARKER_JSON=" <> Jason.encode!(%{{marker: marker, persisted: count}}))
+"""
+
+
+def marker_count(run_id: str, marker: str) -> dict[str, Any]:
+    return rpc_marker_json(
+        "gateway", "LOAD_MARKER_JSON", marker_count_expression(run_id, marker)
     )
 
 
@@ -656,6 +779,98 @@ def engine_restart_phase(
             split_acceptance.wait_gateway_health()
 
 
+def wait_for_marker_persistence(
+    run_id: str,
+    marker: str,
+    target: int,
+    timeout: int,
+    sample_interval: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    deadline = time.monotonic() + timeout
+    samples: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    last: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        current = sample(run_id)
+        samples.append(current)
+        last = marker_count(run_id, marker)
+        observations.append(
+            {
+                "timestamp_utc": dt.datetime.now(dt.UTC).isoformat(),
+                **last,
+            }
+        )
+        persisted = last.get("persisted")
+        if persisted == target and ready(current, target):
+            return current, samples, observations
+        if isinstance(persisted, int) and persisted > target:
+            raise RuntimeError(
+                f"marker {marker} was persisted {persisted} times; expected exactly {target}"
+            )
+        time.sleep(sample_interval)
+    raise TimeoutError(
+        f"timed out waiting for {target} persisted copies of {marker}; last count: {last!r}"
+    )
+
+
+def ceiling_traffic_phase(
+    run_id: str,
+    target: int,
+    concurrency: int,
+    timeout: int,
+    sample_interval: int,
+) -> dict[str, Any]:
+    outbound_marker = f"testvps-outbound-{run_id}"
+    inbound_marker = f"testvps-inbound-{run_id}"
+    before = sample(run_id)
+    privmsgs_before = nested(before, "irc", "privmsgs_received")
+
+    outbound = run_ceiling_traffic(run_id, outbound_marker, target, concurrency)
+    if not outbound.get("success"):
+        raise RuntimeError(f"ceiling outbound traffic failed: {outbound!r}")
+
+    outbound_received, outbound_samples = wait_for(
+        "ceiling outbound IRC receipt",
+        run_id,
+        timeout,
+        lambda current: ready(current, target)
+        and nested(current, "irc", "privmsgs_received") == privmsgs_before + target,
+        sample_interval,
+    )
+    outbound_persisted = marker_count(run_id, outbound_marker)
+    if outbound_persisted.get("persisted") != target:
+        raise RuntimeError(
+            "ceiling outbound marker persistence changed after the IRC echo: "
+            f"{outbound_persisted!r}"
+        )
+
+    inbound = split_acceptance.irc_control(f"NOTICE_ALL {inbound_marker}")
+    if not isinstance(inbound, dict) or inbound.get("sent") != target or inbound.get("errors") != 0:
+        raise RuntimeError(f"ceiling inbound traffic failed: {inbound!r}")
+
+    inbound_persisted, inbound_samples, marker_observations = wait_for_marker_persistence(
+        run_id,
+        inbound_marker,
+        target,
+        timeout,
+        sample_interval,
+    )
+
+    return {
+        "success": True,
+        "outbound_marker": outbound_marker,
+        "outbound": outbound,
+        "outbound_persisted_after_echo": outbound_persisted,
+        "privmsgs_received_before": privmsgs_before,
+        "privmsgs_received_after": nested(outbound_received, "irc", "privmsgs_received"),
+        "inbound_marker": inbound_marker,
+        "inbound": inbound,
+        "inbound_persisted": marker_count(run_id, inbound_marker),
+        "marker_observations": marker_observations,
+        "samples": [before] + outbound_samples + inbound_samples,
+    }
+
+
 def drop_recovery_phase(
     run_id: str, target: int, timeout: int, sample_interval: int
 ) -> dict[str, Any]:
@@ -840,6 +1055,7 @@ def run_load(
             "startup_timeout": startup_timeout,
             "restart_engine": restart_engine,
             "drop_recovery": drop_recovery,
+            "ceiling_bidirectional_probe": True,
             "app_host_memory_bytes": VPS_MEMORY_BYTES,
             "app_host_swap_bytes": 0,
             "included_in_app_host_limit": [
@@ -916,6 +1132,18 @@ def run_load(
                 scenario_samples += restart["samples"]
                 functional_success = functional_success and restart["success"]
 
+            ceiling_traffic = None
+            if target == targets[-1] and functional_success:
+                ceiling_traffic = ceiling_traffic_phase(
+                    run_id,
+                    target,
+                    provision_concurrency,
+                    startup_timeout,
+                    sample_interval,
+                )
+                scenario_samples += ceiling_traffic["samples"]
+                functional_success = functional_success and ceiling_traffic["success"]
+
             scenario = scenario_summary(
                 target,
                 functional_success,
@@ -932,6 +1160,10 @@ def run_load(
             if restart is not None:
                 scenario["engine_restart"] = {
                     key: value for key, value in restart.items() if key != "samples"
+                }
+            if ceiling_traffic is not None:
+                scenario["ceiling_traffic"] = {
+                    key: value for key, value in ceiling_traffic.items() if key != "samples"
                 }
 
             payload["scenarios"].append(scenario)
@@ -1006,6 +1238,7 @@ def run_load(
 
 
 __all__ = [
+    "ceiling_traffic_expression",
     "cleanup_expression",
     "cleanup_existing_run",
     "parse_counts",
