@@ -926,6 +926,37 @@ defmodule TopicsClub.WirekeeperTest do
     assert length(Task.Supervisor.children(TopicsClub.Wirekeeper.OpenTaskSupervisor)) <= 8
   end
 
+  test "enforces a configured global connection limit before opening another socket" do
+    previous_limit = Application.get_env(:topics_club_wirekeeper, :max_connections)
+    Application.put_env(:topics_club_wirekeeper, :max_connections, 1)
+
+    on_exit(fn ->
+      if is_nil(previous_limit) do
+        Application.delete_env(:topics_club_wirekeeper, :max_connections)
+      else
+        Application.put_env(:topics_club_wirekeeper, :max_connections, previous_limit)
+      end
+    end)
+
+    server = start_supervised!({TestTcpServer, self()})
+    first_key = unique_key("global-limit-first")
+    second_key = unique_key("global-limit-second")
+
+    assert {:ok, first} = open_tcp(first_key, server)
+    on_exit(fn -> Wirekeeper.close(first_key, first.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+
+    second_result = open_tcp(second_key, server)
+
+    case second_result do
+      {:ok, second} -> on_exit(fn -> Wirekeeper.close(second_key, second.generation) end)
+      {:error, _reason} -> :ok
+    end
+
+    assert second_result == {:error, :connection_limit}
+    assert TestTcpServer.connection_count(server) == 1
+  end
+
   test "cancels pending opens when their callers terminate" do
     stalled_server = start_supervised!({TestTcpServer, self()})
     test_process = self()

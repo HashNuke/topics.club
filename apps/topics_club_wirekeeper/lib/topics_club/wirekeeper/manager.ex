@@ -37,6 +37,9 @@ defmodule TopicsClub.Wirekeeper.Manager do
       Map.has_key?(state.opening_by_key, key) or registered?(key) ->
         {:reply, {:error, :already_open}, state}
 
+      connection_limit_reached?(state) ->
+        {:reply, {:error, :connection_limit}, state}
+
       map_size(state.opening_by_ref) >= @max_pending_opens ->
         {:reply, {:error, :overloaded}, state}
 
@@ -251,6 +254,29 @@ defmodule TopicsClub.Wirekeeper.Manager do
   end
 
   defp registered?(key), do: Registry.lookup(@registry, key) != []
+
+  defp connection_limit_reached?(state) do
+    case Application.get_env(:topics_club_wirekeeper, :max_connections) do
+      nil ->
+        false
+
+      limit when is_integer(limit) and limit > 0 ->
+        active_keys =
+          Registry.select(@registry, [
+            {{:"$1", :"$2", {:"$3", :"$4"}},
+             [{:orelse, {:==, :"$3", :opening}, {:==, :"$3", :open}}], [:"$1"]}
+          ])
+
+        active_keys
+        |> MapSet.new()
+        |> MapSet.union(MapSet.new(Map.keys(state.opening_by_key)))
+        |> MapSet.size()
+        |> Kernel.>=(limit)
+
+      invalid ->
+        raise ArgumentError, "invalid :max_connections configuration: #{inspect(invalid)}"
+    end
+  end
 
   defp normalize_open_result({:ok, _connection}, opening) do
     {:ok,
