@@ -389,7 +389,8 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
     end)
   end
 
-  test "the inactive sweep closes a detached connection that was skipped during restoration" do
+  test "the inactive sweep closes a detached connection that was skipped during restoration",
+       context do
     server = start_supervised!({IrcTestServer, self()})
     {user, connection} = connection_fixture(server, "wirekeeper skipped restoration")
     close_on_exit(connection)
@@ -417,7 +418,7 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
     bouncer =
       start_supervised!({Bouncer, enabled?: true, sweep_interval: :timer.hours(1), name: nil})
 
-    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), bouncer)
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, context.sandbox_owner, bouncer)
     send(bouncer, :start_recent_sessions)
     _ = :sys.get_state(bouncer)
     assert TopicsClub.Irc.SessionLocator.whereis(connection) == nil
