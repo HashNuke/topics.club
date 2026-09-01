@@ -109,7 +109,9 @@ The final review split new work into focused, reasoned commits:
 - `8744f2c` pins the documented optional Ircxd idempotent-write contract;
 - `9506d53` proves bidirectional traffic at the load ceiling;
 - `40a35c3` replaces a scheduler-dependent failed-open test assertion; and
-- `82dcf63` keeps read-only load sampling alive through an expected node transition.
+- `82dcf63` keeps read-only load sampling alive through an expected node transition; and
+- `5da3cc8` keeps the applied transport revision immutable when session state refreshes its database
+  row.
 
 See `docs/wirekeeper.md` for the resulting architecture and `docs/load-tests.md` for the current
 split-release capacity evidence and limitations.

@@ -234,6 +234,13 @@ The raw incremental artifact remains local at
 `.load-tests/20260901t074527z-testvps-load.json`. This section is the committed durable conclusion;
 the exact command and resource boundaries are documented above so the result can be reproduced.
 
+After the applied-revision fence was made immutable in `5da3cc8`, run `20260901t081907z` repeated
+the complete scenario at 100 sessions with engine tag `20260901.4`, gateway `.3`, and Wirekeeper
+`.2`. It retained the same 100 accepts across engine restart, delivered and persisted exactly 100
+markers in each direction, moved from 100 to exactly 200 accepts after deliberate socket loss, and
+cleaned up to zero users and connections. This focused post-fix run is regression evidence for the
+final engine artifact; it does not replace the 4,000-session capacity measurement above.
+
 ## Historical direct-transport results
 
 ### Standalone engine: idle sockets
