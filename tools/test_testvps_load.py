@@ -197,6 +197,22 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
         )
         health_mock.assert_called_once_with()
 
+    def test_wirekeeper_metrics_are_encoded_by_the_gateway_release(self) -> None:
+        with mock.patch.object(
+            testvps_load,
+            "rpc_marker_json",
+            return_value={"diagnostics": {"total_connections": 0}},
+        ) as rpc_mock:
+            metrics = testvps_load.wirekeeper_metrics()
+
+        self.assertEqual(metrics, {"diagnostics": {"total_connections": 0}})
+        role, marker, expression = rpc_mock.call_args.args
+        self.assertEqual(role, "gateway")
+        self.assertEqual(marker, "LOAD_METRICS_JSON")
+        self.assertIn('wirekeeper_node = :"topics_club_wirekeeper@localhost"', expression)
+        self.assertIn(":erpc.call(wirekeeper_node", expression)
+        self.assertIn("Jason.encode!(payload)", expression)
+
 
 class SyntheticIrcConfigurationTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("elixir"), "Elixir is required for the IRC harness test")

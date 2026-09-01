@@ -352,21 +352,27 @@ IO.puts("LOAD_METRICS_JSON=" <> Jason.encode!(payload))
 
 def wirekeeper_metrics() -> dict[str, Any]:
     expression = """
-case TopicsClub.Wirekeeper.diagnostics() do
+wirekeeper_node = :"topics_club_wirekeeper@localhost"
+
+case :erpc.call(wirekeeper_node, TopicsClub.Wirekeeper, :diagnostics, [], 5_000) do
   {:ok, diagnostics} ->
     payload = %{
       diagnostics: diagnostics,
-      memory: Map.new(:erlang.memory()),
-      process_count: :erlang.system_info(:process_count),
-      port_count: :erlang.system_info(:port_count),
-      run_queue: :erlang.statistics(:run_queue)
+      memory: Map.new(:erpc.call(wirekeeper_node, :erlang, :memory, [], 5_000)),
+      process_count:
+        :erpc.call(wirekeeper_node, :erlang, :system_info, [:process_count], 5_000),
+      port_count: :erpc.call(wirekeeper_node, :erlang, :system_info, [:port_count], 5_000),
+      run_queue: :erpc.call(wirekeeper_node, :erlang, :statistics, [:run_queue], 5_000)
     }
     IO.puts("LOAD_METRICS_JSON=" <> Jason.encode!(payload))
   error ->
     raise "Wirekeeper diagnostics failed: #{inspect(error)}"
 end
 """
-    return release_metrics("wirekeeper", expression)
+    # The deliberately small Wirekeeper release has no JSON dependency. Collect
+    # its values over distribution and encode them in the always-running gateway;
+    # unlike the engine, that node remains available during restart measurements.
+    return release_metrics("gateway", expression)
 
 
 def gateway_metrics() -> dict[str, Any]:
