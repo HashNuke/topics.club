@@ -523,3 +523,7 @@ The current umbrella application does not:
 
 Extraction to the standalone repository can happen later. The current boundary deliberately keeps
 the app in the umbrella while still packaging it as a separate runtime service.
+
+The rationale for the early cross-layer implementation commits is preserved in
+`docs/use-wirekeeper-change-history.md`; current split-release capacity evidence is in
+`docs/load-tests.md`.
