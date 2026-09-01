@@ -64,6 +64,25 @@ defmodule TopicsClub.Chat.ConnectionsTest do
     assert unchanged.transport_revision == 2
   end
 
+  test "defaults the SASL account when credentials are added to an existing connection" do
+    user = AccountsFixtures.user_fixture()
+
+    assert {:ok, connection} =
+             Connections.create(user, %{
+               "name" => "add sasl later",
+               "host" => "irc.example.test",
+               "nickname" => "mira"
+             })
+
+    assert connection.sasl_username == nil
+
+    assert {:ok, updated} =
+             Connections.update(user, connection.id, %{"sasl_password" => "account-secret"})
+
+    assert updated.sasl_username == "mira"
+    assert updated.sasl_password == "account-secret"
+  end
+
   test "deletes an owned connection before broadcasting its buffers as left" do
     user = AccountsFixtures.user_fixture()
     other_user = AccountsFixtures.user_fixture()

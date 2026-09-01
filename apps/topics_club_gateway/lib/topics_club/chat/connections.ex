@@ -38,6 +38,7 @@ defmodule TopicsClub.Chat.Connections do
 
     connection
     |> ServerConnection.changeset(Map.take(attrs, @editable_fields ++ @editable_field_names))
+    |> maybe_default_sasl_username(connection)
     |> maybe_increment_transport_revision(connection)
     |> Repo.update()
   end
@@ -67,4 +68,20 @@ defmodule TopicsClub.Chat.Connections do
       changeset
     end
   end
+
+  defp maybe_default_sasl_username(changeset, connection) do
+    password = Ecto.Changeset.get_field(changeset, :sasl_password)
+
+    if blank?(connection.sasl_username) and not blank?(password) do
+      Ecto.Changeset.put_change(
+        changeset,
+        :sasl_username,
+        Ecto.Changeset.get_field(changeset, :nickname)
+      )
+    else
+      changeset
+    end
+  end
+
+  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 end
