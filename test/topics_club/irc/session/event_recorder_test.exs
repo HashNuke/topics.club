@@ -27,6 +27,19 @@ defmodule TopicsClub.Irc.Session.EventRecorderTest do
   test "falls back to the server buffer when an IRC error names an unknown channel" do
     user = AccountsFixtures.user_fixture()
     connection = connection_fixture(user)
+    telemetry_id = "event-recorder-fallback-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        telemetry_id,
+        [:topics_club, :irc, :ingestion, :failure],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:unexpected_ingestion_failure, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(telemetry_id) end)
 
     assert {:ok, _message} =
              EventRecorder.irc_error(
@@ -38,6 +51,7 @@ defmodule TopicsClub.Irc.Session.EventRecorderTest do
     assert message.channel_membership_id == nil
     assert message.kind == "error"
     assert message.body == "IRC error 403."
+    refute_receive {:unexpected_ingestion_failure, _metadata}
   end
 
   test "channel recording reports a missing membership explicitly" do

@@ -4,11 +4,17 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
   alias TopicsClub.AccountsFixtures
   alias TopicsClub.Chat
 
-  alias TopicsClub.Chat.{ChannelMembership, Connections, Message, MessageHistory}
+  alias TopicsClub.Chat.{
+    ChannelMembership,
+    Connections,
+    MembershipLookup,
+    Message,
+    MessageHistory
+  }
 
   alias TopicsClub.Engine.API
   alias TopicsClub.EngineClient.{Contract, Reply}
-  alias TopicsClub.Irc.{Bouncer, Session, SessionSupervisor}
+  alias TopicsClub.Irc.{Bouncer, CommandRegistry, Session, SessionSupervisor}
   alias TopicsClub.IrcTestServer
   alias TopicsClub.Repo
   alias TopicsClub.Wirekeeper
@@ -92,6 +98,160 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
 
     assert {:ok, _message} = Session.say(connection, "#pipe", "after restart")
     assert_receive {:irc_server_line, "PRIVMSG #pipe :after restart"}, 1_000
+  end
+
+  test "a rejected managed JOIN is acknowledged without replacing the IRC client or repeating JOIN" do
+    server =
+      start_supervised!({IrcTestServer, {self(), accept_reconnects?: true, join_replies?: false}})
+
+    {user, connection} = connection_fixture(server, "wirekeeper rejected join")
+    close_on_exit(connection)
+
+    assert {:ok, session} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK topics_club"}, 1_000
+    assert_receive {:irc_server_line, "USER topics_club 0 * topics_club"}, 1_000
+
+    assert_eventually(fn ->
+      :sys.get_state(session).registered? and
+        match?(
+          {:ok, %{attached?: true, buffered_records: 0}},
+          Wirekeeper.info(connection.id)
+        )
+    end)
+
+    assert [{initial_client, nil}] =
+             Registry.lookup(
+               TopicsClub.Irc.ClientRegistry,
+               {connection.user_id, connection.id}
+             )
+
+    assert {:ok, %{generation: generation}} = Wirekeeper.info(connection.id)
+    flush_server_lines()
+
+    {:ok, info} = Session.connection_info(connection)
+    {:ok, intent} = CommandRegistry.resolve("JOIN #startups", info)
+
+    telemetry_id = "wirekeeper-rejected-join-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        telemetry_id,
+        [:topics_club, :irc, :ingestion, :failure],
+        fn _event, _measurements, metadata, test_pid ->
+          send(test_pid, {:join_ingestion_failure, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(telemetry_id) end)
+
+    assert {:ok, %{status: "sent"}} =
+             Session.execute(
+               connection,
+               intent,
+               "join-startups",
+               "server:#{connection.id}"
+             )
+
+    assert_receive {:irc_server_line, "JOIN #startups"}, 1_000
+
+    assert :ok =
+             IrcTestServer.send_line(
+               server,
+               ":topics_club-test 477 topics_club #startups :Cannot join channel (+r) - you need to be identified with services"
+             )
+
+    assert_eventually(fn ->
+      failed_command =
+        user
+        |> MessageHistory.list_buffer_messages("server:#{connection.id}")
+        |> Enum.find(&(&1.body == "JOIN #startups"))
+
+      (failed_command && failed_command.metadata["command_status"] == "failed") and
+        failed_command.metadata["error"] =~ "identified with services" and
+        match?(
+          %{status: "error"},
+          MembershipLookup.find_by_channel(connection, "#startups", :ascii)
+        ) and
+        match?(
+          {:ok, %{generation: ^generation, attached?: true, buffered_records: 0}},
+          Wirekeeper.info(connection.id)
+        )
+    end)
+
+    assert [{^initial_client, nil}] =
+             Registry.lookup(
+               TopicsClub.Irc.ClientRegistry,
+               {connection.user_id, connection.id}
+             )
+
+    refute_receive {:join_ingestion_failure, %{connection_id: _connection_id}},
+                   300,
+                   "a normal JOIN rejection was misclassified as a persistence failure for connection #{connection.id}"
+
+    refute Enum.any?(
+             MessageHistory.list_buffer_messages(user, "server:#{connection.id}"),
+             &String.starts_with?(&1.body, [
+               "Disconnected from",
+               "Connection lost",
+               "Reconnected to"
+             ])
+           )
+
+    refute_receive {:irc_server_line, "JOIN #startups"}, 300
+    refute_connection_setup_lines()
+  end
+
+  test "resuming a retained socket does not retransmit a JOIN that was already sent" do
+    server =
+      start_supervised!({IrcTestServer, {self(), accept_reconnects?: true, join_replies?: false}})
+
+    {_user, connection} = connection_fixture(server, "wirekeeper pending join resume")
+    close_on_exit(connection)
+
+    assert {:ok, first_session} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK topics_club"}, 1_000
+    assert_receive {:irc_server_line, "USER topics_club 0 * topics_club"}, 1_000
+
+    assert_eventually(fn ->
+      :sys.get_state(first_session).registered? and
+        match?(
+          {:ok, %{attached?: true, buffered_records: 0}},
+          Wirekeeper.info(connection.id)
+        )
+    end)
+
+    {:ok, info} = Session.connection_info(connection)
+    {:ok, intent} = CommandRegistry.resolve("JOIN #startups", info)
+
+    assert {:ok, %{status: "sent"}} =
+             Session.execute(
+               connection,
+               intent,
+               "join-before-engine-restart",
+               "server:#{connection.id}"
+             )
+
+    assert_receive {:irc_server_line, "JOIN #startups"}, 1_000
+    assert {:ok, %{generation: generation}} = Wirekeeper.info(connection.id)
+
+    assert :ok = SessionSupervisor.stop_for_restart(connection)
+    first_ref = Process.monitor(first_session)
+    assert_receive {:DOWN, ^first_ref, :process, ^first_session, _reason}, 1_000
+
+    flush_server_lines()
+    assert {:ok, resumed_session} = SessionSupervisor.start_session(connection)
+
+    assert_eventually(fn ->
+      :sys.get_state(resumed_session).resumed? and
+        match?(
+          {:ok, %{generation: ^generation, attached?: true, buffered_records: 0}},
+          Wirekeeper.info(connection.id)
+        )
+    end)
+
+    refute_receive {:irc_server_line, "JOIN #startups"}, 300
+    refute_connection_setup_lines()
   end
 
   test "the authoritative deletion stop closes its retained Wirekeeper generation" do

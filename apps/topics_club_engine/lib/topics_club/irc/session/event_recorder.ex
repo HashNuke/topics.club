@@ -103,7 +103,6 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
       {:ok, nil}
 
     Ecto.NoResultsError ->
-      report_ingestion_failure(:irc_error, state.connection, Ecto.NoResultsError)
       server_line(state.connection, irc_error_body(payload), "error")
   catch
     :exit, _reason ->

@@ -137,11 +137,12 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
 
   def restore_resumed(state) do
     mapping = Targets.casemapping(state)
+    pending_joins = persisted_channels(state.connection, mapping, ["pending"])
 
     state
-    |> Map.put(:pending_joins, persisted_channels(state.connection, mapping, ["pending"]))
+    |> Map.put(:pending_joins, pending_joins)
     |> Map.put(:joined_channels, persisted_channels(state.connection, mapping, ["joined"]))
-    |> Map.put(:sent_joins, MapSet.new())
+    |> Map.put(:sent_joins, pending_joins)
   end
 
   def refresh_resumed_presence(%{client: client} = state) when is_pid(client) do
