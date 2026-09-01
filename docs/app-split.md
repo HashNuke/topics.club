@@ -356,8 +356,8 @@ The deployment artifacts remain intentionally separate because they serve differ
 | Artifact | Current behavior |
 | --- | --- |
 | `Dockerfile` | Phoenix generated-style multi-stage build of the combined OTP release; suitable for Railway and other container platforms |
-| `docker-compose.prod.yml` | Combined app plus PostgreSQL sidecar for a personal VPS; app runs migrations once before server startup |
-| `docker-compose.yml` | Development PostgreSQL only |
+| `docker-compose.yml` | Combined app plus PostgreSQL sidecar for a personal VPS; app runs migrations once before server startup |
+| `docker-compose.dev.yml` | Development PostgreSQL only |
 | `rel/web/bin/migrate` and `TopicsClub.Release` | Explicit release migration entry point for web-capable releases |
 | First-party topics.club deployment | Pull an exact commit on the destination, build bare releases there, migrate once, atomically select versioned releases, and run separate systemd units through `bin/apptools` |
 
@@ -731,7 +731,7 @@ Requirements:
 - Existing Docker and Railway users do not set a deployment-mode variable.
 - Existing `mix setup` and `mix phx.server` development workflows remain available.
 - The default Dockerfile produces the combined `topics_club` release.
-- `docker-compose.prod.yml` keeps one application service and one PostgreSQL service.
+- `docker-compose.yml` keeps one application service and one PostgreSQL service.
 - The combined startup command may continue to run migrations before starting the application.
 - No Erlang node name, cookie, clustering hostname, or second health check is required.
 - The README presents combined mode first and describes split mode as an advanced production option.
@@ -740,7 +740,7 @@ Railway and similar platforms can continue replacing the single combined service
 
 ### Self-hosted VPS Compose experience
 
-`docker-compose.prod.yml` is the supported self-hosted VPS package. It contains:
+`docker-compose.yml` is the supported self-hosted VPS package. It contains:
 
 - One combined `topics_club` application service.
 - One PostgreSQL service that is not exposed publicly.

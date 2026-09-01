@@ -9,7 +9,7 @@ database.
 ```bash
 git clone https://github.com/HashNuke/topics.club.git
 cd topics.club
-docker compose -p topics-club-dev up -d postgres
+docker compose -p topics-club-dev -f docker-compose.dev.yml up -d postgres
 npm ci --prefix apps/topics_club_gateway/assets
 mix setup
 mix phx.server

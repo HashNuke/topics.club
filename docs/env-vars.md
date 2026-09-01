@@ -65,8 +65,10 @@ These settings are not shared application configuration.
 
 ### Docker Compose
 
-The root `env.example` is only for production Docker Compose. In addition to the
-production application values, Compose uses:
+Run `bin/setup-compose [hostname]` to generate the required secrets and a local
+`.env` without replacing an existing file. The root `env.example` remains
+available as a manual reference. In addition to the production application
+values, Compose uses:
 
 | Variable | Purpose |
 | --- | --- |

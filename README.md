@@ -53,40 +53,22 @@ single-host setup.
 ## Quick start: Docker Compose
 
 This path builds the same combined production release used by container
-platforms. You need Git, Docker Engine, Docker Compose, and an HTTPS reverse
-proxy for a public installation.
+platforms. From a clone of the repository, with Docker Compose and OpenSSL:
 
 ```bash
-git clone https://github.com/HashNuke/topics.club.git
-cd topics.club
-cp env.example .env
-
-# Generate values to paste into .env:
-openssl rand -base64 48  # SECRET_KEY_BASE
-openssl rand -base64 32  # IRC_CREDENTIALS_KEY
-openssl rand -hex 32     # POSTGRES_PASSWORD
+bin/setup-compose
+docker compose up -d --build
 ```
 
-Edit `.env`, set `GATEWAY_HOST` to your public hostname, and replace the Google
-OAuth placeholders if people should be able to sign in. Clear unused Google and
-VAPID placeholders rather than leaving their example text in place. Then
-validate and start the stack:
-
-```bash
-docker compose --env-file .env -f docker-compose.prod.yml config --quiet
-docker compose --env-file .env -f docker-compose.prod.yml up -d --build
-docker compose --env-file .env -f docker-compose.prod.yml ps
-curl --fail http://127.0.0.1:4000/health
-```
-
-The app listens on `127.0.0.1:4000`; put Caddy, nginx, or Traefik in front of it
-for public HTTPS. For a local landing-page smoke test, use
-`GATEWAY_HOST=localhost` and open [localhost:4000](http://localhost:4000).
+Open [localhost:4000](http://localhost:4000). The setup helper generates every
+required secret and never changes an existing `.env`. For a public installation,
+pass its hostname as `bin/setup-compose chat.example.com`, then follow the
+[Compose deployment guide](docs/deployment.md#vps-installation-with-docker-compose)
+for HTTPS, Google OAuth, Web Push, backups, and upgrades.
 
 Compose runs migrations automatically and stores PostgreSQL data in the named
 `postgres_data` volume. Do not run `docker compose down --volumes` unless you
-intend to delete that database. The [deployment guide](docs/deployment.md#vps-installation-with-docker-compose)
-covers reverse-proxy placement, backups, restores, upgrades, and rollback.
+intend to delete that database.
 
 ## Configuration and deployment
 

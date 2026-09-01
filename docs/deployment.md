@@ -40,22 +40,27 @@ Railway's repository-level `railway.toml` and `railway.json` configuration is de
 
 The production Compose package binds the application to `127.0.0.1:4000` and does not publish PostgreSQL. Put an HTTPS reverse proxy such as Caddy, nginx, or Traefik on the same host and proxy to that loopback address. Use a Compose override if a different host interface or port is required; bind only to a private interface and restrict it with the host firewall.
 
-On a clean VPS with Git, Docker Engine, and the Compose plugin:
+On a clean VPS with Git, OpenSSL, Docker Engine, and the Compose plugin:
 
 ```bash
 git clone git@github.com:HashNuke/topics.club.git /srv/topics_club/source
 cd /srv/topics_club/source
-cp env.example .env
+bin/setup-compose your-host.example.com
 ```
 
-Set every required value in `.env`, especially a strong `POSTGRES_PASSWORD`. Compose passes the password as a discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL characters are supported.
+The setup helper generates `POSTGRES_PASSWORD`, `SECRET_KEY_BASE`, and
+`IRC_CREDENTIALS_KEY`, writes the file with mode `0600`, and never changes an
+existing `.env`. Add Google OAuth credentials and, when wanted, Web Push values
+before starting the public service. Compose passes the database password as a
+discrete PostgreSQL setting rather than embedding it in a URL, so reserved URL
+characters are supported.
 
 PostgreSQL data is stored in the Compose-managed `postgres_data` volume. Validate the resolved configuration and start the stack:
 
 ```bash
-docker compose --env-file .env -f docker-compose.prod.yml config --quiet
-docker compose --env-file .env -f docker-compose.prod.yml up -d --build
-docker compose --env-file .env -f docker-compose.prod.yml ps
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
 curl --fail http://127.0.0.1:4000/health
 ```
 
@@ -274,17 +279,17 @@ work. The following manual procedure is retained as operator guidance for when b
 Create logical backups outside the Docker volume; copying the live PostgreSQL data directory is not a safe backup procedure:
 
 ```bash
-docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
+docker compose exec -T postgres \
   pg_dump -U postgres -d topics_club_prod -Fc > topics_club-$(date +%Y%m%d-%H%M%S).dump
 ```
 
 Test restores on another PostgreSQL instance regularly. Restoring over the production database is destructive: stop the application, preserve a second current backup, recreate or clean the target database, restore with `pg_restore`, and start the application only after `pg_restore` succeeds. For example, against an already empty `topics_club_prod` database:
 
 ```bash
-docker compose --env-file .env -f docker-compose.prod.yml stop app
-docker compose --env-file .env -f docker-compose.prod.yml exec -T postgres \
+docker compose stop app
+docker compose exec -T postgres \
   pg_restore -U postgres -d topics_club_prod --exit-on-error < topics_club-backup.dump
-docker compose --env-file .env -f docker-compose.prod.yml up -d app
+docker compose up -d app
 ```
 
 ## Upgrade and rollback
@@ -294,9 +299,9 @@ Fetch and check out an exact commit rather than deploying a moving working tree.
 ```bash
 git fetch --all --prune
 git checkout <exact-commit>
-docker compose --env-file .env -f docker-compose.prod.yml build app
-docker compose --env-file .env -f docker-compose.prod.yml run --rm app /app/bin/migrate
-docker compose --env-file .env -f docker-compose.prod.yml up -d --no-deps app
+docker compose build app
+docker compose run --rm app /app/bin/migrate
+docker compose up -d --no-deps app
 curl --fail http://127.0.0.1:4000/health
 ```
 
