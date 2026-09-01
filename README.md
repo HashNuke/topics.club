@@ -50,11 +50,6 @@ the combined app unless you specifically need that separation; the
 [split deployment guide](docs/deployment-separate-nodes.md) covers the supported
 single-host setup.
 
-> [!IMPORTANT]
-> Run exactly one IRC engine. For Docker Compose and Railway, that means exactly
-> one application container or replica. IRC session ownership is intentionally
-> node-local and is not protected by partition-safe database fencing yet.
-
 ## Quick start: Docker Compose
 
 This path builds the same combined production release used by container
