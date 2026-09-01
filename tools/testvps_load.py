@@ -765,6 +765,8 @@ def run_load(
                     raise RuntimeError(f"load provisioning batch failed: {result!r}")
                 current_count += count
 
+            provision_seconds = round(time.monotonic() - provision_started, 3)
+            ready_started = time.monotonic()
             ready_sample, startup_samples = wait_for(
                 f"{target} split-release IRC connections",
                 run_id,
@@ -772,28 +774,32 @@ def run_load(
                 lambda current: ready(current, target),
                 sample_interval,
             )
+            connection_ready_seconds = round(time.monotonic() - ready_started, 3)
             hold_success, hold_samples = steady_hold(
                 run_id, target, steady_seconds, sample_interval
             )
             scenario_samples = startup_samples + hold_samples
             functional_success = ready(ready_sample, target) and hold_success
-            scenario = scenario_summary(target, functional_success, scenario_samples)
-            scenario.update(
-                {
-                    "provision_seconds": round(time.monotonic() - provision_started, 3),
-                    "provision_batches": provision_results,
-                }
-            )
-
+            restart = None
             if restart_engine and functional_success:
                 restart = engine_restart_phase(
                     run_id, target, startup_timeout, sample_interval
                 )
-                scenario["engine_restart"] = restart
-                scenario["functional_success"] = restart["success"]
-                scenario["planning_success"] = (
-                    scenario["planning_success"] and restart["success"]
-                )
+                scenario_samples += restart["samples"]
+                functional_success = functional_success and restart["success"]
+
+            scenario = scenario_summary(target, functional_success, scenario_samples)
+            scenario.update(
+                {
+                    "provision_seconds": provision_seconds,
+                    "connection_ready_seconds": connection_ready_seconds,
+                    "provision_batches": provision_results,
+                }
+            )
+            if restart is not None:
+                scenario["engine_restart"] = {
+                    key: value for key, value in restart.items() if key != "samples"
+                }
 
             payload["scenarios"].append(scenario)
             write_results(payload, run_id)
@@ -801,9 +807,22 @@ def run_load(
                 break
 
         if drop_recovery and payload["scenarios"] and payload["scenarios"][-1]["functional_success"]:
-            payload["drop_recovery"] = drop_recovery_phase(
+            drop_result = drop_recovery_phase(
                 run_id, current_count, startup_timeout, sample_interval
             )
+            drop_details = {
+                key: value for key, value in drop_result.items() if key != "samples"
+            }
+            payload["drop_recovery"] = drop_details
+            final_scenario = payload["scenarios"][-1]
+            final_samples = final_scenario["samples"] + drop_result["samples"]
+            final_summary = scenario_summary(
+                current_count,
+                final_scenario["functional_success"] and drop_result["success"],
+                final_samples,
+            )
+            final_scenario.update(final_summary)
+            final_scenario["drop_recovery"] = drop_details
             write_results(payload, run_id)
     finally:
         if cleanup:
