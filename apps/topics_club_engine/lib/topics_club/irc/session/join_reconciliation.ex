@@ -9,7 +9,7 @@ defmodule TopicsClub.Irc.Session.JoinReconciliation do
 
   def failure_event?(%Event{name: name, payload: payload})
       when name in [:irc_error, :error],
-      do: Map.get(payload, :code) in ~w(403 405 461 471 473 474 475 476 477)
+      do: Map.get(payload, :code) in ~w(403 405 437 461 471 473 474 475 476 477 479 480)
 
   def failure_event?(%Event{name: name, payload: payload})
       when name in [:standard_reply, :standard_reply_error],
@@ -29,7 +29,7 @@ defmodule TopicsClub.Irc.Session.JoinReconciliation do
   end
 
   def reconcile_legacy_error(state, %{code: code, target: target} = payload)
-      when code in ~w(403 405 471 473 474 475 476 477) and is_binary(target) do
+      when code in ~w(403 405 437 471 473 474 475 476 477 479 480) and is_binary(target) do
     if pending_target?(state, target) do
       reject_targets(state, [target], Map.get(payload, :reason) || code)
     else
@@ -101,8 +101,8 @@ defmodule TopicsClub.Irc.Session.JoinReconciliation do
         state,
         %Event{name: name, payload: %{code: code, target: target} = payload} = event
       )
-      when name in [:irc_error, :error] and code in ~w(403 405 471 473 474 475 476 477) and
-             is_binary(target) do
+      when name in [:irc_error, :error] and
+             code in ~w(403 405 437 471 473 474 475 476 477 479 480) and is_binary(target) do
     case pending_for_event(state, event) do
       {command_id, pending} ->
         if CommandTargetCorrelation.matches?(state, target, pending.targets) do

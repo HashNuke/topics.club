@@ -30,6 +30,11 @@ defmodule TopicsClub.Irc.SessionTest do
       configure_transport(@transport_mode)
       run_session_scenario()
     end
+
+    test "rejects Solanum vendor JOIN failures without reconnecting in #{@transport_mode} mode" do
+      configure_transport(@transport_mode)
+      run_solanum_join_failure_scenario()
+    end
   end
 
   defp run_session_scenario do
@@ -90,6 +95,76 @@ defmodule TopicsClub.Irc.SessionTest do
 
     assert_receive {:buffer_system, %{kind: "system", body: "Disconnected from localhost."}},
                    1_000
+  end
+
+  defp run_solanum_join_failure_scenario do
+    server =
+      start_supervised!({IrcTestServer, {self(), accept_reconnects?: true, join_replies?: false}})
+
+    user = AccountsFixtures.user_fixture()
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "solanum-join-failures",
+        "host" => "localhost",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "topics_club"
+      })
+
+    on_exit(fn ->
+      _result = SessionSupervisor.stop_for_deletion(connection)
+    end)
+
+    Phoenix.PubSub.subscribe(TopicsClub.PubSub, "user:#{user.id}")
+    {:ok, session} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK topics_club"}, 1_000
+    assert_receive {:irc_server_line, "USER topics_club 0 * topics_club"}, 1_000
+    assert_receive {:buffer_system, %{body: "Connected to localhost."}}, 1_000
+
+    {:ok, info} = Session.connection_info(connection)
+
+    for {code, channel, reason} <- [
+          {"437", "#temporarily-unavailable", "Nick/channel is temporarily unavailable"},
+          {"479", "#illegal-name", "Illegal channel name"},
+          {"480", "#tls-only", "Cannot join channel (+S) - SSL/TLS required"}
+        ] do
+      {:ok, intent} = CommandRegistry.resolve("JOIN #{channel}", info)
+      command_id = "join-vendor-#{code}"
+
+      assert {:ok, %{status: "sent"}} =
+               Session.execute(
+                 connection,
+                 intent,
+                 command_id,
+                 "server:#{connection.id}"
+               )
+
+      membership = MembershipLookup.find_by_channel(connection, channel, :ascii)
+      membership_id = membership.id
+      assert_receive {:irc_server_line, "JOIN " <> ^channel}, 1_000
+
+      assert :ok =
+               IrcTestServer.send_line(
+                 server,
+                 ":topics_club-test #{code} topics_club #{channel} :#{reason}"
+               )
+
+      assert_receive {:buffer_left, %{channel_membership_id: ^membership_id}}, 1_000
+      assert MembershipLookup.get!(user, membership_id).status == "error"
+
+      command =
+        user
+        |> MessageHistory.list_buffer_messages("server:#{connection.id}")
+        |> Enum.find(&(&1.metadata["command_id"] == command_id))
+
+      assert command.metadata["command_status"] == "failed"
+      assert command.metadata["error"] == reason
+    end
+
+    assert session == SessionLocator.whereis(connection)
+    refute_receive {:irc_server_line, "NICK " <> _nick}, 200
+    refute_receive {:irc_server_line, "USER " <> _rest}, 200
   end
 
   test "records channel system lines for IRC membership events" do

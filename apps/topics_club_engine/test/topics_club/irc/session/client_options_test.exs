@@ -47,6 +47,7 @@ defmodule TopicsClub.Irc.Session.ClientOptionsTest do
     assert opts[:realname] == "mira"
     assert opts[:reconnect] == false
     assert opts[:events] == :envelope
+    assert opts[:additional_error_numerics] == ["479", "480"]
     assert opts[:notify] == self()
 
     assert opts[:caps] == [

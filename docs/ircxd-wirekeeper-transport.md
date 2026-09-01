@@ -13,7 +13,7 @@ while the selected adapter owns connection establishment, framed delivery, accep
 writes, and closure.
 
 This support was implemented directly in `~/projects/ircxd` and is pinned here at commit
-`0c9bfb1a50a33c57e858eef98e7f8bd1d9e2c14a`.
+`ef6645035fcf298d2a8d79ce241b8430bebdd6ee` on the remote `wirekeeper-transport` branch.
 
 ## Backward compatibility
 
@@ -22,6 +22,15 @@ The extension is opt-in through `:transport_adapter`. Existing callers use the b
 code. It preserves existing TCP/TLS options, active-once reads, registration, events, reconnect
 behavior, public commands, and `Ircxd.Client.Info.transport` values (`:gen_tcp` or `:ssl`). It starts
 no extra process and has no Wirekeeper or TopicsClub dependency.
+
+The same branch adds an independent `:additional_error_numerics` client option. It defaults to an
+empty list, so existing Ircxd callers continue to receive unknown vendor numerics as `:raw`.
+TopicsClub opts into Solanum numerics `479` and `480`, allowing its existing structured JOIN
+failure reconciliation to handle illegal channel names, join throttling, and TLS-only channels.
+The normalized selection is part of Ircxd's resume-checkpoint compatibility binding because an
+in-progress labeled batch may retain already-classified events. Older checkpoints with no field are
+compatible only with the unchanged empty default; changing the selection deliberately rejects the
+checkpoint and requires a fresh connection.
 
 A custom adapter receives credential-free endpoint settings in `connect/3`; raw TLS options remain
 inside Ircxd. Its `send_data/2` callback does receive complete outbound IRC wire records, including
@@ -130,10 +139,10 @@ The adapter performs these transitions:
    detaches the Session consumer before retry, resetting in-flight delivery for replay.
 8. Engine restart/crash detaches; user QUIT and authoritative connection deletion explicitly close.
 
-On resume the engine restores persisted `joined` memberships into its joined set and only
-`pending` memberships into its pending set. The subsequent registered event therefore does not
-send duplicate JOIN commands. The implementation does not currently issue proactive NAMES queries
-as a resume reconciliation step.
+On resume the engine restores persisted `joined` memberships into its joined set and persisted
+`pending` memberships into both its pending and already-sent sets. The subsequent registered event
+therefore does not send duplicate JOIN commands on the retained socket. It proactively sends NAMES
+for every confirmed joined membership to rebuild in-memory presence without rejoining.
 
 ## Process and deployment boundary
 
@@ -150,6 +159,8 @@ the combined release remains direct by default.
 Current automated coverage proves:
 
 - unchanged default Ircxd TCP/TLS behavior and optional custom adapters in the Ircxd project;
+- unchanged raw handling for vendor numerics unless a caller explicitly opts into selected generic
+  errors, including checkpoint mismatch coverage when that selection changes;
 - fresh registration writes and resumed parser restoration without registration writes;
 - stale transport handles and cleanup fencing;
 - bounded, credential-free checkpoints including in-progress parser/batch state;

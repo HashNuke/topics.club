@@ -25,6 +25,7 @@ defmodule TopicsClub.Irc.Session.ClientOptions do
       caps: @capabilities,
       reconnect: false,
       events: :envelope,
+      additional_error_numerics: ["479", "480"],
       notify: notify_pid,
       adapter: {ClientRegistration, {connection.user_id, connection.id}}
     ]

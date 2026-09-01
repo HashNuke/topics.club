@@ -6,11 +6,15 @@ defmodule TopicsClub.Irc.Session.JoinReconciliationTest do
   alias Ircxd.Client.Event
 
   test "classifies JOIN membership failure events" do
-    join_error =
-      struct(Event,
-        name: :irc_error,
-        payload: %{code: "473", target: "#private"}
-      )
+    for code <- ~w(403 405 437 461 471 473 474 475 476 477 479 480) do
+      join_error =
+        struct(Event,
+          name: :irc_error,
+          payload: %{code: code, target: "#private"}
+        )
+
+      assert JoinReconciliation.failure_event?(join_error)
+    end
 
     join_fail =
       struct(Event,
@@ -24,7 +28,6 @@ defmodule TopicsClub.Irc.Session.JoinReconciliationTest do
         payload: %{type: :fail, command: "WHOIS"}
       )
 
-    assert JoinReconciliation.failure_event?(join_error)
     assert JoinReconciliation.failure_event?(join_fail)
     refute JoinReconciliation.failure_event?(other_fail)
   end
