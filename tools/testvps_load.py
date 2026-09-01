@@ -42,8 +42,9 @@ SERVICE_PROPERTIES = (
 )
 
 
-def parse_counts(value: str) -> list[int]:
-    counts = [int(item.strip().replace("_", "")) for item in value.split(",")]
+def parse_counts(value: str | tuple[object, ...] | list[object]) -> list[int]:
+    items = value if isinstance(value, (tuple, list)) else value.split(",")
+    counts = [int(str(item).strip().replace("_", "")) for item in items]
     if not counts or any(count <= 0 for count in counts):
         raise ValueError("counts must be positive comma-separated integers")
     if counts != sorted(set(counts)):
@@ -439,21 +440,30 @@ def cgroup_metrics() -> dict[str, Any]:
     }
 
 
-def reset_cgroup_memory_peak() -> None:
+def reset_cgroup_memory_peak() -> str:
     """Start the runtime measurement after any destination-side release build peaks."""
     peak_file = container_cgroup() / "memory.peak"
-    run(
-        [
-            "docker",
-            "exec",
-            VPS_CONTAINER,
-            "bash",
-            "-c",
-            'printf 0 > "$1"',
-            "load-cgroup-peak-reset",
-            str(peak_file),
-        ]
-    )
+
+    if peak_file.stat().st_mode & 0o200:
+        run(
+            [
+                "docker",
+                "exec",
+                VPS_CONTAINER,
+                "bash",
+                "-c",
+                'printf 0 > "$1"',
+                "load-cgroup-peak-reset",
+                str(peak_file),
+            ]
+        )
+        return "memory.peak write"
+
+    # Linux 6.8 exposes memory.peak as read-only. Recreating this exact disposable
+    # container's cgroup clears the build peak while preserving its release and DB volumes.
+    run(["docker", "restart", VPS_CONTAINER], capture=True)
+    split_acceptance.wait_gateway_health()
+    return "pseudo-VPS cgroup restart"
 
 
 def docker_metrics(container: str) -> dict[str, Any]:
@@ -851,7 +861,7 @@ def run_load(
         irc_started = True
         limits.runtime_limits()
         runtime_limits_enabled = True
-        reset_cgroup_memory_peak()
+        payload["memory_peak_reset"] = reset_cgroup_memory_peak()
         payload["baseline"] = ensure_clean(run_id)
         ensure_capacity_prerequisites(payload["baseline"], targets[-1])
         payload["deployed_releases"] = {

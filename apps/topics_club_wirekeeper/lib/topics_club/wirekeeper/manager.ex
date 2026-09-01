@@ -247,7 +247,8 @@ defmodule TopicsClub.Wirekeeper.Manager do
   defp terminate_opening_connection(opening) do
     case Registry.lookup(@registry, opening.key) do
       [{connection, {_status, generation}}] when generation == opening.generation ->
-        DynamicSupervisor.terminate_child(ConnectionSupervisor, connection)
+        Process.exit(connection, :kill)
+        :ok
 
       _missing_or_replaced ->
         :ok

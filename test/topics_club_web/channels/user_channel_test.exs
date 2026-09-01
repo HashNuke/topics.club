@@ -1867,8 +1867,12 @@ defmodule TopicsClubWeb.UserChannelTest do
 
     assert :ok = SessionSupervisor.stop_for_restart(connection)
 
-    assert {:ok, %{generation: ^first_generation, attached?: false}} =
-             Wirekeeper.info(connection.id)
+    assert_eventually(fn ->
+      match?(
+        {:ok, %{generation: ^first_generation, attached?: false}},
+        Wirekeeper.info(connection.id)
+      )
+    end)
 
     socket = join_user_channel(user)
     reconnect_ref = push(socket, "server:reconnect", %{"server_connection_id" => connection.id})

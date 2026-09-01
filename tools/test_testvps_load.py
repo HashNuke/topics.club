@@ -3,6 +3,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -68,6 +69,7 @@ class TestVpsLimitsTest(unittest.TestCase):
 class TestVpsLoadExpressionTest(unittest.TestCase):
     def test_counts_are_strictly_increasing(self) -> None:
         self.assertEqual(testvps_load.parse_counts("100,500,1_000"), [100, 500, 1_000])
+        self.assertEqual(testvps_load.parse_counts((100, 500, 1_000)), [100, 500, 1_000])
         with self.assertRaisesRegex(ValueError, "strictly increasing"):
             testvps_load.parse_counts("100,100")
         with self.assertRaisesRegex(ValueError, "strictly increasing"):
@@ -172,6 +174,28 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
             testvps_load.start_irc_container()
 
         remove_mock.assert_called_once_with()
+
+    def test_read_only_memory_peak_uses_a_fresh_disposable_cgroup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cgroup = Path(directory)
+            peak = cgroup / "memory.peak"
+            peak.write_text("123\n")
+            peak.chmod(0o444)
+
+            with (
+                mock.patch.object(testvps_load, "container_cgroup", return_value=cgroup),
+                mock.patch.object(testvps_load, "run") as run_mock,
+                mock.patch.object(
+                    testvps_load.split_acceptance, "wait_gateway_health"
+                ) as health_mock,
+            ):
+                method = testvps_load.reset_cgroup_memory_peak()
+
+        self.assertEqual(method, "pseudo-VPS cgroup restart")
+        run_mock.assert_called_once_with(
+            ["docker", "restart", testvps.VPS_CONTAINER], capture=True
+        )
+        health_mock.assert_called_once_with()
 
 
 class SyntheticIrcConfigurationTest(unittest.TestCase):
