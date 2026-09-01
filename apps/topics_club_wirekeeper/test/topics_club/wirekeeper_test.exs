@@ -1319,7 +1319,10 @@ defmodule TopicsClub.WirekeeperTest do
                {{:error, {:transport, :forced_failure}}, {:error, {:transport, :forced_failure}}}
              ]
 
-    refute_receive {:wirekeeper_test_server, :accepted, ^server, _count}
+    # The TCP handshake may race ahead of adapter initialization, so an accept is
+    # observable even though the connection immediately fails. The durable
+    # invariant is that no failed generation remains registered.
+    assert {:ok, []} = Wirekeeper.list()
   end
 
   test "repeated manager crashes stay inside the manager restart boundary" do
