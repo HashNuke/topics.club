@@ -236,6 +236,9 @@ cache, and the gateway, Wirekeeper, and engine BEAM nodes together. The separate
 PostgreSQL sidecar is outside that cgroup, as is the temporary synthetic IRC sidecar used by
 acceptance and load tests. Consequently, this measures a 2 GiB application host with an external
 database; it is not evidence for fitting PostgreSQL and TopicsClub into one 2 GiB machine.
+The Wirekeeper systemd service sets `LimitNOFILE=65536`; without that explicit soft limit, the
+operating-system default can cap the transport near 1,000 sockets before memory becomes the
+constraint under test.
 
 New pseudo-VPS containers start with an additional 4 GiB swap allowance so destination-side release
 builds work. Capacity measurements must not use that allowance. These commands switch the exact

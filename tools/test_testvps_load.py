@@ -135,6 +135,24 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
         self.assertFalse(summary["functional_success"])
         self.assertFalse(summary["planning_success"])
 
+    def test_capacity_run_requires_wirekeeper_file_descriptors_above_the_target(self) -> None:
+        baseline = {
+            "services": {"wirekeeper": {"LimitNOFILESoft": 1_024}}
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "open-file limit is too low"):
+            testvps_load.ensure_capacity_prerequisites(baseline, 4_000)
+
+        baseline["services"]["wirekeeper"]["LimitNOFILESoft"] = 65_536
+        testvps_load.ensure_capacity_prerequisites(baseline, 4_000)
+
+    def test_wirekeeper_service_sets_a_capacity_appropriate_open_file_limit(self) -> None:
+        service = (
+            TOOLS_DIR / "deploy" / "topics-club-wirekeeper.service"
+        ).read_text()
+
+        self.assertIn("LimitNOFILE=65536", service)
+
 
 class SyntheticIrcConfigurationTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("elixir"), "Elixir is required for the IRC harness test")

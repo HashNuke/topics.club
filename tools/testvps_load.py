@@ -37,7 +37,8 @@ GATEWAY_SERVICE = split_acceptance.GATEWAY_SERVICE
 WIREKEEPER_SERVICE = split_acceptance.WIREKEEPER_SERVICE
 RUN_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,39}\Z")
 SERVICE_PROPERTIES = (
-    "ActiveState,MainPID,MemoryCurrent,MemoryPeak,CPUUsageNSec,TasksCurrent,NRestarts"
+    "ActiveState,MainPID,MemoryCurrent,MemoryPeak,CPUUsageNSec,TasksCurrent,NRestarts,"
+    "LimitNOFILE,LimitNOFILESoft"
 )
 
 
@@ -728,6 +729,23 @@ def ensure_clean(run_id: str) -> dict[str, Any]:
     return current
 
 
+def ensure_capacity_prerequisites(baseline: dict[str, Any], maximum_target: int) -> None:
+    required_open_files = maximum_target + 1_024
+    soft_limit = nested(
+        baseline,
+        "services",
+        "wirekeeper",
+        "LimitNOFILESoft",
+        default=0,
+    )
+    if not isinstance(soft_limit, int) or soft_limit < required_open_files:
+        raise RuntimeError(
+            "deployed Wirekeeper open-file limit is too low for this capacity run: "
+            f"need at least {required_open_files}, found {soft_limit}; reprovision the "
+            "testvps service units before deploying and measuring"
+        )
+
+
 def cleanup_run(run_id: str, batch_size: int, concurrency: int) -> list[dict[str, Any]]:
     batches: list[dict[str, Any]] = []
     while True:
@@ -829,6 +847,7 @@ def run_load(
         runtime_limits_enabled = True
         reset_cgroup_memory_peak()
         payload["baseline"] = ensure_clean(run_id)
+        ensure_capacity_prerequisites(payload["baseline"], targets[-1])
         payload["deployed_releases"] = {
             role: release_manifest(role) for role in ("gateway", "wirekeeper", "engine")
         }

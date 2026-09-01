@@ -122,6 +122,9 @@ bin/apptools testvps load \
 
 Do not run it against a pseudo-VPS containing real or unrelated test connections. It refuses to
 start unless the database, engine, Wirekeeper, and synthetic IRC server all have zero connections.
+It also refuses a ramp whose maximum target would approach the deployed Wirekeeper service's soft
+open-file limit; reprovisioned hosts set that limit to 65,536 so the operating-system default does
+not create an artificial boundary near 1,000 sockets.
 The default cleanup path deletes each connection through `EngineClient.delete_connection` before
 deleting its synthetic user, ensuring Wirekeeper closes the corresponding upstream socket. An
 interrupted run can be rerun only after its lifecycle cleanup succeeds or the disposable pseudo-VPS

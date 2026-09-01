@@ -22,6 +22,7 @@ TimeoutStartSec=90
 TimeoutStopSec=90
 Restart=on-failure
 RestartSec=5
+LimitNOFILE=65536
 UMask=0027
 PrivateTmp=true
 NoNewPrivileges=true
