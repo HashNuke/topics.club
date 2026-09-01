@@ -56,7 +56,10 @@ The manager serializes key reservations but performs adapter initialization and 
 work in supervised tasks. A slow TCP connect or TLS handshake therefore does not block lookup or
 other connection routing. At most eight opens may be pending; another open is rejected with
 `{:error, :overloaded}`. If an opening caller exits, its task and any connection created for that
-opening are cleaned up.
+opening are cleaned up. An optional application-wide `:max_connections` limit counts reserved
+openings and open sockets, but not closed tombstones. Once that limit is reached, another open is
+rejected with `{:error, :connection_limit}`. The default is unlimited; production should set a
+positive limit from measured host capacity rather than relying on an invented universal value.
 
 The unique Registry maps a connection key to its connection process and its `:opening`, `:open`, or
 `:closed` generation state. Calls do not need to query a potentially busy socket owner merely to
@@ -291,6 +294,12 @@ The `open/3` connection options are:
 | Open options | `:checkpoint_max_bytes` | 65,536 bytes |
 | Open options | `:closed_retention_ms` | 60,000 ms |
 
+The optional application setting `config :topics_club_wirekeeper, max_connections: positive_integer`
+limits all opening and open generations across keys. It is separate from per-connection `open/3`
+options and is unlimited when absent. In the standalone release,
+`TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS` supplies this value and rejects zero, negative, or malformed
+values during boot.
+
 TCP and TLS use raw binary sockets with active-once reads and finite sends. TCP also enables
 `nodelay` and transport keepalive. TLS verifies DNS hostnames and IP subject alternative names by
 default; IP literals are connected as addresses rather than sent as IP-valued SNI. Caller-supplied
@@ -312,6 +321,14 @@ The stable Wirekeeper key is `server_connections.id`. The attached consumer is t
 `TopicsClub.Irc.Session` PID, not the short-lived Ircxd client PID. That distinction lets an abrupt
 Ircxd client exit detach and replay through the same Session during retry, while loss of the engine
 node also detaches its remote Session PID without closing upstream.
+
+The Ircxd resume binding is `server-connection/<id>/transport-revision/<revision>`, optionally
+extended by a deployment binding. The database revision increments when effective socket or IRC
+identity settings change, including host, port, TLS, nickname, and SASL credentials. Ircxd also
+binds the selected opt-in vendor-numeric policy. A mismatch rejects the old checkpoint and closes
+that retained generation before making a fresh connection, so a settings edit cannot accidentally
+resume an incompatible IRC session. Adding the first SASL password without an explicit SASL
+username derives the username from the effective nickname.
 
 For a fresh connection the adapter:
 
@@ -344,6 +361,16 @@ checkpoint, it uses the plain ACK path. If Ircxd reports that no safe checkpoint
 atomic ACK fails, the adapter closes the generation rather than advancing replay without resumable
 state.
 
+Persistence failure is handled differently from an unsafe checkpoint. The Session records failures
+while dispatching all events produced by a delivered record. At its acceptance marker it detaches
+the consumer, reports the Ircxd transport closed, and deliberately leaves both the record and socket
+unacknowledged. Retry reattaches to the same retained generation and replays the record. Persisted
+message, system-line, direct-message, and channel/server-line effects claim a unique
+`{connection_id, generation, sequence, effect_key}` row in the same database transaction, making a
+replayed effect idempotent. Claims through a cumulatively acknowledged sequence are released later
+in bounded batches; deleting the connection cascades any remaining claims. The transport contract
+is still at-least-once, while these persisted effects are applied once.
+
 Wirekeeper overflow is not reconciled on the retained socket. The engine closes the gapped
 generation, tells Ircxd that the transport failed, and establishes one fresh IRC connection. An
 upstream close is likewise surfaced through Ircxd's normal disconnect/retry path. Late records from
@@ -351,23 +378,34 @@ a detached client are left unacknowledged and replayed after attachment; stale I
 handles cannot inject them into a replacement client.
 
 The Session persists inbound events before the acceptance marker is handled. On a valid resume it
-restores `joined` auto-join memberships into its in-memory joined set and restores only `pending`
-memberships into its pending set, so the registered event cannot emit a duplicate JOIN burst.
-Presence is rebuilt from subsequent IRC traffic; the current implementation does not proactively
-send NAMES during resume.
+restores `joined` auto-join memberships into its in-memory joined set. Persisted `pending`
+memberships are restored into both the pending and already-sent sets: they still await a server
+result, but the resumed registered event must not write a second JOIN onto the retained socket.
+The Session sends NAMES once for every persisted joined membership to rebuild presence without
+rejoining the channel.
 
 Shutdown intent is explicit:
 
 - an engine/Session or Ircxd crash detaches the consumer and retains the socket;
 - loss or replacement of the Wirekeeper node is observed by each Ircxd client and enters its normal
   disconnect/reconnect path instead of leaving a stale generation handle connected;
-- an ordinary user QUIT and the authoritative connection-deletion path close the generation; and
+- an ordinary user QUIT, authoritative user reconnect, connection deletion, and active transport
+  settings edit close the generation. A reconnect or edit then opens exactly one fresh generation;
+- the inactive-session sweep closes a detached generation for an inactive connection that the
+  engine intentionally does not restore;
 - a replay gap, unavailable checkpoint, rejected connection, or failed acceptance also closes the
   affected generation so retry is fresh.
 
-The integration suite runs one real Session connect/join/send/persist scenario in both direct and
-Wirekeeper modes. Wirekeeper-specific cases cover engine Session replacement, an abrupt Ircxd
-client crash, replay persistence, absence of duplicate connection setup/JOIN writes, and permanent
+An unavailable Wirekeeper node is different from an upstream IRC failure. The engine keeps retrying
+the Wirekeeper boundary indefinitely, because asking a user to repair an internal service outage
+would strand a socket Wirekeeper may still own. Ordinary upstream disconnects retain the normal
+bounded reconnect-and-help policy.
+
+The integration suite runs the same real Session connect/join/send/persist and JOIN-rejection
+scenarios in both direct and Wirekeeper modes. Wirekeeper-specific cases cover engine Session
+replacement, pending JOIN recovery without a duplicate wire write, an abrupt Ircxd client crash,
+replay after a persistence failure, idempotent persistence, absence of duplicate registration
+writes, authoritative reconnect and settings changes, inactive-orphan cleanup, and permanent
 deletion cleanup. The production-like split acceptance check also replaces Wirekeeper while the
 engine stays up and proves that the engine establishes and persists traffic from a fresh IRC
 connection rather than retaining the stale generation handle.
@@ -409,9 +447,11 @@ existing versioned engine RPC contract. A failed post-activation contract check 
 selected release, including during a component rollback.
 
 The standalone Wirekeeper service loads only `/etc/topics-club/wirekeeper.env`, containing
-`RELEASE_NODE` and `RELEASE_COOKIE`. It does not load `db.env`, `IRC_CREDENTIALS_KEY`, Phoenix,
-OAuth, or Web Push secrets. Its systemd health unit performs a release RPC to
-`TopicsClub.Wirekeeper.diagnostics/0` and requires transport API version 1.
+`RELEASE_NODE`, `RELEASE_COOKIE`, and optionally
+`TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS`. It does not load `db.env`, `IRC_CREDENTIALS_KEY`, Phoenix,
+OAuth, or Web Push secrets. Its systemd unit raises the file-descriptor limit to 65,536. Its health
+unit performs a release RPC to `TopicsClub.Wirekeeper.diagnostics/0` and requires transport API
+version 1.
 
 Erlang distribution is a trusted local boundary in this implementation. Wirekeeper does not add
 per-call authentication or authorization beyond the shared node cookie. The first-party topology
@@ -428,7 +468,8 @@ The current umbrella application does not:
   messages, or choose reconnect policy;
 - persist sockets or replay buffers across loss of the connection process, BEAM node, container, or
   host;
-- provide exactly-once delivery;
+- provide exactly-once transport delivery; selected database effects are idempotent across replay,
+  but consumers must still handle at-least-once records;
 - authorize remote engine nodes or expose a versioned command envelope beyond the diagnostics
   compatibility marker;
 - preserve a socket across a Wirekeeper node, VM, container, host, or Wirekeeper release restart;
