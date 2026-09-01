@@ -10,6 +10,7 @@ defmodule TopicsClub.Irc.Session do
   alias TopicsClub.Irc.Session.EventDispatcher
   alias TopicsClub.Irc.Session.Initialization
   alias TopicsClub.Irc.Session.JoinFlush
+  alias TopicsClub.Irc.Session.WirekeeperIngestion
   alias TopicsClub.Irc.SessionLocator
   alias TopicsClub.Irc.WirekeeperTransport
   alias TopicsClub.Chat.ServerConnection
@@ -83,12 +84,26 @@ defmodule TopicsClub.Irc.Session do
     end
   end
 
-  def handle_info({:ircxd, event}, state), do: {:noreply, EventDispatcher.dispatch(state, event)}
+  def handle_info({:ircxd, event}, state) do
+    :ok = WirekeeperIngestion.begin_event(state, event)
+
+    state =
+      state
+      |> EventDispatcher.dispatch(event)
+      |> WirekeeperIngestion.finish_event()
+
+    {:noreply, state}
+  end
 
   def handle_info({:topics_club_wirekeeper, {:data, payload}}, %{client: client} = state)
       when is_pid(client) do
-    :ok = WirekeeperTransport.deliver(client, payload)
-    {:noreply, state}
+    if WirekeeperIngestion.retrying?(state) do
+      {:noreply, state}
+    else
+      state = WirekeeperIngestion.enqueue(state, payload)
+      :ok = WirekeeperTransport.deliver(client, payload)
+      {:noreply, state}
+    end
   end
 
   def handle_info({:topics_club_wirekeeper, {:data, _payload}}, state), do: {:noreply, state}
@@ -97,12 +112,29 @@ defmodule TopicsClub.Irc.Session do
         {:topics_club_wirekeeper_transport, {:accepted, accepted}},
         state
       ) do
-    case WirekeeperTransport.acknowledge(accepted) do
-      :ok -> :ok
-      {:error, reason} -> WirekeeperTransport.acceptance_failed(accepted, reason)
-    end
+    cond do
+      WirekeeperIngestion.retrying?(state) ->
+        {:noreply, state}
 
-    {:noreply, state}
+      WirekeeperIngestion.failed?(state) ->
+        :ok =
+          WirekeeperTransport.retry_after_ingestion_failure(
+            accepted,
+            WirekeeperIngestion.failure_reason(state)
+          )
+
+        {:noreply, WirekeeperIngestion.mark_retry_started(state)}
+
+      true ->
+        case WirekeeperTransport.acknowledge(accepted) do
+          :ok ->
+            {:noreply, WirekeeperIngestion.acknowledge(state, accepted.receipt)}
+
+          {:error, reason} ->
+            WirekeeperTransport.acceptance_failed(accepted, reason)
+            {:noreply, state}
+        end
+    end
   end
 
   def handle_info(

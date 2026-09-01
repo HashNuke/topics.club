@@ -144,6 +144,28 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
     |> Map.put(:sent_joins, MapSet.new())
   end
 
+  def refresh_resumed_presence(%{client: client} = state) when is_pid(client) do
+    ChannelMembership
+    |> where(
+      [membership],
+      membership.server_connection_id == ^state.connection.id and
+        membership.status == "joined"
+    )
+    |> Repo.all()
+    |> Enum.each(fn membership ->
+      _result = Ircxd.Client.names(client, membership.channel)
+    end)
+
+    state
+  rescue
+    DBConnection.ConnectionError -> state
+    DBConnection.OwnershipError -> state
+  catch
+    :exit, _reason -> state
+  end
+
+  def refresh_resumed_presence(state), do: state
+
   def flush(state) do
     case ConnectionLock.run_serialized(state.connection, fn ->
            case ServerConnectionLock.ensure_active(state.connection.id) do

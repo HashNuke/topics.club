@@ -157,6 +157,29 @@ defmodule TopicsClub.Irc.WirekeeperTransport do
   end
 
   @doc false
+  def retry_after_ingestion_failure(%{client: client} = accepted, reason)
+      when is_pid(client) do
+    _detach_result =
+      call(
+        accepted.node,
+        :detach,
+        [accepted.key, accepted.generation, accepted.consumer]
+      )
+
+    Transport.closed(
+      client,
+      handle(
+        accepted.node,
+        accepted.key,
+        accepted.generation,
+        client,
+        accepted.consumer
+      ),
+      {:wirekeeper_ingestion_failed, reason}
+    )
+  end
+
+  @doc false
   def upstream_closed(client, %{key: key, generation: generation, reason: reason} = data)
       when is_pid(client) do
     with {:ok, node} <- message_node(data) do

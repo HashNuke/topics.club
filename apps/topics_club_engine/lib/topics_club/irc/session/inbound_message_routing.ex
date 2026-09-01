@@ -7,8 +7,17 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
   alias TopicsClub.Irc.Session.{
     Identity,
     PendingEchoes,
-    Targets
+    Targets,
+    WirekeeperIngestion
   }
+
+  @recoverable_errors [
+    DBConnection.ConnectionError,
+    DBConnection.OwnershipError,
+    Ecto.ConstraintError,
+    Ecto.NoResultsError,
+    Ecto.StaleEntryError
+  ]
 
   def privmsg(%{} = state, %{target: target, nick: nick, body: body} = payload) do
     case EventFormatting.action_body(Map.get(payload, :ctcp)) do
@@ -22,20 +31,32 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
   end
 
   defp route(state, target, nick, body, kind, payload) do
-    state = reconcile_self_nickname(state, nick, payload)
-    {echo_status, state} = pop_pending_echo(state, target, body, kind, payload)
-    record(echo_status, state, target, nick, body, kind, payload)
-    state
+    if WirekeeperIngestion.retrying?(state) do
+      state
+    else
+      {nickname_result, state} = reconcile_self_nickname(state, nick, payload)
+      {echo_status, state} = pop_pending_echo(state, target, body, kind, payload)
+      ingestion = WirekeeperIngestion.context_effect("message")
+
+      result =
+        with :ok <- nickname_result do
+          safely_record(fn ->
+            record(echo_status, state, target, nick, body, kind, payload, ingestion)
+          end)
+        end
+
+      WirekeeperIngestion.record_result(state, result)
+    end
   end
 
   defp reconcile_self_nickname(state, nick, payload) do
     if Identity.source_self?(state, payload, nick) do
       case ConnectionLifecycle.update_nickname(state.connection, nick, "connected") do
-        {:ok, connection} -> %{state | connection: connection}
-        {:error, _reason} -> state
+        {:ok, connection} -> {:ok, %{state | connection: connection}}
+        {:error, reason} -> {{:error, reason}, state}
       end
     else
-      state
+      {:ok, state}
     end
   end
 
@@ -60,17 +81,18 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
 
   defp pop_pending_echo(state, _target, _body, _kind, _payload), do: {:incoming, state}
 
-  defp record(:matched, _state, _target, _nick, _body, _kind, _payload), do: :ok
+  defp record(:matched, _state, _target, _nick, _body, _kind, _payload, _ingestion),
+    do: :ok
 
-  defp record(:unmatched_self, state, target, nick, body, kind, payload) do
-    record_outgoing_echo(state, target, nick, body, kind, payload)
+  defp record(:unmatched_self, state, target, nick, body, kind, payload, ingestion) do
+    record_outgoing_echo(state, target, nick, body, kind, payload, ingestion)
   end
 
-  defp record(:incoming, state, target, nick, body, kind, payload) do
-    record_received_message(state, target, nick, body, kind, payload)
+  defp record(:incoming, state, target, nick, body, kind, payload, ingestion) do
+    record_received_message(state, target, nick, body, kind, payload, ingestion)
   end
 
-  defp record_outgoing_echo(state, target, nick, body, kind, payload) do
+  defp record_outgoing_echo(state, target, nick, body, kind, payload, ingestion) do
     metadata =
       payload
       |> EventFormatting.sender_metadata()
@@ -84,7 +106,8 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
         body,
         kind,
         metadata,
-        Targets.casemapping(state)
+        Targets.casemapping(state),
+        ingestion
       )
     else
       record_direct_received_line(
@@ -94,12 +117,13 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
         body,
         kind,
         metadata,
-        Targets.casemapping(state)
+        Targets.casemapping(state),
+        ingestion
       )
     end
   end
 
-  defp record_received_message(state, target, nick, body, kind, payload) do
+  defp record_received_message(state, target, nick, body, kind, payload, ingestion) do
     metadata =
       payload
       |> EventFormatting.sender_metadata()
@@ -113,7 +137,8 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
         body,
         kind,
         metadata,
-        Targets.casemapping(state)
+        Targets.casemapping(state),
+        ingestion
       )
     else
       if user_message_source?(payload) do
@@ -124,7 +149,8 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
           body,
           kind,
           Map.put(metadata, :service, EventFormatting.service_name(nick)),
-          Targets.casemapping(state)
+          Targets.casemapping(state),
+          ingestion
         )
       else
         record_server_received_line(
@@ -132,7 +158,8 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
           body,
           kind,
           nick,
-          Map.put(metadata, :service, EventFormatting.service_name(nick))
+          Map.put(metadata, :service, EventFormatting.service_name(nick)),
+          ingestion
         )
       end
     end
@@ -146,27 +173,37 @@ defmodule TopicsClub.Irc.Session.InboundMessageRouting do
       (is_binary(raw_source) and String.contains?(raw_source, "!"))
   end
 
-  defp record_server_received_line(connection, body, kind, nick, metadata) do
-    MessageIngestion.record_server(connection, body, kind, nick, metadata)
-  rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
-  catch
-    :exit, _reason -> {:ok, nil}
+  defp record_server_received_line(connection, body, kind, nick, metadata, ingestion) do
+    MessageIngestion.record_server(connection, body, kind, nick, metadata, ingestion)
   end
 
-  defp record_direct_received_line(connection, peer_nick, nick, body, kind, metadata, casemapping) do
-    DirectMessageIngestion.record(connection, peer_nick, nick, body, kind, metadata, casemapping)
+  defp record_direct_received_line(
+         connection,
+         peer_nick,
+         nick,
+         body,
+         kind,
+         metadata,
+         casemapping,
+         ingestion
+       ) do
+    DirectMessageIngestion.record(
+      connection,
+      peer_nick,
+      nick,
+      body,
+      kind,
+      metadata,
+      casemapping,
+      ingestion
+    )
+  end
+
+  defp safely_record(callback) do
+    callback.()
   rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.ConstraintError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
+    exception in @recoverable_errors -> {:error, {:persistence_exception, exception.__struct__}}
   catch
-    :exit, _reason -> {:ok, nil}
+    :exit, reason -> {:error, {:persistence_exit, reason}}
   end
 end

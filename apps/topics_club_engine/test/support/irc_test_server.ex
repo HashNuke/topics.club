@@ -164,6 +164,13 @@ defmodule TopicsClub.IrcTestServer do
     ]
   end
 
+  defp reply("NAMES " <> channel, _state) do
+    [
+      ":topics_club-test 353 topics_club = #{channel} :@topics_club akash +mira",
+      ":topics_club-test 366 topics_club #{channel} :End of /NAMES list"
+    ]
+  end
+
   defp reply("PART " <> _rest, %{part_replies?: false}), do: []
 
   defp reply("PART " <> rest, _state) do

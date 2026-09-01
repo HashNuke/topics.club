@@ -16,7 +16,8 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
     EventRecorder,
     Identity,
     JoinLifecycle,
-    Targets
+    Targets,
+    WirekeeperIngestion
   }
 
   def handle(:names, state, %{channel: channel, names: names}) do
@@ -40,7 +41,9 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
     names = Map.get(names_buffers, normalized, [])
 
     if names != [] do
-      Presence.sync(state.connection, channel, names, Targets.casemapping(state))
+      state.connection
+      |> Presence.sync(channel, names, Targets.casemapping(state))
+      |> WirekeeperIngestion.observe_result()
     end
 
     state
@@ -53,12 +56,17 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
 
     join_confirmed? =
       if self? do
-        case Chat.confirm_channel_join(
-               state.connection,
-               channel,
-               Targets.casemapping(state),
-               "connected"
-             ) do
+        result =
+          Chat.confirm_channel_join(
+            state.connection,
+            channel,
+            Targets.casemapping(state),
+            "connected"
+          )
+
+        WirekeeperIngestion.observe_result(result)
+
+        case result do
           {:ok, _membership} -> true
           {:error, _reason} -> false
         end
@@ -66,12 +74,13 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
         true
       end
 
-    Presence.diff(
-      state.connection,
+    state.connection
+    |> Presence.diff(
       channel,
       %{action: "join", user: %{nick: nick, role: "user", status: "online"}},
       Targets.casemapping(state)
     )
+    |> WirekeeperIngestion.observe_result()
 
     EventRecorder.channel_line(state, channel, "join", nick, "#{nick} joined #{channel}.")
 
@@ -81,17 +90,19 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
   def handle(:part, state, %{channel: channel, nick: nick} = payload) do
     self? = Identity.source_self?(state, payload, nick)
 
-    Presence.diff(
-      state.connection,
-      channel,
-      %{action: "part", nick: nick},
-      Targets.casemapping(state)
-    )
+    state.connection
+    |> Presence.diff(channel, %{action: "part", nick: nick}, Targets.casemapping(state))
+    |> WirekeeperIngestion.observe_result()
 
     EventRecorder.channel_line(state, channel, "part", nick, "#{nick} left #{channel}.")
 
     if self? do
-      case ChannelPartLifecycle.confirm(state.connection, channel, Targets.casemapping(state)) do
+      result =
+        ChannelPartLifecycle.confirm(state.connection, channel, Targets.casemapping(state))
+
+      WirekeeperIngestion.observe_result(result)
+
+      case result do
         {:ok, _membership} ->
           %{
             state
@@ -111,12 +122,9 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
       "#{nick} quit."
     end)
 
-    Presence.diff(
-      state.connection,
-      nil,
-      %{action: "quit", nick: nick},
-      Targets.casemapping(state)
-    )
+    state.connection
+    |> Presence.diff(nil, %{action: "quit", nick: nick}, Targets.casemapping(state))
+    |> WirekeeperIngestion.observe_result()
 
     state
   end
@@ -132,25 +140,30 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
       fn _membership -> "#{old_nick} is now #{new_nick}." end
     )
 
-    Presence.diff(
-      state.connection,
+    state.connection
+    |> Presence.diff(
       nil,
       %{action: "nick", old_nick: old_nick, new_nick: new_nick},
       Targets.casemapping(state)
     )
+    |> WirekeeperIngestion.observe_result()
 
     unless self? do
-      DirectMessageRenamer.rename(
-        state.connection,
+      state.connection
+      |> DirectMessageRenamer.rename(
         old_nick,
         new_nick,
         EventFormatting.sender_metadata(payload),
         Targets.casemapping(state)
       )
+      |> WirekeeperIngestion.observe_result()
     end
 
     if self? do
-      case ConnectionLifecycle.update_nickname(state.connection, new_nick, "connected") do
+      result = ConnectionLifecycle.update_nickname(state.connection, new_nick, "connected")
+      WirekeeperIngestion.observe_result(result)
+
+      case result do
         {:ok, connection} -> %{state | connection: connection}
         {:error, _changeset} -> state
       end
@@ -162,12 +175,13 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
   def handle(:away, state, %{nick: nick} = payload) do
     status = if Map.get(payload, :away?), do: "away", else: "online"
 
-    Presence.diff(
-      state.connection,
+    state.connection
+    |> Presence.diff(
       nil,
       %{action: "away", nick: nick, status: status},
       Targets.casemapping(state)
     )
+    |> WirekeeperIngestion.observe_result()
 
     state
   end
@@ -177,12 +191,9 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
       payload
       |> EventFormatting.mode_presence_diffs(Targets.isupport(state))
       |> Enum.each(
-        &Presence.diff(
-          state.connection,
-          target,
-          &1,
-          Targets.casemapping(state)
-        )
+        &(state.connection
+          |> Presence.diff(target, &1, Targets.casemapping(state))
+          |> WirekeeperIngestion.observe_result())
       )
 
       EventRecorder.channel_line(
@@ -206,12 +217,9 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
       ) do
     target_self? = Identity.event_self?(state, payload, :target_self?, target_nick)
 
-    Presence.diff(
-      state.connection,
-      channel,
-      %{action: "part", nick: target_nick},
-      Targets.casemapping(state)
-    )
+    state.connection
+    |> Presence.diff(channel, %{action: "part", nick: target_nick}, Targets.casemapping(state))
+    |> WirekeeperIngestion.observe_result()
 
     EventRecorder.channel_line(
       state,
@@ -222,7 +230,12 @@ defmodule TopicsClub.Irc.Session.MembershipEvents do
     )
 
     if target_self? do
-      case ChannelPartLifecycle.confirm(state.connection, channel, Targets.casemapping(state)) do
+      result =
+        ChannelPartLifecycle.confirm(state.connection, channel, Targets.casemapping(state))
+
+      WirekeeperIngestion.observe_result(result)
+
+      case result do
         {:ok, _membership} ->
           %{
             state

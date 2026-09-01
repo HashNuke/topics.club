@@ -2,7 +2,7 @@ defmodule TopicsClub.Irc.Session.Registration do
   @moduledoc false
 
   alias TopicsClub.Chat.ConnectionCasemapping
-  alias TopicsClub.Irc.Session.JoinLifecycle
+  alias TopicsClub.Irc.Session.{JoinLifecycle, WirekeeperIngestion}
   alias Ircxd.Client.Info
 
   def refresh(state, event_name) when event_name in [:isupport, :isupport_batch] do
@@ -63,7 +63,8 @@ defmodule TopicsClub.Irc.Session.Registration do
         {:ok, updated} ->
           updated
 
-        {:error, _reason} ->
+        {:error, reason} ->
+          WirekeeperIngestion.note_failure({:casemapping, reason})
           connection
       end
     end

@@ -5,6 +5,7 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
 
   alias TopicsClub.Chat.{MessageIngestion, SystemMessages}
   alias TopicsClub.Irc.Session.Targets
+  alias TopicsClub.Irc.Session.WirekeeperIngestion
 
   @recoverable_errors [
     DBConnection.ConnectionError,
@@ -21,7 +22,14 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
 
       false ->
         recover(:server_line, connection, fn ->
-          MessageIngestion.record_server(connection, body, kind, nil, metadata)
+          MessageIngestion.record_server(
+            connection,
+            body,
+            kind,
+            nil,
+            metadata,
+            WirekeeperIngestion.context_effect("server_line")
+          )
         end)
     end
   end
@@ -35,7 +43,8 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
         nick,
         body,
         %{},
-        Targets.casemapping(state)
+        Targets.casemapping(state),
+        WirekeeperIngestion.context_effect("channel_line")
       )
     end)
   end
@@ -46,8 +55,10 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
         state.connection,
         kind,
         nick,
+        nick,
         body_fun,
-        Targets.casemapping(state)
+        Targets.casemapping(state),
+        fn -> WirekeeperIngestion.context_effect("present_nick_line") end
       )
     end)
   end
@@ -60,7 +71,8 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
         present_nick,
         message_nick,
         body_fun,
-        Targets.casemapping(state)
+        Targets.casemapping(state),
+        fn -> WirekeeperIngestion.context_effect("present_nick_line") end
       )
     end)
   end
@@ -74,7 +86,8 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
         nil,
         irc_error_body(payload),
         %{},
-        Targets.casemapping(state)
+        Targets.casemapping(state),
+        WirekeeperIngestion.context_effect("irc_error")
       )
     else
       server_line(state.connection, irc_error_body(payload), "error")
@@ -110,7 +123,14 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
   defp whitespace_only?(_body), do: false
 
   defp recover(operation, connection, callback) do
-    callback.()
+    case callback.() do
+      {:error, reason} = error ->
+        report_ingestion_failure(operation, connection, reason)
+        error
+
+      result ->
+        result
+    end
   rescue
     exception in @recoverable_errors ->
       report_ingestion_failure(operation, connection, exception.__struct__)
@@ -122,6 +142,8 @@ defmodule TopicsClub.Irc.Session.EventRecorder do
   end
 
   defp report_ingestion_failure(operation, connection, reason) do
+    :ok = WirekeeperIngestion.note_failure({operation, reason})
+
     metadata = %{
       connection_id: Map.get(connection, :id),
       operation: operation,

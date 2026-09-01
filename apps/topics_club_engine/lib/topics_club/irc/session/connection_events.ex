@@ -13,7 +13,8 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
     ConnectionIssue,
     EventRecorder,
     JoinLifecycle,
-    Registration
+    Registration,
+    WirekeeperIngestion
   }
 
   @max_retries 5
@@ -111,6 +112,7 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
     |> Map.put(:wirekeeper_resume, metadata)
     |> Map.put(:wirekeeper_node_down?, false)
     |> JoinLifecycle.restore_resumed()
+    |> JoinLifecycle.refresh_resumed_presence()
   end
 
   def connect_error(state, reason) do
@@ -217,7 +219,7 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
   def client_exited(state, _monitor_ref, _pid, _reason), do: {:noreply, state}
 
   def retry_connect(%{retry_attempt: attempt} = state, attempt) do
-    state = %{state | retry_timer: nil}
+    state = state |> Map.put(:retry_timer, nil) |> WirekeeperIngestion.reset()
 
     case connect(state) do
       {:ok, state} -> {:noreply, state}
