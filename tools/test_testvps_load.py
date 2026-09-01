@@ -101,6 +101,23 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     testvps_load.stats_expression(invalid)
 
+    def test_capacity_summary_uses_cgroup_peak_and_rejects_service_restarts(self) -> None:
+        baseline = {"gateway": 0, "wirekeeper": 0, "engine": 0}
+        sample = {
+            "cgroup": {"memory_current": 100, "memory_peak": 200},
+            "services": {
+                "gateway": {"NRestarts": 0},
+                "wirekeeper": {"NRestarts": 0},
+                "engine": {"NRestarts": 1},
+            },
+        }
+
+        summary = testvps_load.scenario_summary(100, True, [sample], baseline)
+
+        self.assertEqual(summary["peak_memory_bytes"], 200)
+        self.assertFalse(summary["functional_success"])
+        self.assertFalse(summary["planning_success"])
+
 
 class SyntheticIrcConfigurationTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("elixir"), "Elixir is required for the IRC harness test")

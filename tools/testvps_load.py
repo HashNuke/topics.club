@@ -401,11 +401,29 @@ def cgroup_metrics() -> dict[str, Any]:
     }
     return {
         "memory_current": value("memory.current"),
+        "memory_peak": value("memory.peak"),
         "memory_max": value("memory.max"),
         "swap_current": value("memory.swap.current"),
         "swap_max": value("memory.swap.max"),
         "memory_events": events,
     }
+
+
+def reset_cgroup_memory_peak() -> None:
+    """Start the runtime measurement after any destination-side release build peaks."""
+    peak_file = container_cgroup() / "memory.peak"
+    run(
+        [
+            "docker",
+            "exec",
+            VPS_CONTAINER,
+            "bash",
+            "-c",
+            'printf 0 > "$1"',
+            "load-cgroup-peak-reset",
+            str(peak_file),
+        ]
+    )
 
 
 def docker_metrics(container: str) -> dict[str, Any]:
@@ -477,6 +495,8 @@ def ready(sampled: dict[str, Any], target: int) -> bool:
         isinstance(irc, dict)
         and irc.get("active") == target
         and irc.get("registered") == target
+        and irc.get("send_errors") == 0
+        and nested(sampled, "database", "users") == target
         and nested(sampled, "database", "connections") == target
         and nested(sampled, "engine", "diagnostics", "active_sessions") == target
         and nested(sampled, "wirekeeper", "diagnostics", "total_connections") == target
@@ -487,6 +507,11 @@ def ready(sampled: dict[str, Any], target: int) -> bool:
         and nested(sampled, "wirekeeper", "diagnostics", "dropped_bytes") == 0
         and nested(sampled, "cgroup", "swap_current") == 0
         and nested(sampled, "cgroup", "memory_events", "oom_kill") == 0
+        and nested(sampled, "health", "status") == 200
+        and all(
+            nested(sampled, "services", service, "ActiveState") == "active"
+            for service in ("gateway", "wirekeeper", "engine")
+        )
     )
 
 
@@ -591,6 +616,8 @@ def drop_recovery_phase(
     before = sample(run_id)
     accepted_before = nested(before, "irc", "accepted_total")
     drop = split_acceptance.irc_control("DROP")
+    if not isinstance(drop, dict) or drop.get("dropped") != target:
+        raise RuntimeError(f"synthetic IRC server did not drop exactly {target} sockets: {drop!r}")
     recovered, samples = wait_for(
         "upstream load reconnect",
         run_id,
@@ -608,20 +635,50 @@ def drop_recovery_phase(
     }
 
 
-def scenario_summary(target: int, functional_success: bool, samples: list[dict[str, Any]]) -> dict[str, Any]:
+def service_restart_counts(sampled: dict[str, Any]) -> dict[str, int]:
+    return {
+        service: nested(sampled, "services", service, "NRestarts", default=-1)
+        for service in ("gateway", "wirekeeper", "engine")
+    }
+
+
+def scenario_summary(
+    target: int,
+    functional_success: bool,
+    samples: list[dict[str, Any]],
+    restart_baseline: dict[str, int],
+) -> dict[str, Any]:
     memory_values = [
-        nested(item, "cgroup", "memory_current")
+        max(
+            nested(item, "cgroup", "memory_current"),
+            nested(item, "cgroup", "memory_peak"),
+        )
         for item in samples
         if isinstance(nested(item, "cgroup", "memory_current"), int)
+        and isinstance(nested(item, "cgroup", "memory_peak"), int)
     ]
     peak_memory = max(memory_values, default=0)
     peak_fraction = peak_memory / VPS_MEMORY_BYTES
+    observed_restarts = {
+        service: max(
+            (
+                nested(item, "services", service, "NRestarts", default=-1)
+                for item in samples
+            ),
+            default=-1,
+        )
+        for service in restart_baseline
+    }
+    restart_free = observed_restarts == restart_baseline
+    functional_success = functional_success and restart_free
     return {
         "connections": target,
         "functional_success": functional_success,
         "planning_success": functional_success and peak_fraction <= 0.8,
         "peak_memory_bytes": peak_memory,
         "peak_memory_fraction": round(peak_fraction, 4),
+        "service_restart_baseline": restart_baseline,
+        "service_restart_observed_max": observed_restarts,
         "samples": samples,
     }
 
@@ -747,7 +804,9 @@ def run_load(
         irc_started = True
         limits.runtime_limits()
         runtime_limits_enabled = True
+        reset_cgroup_memory_peak()
         payload["baseline"] = ensure_clean(run_id)
+        restart_baseline = service_restart_counts(payload["baseline"])
         prepared = True
         write_results(payload, run_id)
 
@@ -790,7 +849,12 @@ def run_load(
                 scenario_samples += restart["samples"]
                 functional_success = functional_success and restart["success"]
 
-            scenario = scenario_summary(target, functional_success, scenario_samples)
+            scenario = scenario_summary(
+                target,
+                functional_success,
+                scenario_samples,
+                restart_baseline,
+            )
             scenario.update(
                 {
                     "provision_seconds": provision_seconds,
@@ -822,6 +886,7 @@ def run_load(
                 current_count,
                 final_scenario["functional_success"] and drop_result["success"],
                 final_samples,
+                restart_baseline,
             )
             final_scenario.update(final_summary)
             final_scenario["drop_recovery"] = drop_details

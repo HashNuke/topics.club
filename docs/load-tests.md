@@ -149,7 +149,8 @@ production artifact.
 Each run writes an incrementally updated
 `.load-tests/<run-id>-testvps-load.json` file. Samples contain:
 
-- the outer app-host cgroup's memory, no-swap limit, OOM events, and current use;
+- the outer app-host cgroup's reset-at-baseline memory peak, no-swap limit, OOM events, and current
+  use;
 - Docker usage for the app host plus the external PostgreSQL and IRC sidecars;
 - per-service systemd memory, CPU, task, PID, and restart counters;
 - gateway, engine, and Wirekeeper BEAM memory/process/port/run-queue diagnostics;
@@ -165,16 +166,18 @@ accept per configured connection. The external IRC sidecar gets 768 MiB, one CPU
 descriptors; its metrics are recorded so its saturation cannot be mistaken for TopicsClub capacity.
 
 The pseudo-VPS starts with 2 GiB RAM plus a 4 GiB build-only swap allowance. The runner changes the
-outer container to a 2 GiB no-swap runtime limit before measuring and restores the build allowance
-after cleanup. That 2 GiB aggregate includes Ubuntu/systemd, the destination-side Docker daemon and
-cache, and all three BEAM releases. The separately capped 384 MiB PostgreSQL and 768 MiB synthetic
-IRC containers are excluded. This is therefore an application-host capacity result with an external
-database, not an all-in-one 2 GiB host result.
+outer container to a 2 GiB no-swap runtime limit, resets the cgroup memory peak so release builds do
+not contaminate the measurement, and restores the build allowance after cleanup. That 2 GiB
+aggregate includes Ubuntu/systemd, the destination-side Docker daemon and cache, and all three BEAM
+releases. The separately capped 384 MiB PostgreSQL and 768 MiB synthetic IRC containers are
+excluded. This is therefore an application-host capacity result with an external database, not an
+all-in-one 2 GiB host result.
 
 For planning, use the highest fresh-run checkpoint that passes traffic and both recovery phases,
-uses no swap, reports no OOM/restart/drop/checkout errors, and remains at or below 80% of the app-host
-cgroup. A higher functional checkpoint is a stress result, not the operating ceiling. After finding
-the boundary, repeat the proposed ceiling from a reset pseudo-VPS with a one-hour
+uses no swap, reports no OOM/restart/drop/IRC-send/provisioning or RPC timeout errors, keeps all
+services and the end-to-end health endpoint healthy, and remains at or below 80% of the app-host
+cgroup peak. A higher functional checkpoint is a stress result, not the operating ceiling. After
+finding the boundary, repeat the proposed ceiling from a reset pseudo-VPS with a one-hour
 `--steady_seconds=3600` hold.
 
 ## Results
