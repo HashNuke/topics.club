@@ -132,16 +132,23 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
   end
 
   def disconnected(state) do
-    if Map.get(state, :retry_attempt, 0) == 0 do
-      EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
-      update_status(state.connection, "disconnected")
-    end
+    if WirekeeperIngestion.retrying?(state) do
+      state
+      |> Map.put(:registered?, false)
+      |> Map.put(:resumed?, false)
+      |> Map.put(:wirekeeper_resume, nil)
+    else
+      if Map.get(state, :retry_attempt, 0) == 0 do
+        EventRecorder.server_line(state.connection, "Disconnected from #{state.connection.host}.")
+        update_status(state.connection, "disconnected")
+      end
 
-    state
-    |> CommandLifecycle.fail_all("Connection closed before completion.")
-    |> Map.put(:registered?, false)
-    |> Map.put(:resumed?, false)
-    |> Map.put(:wirekeeper_resume, nil)
+      state
+      |> CommandLifecycle.fail_all("Connection closed before completion.")
+      |> Map.put(:registered?, false)
+      |> Map.put(:resumed?, false)
+      |> Map.put(:wirekeeper_resume, nil)
+    end
   end
 
   def reconnecting(state, payload \\ %{}) do
@@ -277,6 +284,9 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
     retry_attempt = Map.get(state, :retry_attempt, 0)
 
     cond do
+      WirekeeperIngestion.retrying?(state) ->
+        schedule_retry(state, retry_attempt + 1, :ingestion)
+
       Map.get(state, :wirekeeper_node_down?, false) ->
         schedule_retry(state, retry_attempt + 1, :infrastructure)
 
@@ -295,6 +305,9 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
     if attempt == 1 do
       message =
         case retry_kind do
+          :ingestion ->
+            nil
+
           :infrastructure ->
             "Wirekeeper is temporarily unavailable. Retrying without replacing the retained IRC connection."
 
@@ -305,7 +318,7 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
             "Retained IRC parser state no longer matches this connection. Opening a fresh connection."
         end
 
-      EventRecorder.server_line(state.connection, message, "notice")
+      if message, do: EventRecorder.server_line(state.connection, message, "notice")
     end
 
     retry_delay = if retry_kind == :resume_rejected, do: 0, else: retry_delay_ms()

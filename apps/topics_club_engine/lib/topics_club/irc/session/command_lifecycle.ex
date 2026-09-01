@@ -160,17 +160,24 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
   end
 
   def update_status(pending, status, metadata) do
-    CommandMessages.update(
-      pending.invocation,
-      Map.merge(metadata, %{command_status: status})
-    )
+    case CommandMessages.update(
+           pending.invocation,
+           Map.merge(metadata, %{command_status: status})
+         ) do
+      {:error, :message_not_found} -> {:ok, nil}
+      result -> result
+    end
   rescue
-    DBConnection.ConnectionError -> {:ok, nil}
-    Ecto.NoResultsError -> {:ok, nil}
-    Ecto.StaleEntryError -> {:ok, nil}
-    DBConnection.OwnershipError -> {:ok, nil}
+    exception in [DBConnection.ConnectionError, Ecto.StaleEntryError] ->
+      {:error, {exception.__struct__, Exception.message(exception)}}
+
+    Ecto.NoResultsError ->
+      {:ok, nil}
+
+    DBConnection.OwnershipError ->
+      {:error, DBConnection.OwnershipError}
   catch
-    :exit, _reason -> {:ok, nil}
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp effective_terminal_events(command, spec) do

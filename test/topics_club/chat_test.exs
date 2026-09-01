@@ -112,6 +112,12 @@ defmodule TopicsClub.ChatTest do
                     %{buffer_id: "channel:" <> _, channel_membership_id: membership_id}}
 
     assert membership_id == pending.id
+
+    assert {:ok, duplicate_rejection} =
+             Chat.reject_channel_join(connection, "#elixir", "invite only")
+
+    assert duplicate_rejection.id == rejected.id
+    refute_receive {:buffer_left, %{channel_membership_id: ^membership_id}}
   end
 
   test "reuses memberships under negotiated IRC channel casemapping" do

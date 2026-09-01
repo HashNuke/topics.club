@@ -369,7 +369,9 @@ message, system-line, direct-message, and channel/server-line effects claim a un
 `{connection_id, generation, sequence, effect_key}` row in the same database transaction, making a
 replayed effect idempotent. Claims through a cumulatively acknowledged sequence are released later
 in bounded batches; deleting the connection cascades any remaining claims. The transport contract
-is still at-least-once, while these persisted effects are applied once.
+is still at-least-once, while these persisted effects are applied once. JOIN rejection and command
+status updates are also replay-safe: unchanged writes do not rebroadcast, and the Session keeps the
+pending command and membership in memory when either durable update fails.
 
 Wirekeeper overflow is not reconciled on the retained socket. The engine closes the gapped
 generation, tells Ircxd that the transport failed, and establishes one fresh IRC connection. An
@@ -399,7 +401,9 @@ Shutdown intent is explicit:
 An unavailable Wirekeeper node is different from an upstream IRC failure. The engine keeps retrying
 the Wirekeeper boundary indefinitely, because asking a user to repair an internal service outage
 would strand a socket Wirekeeper may still own. Ordinary upstream disconnects retain the normal
-bounded reconnect-and-help policy.
+bounded reconnect-and-help policy. A persistence-triggered replay is likewise an internal retry:
+it preserves pending commands, does not emit a false user-visible disconnect, and is not capped by
+the ordinary five-attempt upstream policy.
 
 The integration suite runs the same real Session connect/join/send/persist and JOIN-rejection
 scenarios in both direct and Wirekeeper modes. Wirekeeper-specific cases cover engine Session

@@ -182,6 +182,60 @@ defmodule TopicsClub.Irc.Session.ConnectionEventsTest do
            )
   end
 
+  test "preserves pending work during an internal Wirekeeper ingestion replay", context do
+    {state, invocation, timer} = with_pending_command(context, "replayed-command")
+
+    state =
+      Map.merge(state, %{
+        wirekeeper_ingestion_retry_started?: true,
+        wirekeeper_ingestion_failure: {7, :database_unavailable}
+      })
+
+    returned = ConnectionEvents.disconnected(state)
+
+    assert returned.pending_commands == state.pending_commands
+    assert is_integer(Process.read_timer(timer))
+    refute_receive {:server_status, %{status: "disconnected"}}
+
+    assert Repo.get!(Message, invocation.id).metadata["command_status"] == "sent"
+    refute Enum.any?(messages(context), &String.starts_with?(&1.body, "Disconnected from"))
+
+    Process.cancel_timer(timer)
+  end
+
+  test "keeps retrying an internal Wirekeeper ingestion replay beyond the upstream limit",
+       context do
+    client = spawn(fn -> receive do: (:stop -> :ok) end)
+    monitor = Process.monitor(client)
+
+    state =
+      Map.merge(context.state, %{
+        client: client,
+        client_monitor: monitor,
+        retry_attempt: 5,
+        retry_timer: nil,
+        wirekeeper_ingestion_retry_started?: true,
+        wirekeeper_ingestion_failure: {7, :database_unavailable},
+        wirekeeper_node_down?: false,
+        connection_issue: nil,
+        preserve_error_status?: false
+      })
+
+    assert {:noreply, returned} =
+             ConnectionEvents.client_exited(
+               state,
+               monitor,
+               client,
+               {:wirekeeper_ingestion_failed, :database_unavailable}
+             )
+
+    assert returned.retry_attempt == 6
+    assert is_reference(returned.retry_timer)
+    assert returned.connection_issue == nil
+    Process.cancel_timer(returned.retry_timer)
+    send(client, :stop)
+  end
+
   test "fails pending work when the session terminates", context do
     {state, invocation, timer} = with_pending_command(context, "terminate-command")
     returned = ConnectionEvents.terminate(state)

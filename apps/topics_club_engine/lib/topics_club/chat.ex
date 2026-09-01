@@ -89,39 +89,50 @@ defmodule TopicsClub.Chat do
         casemapping \\ :rfc1459
       ) do
     assert_no_outer_transaction!()
+    rejection_reason = reason_text(reason)
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
 
       case MembershipLookup.find_by_channel(active_connection, channel, casemapping) do
         %ChannelMembership{} = membership ->
-          rejected =
-            membership
-            |> ChannelMembership.changeset(%{
-              status: "error",
-              auto_join: false,
-              last_error: reason_text(reason)
-            })
-            |> update_or_rollback()
+          changed? =
+            membership.status != "error" or membership.auto_join or
+              membership.last_error != rejection_reason
 
-          {rejected, active_connection}
+          rejected =
+            if changed? do
+              membership
+              |> ChannelMembership.changeset(%{
+                status: "error",
+                auto_join: false,
+                last_error: rejection_reason
+              })
+              |> update_or_rollback()
+            else
+              membership
+            end
+
+          {rejected, active_connection, changed?}
 
         nil ->
           Repo.rollback(:invalid_buffer)
       end
     end)
     |> case do
-      {:ok, {rejected, active_connection}} ->
-        _effects =
-          ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
-            BufferEvents.left(%{
-              user_id: effect_connection.user_id,
-              buffer_id: "channel:#{rejected.id}",
-              server_connection_id: effect_connection.id,
-              channel_membership_id: rejected.id,
-              channel: rejected.channel
-            })
-          end)
+      {:ok, {rejected, active_connection, changed?}} ->
+        if changed? do
+          _effects =
+            ServerConnectionLock.serialize_effects(active_connection.id, fn effect_connection ->
+              BufferEvents.left(%{
+                user_id: effect_connection.user_id,
+                buffer_id: "channel:#{rejected.id}",
+                server_connection_id: effect_connection.id,
+                channel_membership_id: rejected.id,
+                channel: rejected.channel
+              })
+            end)
+        end
 
         {:ok, rejected}
 

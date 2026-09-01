@@ -88,6 +88,12 @@ defmodule TopicsClub.Chat.CommandMessagesTest do
     assert Repo.get!(Message, message.id).metadata == updated.metadata
     assert_receive {:buffer_system, %{id: updated_message_id}}
     assert updated_message_id == updated.id
+
+    assert {:ok, unchanged} =
+             CommandMessages.update(message, %{command_status: "completed", elapsed_ms: 12})
+
+    assert unchanged.metadata == updated.metadata
+    refute_receive {:buffer_system, %{id: ^updated_message_id}}
   end
 
   test "rejects buffers owned by another connection", context do

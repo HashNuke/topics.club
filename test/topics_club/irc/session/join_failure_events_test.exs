@@ -52,6 +52,32 @@ defmodule TopicsClub.Irc.Session.JoinFailureEventsTest do
              MessageHistory.list_buffer_messages(user, "server:#{connection.id}")
   end
 
+  test "keeps a JOIN pending when its durable rejection cannot be stored" do
+    {user, connection, state} = state_fixture()
+    {:ok, membership} = ChannelJoinRequest.request(user, connection, "#retry", :ascii)
+
+    state = %{
+      state
+      | pending_joins: MapSet.new(["#retry"]),
+        sent_joins: MapSet.new(["#retry"])
+    }
+
+    connection
+    |> Ecto.Changeset.change(deleting: true)
+    |> Repo.update!()
+
+    returned =
+      JoinFailureEvents.irc_error(state, %{
+        code: "477",
+        target: "#retry",
+        reason: "You need to be identified"
+      })
+
+    assert returned.pending_joins == state.pending_joins
+    assert returned.sent_joins == state.sent_joins
+    assert MembershipLookup.get!(user, membership.id).status == "pending"
+  end
+
   test "does not record a second generic error for a managed JOIN failure" do
     {user, connection, state} = state_fixture()
     {:ok, membership} = ChannelJoinRequest.request(user, connection, "#managed", :ascii)

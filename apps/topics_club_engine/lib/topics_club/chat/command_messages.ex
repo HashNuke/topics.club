@@ -60,25 +60,43 @@ defmodule TopicsClub.Chat.CommandMessages do
 
   def update(%Message{} = message, metadata) when is_map(metadata) do
     assert_no_outer_transaction!()
-    merged_metadata = Map.merge(message.metadata || %{}, stringify_metadata(metadata))
+    metadata = stringify_metadata(metadata)
 
     Repo.transaction(fn ->
       connection = ServerConnectionLock.lock_active!(message.server_connection_id)
 
-      {:ok, message} =
-        message
-        |> Message.changeset(%{metadata: merged_metadata})
-        |> Repo.update()
+      current =
+        Repo.get_by(Message,
+          id: message.id,
+          server_connection_id: message.server_connection_id
+        ) || Repo.rollback(:message_not_found)
 
-      buffer = command_buffer(message)
-      {message, buffer, connection}
+      merged_metadata = Map.merge(current.metadata || %{}, metadata)
+      changed? = merged_metadata != current.metadata
+
+      updated =
+        if changed? do
+          {:ok, updated} =
+            current
+            |> Message.changeset(%{metadata: merged_metadata})
+            |> Repo.update()
+
+          updated
+        else
+          current
+        end
+
+      buffer = command_buffer(updated)
+      {updated, buffer, connection, changed?}
     end)
     |> case do
-      {:ok, {message, buffer, connection}} ->
-        _effects =
-          ServerConnectionLock.serialize_effects(connection.id, fn effect_connection ->
-            BufferEvents.command_message(message, buffer, effect_connection)
-          end)
+      {:ok, {message, buffer, connection, changed?}} ->
+        if changed? do
+          _effects =
+            ServerConnectionLock.serialize_effects(connection.id, fn effect_connection ->
+              BufferEvents.command_message(message, buffer, effect_connection)
+            end)
+        end
 
         {:ok, message}
 

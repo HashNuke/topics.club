@@ -417,6 +417,7 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
     bouncer =
       start_supervised!({Bouncer, enabled?: true, sweep_interval: :timer.hours(1), name: nil})
 
+    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), bouncer)
     send(bouncer, :start_recent_sessions)
     _ = :sys.get_state(bouncer)
     assert TopicsClub.Irc.SessionLocator.whereis(connection) == nil

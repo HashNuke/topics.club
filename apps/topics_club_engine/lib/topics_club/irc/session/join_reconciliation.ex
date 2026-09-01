@@ -4,7 +4,14 @@ defmodule TopicsClub.Irc.Session.JoinReconciliation do
   alias TopicsClub.Chat
   alias TopicsClub.Chat.ChannelPartLifecycle
   alias TopicsClub.Chat.MessageIngestion
-  alias TopicsClub.Irc.Session.{CommandLifecycle, CommandTargetCorrelation, Targets}
+
+  alias TopicsClub.Irc.Session.{
+    CommandLifecycle,
+    CommandTargetCorrelation,
+    Targets,
+    WirekeeperIngestion
+  }
+
   alias Ircxd.Client.Event
 
   def failure_event?(%Event{name: name, payload: payload})
@@ -191,30 +198,59 @@ defmodule TopicsClub.Irc.Session.JoinReconciliation do
   defp reject_targets(state, targets, reason, correlated_pending \\ :match_unlabeled) do
     targets = Enum.map(targets, &Targets.key(state, &1))
 
-    Enum.each(
-      targets,
-      &Chat.reject_channel_join(state.connection, &1, reason, Targets.casemapping(state))
-    )
+    case persist_rejections(state, targets, reason) do
+      :ok ->
+        state = clear_rejected_targets(state, targets)
 
-    state =
-      state
-      |> Map.update(:pending_joins, MapSet.new(), fn pending_joins ->
-        Enum.reduce(targets, pending_joins, &MapSet.delete(&2, &1))
-      end)
-      |> Map.update(:sent_joins, MapSet.new(), fn sent_joins ->
-        Enum.reduce(targets, sent_joins, &MapSet.delete(&2, &1))
-      end)
+        case correlated_pending do
+          {command_id, pending} ->
+            finish_failed_command(state, command_id, pending, reason)
 
-    case correlated_pending do
-      {command_id, pending} ->
-        CommandLifecycle.update_status(pending, "failed", %{error: reason})
-        CommandLifecycle.finish(state, command_id, pending)
+          :match_unlabeled ->
+            maybe_fail_unlabeled(state, targets, reason)
 
-      :match_unlabeled ->
-        maybe_fail_unlabeled(state, targets, reason)
+          :native_only ->
+            state
+        end
 
-      :native_only ->
+      {:error, _reason} ->
         state
+    end
+  end
+
+  defp persist_rejections(state, targets, reason) do
+    Enum.reduce_while(targets, :ok, fn target, :ok ->
+      result =
+        state.connection
+        |> Chat.reject_channel_join(target, reason, Targets.casemapping(state))
+        |> WirekeeperIngestion.observe_result()
+
+      case result do
+        {:ok, _membership} -> {:cont, :ok}
+        {:error, rejection_reason} -> {:halt, {:error, rejection_reason}}
+      end
+    end)
+  end
+
+  defp clear_rejected_targets(state, targets) do
+    state
+    |> Map.update(:pending_joins, MapSet.new(), fn pending_joins ->
+      Enum.reduce(targets, pending_joins, &MapSet.delete(&2, &1))
+    end)
+    |> Map.update(:sent_joins, MapSet.new(), fn sent_joins ->
+      Enum.reduce(targets, sent_joins, &MapSet.delete(&2, &1))
+    end)
+  end
+
+  defp finish_failed_command(state, command_id, pending, reason) do
+    result =
+      pending
+      |> CommandLifecycle.update_status("failed", %{error: reason})
+      |> WirekeeperIngestion.observe_result()
+
+    case result do
+      {:ok, _message} -> CommandLifecycle.finish(state, command_id, pending)
+      {:error, _reason} -> state
     end
   end
 
@@ -258,8 +294,7 @@ defmodule TopicsClub.Irc.Session.JoinReconciliation do
     case pending_matching_targets(state, rejected_targets, false) do
       {command_id, %{targets: targets} = pending} ->
         if targets != [] and targets -- rejected_targets == [] do
-          CommandLifecycle.update_status(pending, "failed", %{error: reason})
-          CommandLifecycle.finish(state, command_id, pending)
+          finish_failed_command(state, command_id, pending, reason)
         else
           state
         end
