@@ -3,7 +3,7 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
 
   require Logger
 
-  alias TopicsClub.Chat.{ConnectionLifecycle, ServerConnectionLock}
+  alias TopicsClub.Chat.{ChannelJoinRequest, ConnectionLifecycle, ServerConnectionLock}
   alias TopicsClub.Irc.ChannelListCache
   alias TopicsClub.Irc.ConnectionLock
 
@@ -83,6 +83,13 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
   end
 
   def registered(state) do
+    case prepare_fresh_join_attempts(state) do
+      {:ok, state} -> finish_registration(state)
+      {:error, state} -> state
+    end
+  end
+
+  defp finish_registration(state) do
     {:ok, updated} = update_status(state.connection, "connected")
 
     message =
@@ -104,6 +111,17 @@ defmodule TopicsClub.Irc.Session.ConnectionEvents do
     |> Map.put(:retry_timer, nil)
     |> Registration.refresh_client_info()
     |> JoinLifecycle.schedule_flush()
+  end
+
+  defp prepare_fresh_join_attempts(%{resumed?: true} = state), do: {:ok, state}
+
+  defp prepare_fresh_join_attempts(state) do
+    case state.connection
+         |> ChannelJoinRequest.prepare_for_fresh_connection()
+         |> WirekeeperIngestion.observe_result() do
+      {:ok, _memberships} -> {:ok, state}
+      {:error, _reason} -> {:error, state}
+    end
   end
 
   def resumed(state, metadata) when is_map(metadata) do

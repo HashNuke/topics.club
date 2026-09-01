@@ -7,6 +7,9 @@ defmodule TopicsClub.Wirekeeper.Connection do
 
   @default_closed_retention_ms 60_000
   @default_checkpoint_max_bytes 65_536
+  @default_sent_once_max_keys 4_096
+  @max_sent_once_key_bytes 128
+  @max_sent_once_keys_per_write 64
   @registry TopicsClub.Wirekeeper.ConnectionRegistry
 
   def child_spec(opts) do
@@ -49,6 +52,10 @@ defmodule TopicsClub.Wirekeeper.Connection do
     GenServer.call(connection, {:send_data, generation, data}, :infinity)
   end
 
+  def send_data_once(connection, generation, keys, data) do
+    GenServer.call(connection, {:send_data_once, generation, keys, data}, :infinity)
+  end
+
   def close(connection, generation), do: GenServer.call(connection, {:close, generation})
 
   @impl true
@@ -63,10 +70,14 @@ defmodule TopicsClub.Wirekeeper.Connection do
     checkpoint_max_bytes =
       Keyword.get(opts, :checkpoint_max_bytes, @default_checkpoint_max_bytes)
 
+    sent_once_max_keys =
+      Keyword.get(opts, :sent_once_max_keys, @default_sent_once_max_keys)
+
     with true <- link_ready_recipient(ready_recipient),
          true <- protocol_adapter?(adapter),
          true <- positive_integer?(closed_retention_ms),
          true <- positive_integer?(checkpoint_max_bytes),
+         true <- positive_integer?(sent_once_max_keys),
          {:ok, buffer} <- Buffer.new(Keyword.get(opts, :buffer, [])),
          {:ok, _registry_owner} <- Registry.register(@registry, key, {:opening, generation}) do
       {:ok,
@@ -83,6 +94,8 @@ defmodule TopicsClub.Wirekeeper.Connection do
          checkpoint_max_bytes: checkpoint_max_bytes,
          checkpoint: nil,
          checkpoint_sequence: nil,
+         sent_once_keys: MapSet.new(),
+         sent_once_max_keys: sent_once_max_keys,
          closed_timer_ref: nil,
          adapter: adapter,
          adapter_opts: adapter_opts,
@@ -321,6 +334,26 @@ defmodule TopicsClub.Wirekeeper.Connection do
             state = transition_closed(state, {:transport_error, reason})
             reply_or_stop_closed({:error, {:transport, reason}}, state)
         end
+    end
+  end
+
+  def handle_call({:send_data_once, generation, keys, data}, _from, state) do
+    with :ok <- validate_send_once(generation, keys, data, state),
+         normalized_keys <- Enum.uniq(keys),
+         :ok <- validate_send_once_overlap(normalized_keys, state),
+         :ok <- validate_send_once_capacity(normalized_keys, state) do
+      case Socket.send(state.socket, data) do
+        :ok ->
+          sent_once_keys = Enum.reduce(normalized_keys, state.sent_once_keys, &MapSet.put(&2, &1))
+          {:reply, :ok, %{state | sent_once_keys: sent_once_keys}}
+
+        {:error, reason} ->
+          state = transition_closed(state, {:transport_error, reason})
+          reply_or_stop_closed({:error, {:transport, reason}}, state)
+      end
+    else
+      :duplicate -> {:reply, :ok, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
@@ -727,6 +760,50 @@ defmodule TopicsClub.Wirekeeper.Connection do
   rescue
     ArgumentError -> false
   end
+
+  defp validate_send_once(generation, keys, data, state) do
+    cond do
+      generation != state.generation ->
+        {:error, :stale_generation}
+
+      state.status == :closed ->
+        {:error, :upstream_closed}
+
+      not valid_sent_once_keys?(keys) ->
+        {:error, :invalid_idempotency_keys}
+
+      not valid_iodata?(data) ->
+        {:error, :invalid_data}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_send_once_overlap(keys, state) do
+    existing = Enum.count(keys, &MapSet.member?(state.sent_once_keys, &1))
+
+    cond do
+      existing == length(keys) -> :duplicate
+      existing == 0 -> :ok
+      true -> {:error, :idempotency_conflict}
+    end
+  end
+
+  defp validate_send_once_capacity(keys, state) do
+    if MapSet.size(state.sent_once_keys) + length(keys) <= state.sent_once_max_keys,
+      do: :ok,
+      else: {:error, :idempotency_capacity}
+  end
+
+  defp valid_sent_once_keys?(keys) when is_list(keys) do
+    keys != [] and length(keys) <= @max_sent_once_keys_per_write and
+      Enum.all?(keys, fn key ->
+        is_binary(key) and byte_size(key) > 0 and byte_size(key) <= @max_sent_once_key_bytes
+      end)
+  end
+
+  defp valid_sent_once_keys?(_keys), do: false
 
   defp protocol_adapter?(adapter) do
     Code.ensure_loaded?(adapter) and function_exported?(adapter, :init, 1) and

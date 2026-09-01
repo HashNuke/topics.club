@@ -127,6 +127,21 @@ defmodule TopicsClub.Irc.WirekeeperTransportTest do
     refute_receive {:nodedown, ^target_node}
   end
 
+  test "an uncertain keyed write closes the Ircxd transport without an ordinary fallback" do
+    handle =
+      {WirekeeperTransport, node(), "missing-send-once", "generation-1", self(), self()}
+
+    assert {:error, {:wirekeeper_send_once, :not_found}} =
+             WirekeeperTransport.send_data_once(
+               handle,
+               ["attempt-1"],
+               "JOIN #elixir\r\n"
+             )
+
+    assert_receive {:ircxd_transport, ^handle,
+                    {:closed, {:wirekeeper_send_once_failed, :not_found}}}
+  end
+
   test "the Session records a verified Wirekeeper node loss for safe retry fencing" do
     state = %{wirekeeper_node_down?: false}
 

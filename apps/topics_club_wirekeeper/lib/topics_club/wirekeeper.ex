@@ -157,6 +157,13 @@ defmodule TopicsClub.Wirekeeper do
     with_connection(key, &Connection.send_data(&1, generation, data))
   end
 
+  @doc "Sends bytes once for a nonempty set of generation-local idempotency keys."
+  @spec send_data_once(key(), generation(), [binary()], iodata()) ::
+          :ok | {:error, atom() | {:transport, atom()}}
+  def send_data_once(key, generation, keys, data) do
+    with_connection(key, &Connection.send_data_once(&1, generation, keys, data))
+  end
+
   @doc "Closes the upstream socket when the generation still matches."
   @spec close(key(), generation()) :: :ok | {:error, atom()}
   def close(key, generation) do
@@ -197,6 +204,7 @@ defmodule TopicsClub.Wirekeeper do
            %{
              total_connections: non_neg_integer(),
              transport_api_version: pos_integer(),
+             features: [atom()],
              open_connections: non_neg_integer(),
              closed_connections: non_neg_integer(),
              attached_connections: non_neg_integer(),
@@ -215,6 +223,7 @@ defmodule TopicsClub.Wirekeeper do
           %{
             total_connections: length(infos),
             transport_api_version: @transport_api_version,
+            features: [:send_once],
             open_connections: 0,
             closed_connections: 0,
             attached_connections: 0,

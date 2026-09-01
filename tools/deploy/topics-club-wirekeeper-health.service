@@ -13,7 +13,7 @@ EnvironmentFile=/etc/topics-club/wirekeeper.env
 Environment=HOME=/var/lib/topics-club/wirekeeper
 Environment=RELEASE_TMP=/var/lib/topics-club/wirekeeper/tmp
 Environment=ERL_EPMD_ADDRESS=127.0.0.1
-ExecStart=/srv/topics-club/current-wirekeeper/bin/topics_club_wirekeeper rpc "case TopicsClub.Wirekeeper.diagnostics() do {:ok, %%{transport_api_version: 1, total_connections: total}} when is_integer(total) -> :ok; state -> raise \"Wirekeeper is not ready or compatible: #{inspect(state)}\" end"
+ExecStart=/srv/topics-club/current-wirekeeper/bin/topics_club_wirekeeper rpc "case TopicsClub.Wirekeeper.diagnostics() do {:ok, %%{transport_api_version: 1, features: features, total_connections: total}} when is_list(features) and is_integer(total) -> if :send_once in features, do: :ok, else: raise(\"Wirekeeper is missing send_once\"); state -> raise \"Wirekeeper is not ready or compatible: #{inspect(state)}\" end"
 TimeoutStartSec=30
 UMask=0027
 PrivateTmp=true

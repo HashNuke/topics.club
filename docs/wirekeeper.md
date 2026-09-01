@@ -73,6 +73,7 @@ Each connection GenServer exclusively owns:
 - adapter module and adapter state;
 - an anonymous private ETS `ordered_set` of sequence-numbered binary records;
 - delivery credit, cumulative ACK state, and overflow counters;
+- up to 4,096 successful generation-local outbound idempotency keys by default;
 - one bounded plain-data consumer checkpoint retained without interpretation; and
 - at most one attached local or remote consumer PID.
 
@@ -85,8 +86,8 @@ closes connections because Wirekeeper can no longer safely enforce unique connec
 
 Opening a key that is opening, open, or retained as a closed tombstone returns
 `{:error, :already_open}`; it never replaces the existing socket implicitly. Every attach, detach,
-ACK, send, and close operation must include the generation returned by `open/3`. A stale consumer
-therefore cannot operate on a replacement socket that reused the same key.
+ACK, send, send-once, and close operation must include the generation returned by `open/3`. A stale
+consumer therefore cannot operate on a replacement socket that reused the same key.
 
 Only one consumer PID can be attached to a generation. One small local watcher monitors the
 consumer, including when it is a PID on a connected Erlang node. Consumer or node loss starts a
@@ -247,10 +248,11 @@ The public entry point is `TopicsClub.Wirekeeper`:
 | `ack_with_checkpoint/5` | Atomically retains post-record consumer state and cumulatively acknowledges its matching sequence. |
 | `put_checkpoint/4` | Replaces the bounded checkpoint for the generation's matching attached PID. |
 | `send_data/3` | Sends iodata upstream through the generation-matched open socket. |
+| `send_data_once/4` | Sends one record for a nonempty set of generation-local idempotency keys, or suppresses it when all keys were already written. Partial overlap fails closed. |
 | `close/2` | Explicitly closes and removes the generation-matched connection. |
 | `info/1` | Returns one connection's status and bounded counters, but no payloads or credentials. |
 | `list/0` | Returns sorted info for current open connections and retained tombstones; openings are omitted. |
-| `diagnostics/0` | Reports transport API version 1 and aggregates open/closed, attached/detached, buffer, and overflow counts. |
+| `diagnostics/0` | Reports transport API version 1, the additive `:send_once` feature, and aggregate connection/buffer counters. |
 
 Typical IRC-oriented use is:
 
@@ -275,10 +277,24 @@ receive do
 end
 
 :ok = Wirekeeper.send_data(connection_id, opened.generation, "NICK example\r\n")
+
+:ok =
+  Wirekeeper.send_data_once(
+    connection_id,
+    opened.generation,
+    [join_attempt_id],
+    "JOIN #elixir\r\n"
+  )
 ```
 
 `attach/3`, `detach/3`, and `ack/4` default their consumer argument to the calling process. Repeating
 `attach/3` from the already attached PID is idempotent and does not replay records a second time.
+
+Outbound send-once keys are nonempty binaries up to 128 bytes, and at most 64 keys may guard one
+write. A connection refuses a new key after its configured bound. A retry is suppressed only when
+every key is already present; partial overlap returns `:idempotency_conflict`, preventing a
+multi-key write from being partially assumed written. TopicsClub currently disables multi-target
+JOIN until per-target outcomes are implemented. Keys reset with a fresh generation.
 
 The `open/3` connection options are:
 
@@ -292,6 +308,7 @@ The `open/3` connection options are:
 | Open options | `:protocol_adapter` | `{TopicsClub.Wirekeeper.ProtocolAdapter.Passthrough, []}` |
 | Open options | `:buffer` | the buffer defaults documented above |
 | Open options | `:checkpoint_max_bytes` | 65,536 bytes |
+| Open options | `:sent_once_max_keys` | 4,096 keys |
 | Open options | `:closed_retention_ms` | 60,000 ms |
 
 The optional application setting `config :topics_club_wirekeeper, max_connections: positive_integer`
@@ -352,6 +369,21 @@ and authentication policy without retaining credential values. Fresh credential-
 do pass through `send_data/2`; credentials are excluded from retained records, checkpoints,
 diagnostics, and logs.
 
+JOIN is the one outbound operation with durable retry identity. The `channel_memberships` row has a
+nullable `join_attempt_id` UUID. Creating a membership or retrying one in `left`/`error` state
+assigns a new UUID in the same locked transaction that makes it pending; an already-pending attempt
+preserves its UUID, and a legacy pending row is backfilled before transmission. On a fresh IRC
+generation, confirmed auto-joins are transactionally moved to pending with new UUIDs before the
+registration record is acknowledged. The supported single-target managed JOIN persists its
+membership before passing the attempt UUID with the wire record. The transport primitive accepts
+an atomic key set, although TopicsClub's current managed-command policy accepts only one JOIN target.
+
+`WirekeeperTransport.send_data_once/3` calls `Wirekeeper.send_data_once/4`. The socket owner records
+the keys only after the socket send returns `:ok`. If the engine disappears after that reply,
+Wirekeeper still remembers the keys; if it disappears before the call, the keys are absent. An
+uncertain distributed-call result is never followed by an ordinary write. The membership remains
+pending so the same keys are retried.
+
 Every complete Wirekeeper IRC record is delivered to Ircxd with its sequence as an opaque receipt.
 Ircxd parses the record and sends all resulting events to the Session before it calls the adapter's
 `accepted/3` callback. Because those messages come from the same Ircxd process, the Session handles
@@ -381,8 +413,8 @@ handles cannot inject them into a replacement client.
 
 The Session persists inbound events before the acceptance marker is handled. On a valid resume it
 restores `joined` auto-join memberships into its in-memory joined set. Persisted `pending`
-memberships are restored into both the pending and already-sent sets: they still await a server
-result, but the resumed registered event must not write a second JOIN onto the retained socket.
+memberships are restored as pending but not assumed sent. The resumed registered event flushes each
+one with its durable UUID: Wirekeeper performs a missed write or suppresses an already-written one.
 The Session sends NAMES once for every persisted joined membership to rebuild presence without
 rejoining the channel.
 
@@ -407,7 +439,8 @@ the ordinary five-attempt upstream policy.
 
 The integration suite runs the same real Session connect/join/send/persist and JOIN-rejection
 scenarios in both direct and Wirekeeper modes. Wirekeeper-specific cases cover engine Session
-replacement, pending JOIN recovery without a duplicate wire write, an abrupt Ircxd client crash,
+replacement, pending JOIN recovery that sends a missed attempt and suppresses an already-written
+attempt, an abrupt Ircxd client crash,
 replay after a persistence failure, idempotent persistence, absence of duplicate registration
 writes, authoritative reconnect and settings changes, inactive-orphan cleanup, and permanent
 deletion cleanup. The production-like split acceptance check also replaces Wirekeeper while the
@@ -444,9 +477,10 @@ two-role deployment, leaves the Wirekeeper OS process, sockets, buffers, and che
 Deploying or rolling back Wirekeeper necessarily replaces its node and therefore its sockets.
 
 Compatibility is contractual rather than tied to one repository tag. `diagnostics/0` publishes
-transport API version 1. The Wirekeeper health unit requires that version locally, and the engine
-health unit makes a bounded call from the engine node to its configured Wirekeeper node and requires
-the same version. Direct engine mode skips that check. Gateway/engine compatibility uses the
+transport API version 1 plus additive feature names. The Wirekeeper health unit requires that
+version locally, and the engine health unit makes a bounded call from the engine node to its
+configured Wirekeeper node and requires version 1 with `:send_once`. Direct engine mode skips that
+check. Gateway/engine compatibility uses the
 existing versioned engine RPC contract. A failed post-activation contract check restores the prior
 selected release, including during a component rollback.
 
@@ -455,7 +489,7 @@ The standalone Wirekeeper service loads only `/etc/topics-club/wirekeeper.env`, 
 `TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS`. It does not load `db.env`, `IRC_CREDENTIALS_KEY`, Phoenix,
 OAuth, or Web Push secrets. Its systemd unit raises the file-descriptor limit to 65,536. Its health
 unit performs a release RPC to `TopicsClub.Wirekeeper.diagnostics/0` and requires transport API
-version 1.
+version 1 and the `:send_once` feature.
 
 Erlang distribution is a trusted local boundary in this implementation. Wirekeeper does not add
 per-call authentication or authorization beyond the shared node cookie. The first-party topology
@@ -472,8 +506,8 @@ The current umbrella application does not:
   messages, or choose reconnect policy;
 - persist sockets or replay buffers across loss of the connection process, BEAM node, container, or
   host;
-- provide exactly-once transport delivery; selected database effects are idempotent across replay,
-  but consumers must still handle at-least-once records;
+- provide exactly-once inbound transport delivery; selected database effects are idempotent across
+  replay, while JOIN alone has generation-local keyed outbound suppression;
 - authorize remote engine nodes or expose a versioned command envelope beyond the diagnostics
   compatibility marker;
 - preserve a socket across a Wirekeeper node, VM, container, host, or Wirekeeper release restart;

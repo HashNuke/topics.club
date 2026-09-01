@@ -251,6 +251,7 @@ function mockBootstrapFetch({
   channelUnreadCount = 0,
   connectionStatus = "connected",
   connectionNickname = "mira",
+  updateConnectionStatus = "connected",
   deleteResponse = {
     type: "server:deleted",
     version: 1,
@@ -322,7 +323,7 @@ function mockBootstrapFetch({
           connection: {
             id: 42,
             ...connection,
-            status: "connected",
+            status: updateConnectionStatus,
             mention_notifications_enabled: true,
             notification_preference_revision: 0,
             channels: [{id: 7, channel: "#testing", unread_count: channelUnreadCount, mention_count: channelMentionCount}],
@@ -4693,11 +4694,23 @@ describe("TopicsClubApp UI prototype", () => {
     expect(screen.getAllByText("on 127.0.0.1").length).toBeGreaterThan(0)
   })
 
-  test("takes an unavailable channel to its server remedy and reconnects with a random nickname", async () => {
+  test.each([
+    {
+      name: "uses the backend reconnect started by a random-nickname update",
+      updateConnectionStatus: "connecting",
+      expectedEvents: [],
+    },
+    {
+      name: "falls back to one realtime reconnect when a random-nickname update stays errored",
+      updateConnectionStatus: "errored",
+      expectedEvents: ["server:reconnect"],
+    },
+  ])("$name", async ({updateConnectionStatus, expectedEvents}) => {
     const user = userEvent.setup()
     mockBootstrapFetch({
       connectionStatus: "errored",
       connectionNickname: "bad.nick@example",
+      updateConnectionStatus,
       serverMessages: [
         {
           id: 109,
@@ -4766,10 +4779,8 @@ describe("TopicsClubApp UI prototype", () => {
     expect(updateBody.connection).toMatchObject({name: "local", host: "127.0.0.1"})
     expect(updateBody.connection.nickname).toMatch(/^guest_[a-z0-9]{6}$/)
 
-    await waitFor(() => expect(push.mock.calls.map(([event]) => event)).toEqual([
-      "server:disconnect",
-      "server:reconnect",
-    ]))
+    await waitFor(() => expect(screen.queryByRole("dialog", {name: "Edit connection"})).not.toBeInTheDocument())
+    expect(push.mock.calls.map(([event]) => event)).toEqual(expectedEvents)
   })
 
   test("confirms leaving a server from the server action menu", async () => {

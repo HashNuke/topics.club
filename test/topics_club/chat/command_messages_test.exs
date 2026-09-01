@@ -3,7 +3,7 @@ defmodule TopicsClub.Chat.CommandMessagesTest do
 
   alias TopicsClub.AccountsFixtures
   alias TopicsClub.Chat
-  alias TopicsClub.Chat.{CommandMessages, Connections, Message}
+  alias TopicsClub.Chat.{CommandMessages, Connections, IrcIngestionEffect, Message}
   alias TopicsClub.Repo
 
   setup do
@@ -94,6 +94,45 @@ defmodule TopicsClub.Chat.CommandMessagesTest do
 
     assert unchanged.metadata == updated.metadata
     refute_receive {:buffer_system, %{id: ^updated_message_id}}
+  end
+
+  test "records a replayed Wirekeeper command result exactly once", context do
+    buffer_id = "server:#{context.connection.id}"
+
+    ingestion = %{
+      generation: "generation-1",
+      sequence: 27,
+      effect_key: "command_result:0"
+    }
+
+    assert {:ok, message} =
+             CommandMessages.record(
+               context.connection,
+               buffer_id,
+               "WHO result for mira",
+               %{command_id: "who-1", command_status: "result"},
+               ingestion
+             )
+
+    assert_receive {:buffer_system, %{id: message_id, body: "WHO result for mira"}}
+    assert message_id == message.id
+
+    assert {:ok, nil} =
+             CommandMessages.record(
+               context.connection,
+               buffer_id,
+               "WHO result for mira",
+               %{command_id: "who-1", command_status: "result"},
+               ingestion
+             )
+
+    assert Repo.aggregate(
+             from(message in Message, where: message.body == "WHO result for mira"),
+             :count
+           ) == 1
+
+    assert Repo.aggregate(IrcIngestionEffect, :count) == 1
+    refute_receive {:buffer_system, %{body: "WHO result for mira"}}
   end
 
   test "rejects buffers owned by another connection", context do

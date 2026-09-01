@@ -79,6 +79,74 @@ defmodule TopicsClub.WirekeeperTest do
     assert TestTcpServer.connection_count(server) == 1
   end
 
+  test "writes each idempotency key set once within one socket generation" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("send-once")
+
+    assert {:ok, opened} = open_tcp(key, server)
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+
+    first = "@label=join-1 JOIN #elixir\r\n"
+
+    assert :ok =
+             Wirekeeper.send_data_once(
+               key,
+               opened.generation,
+               ["attempt-1"],
+               first
+             )
+
+    assert_server_data(server, first)
+
+    assert :ok =
+             Wirekeeper.send_data_once(
+               key,
+               opened.generation,
+               ["attempt-1"],
+               "JOIN #elixir\r\n"
+             )
+
+    refute_receive {:wirekeeper_test_server, :data, ^server, _duplicate}, 100
+  end
+
+  test "bounds idempotency keys and rejects partially overlapping key sets" do
+    server = start_supervised!({TestTcpServer, self()})
+    key = unique_key("bounded-send-once")
+
+    assert {:ok, opened} = open_tcp(key, server, sent_once_max_keys: 2)
+    on_exit(fn -> Wirekeeper.close(key, opened.generation) end)
+    assert_receive {:wirekeeper_test_server, :accepted, ^server, 1}
+
+    assert :ok =
+             Wirekeeper.send_data_once(
+               key,
+               opened.generation,
+               ["attempt-1", "attempt-2"],
+               "JOIN #one,#two\r\n"
+             )
+
+    assert_server_data(server, "JOIN #one,#two\r\n")
+
+    assert {:error, :idempotency_conflict} =
+             Wirekeeper.send_data_once(
+               key,
+               opened.generation,
+               ["attempt-2", "attempt-3"],
+               "JOIN #two,#three\r\n"
+             )
+
+    assert {:error, :idempotency_capacity} =
+             Wirekeeper.send_data_once(
+               key,
+               opened.generation,
+               ["attempt-3"],
+               "JOIN #three\r\n"
+             )
+
+    refute_receive {:wirekeeper_test_server, :data, ^server, _rejected}, 100
+  end
+
   test "detached duration starts when the upstream connection becomes ready" do
     server = start_supervised!({TestTcpServer, self()})
     key = unique_key("detached-after-ready")
@@ -1354,6 +1422,7 @@ defmodule TopicsClub.WirekeeperTest do
             %{
               total_connections: 2,
               transport_api_version: 1,
+              features: [:send_once],
               open_connections: 1,
               closed_connections: 1,
               attached_connections: 0,

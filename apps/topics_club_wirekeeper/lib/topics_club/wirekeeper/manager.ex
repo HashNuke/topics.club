@@ -148,6 +148,7 @@ defmodule TopicsClub.Wirekeeper.Manager do
       transport: transport,
       buffer: Keyword.get(opts, :buffer, []),
       checkpoint_max_bytes: Keyword.get(opts, :checkpoint_max_bytes, 65_536),
+      sent_once_max_keys: Keyword.get(opts, :sent_once_max_keys, 4_096),
       closed_retention_ms: Keyword.get(opts, :closed_retention_ms, 60_000),
       protocol_adapter:
         Keyword.get(

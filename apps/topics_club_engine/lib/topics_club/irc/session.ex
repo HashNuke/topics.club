@@ -85,14 +85,18 @@ defmodule TopicsClub.Irc.Session do
   end
 
   def handle_info({:ircxd, event}, state) do
-    :ok = WirekeeperIngestion.begin_event(state, event)
+    if WirekeeperIngestion.blocked?(state) do
+      {:noreply, state}
+    else
+      :ok = WirekeeperIngestion.begin_event(state, event)
 
-    state =
-      state
-      |> EventDispatcher.dispatch(event)
-      |> WirekeeperIngestion.finish_event()
+      state =
+        state
+        |> EventDispatcher.dispatch(event)
+        |> WirekeeperIngestion.finish_event()
 
-    {:noreply, state}
+      {:noreply, state}
+    end
   end
 
   def handle_info({:topics_club_wirekeeper, {:data, payload}}, %{client: client} = state)
@@ -204,6 +208,10 @@ defmodule TopicsClub.Irc.Session do
 
   def handle_info({:command_grace_timeout, command_id}, state) do
     {:noreply, CommandLifecycle.grace_timeout(state, command_id)}
+  end
+
+  def handle_info({:command_fail_timeout, command_id, reason}, state) do
+    {:noreply, CommandLifecycle.fail_timeout(state, command_id, reason)}
   end
 
   @impl true

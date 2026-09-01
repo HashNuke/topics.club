@@ -133,12 +133,11 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
         next_state =
           current_state
           |> Map.update!(:pending_joins, &MapSet.put(&1, key))
-          |> Map.update!(:sent_joins, &MapSet.put(&1, key))
 
         {membership, next_state}
       end)
 
-    {next_state, %{membership: List.first(memberships)}}
+    {next_state, %{membership: List.first(memberships), join_memberships: memberships}}
   end
 
   def persist_outcome(
@@ -218,9 +217,11 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
          buffer_id,
          client
        ) do
-    case Ircxd.Client.transmit(client, message) do
+    {state, prepared_outcome, transmit_opts} = prepare_transmission(state, intent)
+
+    case Ircxd.Client.transmit(client, message, transmit_opts) do
       :ok ->
-        {state, managed_outcome} = persist_outcome(state, intent)
+        {state, managed_outcome} = finish_successful_transmission(state, intent, prepared_outcome)
 
         state =
           CommandLifecycle.track(
@@ -241,7 +242,7 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
               command: String.downcase(message.command),
               display: intent.display
             },
-            managed_outcome
+            Map.delete(managed_outcome, :join_memberships)
           )
 
         {{:ok, reply}, state}
@@ -252,9 +253,74 @@ defmodule TopicsClub.Irc.Session.CommandExecution do
           error: inspect(reason)
         })
 
+        state = cleanup_failed_transmission(state, intent, prepared_outcome, reason)
         {{:error, CommandExecutionError.present(reason)}, state}
     end
   end
+
+  defp prepare_transmission(
+         state,
+         %{disposition: :managed, message: %{command: "JOIN"}} = intent
+       ) do
+    {state, outcome} = persist_outcome(state, intent)
+    keys = Enum.map(outcome.join_memberships, & &1.join_attempt_id)
+    {state, outcome, [idempotency_keys: keys]}
+  end
+
+  defp prepare_transmission(state, _intent), do: {state, %{}, []}
+
+  defp finish_successful_transmission(
+         state,
+         %{disposition: :managed, message: %{command: "JOIN"}},
+         outcome
+       ) do
+    state =
+      Enum.reduce(outcome.join_memberships, state, fn membership, current_state ->
+        key = Targets.key(current_state, membership.channel)
+        Map.update!(current_state, :sent_joins, &MapSet.put(&1, key))
+      end)
+
+    {state, outcome}
+  end
+
+  defp finish_successful_transmission(state, intent, _prepared_outcome),
+    do: persist_outcome(state, intent)
+
+  defp cleanup_failed_transmission(
+         state,
+         %{disposition: :managed, message: %{command: "JOIN"}},
+         %{join_memberships: _memberships},
+         {:wirekeeper_send_once, _reason}
+       ),
+       do: state
+
+  defp cleanup_failed_transmission(
+         state,
+         %{disposition: :managed, message: %{command: "JOIN"}},
+         %{join_memberships: memberships},
+         reason
+       ) do
+    Enum.reduce(memberships, state, fn membership, current_state ->
+      key = Targets.key(current_state, membership.channel)
+
+      case TopicsClub.Chat.reject_channel_join(
+             current_state.connection,
+             membership.channel,
+             reason,
+             Targets.casemapping(current_state)
+           ) do
+        {:ok, _membership} ->
+          current_state
+          |> Map.update!(:pending_joins, &MapSet.delete(&1, key))
+          |> Map.update!(:sent_joins, &MapSet.delete(&1, key))
+
+        {:error, _reason} ->
+          current_state
+      end
+    end)
+  end
+
+  defp cleanup_failed_transmission(state, _intent, _outcome, _reason), do: state
 
   defp fetch_registered_client(%{registered?: true, client: client}) when not is_nil(client),
     do: {:ok, client}

@@ -27,6 +27,25 @@ defmodule TopicsClub.Irc.WirekeeperTransport do
   end
 
   @impl true
+  def send_data_once(
+        {__MODULE__, node, key, generation, client, _consumer} = handle,
+        keys,
+        data
+      ) do
+    case call(node, :send_data_once, [key, generation, keys, data]) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        maybe_close_exhausted_send_once(node, key, generation, reason)
+        Transport.closed(client, handle, {:wirekeeper_send_once_failed, reason})
+        {:error, {:wirekeeper_send_once, reason}}
+    end
+  end
+
+  def send_data_once(_handle, _keys, _data), do: {:error, :invalid_transport_handle}
+
+  @impl true
   def activate(_handle), do: :ok
 
   @impl true
@@ -216,10 +235,21 @@ defmodule TopicsClub.Irc.WirekeeperTransport do
 
       {:wirekeeper, target_node} when is_atom(target_node) ->
         case call(target_node, :diagnostics, []) do
-          {:ok, %{transport_api_version: @transport_api_version}} -> :ok
-          {:ok, %{transport_api_version: version}} -> {:error, {:incompatible, version}}
-          {:ok, _diagnostics} -> {:error, :incompatible}
-          {:error, reason} -> {:error, reason}
+          {:ok, %{transport_api_version: @transport_api_version, features: features}}
+          when is_list(features) ->
+            if :send_once in features, do: :ok, else: {:error, {:missing_feature, :send_once}}
+
+          {:ok, %{transport_api_version: @transport_api_version}} ->
+            {:error, {:missing_feature, :send_once}}
+
+          {:ok, %{transport_api_version: version}} ->
+            {:error, {:incompatible, version}}
+
+          {:ok, _diagnostics} ->
+            {:error, :incompatible}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       _invalid_configuration ->
@@ -436,6 +466,14 @@ defmodule TopicsClub.Irc.WirekeeperTransport do
   catch
     :error, :notalive -> {:error, :distribution_unavailable}
   end
+
+  defp maybe_close_exhausted_send_once(node, key, generation, reason)
+       when reason in [:idempotency_capacity, :idempotency_conflict] do
+    _result = call(node, :close, [key, generation])
+    :ok
+  end
+
+  defp maybe_close_exhausted_send_once(_node, _key, _generation, _reason), do: :ok
 
   defp normalize_close(:ok), do: :ok
   defp normalize_close({:error, reason}) when reason in [:not_found, :stale_generation], do: :ok

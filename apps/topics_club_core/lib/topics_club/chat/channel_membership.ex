@@ -12,6 +12,7 @@ defmodule TopicsClub.Chat.ChannelMembership do
     field :joined_at, :utc_datetime
     field :left_at, :utc_datetime
     field :last_error, :string
+    field :join_attempt_id, :binary_id
     field :last_read_at, :utc_datetime
     field :unread_count, :integer, default: 0
     field :mention_count, :integer, default: 0

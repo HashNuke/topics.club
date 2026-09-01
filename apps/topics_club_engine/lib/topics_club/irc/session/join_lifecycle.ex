@@ -20,12 +20,12 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
 
   def transmit(
         %{connection: %ServerConnection{id: id, user_id: user_id}} = state,
-        channel
+        %ChannelMembership{} = membership
       )
       when is_integer(id) and is_integer(user_id) do
     case ConnectionLock.run_serialized(state.connection, fn ->
            with :ok <- ServerConnectionLock.ensure_active(state.connection.id) do
-             transmit_active(state, channel)
+             transmit_active(state, membership)
            else
              {:error, reason} -> {{:error, reason}, state}
            end
@@ -35,9 +35,18 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
     end
   end
 
-  def transmit(state, channel), do: transmit_active(state, channel)
+  def transmit(state, channel) when is_binary(channel) do
+    key = Targets.key(state, channel)
 
-  defp transmit_active(state, channel) do
+    cond do
+      MapSet.member?(state.joined_channels, key) -> {:sent, state}
+      is_nil(Map.get(state, :client)) -> {:queued, put_pending(state, key)}
+      true -> {{:error, :missing_join_attempt}, state}
+    end
+  end
+
+  defp transmit_active(state, %ChannelMembership{} = membership) do
+    channel = membership.channel
     key = Targets.key(state, channel)
 
     if MapSet.member?(state.joined_channels, key) do
@@ -47,7 +56,7 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
         case state do
           %{client: client, registered?: true, join_validation_ready?: true}
           when not is_nil(client) ->
-            Ircxd.Client.join(client, channel)
+            transmit_join(client, membership)
 
           _state ->
             :queued
@@ -142,7 +151,7 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
     state
     |> Map.put(:pending_joins, pending_joins)
     |> Map.put(:joined_channels, persisted_channels(state.connection, mapping, ["joined"]))
-    |> Map.put(:sent_joins, pending_joins)
+    |> Map.put(:sent_joins, MapSet.new())
   end
 
   def refresh_resumed_presence(%{client: client} = state) when is_pid(client) do
@@ -197,7 +206,7 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
       else
         with :ok <- validate(current_state, channel),
              :ok <- ServerConnectionLock.ensure_active(current_state.connection.id),
-             :ok <- Ircxd.Client.join(current_state.client, channel) do
+             :ok <- transmit_join(current_state.client, membership) do
           current_state
           |> Map.put(:pending_joins, MapSet.put(current_state.pending_joins, key))
           |> Map.put(
@@ -205,6 +214,9 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
             MapSet.put(Map.get(current_state, :sent_joins, MapSet.new()), key)
           )
         else
+          {:error, {:wirekeeper_send_once, _reason}} ->
+            current_state
+
           {:error, reason} ->
             if current_state.isupport_received? do
               Chat.reject_channel_join(
@@ -250,4 +262,15 @@ defmodule TopicsClub.Irc.Session.JoinLifecycle do
 
   defp normalize_result(:ok), do: :ok
   defp normalize_result(error), do: error
+
+  defp transmit_join(client, %ChannelMembership{join_attempt_id: attempt_id} = membership)
+       when is_binary(attempt_id) do
+    Ircxd.Client.join(client, membership.channel, idempotency_keys: [attempt_id])
+  end
+
+  defp transmit_join(_client, %ChannelMembership{}), do: {:error, :missing_join_attempt}
+
+  defp put_pending(state, key) do
+    %{state | pending_joins: MapSet.put(state.pending_joins, key)}
+  end
 end

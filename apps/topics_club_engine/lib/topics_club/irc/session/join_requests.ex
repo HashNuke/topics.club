@@ -71,11 +71,14 @@ defmodule TopicsClub.Irc.Session.JoinRequests do
              channel,
              Targets.casemapping(state)
            ) do
-      {reply, state} = JoinLifecycle.transmit(state, membership.channel)
+      {reply, state} = JoinLifecycle.transmit(state, membership)
 
       case reply do
         status when status in [:sent, :queued] ->
           {{:ok, membership, status}, state}
+
+        {:error, {:wirekeeper_send_once, _reason}} = error ->
+          {error, state}
 
         error ->
           Chat.reject_channel_join(

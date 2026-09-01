@@ -441,13 +441,6 @@ export default function useServerConnections({
     if (!server?.server_connection_id || !realtimeClientRef.current) return false
 
     try {
-      if (server.status === "errored") {
-        const disconnected = await realtimeClientRef.current.push<ServerStatusPayload>("server:disconnect", {
-          server_connection_id: server.server_connection_id,
-        })
-        applyServerStatus(disconnected)
-      }
-
       const status = await realtimeClientRef.current.push<ServerStatusPayload>("server:reconnect", {
         server_connection_id: server.server_connection_id,
       })
@@ -507,7 +500,12 @@ export default function useServerConnections({
         ...credentials,
       })
       if (connection?.id) setConnections((current) => updateConnectionDetails(current, connection))
-      if (reconnect && !(await reconnectServer(server))) return false
+      if (
+        reconnect &&
+        connection?.status !== "connecting" &&
+        connection?.status !== "connected" &&
+        !(await reconnectServer(server))
+      ) return false
       return true
     } catch (_error) {
       return false

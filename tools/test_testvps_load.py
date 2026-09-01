@@ -153,6 +153,26 @@ class TestVpsLoadExpressionTest(unittest.TestCase):
 
         self.assertIn("LimitNOFILE=65536", service)
 
+    @mock.patch.object(testvps_load.split_acceptance, "remove_irc_container")
+    @mock.patch.object(
+        testvps_load.split_acceptance,
+        "wait_until",
+        side_effect=RuntimeError("synthetic IRC did not become ready"),
+    )
+    @mock.patch.object(testvps_load, "run")
+    @mock.patch.object(testvps_load, "docker_object_exists", return_value=False)
+    def test_failed_irc_readiness_removes_the_created_sidecar(
+        self,
+        _exists_mock: mock.Mock,
+        _run_mock: mock.Mock,
+        _wait_mock: mock.Mock,
+        remove_mock: mock.Mock,
+    ) -> None:
+        with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+            testvps_load.start_irc_container()
+
+        remove_mock.assert_called_once_with()
+
 
 class SyntheticIrcConfigurationTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("elixir"), "Elixir is required for the IRC harness test")

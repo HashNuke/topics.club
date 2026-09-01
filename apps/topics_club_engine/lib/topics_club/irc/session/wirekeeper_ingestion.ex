@@ -49,6 +49,8 @@ defmodule TopicsClub.Irc.Session.WirekeeperIngestion do
 
   def failed?(state), do: not is_nil(Map.get(state, :wirekeeper_ingestion_failure))
 
+  def blocked?(state), do: failed?(state) or retrying?(state)
+
   def failure_reason(state) do
     case Map.get(state, :wirekeeper_ingestion_failure) do
       {_sequence, reason} -> reason
@@ -101,6 +103,8 @@ defmodule TopicsClub.Irc.Session.WirekeeperIngestion do
       reason -> record_result(state, {:error, reason})
     end
   end
+
+  def event_failed?, do: not is_nil(Process.get(@dispatch_failure_key))
 
   def context_effect(effect_name) when is_binary(effect_name) do
     case Process.get(@dispatch_context_key) do

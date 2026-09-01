@@ -7,6 +7,7 @@ defmodule TopicsClub.Chat.CommandMessages do
     BufferEvents,
     ChannelMembership,
     DirectMessageThread,
+    IrcIngestionEffect,
     Message,
     Retention,
     ServerConnection,
@@ -15,7 +16,7 @@ defmodule TopicsClub.Chat.CommandMessages do
 
   alias TopicsClub.Repo
 
-  def record(%ServerConnection{} = connection, buffer_id, body, metadata) do
+  def record(%ServerConnection{} = connection, buffer_id, body, metadata, ingestion \\ nil) do
     assert_no_outer_transaction!()
     buffer = command_buffer(connection, buffer_id)
     {membership_id, thread_id} = message_buffer_ids(buffer)
@@ -23,6 +24,10 @@ defmodule TopicsClub.Chat.CommandMessages do
 
     Repo.transaction(fn ->
       active_connection = ServerConnectionLock.lock_active!(connection.id)
+
+      if IrcIngestionEffect.claim(active_connection, ingestion) == :duplicate do
+        Repo.rollback(:duplicate_irc_ingestion)
+      end
 
       {:ok, message} =
         %Message{
@@ -52,6 +57,9 @@ defmodule TopicsClub.Chat.CommandMessages do
           end)
 
         {:ok, message}
+
+      {:error, :duplicate_irc_ingestion} ->
+        {:ok, nil}
 
       error ->
         error

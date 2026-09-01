@@ -2,7 +2,7 @@ defmodule TopicsClub.Irc.Session.CommandExecutionTest do
   use TopicsClub.DataCase, async: true
 
   alias TopicsClub.AccountsFixtures
-  alias TopicsClub.Chat.{Connections, MessageHistory}
+  alias TopicsClub.Chat.{Connections, MembershipLookup, MessageHistory}
   alias TopicsClub.Irc.CommandRegistry
   alias TopicsClub.Irc.Session.CommandExecution
 
@@ -67,6 +67,30 @@ defmodule TopicsClub.Irc.Session.CommandExecutionTest do
     assert invocation.metadata["command_id"] == "whois-failure"
     assert invocation.metadata["command_status"] == "failed"
     assert invocation.metadata["error"] == ":closed"
+  end
+
+  test "rejects a durable JOIN attempt after a deterministic transmission failure" do
+    context = execution_context()
+    assert {:ok, intent} = CommandRegistry.resolve("JOIN #elixir", %{isupport: %{}})
+
+    assert {{:error, %{code: "closed"}}, returned} =
+             CommandExecution.execute(
+               context.state,
+               intent,
+               "join-failure",
+               "server:#{context.connection.id}"
+             )
+
+    assert returned.pending_joins == MapSet.new()
+    assert returned.sent_joins == MapSet.new()
+
+    rejected = MembershipLookup.find_by_channel(context.connection, "#elixir", :ascii)
+    assert rejected.status == "error"
+    refute rejected.auto_join
+    assert rejected.last_error == ":closed"
+
+    assert [invocation] = messages(context)
+    assert invocation.metadata["command_status"] == "failed"
   end
 
   defp execution_context do

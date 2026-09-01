@@ -13,7 +13,7 @@ while the selected adapter owns connection establishment, framed delivery, accep
 writes, and closure.
 
 This support was implemented directly in `~/projects/ircxd` and is pinned here at commit
-`ef6645035fcf298d2a8d79ce241b8430bebdd6ee` on the remote `wirekeeper-transport` branch.
+`2aca661c3704f77ac522d78e12b60bbdcb6ce9c4` on the remote `wirekeeper-transport` branch.
 
 ## Backward compatibility
 
@@ -37,6 +37,12 @@ inside Ircxd. Its `send_data/2` callback does receive complete outbound IRC wire
 WEBIRC, PASS, SASL payloads, and later commands. Adapter implementations must protect those bytes in
 transit and must never log them.
 
+The branch also adds optional idempotent transport writes. `join/3` and `transmit/3` accept a
+nonempty `:idempotency_keys` list. If the selected adapter implements the optional
+`send_data_once/3` callback, Ircxd passes those keys with the validated serialized record. A legacy
+adapter or the built-in socket adapter still receives the ordinary `send_data/2` call, so default
+TCP/TLS behavior is unchanged.
+
 ## Implemented adapter contract
 
 An adapter implements `Ircxd.Client.Transport` and returns one connection mode:
@@ -57,6 +63,7 @@ second handle while an adapter reports that the old one may remain active.
 The remaining callbacks are:
 
 - `send_data/2` for serialized outbound IRC records;
+- optional `send_data_once/3` for a serialized record carrying adapter-owned idempotency keys;
 - `activate/1` for the next inbound record, a no-op for Wirekeeper's own flow control;
 - `checkpoint?/1` to opt into post-record resumable checkpoints;
 - `accepted/3` after Ircxd parses a record and emits all of its events;
@@ -139,10 +146,15 @@ The adapter performs these transitions:
    detaches the Session consumer before retry, resetting in-flight delivery for replay.
 8. Engine restart/crash detaches; user QUIT and authoritative connection deletion explicitly close.
 
-On resume the engine restores persisted `joined` memberships into its joined set and persisted
-`pending` memberships into both its pending and already-sent sets. The subsequent registered event
-therefore does not send duplicate JOIN commands on the retained socket. It proactively sends NAMES
-for every confirmed joined membership to rebuild in-memory presence without rejoining.
+Each persisted JOIN attempt has a UUID. Ircxd passes one or more attempt UUIDs to Wirekeeper's
+`send_data_once/3` callback, and Wirekeeper evaluates the supplied keys atomically. TopicsClub's
+current managed-command policy rejects multi-target JOIN until per-target outcomes are implemented.
+Wirekeeper remembers a successful key set for that socket generation. On resume the engine restores
+pending memberships but deliberately treats them as unsent and retries them. Wirekeeper writes an attempt
+that was committed before an engine crash but never reached the socket, and suppresses an attempt
+that it already wrote. Matching uses only the attempt keys because the original command may carry
+an IRC label while the recovery JOIN does not. Confirmed memberships remain joined and receive a
+NAMES request to rebuild in-memory presence without rejoining.
 
 ## Process and deployment boundary
 
@@ -167,6 +179,7 @@ Current automated coverage proves:
 - a real engine Session scenario shared by direct and Wirekeeper modes;
 - persistence-before-ACK through the Session mailbox;
 - engine Session replacement and abrupt Ircxd client retry with ordered replay;
-- no repeated PASS/CAP/SASL/NICK/USER/JOIN on resume;
+- no repeated PASS/CAP/SASL/NICK/USER on resume, plus keyed JOIN retry that sends a missed attempt
+  and suppresses an already-written attempt;
 - gap/overflow and unavailable-checkpoint fallback to a fresh generation; and
 - authoritative deletion cleanup of the retained Wirekeeper generation.

@@ -28,6 +28,7 @@ defmodule TopicsClub.Irc.Bouncer do
 
     state = %{
       enabled?: enabled?,
+      restore_on_start?: Keyword.get(opts, :restore_on_start?, true),
       idle_timeout: Keyword.get(opts, :idle_timeout, @idle_timeout),
       sweep_interval: Keyword.get(opts, :sweep_interval, @sweep_interval),
       session_supervisor: nil,
@@ -47,7 +48,7 @@ defmodule TopicsClub.Irc.Bouncer do
     case Process.whereis(SessionSupervisor) do
       session_supervisor when is_pid(session_supervisor) ->
         session_supervisor_ref = Process.monitor(session_supervisor)
-        if state.enabled?, do: send(self(), :start_recent_sessions)
+        if state.enabled? and state.restore_on_start?, do: send(self(), :start_recent_sessions)
 
         {:noreply,
          %{

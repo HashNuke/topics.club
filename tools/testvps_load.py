@@ -317,9 +317,15 @@ def start_irc_container() -> None:
         ],
         capture=True,
     )
-    split_acceptance.wait_until(
-        "synthetic IRC control port", 30, lambda: split_acceptance.irc_control("PING") == "PONG"
-    )
+    try:
+        split_acceptance.wait_until(
+            "synthetic IRC control port",
+            30,
+            lambda: split_acceptance.irc_control("PING") == "PONG",
+        )
+    except BaseException:
+        split_acceptance.remove_irc_container()
+        raise
 
 
 def release_metrics(role: str, expression: str) -> dict[str, Any]:

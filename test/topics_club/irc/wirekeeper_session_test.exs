@@ -5,6 +5,7 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
   alias TopicsClub.Chat
 
   alias TopicsClub.Chat.{
+    ChannelJoinRequest,
     ChannelMembership,
     Connections,
     MembershipLookup,
@@ -254,6 +255,47 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
     refute_connection_setup_lines()
   end
 
+  test "resuming a retained socket transmits a pending JOIN that was never sent" do
+    server =
+      start_supervised!({IrcTestServer, {self(), accept_reconnects?: true, join_replies?: false}})
+
+    {user, connection} = connection_fixture(server, "wirekeeper unsent join resume")
+    close_on_exit(connection)
+
+    assert {:ok, first_session} = SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK topics_club"}, 1_000
+    assert_receive {:irc_server_line, "USER topics_club 0 * topics_club"}, 1_000
+
+    assert_eventually(fn ->
+      :sys.get_state(first_session).registered? and
+        match?({:ok, %{attached?: true}}, Wirekeeper.info(connection.id))
+    end)
+
+    assert {:ok, %{generation: generation}} = Wirekeeper.info(connection.id)
+    assert :ok = SessionSupervisor.stop_for_restart(connection)
+    first_ref = Process.monitor(first_session)
+    assert_receive {:DOWN, ^first_ref, :process, ^first_session, _reason}, 1_000
+
+    assert {:ok, membership} = ChannelJoinRequest.request(user, connection, "#never-sent")
+    assert is_binary(membership.join_attempt_id)
+
+    flush_server_lines()
+    assert {:ok, resumed_session} = SessionSupervisor.start_session(connection)
+
+    assert_receive {:irc_server_line, "JOIN #never-sent"}, 1_000
+
+    assert_eventually(fn ->
+      :sys.get_state(resumed_session).resumed? and
+        match?(
+          {:ok, %{generation: ^generation, attached?: true}},
+          Wirekeeper.info(connection.id)
+        )
+    end)
+
+    refute_receive {:irc_server_line, "JOIN #never-sent"}, 300
+    refute_connection_setup_lines()
+  end
+
   test "the authoritative deletion stop closes its retained Wirekeeper generation" do
     server = start_supervised!({IrcTestServer, self()})
     {user, connection} = connection_fixture(server, "wirekeeper deletion")
@@ -416,7 +458,10 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
     end)
 
     bouncer =
-      start_supervised!({Bouncer, enabled?: true, sweep_interval: :timer.hours(1), name: nil})
+      start_supervised!(
+        {Bouncer,
+         enabled?: true, restore_on_start?: false, sweep_interval: :timer.hours(1), name: nil}
+      )
 
     Ecto.Adapters.SQL.Sandbox.allow(Repo, context.sandbox_owner, bouncer)
     send(bouncer, :start_recent_sessions)
@@ -460,6 +505,14 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
     body = "must survive a failed transaction"
     assert :ok = IrcTestServer.broadcast(server, "#pipe", "akash", body)
 
+    later_body = "- must wait behind the failed record"
+
+    assert :ok =
+             IrcTestServer.send_line(
+               server,
+               ":irc.example.test 372 topics_club :#{later_body}"
+             )
+
     assert_eventually(fn ->
       match?(
         {:ok, %{buffered_records: count, in_flight_records: in_flight}}
@@ -479,6 +532,7 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
     assert retained_count >= 1
 
     assert message_count(user, membership.id, body) == 0
+    refute Repo.get_by(Message, server_connection_id: connection.id, body: later_body)
 
     membership
     |> Repo.reload!()
@@ -490,6 +544,7 @@ defmodule TopicsClub.Irc.WirekeeperSessionTest do
 
     assert_eventually(fn ->
       message_count(user, membership.id, body) == 1 and
+        not is_nil(Repo.get_by(Message, server_connection_id: connection.id, body: later_body)) and
         match?({:ok, %{buffered_records: 0}}, Wirekeeper.info(connection.id))
     end)
   end

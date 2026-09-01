@@ -3,7 +3,14 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
 
   alias TopicsClub.Chat.{ChannelMembership, CommandMessages, MembershipLookup}
   alias TopicsClub.Irc.CommandResult
-  alias TopicsClub.Irc.Session.{CommandTargetCorrelation, Identity, Targets}
+
+  alias TopicsClub.Irc.Session.{
+    CommandTargetCorrelation,
+    Identity,
+    Targets,
+    WirekeeperIngestion
+  }
+
   alias Ircxd.Client.{Event, Info}
 
   @command_grace_timeout 300
@@ -69,12 +76,16 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
         state =
           if status in ["completed", "failed"], do: record_summary(state, pending), else: state
 
-        update_status(pending, status, lifecycle_metadata(payload))
-
-        if status in ["completed", "failed"] do
-          finish(state, command_id, pending)
-        else
+        if WirekeeperIngestion.event_failed?() do
           state
+        else
+          case update_status(pending, status, lifecycle_metadata(payload)) do
+            {:ok, _message} when status in ["completed", "failed"] ->
+              finish(state, command_id, pending)
+
+            _result ->
+              state
+          end
         end
     end
   end
@@ -88,19 +99,30 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
         pending = Map.get(state.pending_commands, command_id, pending)
 
         cond do
+          WirekeeperIngestion.event_failed?() ->
+            state
+
           not pending.labeled? and pending.command != "JOIN" and
             event.name in [:standard_reply, :standard_reply_error] and
               Map.get(event.payload, :type) == :fail ->
-            update_status(pending, "failed", %{
-              error: Map.get(event.payload, :description) || "Command failed."
-            })
-
-            finish(state, command_id, pending)
+            case update_status(pending, "failed", %{
+                   error: Map.get(event.payload, :description) || "Command failed."
+                 }) do
+              {:ok, _message} -> finish(state, command_id, pending)
+              {:error, _reason} -> state
+            end
 
           not pending.labeled? and event.name in pending.spec.terminal_events ->
             state = record_summary(state, pending)
-            update_status(pending, "completed", %{})
-            finish(state, command_id, pending)
+
+            if WirekeeperIngestion.event_failed?() do
+              state
+            else
+              case update_status(pending, "completed", %{}) do
+                {:ok, _message} -> finish(state, command_id, pending)
+                {:error, _reason} -> state
+              end
+            end
 
           not pending.labeled? and pending.spec.terminal_events == [] and
               event.name in pending.spec.result_events ->
@@ -129,8 +151,10 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
         state
 
       {pending, pending_commands} ->
-        update_status(pending, "timed_out", %{error: "No server response was received."})
-        %{state | pending_commands: pending_commands}
+        case update_status(pending, "timed_out", %{error: "No server response was received."}) do
+          {:ok, _message} -> %{state | pending_commands: pending_commands}
+          {:error, _reason} -> retry_status_timer(state, command_id, pending, :command_timeout)
+        end
     end
   end
 
@@ -140,18 +164,50 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
         state
 
       {pending, pending_commands} ->
-        update_status(pending, "completed", %{})
-        %{state | pending_commands: pending_commands}
+        case update_status(pending, "completed", %{}) do
+          {:ok, _message} ->
+            %{state | pending_commands: pending_commands}
+
+          {:error, _reason} ->
+            retry_status_timer(state, command_id, pending, :command_grace_timeout)
+        end
     end
   end
 
   def fail_all(state, reason) do
-    Enum.each(Map.get(state, :pending_commands, %{}), fn {_command_id, pending} ->
-      Process.cancel_timer(pending.timer)
-      update_status(pending, "failed", %{error: reason})
-    end)
+    pending_commands =
+      Enum.reduce(Map.get(state, :pending_commands, %{}), %{}, fn
+        {command_id, pending}, remaining ->
+          Process.cancel_timer(pending.timer)
 
-    Map.put(state, :pending_commands, %{})
+          case update_status(pending, "failed", %{error: reason}) do
+            {:ok, _message} ->
+              remaining
+
+            {:error, _reason} ->
+              pending = retry_status(pending, {:command_fail_timeout, command_id, reason})
+              Map.put(remaining, command_id, pending)
+          end
+      end)
+
+    Map.put(state, :pending_commands, pending_commands)
+  end
+
+  def fail_timeout(state, command_id, reason) do
+    case Map.pop(state.pending_commands, command_id) do
+      {nil, _pending_commands} ->
+        state
+
+      {pending, pending_commands} ->
+        case update_status(pending, "failed", %{error: reason}) do
+          {:ok, _message} ->
+            %{state | pending_commands: pending_commands}
+
+          {:error, _reason} ->
+            pending = retry_status(pending, {:command_fail_timeout, command_id, reason})
+            %{state | pending_commands: Map.put(pending_commands, command_id, pending)}
+        end
+    end
   end
 
   def finish(state, command_id, pending) do
@@ -160,24 +216,20 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
   end
 
   def update_status(pending, status, metadata) do
-    case CommandMessages.update(
-           pending.invocation,
-           Map.merge(metadata, %{command_status: status})
-         ) do
-      {:error, :message_not_found} -> {:ok, nil}
-      result -> result
-    end
-  rescue
-    exception in [DBConnection.ConnectionError, Ecto.StaleEntryError] ->
-      {:error, {exception.__struct__, Exception.message(exception)}}
+    result =
+      normalize_persistence_result(fn ->
+        case CommandMessages.update(
+               pending.invocation,
+               Map.merge(metadata, %{command_status: status})
+             ) do
+          {:error, :message_not_found} -> {:ok, nil}
+          update_result -> update_result
+        end
+      end)
 
-    Ecto.NoResultsError ->
-      {:ok, nil}
+    result = if match?({:error, Ecto.NoResultsError}, result), do: {:ok, nil}, else: result
 
-    DBConnection.OwnershipError ->
-      {:error, DBConnection.OwnershipError}
-  catch
-    :exit, reason -> {:error, {:exit, reason}}
+    WirekeeperIngestion.observe_result(result)
   end
 
   defp effective_terminal_events(command, spec) do
@@ -338,14 +390,18 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
         command_status: "result"
       })
 
-    _result =
-      CommandMessages.record(
-        state.connection,
-        buffer_id,
-        formatted.body,
-        metadata
-      )
+    result =
+      normalize_persistence_result(fn ->
+        CommandMessages.record(
+          state.connection,
+          buffer_id,
+          formatted.body,
+          metadata,
+          WirekeeperIngestion.context_effect("command_result")
+        )
+      end)
 
+    WirekeeperIngestion.observe_result(result)
     state
   end
 
@@ -391,6 +447,31 @@ defmodule TopicsClub.Irc.Session.CommandLifecycle do
     }
 
     %{state | pending_commands: Map.put(state.pending_commands, command_id, pending)}
+  end
+
+  defp retry_status_timer(state, command_id, pending, event) do
+    pending = retry_status(pending, {event, command_id})
+
+    %{state | pending_commands: Map.put(state.pending_commands, command_id, pending)}
+  end
+
+  defp retry_status(pending, message) do
+    %{pending | timer: Process.send_after(self(), message, @command_grace_timeout)}
+  end
+
+  defp normalize_persistence_result(fun) when is_function(fun, 0) do
+    fun.()
+  rescue
+    exception in [DBConnection.ConnectionError, Ecto.StaleEntryError] ->
+      {:error, {exception.__struct__, Exception.message(exception)}}
+
+    Ecto.NoResultsError ->
+      {:error, Ecto.NoResultsError}
+
+    DBConnection.OwnershipError ->
+      {:error, DBConnection.OwnershipError}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp lifecycle_status(:sent), do: "sent"
