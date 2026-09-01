@@ -14,9 +14,9 @@
     <a href="docs/deployment.md">Deployment guide</a>
   </p>
 
-  <!-- Replace the href with https://railway.com/new/template/<CODE>?utm_medium=integration&utm_source=button&utm_campaign=topics-club after publishing the template. -->
+  <!-- Replace TOPICS_CLUB_TEMPLATE_CODE after publishing the Railway template. -->
   <p>
-    <a href="#quick-start-railway"><img src="https://railway.com/button.svg" alt="Deploy on Railway" width="183" height="40" /></a>
+    <a href="https://railway.com/new/template/TOPICS_CLUB_TEMPLATE_CODE?utm_medium=integration&utm_source=button&utm_campaign=topics-club"><img src="https://railway.com/button.svg" alt="Deploy on Railway" width="183" height="40" /></a>
   </p>
 
   <p><code>Phoenix 1.8</code> · <code>React 19</code> · <code>PostgreSQL</code> · <code>IRC</code></p>
@@ -87,36 +87,6 @@ Compose runs migrations automatically and stores PostgreSQL data in the named
 `postgres_data` volume. Do not run `docker compose down --volumes` unless you
 intend to delete that database. The [deployment guide](docs/deployment.md#vps-installation-with-docker-compose)
 covers reverse-proxy placement, backups, restores, upgrades, and rollback.
-
-## Quick start: Railway
-
-1. Create a Railway project from this GitHub repository. Railway detects the
-   root `Dockerfile` automatically.
-2. Add a PostgreSQL service, then add its `DATABASE_URL` to the application as a
-   reference variable (usually `${{Postgres.DATABASE_URL}}`).
-3. Give the application a public domain. Set `GATEWAY_HOST` to that hostname
-   without `https://` or a path.
-4. Add `SECRET_KEY_BASE`, `IRC_CREDENTIALS_KEY`, `GOOGLE_CLIENT_ID`, and
-   `GOOGLE_CLIENT_SECRET` to the application service. Generate the two secrets
-   with the commands from the Docker Compose section above.
-5. Under the application's deploy settings, use:
-
-   ```text
-   Pre-deploy command    /app/bin/migrate
-   Start command         /app/bin/server
-   Health-check path     /health
-   Health-check timeout  300 seconds
-   Replicas              1
-   ```
-
-6. In Google Cloud, allow
-   `https://<GATEWAY_HOST>/auth/google/callback`, then deploy.
-
-Web Push is optional. Add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and
-`VAPID_SUBJECT` when you want browser mention notifications. See the
-[Railway runbook](docs/deployment.md#railway-and-similar-container-platforms)
-before adopting Railway Infrastructure as Code; the repository deliberately
-does not ship project-blind Railway configuration.
 
 ## Configuration and deployment
 
