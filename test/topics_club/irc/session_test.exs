@@ -2381,6 +2381,10 @@ defmodule TopicsClub.Irc.SessionTest do
 
     buffer_id = "server:#{connection.id}"
 
+    Enum.each(["#a", "#b"], fn channel ->
+      assert {:ok, _membership} = ChannelJoinRequest.request(user, connection, channel)
+    end)
+
     pending =
       Map.new([{"join-a", "#a", false}, {"join-b", "#b", scenario == :labeled_461}], fn
         {command_id, target, labeled?} ->
