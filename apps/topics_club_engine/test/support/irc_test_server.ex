@@ -32,6 +32,7 @@ defmodule TopicsClub.IrcTestServer do
     state = %{
       listener: listener,
       socket: nil,
+      connection_started?: false,
       test_pid: test_pid,
       port: port,
       labeled_responses?: Keyword.get(opts, :labeled_responses?, false),
@@ -76,7 +77,7 @@ defmodule TopicsClub.IrcTestServer do
   @impl true
   def handle_info({:accepted, {:ok, socket}}, state) do
     send(self(), :read)
-    {:noreply, %{state | socket: socket}}
+    {:noreply, %{state | socket: socket, connection_started?: false}}
   end
 
   def handle_info({:accepted, {:error, reason}}, state), do: {:stop, reason, state}
@@ -85,15 +86,22 @@ defmodule TopicsClub.IrcTestServer do
     case :gen_tcp.recv(socket, 0, 100) do
       {:ok, line} ->
         line = String.trim(line)
-        send(test_pid, {:irc_server_line, line})
-        Enum.each(reply(line, state), &:gen_tcp.send(socket, [&1, "\r\n"]))
 
-        if String.starts_with?(line, "PING ") do
-          :ok = :gen_tcp.send(socket, "PONG :topics_club-test\r\n")
+        if not state.connection_started? and http_request_line?(line) do
+          :ok = :gen_tcp.close(socket)
+          accept_next(state.listener)
+          {:noreply, %{state | socket: nil, connection_started?: false}}
+        else
+          send(test_pid, {:irc_server_line, line})
+          Enum.each(reply(line, state), &:gen_tcp.send(socket, [&1, "\r\n"]))
+
+          if String.starts_with?(line, "PING ") do
+            :ok = :gen_tcp.send(socket, "PONG :topics_club-test\r\n")
+          end
+
+          send(self(), :read)
+          {:noreply, %{state | connection_started?: true}}
         end
-
-        send(self(), :read)
-        {:noreply, state}
 
       {:error, :timeout} ->
         send(self(), :read)
@@ -101,7 +109,7 @@ defmodule TopicsClub.IrcTestServer do
 
       {:error, _reason} when state.accept_reconnects? ->
         accept_next(state.listener)
-        {:noreply, %{state | socket: nil}}
+        {:noreply, %{state | socket: nil, connection_started?: false}}
 
       {:error, _reason} ->
         {:stop, :normal, state}
@@ -212,6 +220,17 @@ defmodule TopicsClub.IrcTestServer do
       lines ++ [":topics_club-test 376 topics_club :End of /MOTD command"]
     else
       lines
+    end
+  end
+
+  defp http_request_line?(line) do
+    case String.split(line, " ", parts: 3) do
+      [method, _target, "HTTP/" <> _version]
+      when method in ~w(GET HEAD POST PUT PATCH DELETE OPTIONS CONNECT TRACE) ->
+        true
+
+      _other ->
+        false
     end
   end
 
