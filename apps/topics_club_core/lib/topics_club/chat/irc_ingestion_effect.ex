@@ -100,4 +100,63 @@ defmodule TopicsClub.Chat.IrcIngestionEffect do
   catch
     :exit, reason -> {:error, reason}
   end
+
+  def pending_generations(cursor \\ nil, limit \\ 100)
+
+  def pending_generations(cursor, limit)
+      when (is_nil(cursor) or
+              (is_tuple(cursor) and tuple_size(cursor) == 2)) and
+             is_integer(limit) and limit > 0 do
+    __MODULE__
+    |> group_by([effect], [effect.server_connection_id, effect.wirekeeper_generation])
+    |> select([effect], %{
+      connection_id: effect.server_connection_id,
+      generation: effect.wirekeeper_generation
+    })
+    |> order_by([effect], asc: effect.server_connection_id, asc: effect.wirekeeper_generation)
+    |> after_cursor(cursor)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  def release_through(connection_id, generation, sequence)
+      when is_integer(connection_id) and is_binary(generation) and is_integer(sequence) and
+             sequence >= 0 do
+    __MODULE__
+    |> where(
+      [effect],
+      effect.server_connection_id == ^connection_id and
+        effect.wirekeeper_generation == ^generation and
+        effect.wirekeeper_sequence <= ^sequence
+    )
+    |> Repo.delete_all()
+
+    :ok
+  end
+
+  def release_generation(connection_id, generation)
+      when is_integer(connection_id) and is_binary(generation) do
+    __MODULE__
+    |> where(
+      [effect],
+      effect.server_connection_id == ^connection_id and
+        effect.wirekeeper_generation == ^generation
+    )
+    |> Repo.delete_all()
+
+    :ok
+  end
+
+  defp after_cursor(query, nil), do: query
+
+  defp after_cursor(query, {connection_id, generation})
+       when is_integer(connection_id) and is_binary(generation) do
+    where(
+      query,
+      [effect],
+      effect.server_connection_id > ^connection_id or
+        (effect.server_connection_id == ^connection_id and
+           effect.wirekeeper_generation > ^generation)
+    )
+  end
 end

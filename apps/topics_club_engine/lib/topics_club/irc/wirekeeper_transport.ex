@@ -281,6 +281,33 @@ defmodule TopicsClub.Irc.WirekeeperTransport do
   end
 
   @doc false
+  def acknowledged_through(key, generation) do
+    case Application.get_env(:topics_club_engine, :irc_transport, :direct) do
+      {:wirekeeper, target_node} when is_atom(target_node) ->
+        case call(target_node, :info, [key]) do
+          {:ok, %{generation: ^generation, acked_through: sequence}}
+          when is_integer(sequence) and sequence >= 0 ->
+            {:ok, sequence}
+
+          {:ok, %{generation: _replacement_generation}} ->
+            {:ok, :generation_gone}
+
+          {:error, :not_found} ->
+            {:ok, :generation_gone}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      :direct ->
+        {:error, :not_supported}
+
+      _invalid_configuration ->
+        {:error, :invalid_transport_configuration}
+    end
+  end
+
+  @doc false
   def detach_connection(key, consumer \\ self()) when is_pid(consumer) do
     case Application.get_env(:topics_club_engine, :irc_transport, :direct) do
       {:wirekeeper, target_node} when is_atom(target_node) ->

@@ -400,10 +400,16 @@ unacknowledged. Retry reattaches to the same retained generation and replays the
 message, system-line, direct-message, and channel/server-line effects claim a unique
 `{connection_id, generation, sequence, effect_key}` row in the same database transaction, making a
 replayed effect idempotent. Claims through a cumulatively acknowledged sequence are released later
-in bounded batches; deleting the connection cascades any remaining claims. The transport contract
-is still at-least-once, while these persisted effects are applied once. JOIN rejection and command
-status updates are also replay-safe: unchanged writes do not rebroadcast, and the Session keeps the
-pending command and membership in memory when either durable update fails.
+in bounded batches; deleting the connection cascades any remaining claims. Because the remote ACK
+and database cleanup cannot share one transaction, the engine also performs bounded cold-start and
+periodic reconciliation. It pages distinct claim generations, asks Wirekeeper for the authoritative
+cumulative ACK watermark, deletes claims through that watermark, and deletes a generation's claims
+when that generation no longer exists. An unavailable Wirekeeper boundary leaves claims intact for
+the next pass. This closes an engine-crash window after a successful ACK but before the volatile
+cleanup cast. The transport contract is still at-least-once, while these persisted effects are
+applied once. JOIN rejection and command status updates are also replay-safe: unchanged writes do
+not rebroadcast, and the Session keeps the pending command and membership in memory when either
+durable update fails.
 
 Wirekeeper overflow is not reconciled on the retained socket. The engine closes the gapped
 generation, tells Ircxd that the transport failed, and establishes one fresh IRC connection. An
