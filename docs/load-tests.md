@@ -1,11 +1,9 @@
 # Load tests
 
-This document records the reproducible Docker load lab, observations, and results for the
-standalone IRC engine and the combined TopicsClub application.
-
-The results recorded below predate the split Wirekeeper transport. Their engine container selects
-the direct transport, so they remain a historical baseline rather than a capacity statement for the
-current gateway, Wirekeeper, and engine releases.
+This document records the reproducible load labs, observations, and results for the standalone IRC
+engine, the combined TopicsClub application, and the current split gateway, Wirekeeper, and engine
+deployment. The older Docker results use the direct transport and remain a historical baseline; the
+testvps result explicitly measures the split Wirekeeper transport.
 
 ## Safety boundary
 
@@ -20,7 +18,7 @@ The harness must never connect to a public IRC server or network.
 
 ## What the lab measures
 
-There are three deliberately separate measurements:
+There are four deliberately separate measurements:
 
 1. **Idle connection capacity** starts one IRC session per user, completes two-way IRC
    registration, persists the resulting server messages, and holds the sockets open.
@@ -31,6 +29,9 @@ There are three deliberately separate measurements:
    release while sending public health requests and authenticated `/api/bootstrap` requests.
    Authentication uses the real magic-link and signed-cookie flow; there is no load-test API in
    the production application.
+4. **Split-release workload** runs gateway, Wirekeeper, and engine as separate systemd services,
+   then distinguishes retained-socket engine resume from deliberate socket replacement and proves
+   exact bidirectional traffic at the planning checkpoint.
 
 The raw JSON from each run is written under `.load-tests/`, which is intentionally ignored by
 Git. The committed document contains the stable conclusions so generated measurements do not
@@ -166,9 +167,13 @@ Samples contain:
 At every requested checkpoint the runner provisions only the delta, waits for all count invariants,
 holds them steady, stops and restarts the engine while Wirekeeper retains the sockets, injects one
 record per detached socket, and requires reattachment without increasing the IRC server's accepted
-socket count. At the final checkpoint it drops all upstream sockets and requires exactly one fresh
-accept per configured connection. The external IRC sidecar gets 768 MiB, one CPU, and 65,536 file
-descriptors; its metrics are recorded so its saturation cannot be mistaken for TopicsClub capacity.
+socket count. At the final checkpoint it also sends one uniquely keyed command per connection from
+the gateway through the engine and requires the synthetic IRC server to receive exactly that many
+`PRIVMSG` commands. It then sends a distinct `NOTICE` marker to every IRC socket and requires an
+exact marker count in Postgres. Finally, it drops all upstream sockets and requires exactly one
+fresh accept per configured connection. The external IRC sidecar gets 768 MiB, one CPU, and 65,536
+file descriptors; its metrics are recorded so its saturation cannot be mistaken for TopicsClub
+capacity.
 
 The pseudo-VPS starts with 2 GiB RAM plus a 4 GiB build-only swap allowance. The runner changes the
 outer container to a 2 GiB no-swap runtime limit, resets the cgroup memory peak so release builds do
@@ -185,7 +190,51 @@ cgroup peak. A higher functional checkpoint is a stress result, not the operatin
 finding the boundary, repeat the proposed ceiling from a reset pseudo-VPS with a one-hour
 `--steady_seconds=3600` hold.
 
-## Results
+## Current split-release result
+
+Run `20260901t074527z` completed on 2026-09-01 with harness revision
+`82dcf6326922f7f71f180f938d85141f9c09578a`. Gateway and engine used tag `20260901.3` at commit
+`40a35c3f4d85d7417fb244b38d8001e7435a18a1`; the intentionally long-lived Wirekeeper process
+remained on tag `20260901.2` at commit `4c2da3b81fba8dbe49b12fb96ed5034dcb878199`.
+
+All checkpoints passed the functional and planning predicates. Each engine restart retained the
+existing Wirekeeper sockets: the IRC accepted count before and after resume was exactly the listed
+connection count. No service restarted unexpectedly, no cgroup OOM or swap use occurred, the IRC
+sidecar reported no send errors, and Wirekeeper reported no dropped records or bytes.
+
+| Connections | Provision | Ready | Peak app-host bytes | Peak of 2 GiB | Resume accepts |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 1.212 s | 6.837 s | 550,674,432 | 25.64% | 100 → 100 |
+| 500 | 4.799 s | 6.946 s | 636,071,936 | 29.62% | 500 → 500 |
+| 1,000 | 6.092 s | 6.838 s | 714,584,064 | 33.28% | 1,000 → 1,000 |
+| 2,000 | 12.373 s | 7.086 s | 943,587,328 | 43.94% | 2,000 → 2,000 |
+| 3,000 | 12.425 s | 6.888 s | 1,131,356,160 | 52.68% | 3,000 → 3,000 |
+| 4,000 | 11.570 s | 6.923 s | 1,644,011,520 | 76.56% | 4,000 → 4,000 |
+
+The 4,000-session peak includes the final forced reconnect phase. At that checkpoint:
+
+- all 4,000 gateway-to-engine commands returned `sent`, the IRC sidecar received exactly 4,000
+  `PRIVMSG` commands, and exactly 4,000 corresponding message rows existed after server echo;
+- the IRC sidecar sent 4,000 inbound `NOTICE` markers with zero errors and Postgres contained
+  exactly 4,000 rows for that distinct marker;
+- force-closing 4,000 upstream sockets changed total IRC accepts from 4,000 to exactly 8,000 and
+  restored all configured sessions; and
+- lifecycle cleanup deleted all 4,000 connections through the engine before deleting their users,
+  leaving zero test connections and users.
+
+This establishes **4,000 as the current 2 GiB planning checkpoint**, not a measured maximum. The
+hold was 30 seconds per checkpoint, not the recommended one-hour soak. PostgreSQL and the synthetic
+IRC server were separately capped and excluded from the 2 GiB app-host limit; IRC was plaintext and
+synthetic, so the result does not price TLS, public-network latency, channel fan-out, normal user
+history, or a production database workload. One transient gateway RPC sampling error was recorded
+during an intentional engine stop and recovered within the polling window; service restart counters
+remained zero and the phase invariants subsequently passed.
+
+The raw incremental artifact remains local at
+`.load-tests/20260901t074527z-testvps-load.json`. This section is the committed durable conclusion;
+the exact command and resource boundaries are documented above so the result can be reproduced.
+
+## Historical direct-transport results
 
 ### Standalone engine: idle sockets
 
