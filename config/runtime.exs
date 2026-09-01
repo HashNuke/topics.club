@@ -31,6 +31,19 @@ parse_node_name = fn variable, default ->
   end
 end
 
+parse_positive_integer = fn variable ->
+  case System.get_env(variable) do
+    nil ->
+      nil
+
+    value ->
+      case Integer.parse(value) do
+        {integer, ""} when integer > 0 -> integer
+        _invalid -> raise "#{variable} must be a positive integer"
+      end
+  end
+end
+
 if config_env() == :prod and split_release? do
   _release_node = parse_node_name.("RELEASE_NODE", nil)
 
@@ -66,6 +79,13 @@ if config_env() == :prod and split_release? do
       end
 
     config :topics_club_engine, :irc_transport, irc_transport
+  end
+
+  if release_name == "topics_club_wirekeeper" do
+    case parse_positive_integer.("TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS") do
+      nil -> :ok
+      max_connections -> config :topics_club_wirekeeper, max_connections: max_connections
+    end
   end
 end
 

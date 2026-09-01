@@ -181,7 +181,8 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         "IRC_CREDENTIALS_KEY" => nil,
         "RELEASE_COOKIE" => String.duplicate("a", 32),
         "RELEASE_NAME" => "topics_club_wirekeeper",
-        "RELEASE_NODE" => "topics_club_wirekeeper@wire.internal"
+        "RELEASE_NODE" => "topics_club_wirekeeper@wire.internal",
+        "TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS" => nil
       },
       fn ->
         config = read_production_runtime()
@@ -189,6 +190,33 @@ defmodule TopicsClub.UmbrellaRuntimeTest do
         assert config[:topics_club_gateway] == nil
       end
     )
+  end
+
+  test "the standalone Wirekeeper runtime accepts only a positive connection limit" do
+    base_env = %{
+      "RELEASE_COOKIE" => String.duplicate("a", 32),
+      "RELEASE_NAME" => "topics_club_wirekeeper",
+      "RELEASE_NODE" => "topics_club_wirekeeper@wire.internal"
+    }
+
+    with_system_env(
+      Map.put(base_env, "TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS", "2500"),
+      fn ->
+        config = read_production_runtime()
+        assert config[:topics_club_wirekeeper][:max_connections] == 2_500
+      end
+    )
+
+    for invalid <- ["0", "-1", "many", "10.5"] do
+      with_system_env(
+        Map.put(base_env, "TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS", invalid),
+        fn ->
+          assert_raise RuntimeError,
+                       ~r/TOPICS_CLUB_WIREKEEPER_MAX_CONNECTIONS must be a positive integer/,
+                       fn -> read_production_runtime() end
+        end
+      )
+    end
   end
 
   test "the combined tree uses named role-specific Oban instances" do
