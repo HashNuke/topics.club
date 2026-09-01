@@ -6,6 +6,7 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
   alias TopicsClub.Irc.Session
   alias TopicsClub.Irc.SessionLocator
   alias TopicsClub.IrcTestServer
+  alias TopicsClub.Repo
 
   setup :register_and_log_in_user
 
@@ -214,6 +215,11 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
         "nickname" => "mira"
       })
 
+    connection =
+      connection
+      |> Ecto.Changeset.change(desired_state: "paused")
+      |> Repo.update!()
+
     conn =
       put(conn, ~p"/api/connections/#{connection.id}", %{
         "connection" => %{
@@ -239,6 +245,42 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
 
     assert connection_id == connection.id
     assert Connections.get!(user, connection.id).casemapping == nil
+  end
+
+  test "reconnects an active session when transport settings change", %{conn: conn, user: user} do
+    server = start_supervised!({IrcTestServer, {self(), accept_reconnects?: true}})
+
+    {:ok, connection} =
+      Connections.create(user, %{
+        "name" => "editable",
+        "host" => "127.0.0.1",
+        "port" => IrcTestServer.port(server),
+        "use_tls" => false,
+        "nickname" => "before_edit"
+      })
+
+    assert {:ok, session} = TopicsClub.Irc.SessionSupervisor.start_session(connection)
+    assert_receive {:irc_server_line, "NICK before_edit"}, 1_000
+
+    assert_eventually(fn -> :sys.get_state(session).registered? end)
+    flush_server_lines()
+
+    response =
+      put(conn, ~p"/api/connections/#{connection.id}", %{
+        "connection" => %{"nickname" => "after_edit"}
+      })
+
+    assert %{
+             "connection" => %{
+               "id" => connection_id,
+               "nickname" => "after_edit",
+               "status" => "connecting"
+             }
+           } = json_response(response, 200)
+
+    assert connection_id == connection.id
+    assert_receive {:irc_server_line, "NICK after_edit"}, 1_000
+    assert :ok = Session.quit(Connections.get!(user, connection.id))
   end
 
   test "deletes an owned server connection", %{conn: conn, user: user} do
@@ -327,6 +369,29 @@ defmodule TopicsClubWeb.Api.ConnectionControllerTest do
       restore_env(:engine_client_test_pid, previous_test_pid)
       restore_env(:engine_client_test_reply, previous_test_reply)
     end)
+  end
+
+  defp assert_eventually(callback, attempts \\ 1_000)
+
+  defp assert_eventually(callback, attempts) when attempts > 0 do
+    if callback.() do
+      :ok
+    else
+      receive do
+      after
+        2 -> assert_eventually(callback, attempts - 1)
+      end
+    end
+  end
+
+  defp assert_eventually(_callback, 0), do: flunk("condition did not become true")
+
+  defp flush_server_lines do
+    receive do
+      {:irc_server_line, _line} -> flush_server_lines()
+    after
+      0 -> :ok
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:topics_club_core, key)
