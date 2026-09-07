@@ -55,7 +55,7 @@ defmodule TopicsClubGateway.MixProject do
       {:gen_smtp, "~> 1.3"},
       {:floki, "~> 0.38.4"},
       {:req, "~> 0.5"},
-      {:ircxd, git: "https://github.com/HashNuke/ircxd.git", branch: "wirekeeper-transport"},
+      {:ircxd, "~> 1.2"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},

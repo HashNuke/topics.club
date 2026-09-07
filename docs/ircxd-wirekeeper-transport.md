@@ -12,8 +12,9 @@ boundary is an optional Ircxd client transport adapter: Ircxd remains the IRC pr
 while the selected adapter owns connection establishment, framed delivery, acceptance receipts,
 writes, and closure.
 
-This support was implemented directly in `~/projects/ircxd` and is pinned here at commit
-`2aca661c3704f77ac522d78e12b60bbdcb6ce9c4` on the remote `wirekeeper-transport` branch.
+This support was implemented directly in `~/projects/ircxd` and released in Ircxd 1.2.0.
+TopicsClub consumes the Hex package with the `~> 1.2` requirement so dependency updates can select
+the latest compatible release without relying on a Git branch or commit.
 
 ## Backward compatibility
 

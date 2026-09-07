@@ -329,7 +329,8 @@ temporarily unavailable supervision component distinct from `{:error, :not_found
 
 ## Engine and Ircxd integration
 
-`TopicsClub.Irc.WirekeeperTransport` implements the optional `Ircxd.Client.Transport` contract.
+The engine-side Wirekeeper transport adapter implements the optional `Ircxd.Client.Transport`
+contract.
 The Ircxd change is described in `docs/ircxd-wirekeeper-transport.md`; callers that do not select a
 custom adapter still use Ircxd's built-in `Ircxd.Client.Transport.Socket` adapter and retain the
 existing `:gen_tcp`/`:ssl` behavior.

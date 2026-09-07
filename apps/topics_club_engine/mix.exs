@@ -32,7 +32,7 @@ defmodule TopicsClubEngine.MixProject do
       {:topics_club_wirekeeper, in_umbrella: true, only: :test},
       {:ecto_sql, "~> 3.13"},
       {:oban, "~> 2.24"},
-      {:ircxd, git: "https://github.com/HashNuke/ircxd.git", branch: "wirekeeper-transport"}
+      {:ircxd, "~> 1.2"}
     ]
   end
 end
